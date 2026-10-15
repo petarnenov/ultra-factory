@@ -16,6 +16,7 @@ ao spawn [flags]
 | `--branch string` | Branch for the session worktree | `ao/<session-id>/root` |
 | `--claim-pr string` | Claim an existing PR for authorized implementation continuation. Omit for review-only work | - |
 | `--kind string` | Session role: `worker` or `orchestrator` | `worker` |
+| `--host string` | Spawn on a paired remote AO machine (label, host ID, or URL from `ao host ls`). See [host.md](host.md) | This machine |
 | `--harness string` | Agent harness to use (see list below) | Project `worker.agent`; required if the project has none |
 | `--issue string` | Issue id to associate with the session | - |
 | `--model string` | Agent model override for this session only; overrides project/role config | - |
@@ -58,6 +59,11 @@ ao spawn --project agent-orchestrator --name "review-pr-88" --prompt "Review PR 
 # Spawn an orchestrator using the project's orchestrator configuration
 ao spawn --project agent-orchestrator --kind orchestrator --name "coordinate-fix" \
   --prompt "Coordinate the fix and report the worker PR."
+```
+
+```bash
+# Spawn on another machine; the remote project is matched by repository
+ao spawn --host build-box --name "fix-flaky-e2e" --prompt "Fix the flaky checkout e2e test."
 ```
 
 ```bash

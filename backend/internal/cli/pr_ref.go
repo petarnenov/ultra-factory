@@ -20,6 +20,11 @@ func (c *commandContext) resolvePRRef(ctx context.Context, ref string, project p
 		if project.Config != nil && project.Config.CanonicalRepoURL != "" {
 			repo = project.Config.CanonicalRepoURL
 		}
+		if repo == "" && c.targetsRemote() {
+			// The project path lives on the remote host; never run gh against a
+			// local directory that happens to share its name.
+			return "", usageError{errors.New("the remote project has no recorded repository; pass the full PR URL")}
+		}
 		if repo == "" {
 			// The daemon must not shell out to external CLIs from its loopback API;
 			// when the durable project record lacks repo_origin_url, the thin CLI

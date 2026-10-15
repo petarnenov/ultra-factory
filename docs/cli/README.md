@@ -50,6 +50,18 @@ listener uses plain HTTP; do not publish its port directly to the internet.
 Cloudflare terminates tunnel TLS and can see its traffic; quick-tunnel
 addresses change on restart.
 
+### Remote host target (`--host`)
+
+`spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`,
+`project ls|get`, `orchestrator ls`, and `agent ls` accept `--host <label | host ID | URL>`.
+With it, the same daemon route is called on a paired remote host's
+authenticated remote listener instead of the loopback daemon. The saved
+credential comes from the desktop's `remotes.json`; it is sent only after
+`GET /api/v1/identity` matches the saved host ID, with `X-AO-Expected-Host-ID`
+on every request and redirects disabled. Loopback-only routes (telemetry) always
+stay local, and local `AO_SESSION_ID` is never forwarded as a remote parent or
+sender. Design: `docs/superpowers/specs/2026-10-15-cli-remote-host-target-design.md`.
+
 ### Product commands
 
 | Command                             | Daemon route                                   |
@@ -77,6 +89,7 @@ addresses change on restart.
 | `ao session cleanup`                | `POST /api/v1/sessions/cleanup`                |
 | `ao session claim-pr [<id>] <pr-ref>` | `POST /api/v1/sessions/{id}/pr/claim`        |
 | `ao orchestrator ls`                | `GET /api/v1/orchestrators`                    |
+| `ao host ls`                        | `GET /api/v1/identity` then `GET /healthz` on each saved remote host (no local route) |
 | `ao send`                           | `POST /api/v1/sessions/{id}/send`              |
 | `ao report ...`                     | `POST /api/v1/reports`                         |
 | `ao preview [url]`                  | `POST /api/v1/sessions/{id}/preview`           |

@@ -1,0 +1,87 @@
+$ A host ls
+LABEL      HOST ID                                 URL                        STATUS
+build-box  h_ad4fe327-5e28-4b11-8c7d-52ac573d9503  http://192.168.0.100:3011  online
+[exit 0]
+
+$ A project ls --host build-box
+ID           NAME         KIND         SESSION PREFIX  STATUS
+hello-clone  hello-clone  single_repo  hello-clone     ok
+other        other        single_repo  other           ok
+ultra-clone  ultra-clone  single_repo  ultra-clone     ok
+[exit 0]
+
+$ A spawn --host build-box --name remote worker --agent codex --mode chat
+spawned session hello-clone-1 "remote worker" (idle) on host "build-box" [prompt 0 B, system 18459 B]
+[exit 0]
+
+$ A session ls --host build-box
+hello-clone:
+  SESSION        ROLE    BRANCH                 PR  CI  REVIEW  THREADS  ACTIVITY  AGE
+  hello-clone-1  worker  ao/hello-clone-1/root  -   -   -       0        idle      10s ago
+[exit 0]
+
+$ B session ls
+hello-clone:
+  SESSION        ROLE    BRANCH                 PR  CI  REVIEW  THREADS  ACTIVITY  AGE
+  hello-clone-1  worker  ao/hello-clone-1/root  -   -   -       0        idle      10s ago
+[exit 0]
+
+$ A session ls
+(no active sessions)
+[exit 0]
+
+$ A session get hello-clone-1 --host build-box --json | jq {id,projectId,harness,mode,status,worktree}
+{
+ "id": "hello-clone-1",
+ "projectId": "hello-clone",
+ "harness": "codex",
+ "status": "idle",
+ "branch": "ao/hello-clone-1/root"
+}
+
+$ A send --host build-box --session hello-clone-1 --steer --recover-only --client-message-id e2e-probe-1
+the provider may have received this guidance; retry only with the same recovery action (CHAT_STEER_UNCERTAIN) [request <host>/bJpZHwO2gN-000050]; delivery handle e2e-probe-1 remains unresolved and was not resent
+[exit 1]
+
+$ A session kill hello-clone-1 --host build-box
+session hello-clone-1 killed
+[exit 0]
+
+$ A send --host build-box --session hello-clone-1 --message status?
+Session is terminated (SESSION_TERMINATED) [request <host>/bJpZHwO2gN-000054]
+[exit 1]
+
+# scenario: badpw
+$ env AO_TELEMETRY_REMOTE=off AO_DATA_DIR=$S/a/data AO_RUN_FILE=$S/a/running.json AO_PORT=4201 AO_REMOTES_FILE=$S/neg-badpw.json $S/ao project ls --host build-box
+remote host "build-box" rejected the saved password; update it in the desktop app under Settings → Remote hosts: missing or invalid connection password (BAD_PASSWORD)
+[exit 1]
+
+# scenario: moved
+$ env AO_TELEMETRY_REMOTE=off AO_DATA_DIR=$S/a/data AO_RUN_FILE=$S/a/running.json AO_PORT=4201 AO_REMOTES_FILE=$S/neg-moved.json $S/ao project ls --host build-box
+remote host identity changed for http://192.168.0.100:3011 (saved h_00000000-0000-0000-0000-000000000000, answered h_ad4fe327-5e28-4b11-8c7d-52ac573d9503); connection refused — re-pair it in the desktop app
+[exit 1]
+
+# scenario: self
+$ env AO_TELEMETRY_REMOTE=off AO_DATA_DIR=$S/a/data AO_RUN_FILE=$S/a/running.json AO_PORT=4201 AO_REMOTES_FILE=$S/neg-self.json $S/ao project ls --host self
+--host "self" is this machine; omit --host to use the local daemon
+[exit 2]
+
+# scenario: open
+$ env AO_TELEMETRY_REMOTE=off AO_DATA_DIR=$S/a/data AO_RUN_FILE=$S/a/running.json AO_PORT=4201 AO_REMOTES_FILE=$S/neg-open.json $S/ao project ls --host build-box
+$S/neg-open.json holds connection passwords and is readable by others (mode 0644) — run: chmod 600 $S/neg-open.json
+[exit 1]
+
+# scenario: local-only command
+$ A status --host build-box
+unknown flag: --host
+[exit 2]
+
+# host ls with all entries
+$ env AO_TELEMETRY_REMOTE=off AO_DATA_DIR=$S/a/data AO_RUN_FILE=$S/a/running.json AO_PORT=4201 AO_REMOTES_FILE=$S/neg-all.json $S/ao host ls
+LABEL      HOST ID                                 URL                         STATUS
+build-box  h_ad4fe327-5e28-4b11-8c7d-52ac573d9503  http://192.168.0.100:3011   online
+badpw      h_ad4fe327-5e28-4b11-8c7d-52ac573d9503  http://192.168.0.100:3011   unauthorized
+moved      h_00000000-0000-0000-0000-000000000000  http://192.168.0.100:3011   identity-changed (answered as h_ad4fe327-5e28-4b11-8c7d-52ac573d9503)
+self       h_61e0128e-8efd-4eaa-a4c2-55a301a0e18d  http://192.168.0.100:57705  this-machine
+[exit 0]
+

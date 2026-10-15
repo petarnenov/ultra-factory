@@ -26,6 +26,13 @@ ao orchestrator ls [flags]
 | Flag | Meaning | Default / Required |
 |---|---|---|
 | `--json` | Output as JSON | - |
+| `--host string` | List orchestrators on a paired remote AO machine | This machine |
+
+## Delegating to other machines
+
+An orchestrator can spread workers across machines the user paired as remote
+hosts: `ao host ls`, then `ao spawn --host <name> ...`, and follow them with
+`ao session ls --host <name>`. See [host.md](host.md).
 
 ## Examples
 

@@ -14,6 +14,7 @@ ao send [flags]
 |---|---|---|
 | `--message string` | Message body | Required unless `--recover-only` |
 | `--session string` | Session id | Required |
+| `--host string` | Send to a session on a paired remote AO machine. See [host.md](host.md) | This machine |
 | `--steer` | Add guidance to the active Chat turn, or start a normal turn when idle | Optional |
 | `--client-message-id string` | Stable delivery handle for steering and safe retries | Generated automatically with `--steer` |
 | `--recover-only` | Recover the outcome for an existing delivery handle without resending | Requires `--steer` and `--client-message-id` |

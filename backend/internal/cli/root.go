@@ -202,6 +202,7 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.AddCommand(newStopCommand(ctx))
 	root.AddCommand(newStatusCommand(ctx))
 	root.AddCommand(newRemoteHostCommand(ctx))
+	root.AddCommand(newHostCommand(ctx))
 	root.AddCommand(newDoctorCommand(ctx))
 	root.AddCommand(newAgentCommand(ctx))
 	root.AddCommand(newSpawnCommand(ctx))
@@ -236,6 +237,11 @@ func NewRootCommand(deps Deps) *cobra.Command {
 
 type commandContext struct {
 	deps Deps
+	// hostSelector is the --host value on commands that accept it; empty means
+	// this machine's loopback daemon.
+	hostSelector string
+	// remote caches the verified --host target for the rest of the invocation.
+	remote *remoteTarget
 }
 
 func shouldEmitCLIInvocation(cmd *cobra.Command) bool {

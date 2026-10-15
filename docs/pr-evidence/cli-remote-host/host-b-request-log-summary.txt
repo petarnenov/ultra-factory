@@ -1,0 +1,14 @@
+  16 GET /api/v1/identity 200
+   4 GET /api/v1/projects 200
+   3 GET /healthz 200
+   2 POST /api/v1/agents/readiness/ensure 200
+   2 GET /api/v1/sessions 200
+   2 GET /api/v1/projects/ultra-clone 200
+   2 GET /api/v1/projects/other 200
+   1 POST /api/v1/sessions/hello-clone-1/send 409
+   1 POST /api/v1/sessions/hello-clone-1/kill 200
+   1 POST /api/v1/sessions/hello-clone-1/conversation/steer-or-send 409
+   1 POST /api/v1/sessions 409
+   1 POST /api/v1/sessions 201
+   1 GET /api/v1/sessions/hello-clone-1 200
+   1 GET /api/v1/projects/hello-clone 200

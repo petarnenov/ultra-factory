@@ -82,6 +82,7 @@ func newAgentListCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&opts.refresh, "refresh", false, "Force fresh local install and auth checks before listing")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output raw agent catalog JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

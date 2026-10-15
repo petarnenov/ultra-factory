@@ -39,6 +39,7 @@ func newOrchestratorListCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

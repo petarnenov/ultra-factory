@@ -62,6 +62,7 @@ func newSendCommand(ctx *commandContext) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.steer, "steer", false, "Steer an active Chat turn, or start the next turn when idle")
 	cmd.Flags().StringVar(&opts.clientMessageID, "client-message-id", "", "Stable steering delivery handle")
 	cmd.Flags().BoolVar(&opts.recoverOnly, "recover-only", false, "Recover a steering result without contacting the provider")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -79,8 +80,18 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 		return usageError{errors.New("usage: --message is required")}
 	}
 	message := opts.message
-	if sender := strings.TrimSpace(os.Getenv("AO_SESSION_ID")); !opts.recoverOnly && sender != "" {
+	senderSessionID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+	if sender := senderSessionID; !opts.recoverOnly && sender != "" {
+		if c.targetsRemote() {
+			sender = remoteSenderLabel(sender)
+		}
 		message = "[from " + sender + "] " + message
+	}
+	userAuthored := senderSessionID == ""
+	if c.targetsRemote() {
+		// senderSessionId is loopback attribution; the same ID names an unrelated
+		// session on another daemon, so a remote send keeps only the text prefix.
+		senderSessionID = ""
 	}
 	session := strings.TrimSpace(opts.session)
 	if session == "" {
@@ -91,14 +102,14 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 	// from sanitized issue refs; keep the URL well-formed regardless.
 	path := "sessions/" + url.PathEscape(session)
 	if !opts.steer {
-		return c.postJSON(ctx, path+"/send", sendAPIRequest{Message: message, SenderSessionID: strings.TrimSpace(os.Getenv("AO_SESSION_ID")), UserAuthored: strings.TrimSpace(os.Getenv("AO_SESSION_ID")) == ""}, nil)
+		return c.postJSON(ctx, path+"/send", sendAPIRequest{Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored}, nil)
 	}
-	return c.steerMessage(ctx, path, message, strings.TrimSpace(opts.clientMessageID), opts.recoverOnly)
+	return c.steerMessage(ctx, path, message, senderSessionID, strings.TrimSpace(opts.clientMessageID), opts.recoverOnly)
 }
 
 func (c *commandContext) steerMessage(
 	ctx context.Context,
-	sessionPath, message, clientMessageID string,
+	sessionPath, message, senderSessionID, clientMessageID string,
 	recoverOnly bool,
 ) error {
 	if clientMessageID == "" {
@@ -106,7 +117,7 @@ func (c *commandContext) steerMessage(
 	}
 	var result steerOrSendAPIResponse
 	err := c.postJSON(ctx, sessionPath+"/conversation/steer-or-send", conversationMessageAPIRequest{
-		Text: message, ClientMessageID: clientMessageID, SenderSessionID: strings.TrimSpace(os.Getenv("AO_SESSION_ID")), RecoverOnly: recoverOnly,
+		Text: message, ClientMessageID: clientMessageID, SenderSessionID: senderSessionID, RecoverOnly: recoverOnly,
 	}, &result)
 	if err != nil {
 		var responseErr apiResponseError
@@ -115,9 +126,15 @@ func (c *commandContext) steerMessage(
 			if recoverOnly {
 				return fmt.Errorf("%w; delivery handle %s remains unresolved and was not resent", err, clientMessageID)
 			}
+			hostArg := ""
+			if c.targetsRemote() {
+				// Recovery must ask the same daemon; the session ID means
+				// nothing (or another session) on this machine.
+				hostArg = " --host " + shellQuote(strings.TrimSpace(c.hostSelector))
+			}
 			return fmt.Errorf(
-				"%w; recover this delivery without resending it: ao send --session %s --steer --recover-only --client-message-id %s",
-				err, strings.TrimPrefix(sessionPath, "sessions/"), clientMessageID)
+				"%w; recover this delivery without resending it: ao send%s --session %s --steer --recover-only --client-message-id %s",
+				err, hostArg, strings.TrimPrefix(sessionPath, "sessions/"), clientMessageID)
 		}
 		if errors.Is(err, errDaemonUnavailable) || !hasResponseErr || responseErr.StatusCode >= 500 {
 			return fmt.Errorf(
