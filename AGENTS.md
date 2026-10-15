@@ -12,7 +12,7 @@ Operational guidance for coding agents working in this repository. Keep changes 
 
 ## Commands
 
-From the repo root unless noted:
+From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`):
 
 ```bash
 npm run lint                         # backend go test ./... + golangci-lint v2.13.2

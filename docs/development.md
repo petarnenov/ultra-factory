@@ -49,7 +49,20 @@ agent-orchestrator/
 ```bash
 git clone https://github.com/Untrivial-ai/agent-orchestrator.git
 cd agent-orchestrator
-npm ci
+make setup    # checks prerequisites, installs npm + Go deps, runs doctor
+```
+
+The root `Makefile` wraps every common command. `make help` lists them all:
+
+```bash
+make doctor          # check toolchain versions and installed dependencies
+make dev             # Electron desktop app in dev mode
+make dev-web         # renderer only, in a browser
+make daemon          # run the daemon from source
+make ao ARGS=status  # run the ao CLI from source
+make test            # backend + frontend unit tests
+make check           # lint, vet, typecheck, frontend tests
+make api / make sqlc # regenerate OpenAPI types / sqlc code
 ```
 
 ### Branching
