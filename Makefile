@@ -10,7 +10,7 @@ ARGS ?=
 NPM_DIRS := . frontend packages/cloud-client packages/product-ui
 
 .PHONY: help setup doctor \
-	dev dev-web daemon ao \
+	dev dev-cloud dev-web daemon ao \
 	build build-backend build-daemon package dist \
 	test test-backend test-race test-frontend test-e2e test-e2e-renderer \
 	lint vet typecheck check \
@@ -43,6 +43,11 @@ doctor: ## Check toolchain versions and installed dependencies
 ##@ Run
 
 dev: ## Run the Electron desktop app in dev mode (builds the daemon first)
+	npm --prefix frontend run dev
+
+dev-cloud: ## Run the desktop app against the local cloud stack (start it with make cloud-local)
+	AO_CLOUD_OFFERING=on \
+	AO_CLOUD_CONTROL_PLANE_URL=http://127.0.0.1:$${AO_CLOUD_PORT:-8081} \
 	npm --prefix frontend run dev
 
 dev-web: ## Run the renderer only in a browser (no Electron)
