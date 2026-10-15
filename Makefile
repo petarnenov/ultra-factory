@@ -11,7 +11,7 @@ NPM_DIRS := . frontend packages/cloud-client packages/product-ui
 
 .PHONY: help setup doctor \
 	dev dev-cloud dev-web daemon ao \
-	build build-backend build-daemon package dist \
+	build build-backend build-daemon daemon-dist package dist \
 	test test-backend test-race test-frontend test-e2e test-e2e-renderer \
 	lint vet typecheck check \
 	sqlc api api-spec api-ts \
@@ -66,6 +66,9 @@ build-backend: ## Build all backend Go packages
 
 build-daemon: ## Build the daemon binary bundled into the desktop app (dev)
 	npm --prefix frontend run build:daemon -- --dev
+
+daemon-dist: ## Portable ao daemon + Node 24 LTS for macOS/Linux (arm64/amd64) in dist/daemon; DAEMON_PLATFORMS="linux/amd64", DAEMON_NODE=0
+	@bash scripts/build-daemon-dist.sh
 
 build: build-backend ## Build backend and package the desktop app
 	npm --prefix frontend run package

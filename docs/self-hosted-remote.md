@@ -97,6 +97,37 @@ native host. Projects still need their own build dependencies on the host.
 Removing a saved connection on desktop/mobile does not stop the host or its
 sessions.
 
+## Portable daemon without cloning
+
+To run a host from a build of this checkout without cloning on the target
+machine, run `make daemon-dist` on any macOS or Linux machine. It
+cross-compiles `ao` for `darwin/arm64`, `darwin/amd64`, `linux/amd64`, and
+`linux/arm64`. Each archive bundles the newest Node.js 24 LTS (verified against
+nodejs.org checksums) and AO's patched `claude-agent-acp`, so Claude Code Chat
+works on the host. The output is `dist/daemon/ao-<version>-<os>-<arch>.tar.gz`
+plus `SHA256SUMS`.
+
+Copy one archive to the host, then follow the `README.txt` inside it. The
+daemon finds `acp-runtime/` next to `daemon/ao` on its own:
+
+```bash
+mkdir -p ~/.local/share/ao
+tar -xzf ao-<version>-linux-amd64.tar.gz -C ~/.local/share/ao --strip-components=1
+export PATH="$HOME/.local/share/ao/daemon:$PATH"
+ao daemon &   # or under tmux, launchd, or systemd
+ao remote-host enable
+```
+
+Options:
+
+- `DAEMON_PLATFORMS="linux/amd64"` builds a subset.
+- `DAEMON_NODE_VERSION=24.x.y` pins a Node release.
+- `DAEMON_NODE=0` ships the bare static binary without Node; Claude Code then
+  works in Terminal UI mode only.
+
+The archive does not install a service or tmux. The bundled Linux Node needs
+glibc 2.28 or newer.
+
 ## Security and limits
 
 - AO's unauthenticated listener stays on `127.0.0.1`. The opt-in remote
