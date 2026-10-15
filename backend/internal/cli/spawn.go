@@ -161,10 +161,16 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 					return err
 				}
 			}
+			// Session IDs are per daemon: a local orchestrator's ID would name an
+			// unrelated session (or none) on a remote host.
+			parentSessionID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+			if ctx.targetsRemote() {
+				parentSessionID = ""
+			}
 			req := spawnRequest{
 				ProjectID:       opts.project,
 				IssueID:         opts.issue,
-				ParentSessionID: strings.TrimSpace(os.Getenv("AO_SESSION_ID")),
+				ParentSessionID: parentSessionID,
 				TrackerProvider: opts.trackerProvider,
 				Kind:            opts.kind,
 				Harness:         opts.harness,
@@ -208,7 +214,11 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if displayName == "" {
 				displayName = name
 			}
-			if _, err := fmt.Fprintf(out, "spawned session %s %q (%s)%s%s\n", res.Session.ID, displayName, res.Session.Status, claimLabel, promptSize); err != nil {
+			hostLabel := ""
+			if ctx.remote != nil {
+				hostLabel = fmt.Sprintf(" on host %q", ctx.remote.label)
+			}
+			if _, err := fmt.Fprintf(out, "spawned session %s %q (%s)%s%s%s\n", res.Session.ID, displayName, res.Session.Status, hostLabel, claimLabel, promptSize); err != nil {
 				return err
 			}
 			if opts.claimPR != "" {
@@ -241,6 +251,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.claimPR, "claim-pr", "", "Claim PR ownership metadata only for the spawned session; does not check out the PR branch")
 	f.BoolVar(&opts.noTakeover, "no-takeover", false, "Refuse if another active session owns the claimed PR (requires --claim-pr)")
 	f.BoolVar(&opts.skipAgentCheck, "skip-agent-check", false, "Skip CLI readiness warnings (the daemon still validates launch readiness)")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -263,6 +274,9 @@ func (c *commandContext) resolveSpawnProject(ctx context.Context, explicit strin
 	if id := strings.TrimSpace(explicit); id != "" {
 		return c.fetchProjectDetails(ctx, id)
 	}
+	if c.targetsRemote() {
+		return c.resolveRemoteSpawnProject(ctx)
+	}
 	if id := strings.TrimSpace(os.Getenv("AO_PROJECT_ID")); id != "" {
 		return c.fetchProjectDetails(ctx, id)
 	}
@@ -281,6 +295,69 @@ func (c *commandContext) resolveSpawnProject(ctx context.Context, explicit strin
 		return project, nil
 	}
 	return projectDetails{}, usageError{fmt.Errorf("project could not be resolved; pass --project, use --standalone, or run `ao project add --path <repo-path> --worker-agent <agent>`")}
+}
+
+// resolveRemoteSpawnProject picks the remote project for `spawn --host` when
+// --project is omitted. Local project IDs, session IDs, and paths mean nothing
+// on another daemon, so it matches the local context project's repository
+// against the remote host's projects and requires exactly one match.
+func (c *commandContext) resolveRemoteSpawnProject(ctx context.Context) (projectDetails, error) {
+	localKey := ""
+	if local, err := c.localContext().resolveSpawnProject(ctx, ""); err == nil {
+		localKey = projectRepoKey(local)
+	}
+	var list projectListResult
+	if err := c.getJSON(ctx, "projects", &list); err != nil {
+		return projectDetails{}, err
+	}
+	sort.Slice(list.Projects, func(i, j int) bool { return list.Projects[i].ID < list.Projects[j].ID })
+	available := make([]string, 0, len(list.Projects))
+	var matches []projectDetails
+	for _, summary := range list.Projects {
+		available = append(available, summary.ID)
+		if localKey == "" {
+			continue
+		}
+		project, err := c.fetchProjectDetails(ctx, summary.ID)
+		if err != nil {
+			return projectDetails{}, err
+		}
+		if projectRepoKey(project) == localKey {
+			matches = append(matches, project)
+		}
+	}
+	remoteProjects := "none"
+	if len(available) > 0 {
+		remoteProjects = strings.Join(available, ", ")
+	}
+	switch {
+	case localKey == "":
+		return projectDetails{}, usageError{fmt.Errorf("--project is required with --host when the local project's repository is unknown (remote projects: %s)", remoteProjects)}
+	case len(matches) == 1:
+		return matches[0], nil
+	case len(matches) == 0:
+		return projectDetails{}, usageError{fmt.Errorf("no project on the remote host uses repository %s; pass --project (remote projects: %s)", localKey, remoteProjects)}
+	default:
+		ids := make([]string, 0, len(matches))
+		for _, match := range matches {
+			ids = append(ids, match.ID)
+		}
+		return projectDetails{}, usageError{fmt.Errorf("several remote projects use repository %s (%s); pass --project", localKey, strings.Join(ids, ", "))}
+	}
+}
+
+// projectRepoKey normalizes a project's repository to host/owner/name so the
+// same repository matches across machines regardless of SSH vs HTTPS clones.
+func projectRepoKey(project projectDetails) string {
+	repo := strings.TrimSpace(project.Repo)
+	if project.Config != nil && strings.TrimSpace(project.Config.CanonicalRepoURL) != "" {
+		repo = strings.TrimSpace(project.Config.CanonicalRepoURL)
+	}
+	host, owner, name, err := cliRepoFromURL(repo)
+	if err != nil || host == "" || owner == "" || name == "" {
+		return ""
+	}
+	return strings.ToLower(host + "/" + owner + "/" + strings.TrimSuffix(name, ".git"))
 }
 
 func (c *commandContext) resolveProjectFromSession(ctx context.Context, sessionID string) (projectDetails, error) {

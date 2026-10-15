@@ -231,6 +231,7 @@ func newSessionListCommand(ctx *commandContext) *cobra.Command {
 	f.BoolVarP(&opts.all, "all", "a", false, "Include orchestrator sessions")
 	f.BoolVar(&opts.includeTerminated, "include-terminated", false, "Include terminated sessions")
 	f.BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -251,6 +252,7 @@ func newSessionGetCommand(ctx *commandContext) *cobra.Command {
 	f := cmd.Flags()
 	addSessionProjectFlag(f, &opts.project, "Project id to scope the lookup")
 	f.BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -269,6 +271,7 @@ func newSessionKillCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -287,6 +290,7 @@ func newSessionRestoreCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -306,6 +310,7 @@ func newSessionExitAgentCommand(ctx *commandContext) *cobra.Command {
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -325,6 +330,7 @@ func newSessionResumeAgentCommand(ctx *commandContext) *cobra.Command {
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -343,6 +349,7 @@ func newSessionRenameCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

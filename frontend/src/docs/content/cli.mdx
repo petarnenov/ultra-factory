@@ -22,6 +22,7 @@ ao
 ├── cue                           create, list
 ├── report                        Report worker progress or artifacts
 ├── orchestrator ls               List orchestrator sessions
+├── host ls                       List paired remote hosts that --host can target
 ├── send                           Send a message to a session
 ├── pr                             merge, resolve-comments
 ├── review                         ls, trigger, cancel, submit
@@ -175,6 +176,24 @@ ao send --session <session-id> --steer --recover-only --client-message-id <handl
 
 Lists orchestrator sessions. Add `--json` for structured output.
 
+### Remote hosts: `ao host ls` and `--host`
+
+`ao host ls` lists the machines paired under **Settings → Remote hosts**. For each one it verifies the host identity before it uses the saved password, then reports `online`, `unauthorized`, `offline`, `identity-changed`, `needs-pairing`, or `this-machine`. It never prints passwords.
+
+`--host <label | host ID | URL>` runs a command against that machine's daemon instead of this one. One orchestrator can therefore spread workers across several machines:
+
+```bash
+ao spawn --host build-box --name "fix flaky e2e" --prompt "Fix the flaky checkout test."
+ao session ls --host build-box
+ao send --host build-box --session widgets-3 --message "CI failed on lint; fix it."
+```
+
+These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, and `agent ls`. Other commands reject it.
+
+- **Project matching:** without `--project`, `spawn --host` picks the remote project whose repository matches the current project, whether the remote is SSH or HTTPS. If none or several match, it lists the remote project IDs.
+- **Session IDs are per machine.** A remote request never forwards the local session as a parent or sender. Messages keep a `[from <session> on <machine>]` text prefix instead.
+- **Credential safety:** requests use the paired host's authenticated remote listener with its saved password and expected host ID. The CLI ignores HTTP proxies for these requests, does not follow redirects, and refuses a `remotes.json` that others can read.
+
 Inside a worker, `ao report "Progress summary"` sends a report to its existing orchestrator. Reporting requires `AO_SESSION_ID`; it does not create an orchestrator or claim a PR.
 
 Needs-input reports are sent immediately. Stuck reports may interrupt or combine with other reports. Done reports wait five minutes before delivery; ordinary checkpoints can wait up to one hour.
@@ -248,5 +267,6 @@ Network capture is off by default. When enabled, it records bounded metadata onl
 | `AO_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown limit. |
 | `AO_SESSION_ID` | unset | Current session context for preview, browser, and in-session calls. |
 | `AO_PROJECT_ID` | unset | Current project context for spawn resolution. |
+| `AO_REMOTES_FILE` | `~/.ao/remotes.json`, or `$AO_DATA_DIR/remotes.json` for a non-default `AO_DATA_DIR` | Paired remote hosts used by `--host` and `ao host ls`. |
 
 All current Orchestrator application state stays under `~/.ao` unless `AO_DATA_DIR` or `AO_RUN_FILE` overrides it.

@@ -1,0 +1,12 @@
+$ HTTP_PROXY=http://127.0.0.1:9 A host ls
+LABEL      HOST ID                                 URL                        STATUS
+build-box  h_ad4fe327-5e28-4b11-8c7d-52ac573d9503  http://192.168.0.100:3011  online
+$ A spawn --host build-box --name "remote worker 2" --agent codex --mode chat
+spawned session hello-clone-2 "remote worker 2" (idle) on host "build-box" [prompt 0 B, system 18459 B]
+$ A session ls --host build-box
+hello-clone:
+  SESSION        ROLE    BRANCH                 PR  CI  REVIEW  THREADS  ACTIVITY  AGE
+  hello-clone-2  worker  ao/hello-clone-2/root  -   -   -       0        idle      0s ago
+1 terminated session hidden. Use --include-terminated to show.
+$ A session kill hello-clone-2 --host build-box
+session hello-clone-2 killed

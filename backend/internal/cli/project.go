@@ -213,6 +213,7 @@ func newProjectListCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output projects as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -243,6 +244,7 @@ func newProjectGetCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output project as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

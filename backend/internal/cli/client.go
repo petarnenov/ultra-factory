@@ -130,8 +130,10 @@ func (c *commandContext) doJSON(ctx context.Context, method, path string, body, 
 	return c.doJSONPath(ctx, method, "/api/v1/"+path, body, out)
 }
 
+// postLoopbackJSON always targets this machine's daemon, even when the command
+// runs with --host: loopback-only routes (telemetry) never reach a remote host.
 func (c *commandContext) postLoopbackJSON(ctx context.Context, path string, body any) error {
-	return c.doJSONPath(ctx, http.MethodPost, path, body, nil)
+	return c.localContext().doJSONPath(ctx, http.MethodPost, path, body, nil)
 }
 
 func (c *commandContext) doJSONPath(ctx context.Context, method, path string, body, out any) error {
@@ -154,19 +156,31 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	headers map[string]string,
 	timeout time.Duration,
 ) error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	info, err := runfile.Read(cfg.RunFilePath)
-	if err != nil {
-		return err
-	}
-	if info == nil {
-		return daemonUnavailableError{message: "AO daemon is not running — start it with `ao start`", cause: errDaemonNotRunning}
-	}
-	if !c.deps.ProcessAlive(info.PID) {
-		return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", cfg.RunFilePath), cause: errDaemonNotRunning}
+	var remote *remoteTarget
+	var url string
+	if c.targetsRemote() {
+		target, err := c.resolveRemoteTarget(ctx)
+		if err != nil {
+			return err
+		}
+		remote = target
+		url = remote.baseURL + path
+	} else {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		info, err := runfile.Read(cfg.RunFilePath)
+		if err != nil {
+			return err
+		}
+		if info == nil {
+			return daemonUnavailableError{message: "AO daemon is not running — start it with `ao start`", cause: errDaemonNotRunning}
+		}
+		if !c.deps.ProcessAlive(info.PID) {
+			return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", cfg.RunFilePath), cause: errDaemonNotRunning}
+		}
+		url = fmt.Sprintf("http://%s:%d%s", config.LoopbackHost, info.Port, path)
 	}
 
 	var reader io.Reader = http.NoBody
@@ -177,8 +191,7 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 		}
 		reader = bytes.NewReader(payload)
 	}
-	url := fmt.Sprintf("http://%s:%d%s", config.LoopbackHost, info.Port, path)
-	req, err := http.NewRequestWithContext(ctx, method, url, reader) // #nosec G704 -- daemon host is fixed loopback; path is an internal API route.
+	req, err := http.NewRequestWithContext(ctx, method, url, reader) // #nosec G704 -- loopback daemon, or a saved remote host verified by resolveRemoteTarget; path is an internal API route.
 	if err != nil {
 		return err
 	}
@@ -188,7 +201,10 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	for name, value := range headers {
 		req.Header.Set(name, value)
 	}
-	if sideID := os.Getenv("AO_SIDE_CONVERSATION_ID"); sideID != "" {
+	if remote != nil {
+		req.Header.Set("Authorization", "Bearer "+remote.password)
+		req.Header.Set("X-AO-Expected-Host-ID", remote.hostID)
+	} else if sideID := os.Getenv("AO_SIDE_CONVERSATION_ID"); sideID != "" {
 		req.Header.Set("X-AO-Side-Conversation", sideID)
 	}
 
@@ -196,16 +212,28 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	// give daemon API calls far more headroom than the 2s status-probe timeout.
 	client := *c.deps.HTTPClient
 	client.Timeout = timeout
-	resp, err := client.Do(req) // #nosec G704 -- request target is the fixed loopback daemon URL above.
+	if remote != nil {
+		client = c.remoteHTTPClient(timeout)
+	}
+	resp, err := client.Do(req) // #nosec G704 -- request target is the daemon URL resolved above.
 	if err != nil {
+		if remote != nil {
+			return daemonUnavailableError{message: fmt.Sprintf("call remote host %q: %v", remote.label, err), cause: err}
+		}
 		return daemonUnavailableError{message: fmt.Sprintf("call daemon: %v", err), cause: err}
 	}
 	resp.Body = daemonResponseBody{ReadCloser: resp.Body}
 	defer func() { _ = resp.Body.Close() }()
 
+	if remote != nil && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("remote host %q answered with a redirect (HTTP %d); refusing to follow it with the saved credential", remote.label, resp.StatusCode)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e apiError
 		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if remote != nil && resp.StatusCode == http.StatusUnauthorized {
+			return fmt.Errorf("remote host %q rejected the saved password; update it in the desktop app under Settings → Remote hosts: %w", remote.label, apiResponseError{StatusCode: resp.StatusCode, ErrorBody: e})
+		}
 		return apiResponseError{StatusCode: resp.StatusCode, ErrorBody: e}
 	}
 	if out == nil {
