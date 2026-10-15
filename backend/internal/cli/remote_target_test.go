@@ -694,3 +694,15 @@ func TestHostFlagRoutesEveryOptedInCommandToTheRemoteHost(t *testing.T) {
 		})
 	}
 }
+
+func TestHostFlagHelpNamesItsArgument(t *testing.T) {
+	// pflag treats back-quoted text in a usage string as the argument name, so
+	// the help must not quote a command with back-quotes.
+	out, _, err := executeCLI(t, Deps{}, "spawn", "--help")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "--host string") {
+		t.Fatalf("spawn --help does not show `--host string`:\n%s", out)
+	}
+}

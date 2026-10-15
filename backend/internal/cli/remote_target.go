@@ -54,7 +54,7 @@ type remoteIdentity struct {
 // through this helper can reach a remote daemon; everything else stays local.
 func addHostFlag(cmd *cobra.Command, ctx *commandContext) {
 	cmd.Flags().StringVar(&ctx.hostSelector, "host", "",
-		"Run against a saved remote AO host (label, host ID, or URL from `ao host ls`) instead of this machine")
+		"Run against a saved remote AO host (label, host ID, or URL listed by 'ao host ls') instead of this machine")
 }
 
 func (c *commandContext) targetsRemote() bool {
