@@ -1,3 +1,5 @@
+import { electronBridge } from "./electron-bridge";
+
 type NavigatorWithUserAgentData = Navigator & { userAgentData?: { platform?: string } };
 
 function navigatorPlatform(): string {
@@ -56,3 +58,37 @@ export function hidesShellTopbar(): boolean {
 export function usesBoardActionsInPanel(): boolean {
 	return hidesShellTopbar();
 }
+
+// VITE_AO_WEB=1 selects the standalone web renderer (build:web, dev:web:real).
+export const isWebBuild = import.meta.env.VITE_AO_WEB === "1";
+
+// True when the Electron preload installed its bridge. False in the web build
+// and in the VITE_NO_ELECTRON mock preview.
+export const hasElectronBridge = electronBridge() !== undefined;
+
+export type Capability =
+	| "browserPanel"
+	| "editorHandoff"
+	| "cliLink"
+	| "autoUpdate"
+	| "nativeDialogs"
+	| "tray"
+	| "windowChrome";
+
+export function resolveCapabilities(options: { webBuild: boolean; electronBridge: boolean }): Readonly<Record<Capability, boolean>> {
+	// Every capability here needs the Electron supervisor, which the web build
+	// never has. They are listed separately so callers gate on the feature, not
+	// the build, and a later web implementation can flip one at a time.
+	const desktop = options.electronBridge && !options.webBuild;
+	return Object.freeze({
+		browserPanel: desktop,
+		editorHandoff: desktop,
+		cliLink: desktop,
+		autoUpdate: desktop,
+		nativeDialogs: desktop,
+		tray: desktop,
+		windowChrome: desktop,
+	});
+}
+
+export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge });

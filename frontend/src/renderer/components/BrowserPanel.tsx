@@ -90,6 +90,7 @@ import { useBrowserDownloads } from "../hooks/useBrowserDownloads";
 import { BrowserDownloadsList } from "./BrowserDownloadsList";
 import { isWebLink, openLinkInSystemBrowser } from "../lib/external-link-policy";
 import { aoBridge } from "../lib/bridge";
+import { electronBridge } from "../lib/electron-bridge";
 
 // One-click viewport width presets for responsive testing — height is shown
 // for reference but not enforced (only width drives CSS breakpoints, and
@@ -270,7 +271,7 @@ export function useBrowserAnnotationQueue({
 				}
 				sent = true;
 				stagedScreenshotPathsRef.current.delete(payload);
-				await window.ao?.browser.completeAnnotation?.({
+				await electronBridge()?.browser.completeAnnotation?.({
 					viewId: payload.viewId,
 					tabId: payload.tabId,
 					pageKey: payload.pageKey,
@@ -455,9 +456,9 @@ export function BrowserPanelView({
 	const [urlEditing, setUrlEditing] = useState(false);
 	const { beginPicking, cancelPicking, enqueue, error, failPicking, queuedCount, retryQueued, status } =
 		annotationQueue;
-	const hasNativeBrowser = Boolean(window.ao?.browser);
+	const hasNativeBrowser = Boolean(electronBridge()?.browser);
 	const showStaticPreview = !hasNativeBrowser && navState.url !== "";
-	const canAnnotate = Boolean(window.ao?.browser && viewId && navState.url);
+	const canAnnotate = Boolean(electronBridge()?.browser && viewId && navState.url);
 	const canRetryAnnotation = status === "error" && queuedCount > 0;
 	const [devicePreset, setDevicePreset] = useState<string | null>(null);
 	const [customDeviceWidth, setCustomDeviceWidth] = useState("390");
@@ -520,10 +521,11 @@ export function BrowserPanelView({
 	}, [activeTabId, tabs.length, draggedTopTabId, tabScrollRef]);
 
 	useEffect(() => {
-		if (controlsView !== "profiles" || !window.ao?.browserProfiles) return;
+		const bridge = electronBridge();
+		if (controlsView !== "profiles" || !bridge?.browserProfiles) return;
 		let canceled = false;
 		setProfilesLoading(true);
-		void window.ao.browserProfiles
+		void bridge.browserProfiles
 			.list()
 			.then((state) => {
 				if (!canceled) setBrowserProfiles(state.profiles);
@@ -541,8 +543,9 @@ export function BrowserPanelView({
 
 	const selectBrowserProfile = useCallback(
 		(profileId: string | null) => {
-			if (!viewId || !window.ao?.browser) return;
-			void window.ao.browser.selectProfile({
+			const bridge = electronBridge();
+			if (!viewId || !bridge?.browser) return;
+			void bridge.browser.selectProfile({
 				viewId,
 				profileId,
 				labels: {
@@ -561,21 +564,21 @@ export function BrowserPanelView({
 
 	useEffect(() => {
 		if (!viewId) return;
-		if (active) window.ao?.browser.notifyPanelUsed(viewId);
-		else window.ao?.browser.notifyPanelBlur(viewId);
-		return () => window.ao?.browser.notifyPanelBlur(viewId);
+		if (active) electronBridge()?.browser.notifyPanelUsed(viewId);
+		else electronBridge()?.browser.notifyPanelBlur(viewId);
+		return () => electronBridge()?.browser.notifyPanelBlur(viewId);
 	}, [active, viewId]);
 
 	useEffect(
 		() =>
-			window.ao?.browser.onFocusLocation((targetViewId) => {
+			electronBridge()?.browser.onFocusLocation((targetViewId) => {
 				if (targetViewId !== viewId) return;
 				// ⌘T/Ctrl+T focuses the omnibox after opening a tab. When the bar is
 				// portaled into the inspector header it sits outside the panel focus
 				// boundary, so restore the browser shortcut target before the input
 				// takes focus — otherwise the next ⌘T/⌘W falls through to terminal
 				// shortcuts and yank focus to the main pane.
-				window.ao?.browser.notifyPanelUsed(viewId);
+				electronBridge()?.browser.notifyPanelUsed(viewId);
 				if (document.activeElement === urlInputRef.current) {
 					return;
 				}
@@ -629,7 +632,7 @@ export function BrowserPanelView({
 	);
 	useEffect(
 		() =>
-			window.ao?.browser.onReopenClosedTab((targetViewId) => {
+			electronBridge()?.browser.onReopenClosedTab((targetViewId) => {
 				if (targetViewId !== viewId) return;
 				void reopenClosedTab();
 			}),
@@ -684,9 +687,10 @@ export function BrowserPanelView({
 	}, [active, browserDownloads.downloads, browserDownloads.initialized]);
 
 	const takeScreenshot = useCallback(async () => {
-		if (!viewId || !window.ao?.browser) return;
+		const bridge = electronBridge();
+		if (!viewId || !bridge?.browser) return;
 		try {
-			await window.ao.browser.captureScreenshot(viewId);
+			await bridge.browser.captureScreenshot(viewId);
 			showGlobalToast(t("browser.screenshotCopied"), undefined, "top-center");
 		} catch {
 			showGlobalToast(t("browser.screenshotFailed"), undefined, "top-center");
@@ -719,7 +723,7 @@ export function BrowserPanelView({
 		const query = urlInput.trim();
 		if (
 			!urlEditing ||
-			!window.ao?.browser ||
+			!electronBridge()?.browser ||
 			!viewId ||
 			!profileState.profileId ||
 			query === navState.url ||
@@ -730,7 +734,7 @@ export function BrowserPanelView({
 		}
 		let current = true;
 		const timer = window.setTimeout(() => {
-			void window.ao!.browser.historySuggestions({ viewId, query }).then(
+			void electronBridge()!.browser.historySuggestions({ viewId, query }).then(
 				(suggestions) => {
 					if (!current || historyRequestGenerationRef.current !== generation) return;
 					setHistorySuggestions(suggestions.slice(0, MAX_HISTORY_SUGGESTIONS));
@@ -755,7 +759,7 @@ export function BrowserPanelView({
 	}, [urlEditing]);
 
 	useEffect(() => {
-		const onPageFocus = window.ao?.browser.onPageFocus;
+		const onPageFocus = electronBridge()?.browser.onPageFocus;
 		if (!onPageFocus) return;
 		return onPageFocus((focusedViewId) => {
 			if (focusedViewId !== viewId) return;
@@ -769,11 +773,11 @@ export function BrowserPanelView({
 	}, [navState.url, viewId]);
 
 	useEffect(() => {
-		const offSubmit = window.ao?.browser.onAnnotationSubmit((payload) => {
+		const offSubmit = electronBridge()?.browser.onAnnotationSubmit((payload) => {
 			if (payload.viewId !== viewId) return;
 			enqueue(payload);
 		});
-		const offCancel = window.ao?.browser.onAnnotationCancel((payload) => {
+		const offCancel = electronBridge()?.browser.onAnnotationCancel((payload) => {
 			if (payload.viewId !== viewId) return;
 			cancelPicking();
 		});
@@ -942,7 +946,7 @@ export function BrowserPanelView({
 				// When docked, this form is portaled into the inspector header and is
 				// therefore outside the browser-panel focus boundary below. Restore the
 				// browser shortcut target when its address input receives focus.
-				if (viewId) window.ao?.browser.notifyPanelUsed(viewId);
+				if (viewId) electronBridge()?.browser.notifyPanelUsed(viewId);
 			}}
 			onSubmit={submit}
 		>
@@ -1253,13 +1257,13 @@ export function BrowserPanelView({
 				) {
 					return;
 				}
-				window.ao?.browser.notifyPanelBlur(viewId);
+				electronBridge()?.browser.notifyPanelBlur(viewId);
 			}}
 			onFocusCapture={() => {
-				if (viewId) window.ao?.browser.notifyPanelUsed(viewId);
+				if (viewId) electronBridge()?.browser.notifyPanelUsed(viewId);
 			}}
 			onPointerDownCapture={() => {
-				if (viewId) window.ao?.browser.notifyPanelUsed(viewId);
+				if (viewId) electronBridge()?.browser.notifyPanelUsed(viewId);
 			}}
 			role="tabpanel"
 		>
@@ -1969,12 +1973,12 @@ function faviconForOpenTab(url: string, tabs: BrowserViewModel["tabs"]): string 
 
 function BrowserSuggestionIcon({ cachedFavicon, url, viewId }: { cachedFavicon?: string; url: string; viewId: string }) {
 	const origin = webOrigin(url);
-	const nativeCompositionEnabled = window.ao?.browser.nativeCompositionEnabled === true;
+	const nativeCompositionEnabled = electronBridge()?.browser.nativeCompositionEnabled === true;
 	const directFavicon = !nativeCompositionEnabled && origin ? `${origin}/favicon.ico` : undefined;
 	const [favicon, setFavicon] = useState(cachedFavicon ?? directFavicon);
 	useEffect(() => {
 		setFavicon(cachedFavicon ?? directFavicon);
-		const historyFavicon = window.ao?.browser.historyFavicon;
+		const historyFavicon = electronBridge()?.browser.historyFavicon;
 		if (cachedFavicon || !nativeCompositionEnabled || !viewId || typeof historyFavicon !== "function") return;
 		let current = true;
 		void historyFavicon({ viewId, url }).then(

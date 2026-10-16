@@ -1,5 +1,5 @@
-# BuildKit reads this file instead of a root .dockerignore when building
-# deploy/railway/worker/Dockerfile. Send only what the image needs.
+# BuildKit чете този файл вместо коренния .dockerignore, когато билдва
+# deploy/railway/worker/Dockerfile. Изпращай само това, което образът използва.
 *
 !backend/
 !frontend/acp-runtime/package.json
