@@ -149,10 +149,11 @@ ao spawn --host <H> --project ultra-factory \
 1. Issue → `status:in-review`. Пусни `ao review trigger` за неговия PR.
 2. Провери: базата е `feat/railway-hosting`; CI е зелен (`gh pr checks`); няма AI trailers в commits (`git log --format=%B`); промените са в обхвата на таска; критериите за приемане в таск файла са изпълнени.
 3. Ако има забележки: `ao send <session> "<конкретни забележки>"` и чакай нов `--done`.
-4. Ако е чисто и **не е** ADR или `needs-human`: `ao pr merge <PR>` (squash). Issue-то се затваря от `Closes #`; tracker-ът → Done.
-5. ADR PR-и и всичко с `needs-human` се мърджват само след изрично „да“ от потребителя.
-6. След всеки мърдж: ако `origin/main` е мръднал, синхронизирай `feat/railway-hosting` с `merge` като във фаза 1. Активните работници, на които предстои PR, правят `git merge origin/feat/railway-hosting` в своя бранч (никога rebase).
-7. При конфликт между два PR-а: мърджни първия, а на втория работник прати `ao send` да мърджне `origin/feat/railway-hosting` в своя бранч и да реши конфликта.
+4. Ако е чисто и **не е** ADR или `needs-human`: `gh pr merge <PR> --squash --match-head-commit <SHA> --repo petarnenov/ultra-factory`. `ao pr merge` не работи за PR-и на отдалечени работници (#63).
+5. **Веднага след мърджа затвори таск issue-тата ръчно.** `Closes #N` в PR-а затваря issue само при мърдж в default бранча (`main`), а не във `feat/railway-hosting`. За всяко issue от `Closes #N` в тялото на PR-а: `gh issue close <N> --repo petarnenov/ultra-factory --reason completed --comment "Merged into feat/railway-hosting via #<PR> (<merge SHA>)."` и махни `status:*` label-ите. Ако с това се затварят всички таскове на стори, затвори и сторито. Ако се затварят всички сторита на епик, затвори и епика. Tracker-ът → Done.
+6. ADR PR-и и всичко с `needs-human` се мърджват само след изрично „да“ от потребителя.
+7. След всеки мърдж: ако `origin/main` е мръднал, синхронизирай `feat/railway-hosting` с `merge` като във фаза 1. Активните работници, на които предстои PR, правят `git merge origin/feat/railway-hosting` в своя бранч (никога rebase).
+8. При конфликт между два PR-а: мърджни първия, а на втория работник прати `ao send` да мърджне `origin/feat/railway-hosting` в своя бранч и да реши конфликта.
 
 ## Наблюдение и комуникация
 - Проверявай `ao session ls --host <H>` за трите машини при всяко `TICK` (виж „Будилник и цикъл на съгласуване“). Ако сесия е idle над 30 мин без PR, прати `ao send` за статус. Ако е мъртва, рестартирай таска (нова сесия, същият бранч, ако има push-нати commits).
