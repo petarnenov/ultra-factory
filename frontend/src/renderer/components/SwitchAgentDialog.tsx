@@ -21,10 +21,11 @@ import {
 	useSwitchAgentState,
 } from "../hooks/useSwitchAgent";
 import { workspaceQueryKeyForHost } from "../hooks/useWorkspaceQuery";
+import { useAgentReadinessQuery, useEnsureAgentReadiness } from "../hooks/useAgentReadinessQuery";
 import { apiErrorMessage } from "../lib/api-client";
 import { clientForSessionHost } from "../lib/host-clients";
 import { isConcreteModelID } from "../lib/agent-model-choices";
-import { AGENT_LABELS, AGENT_OPTIONS, agentLabel } from "../lib/agent-options";
+import { agentLabel } from "../lib/agent-options";
 import {
 	STANDALONE_WORKSPACE_ID,
 	type AgentSwitchSummary,
@@ -44,23 +45,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { onMenuTeardownComplete } from "./ui/menu-focus";
 
-export const SWITCH_AGENT_OPTIONS = [
-	{ value: "claude-code", label: "Claude Code" },
-	{ value: "codex", label: "Codex" },
-	{ value: "fx", label: "fx" },
-] as const satisfies ReadonlyArray<{ value: SwitchAgentHarness; label: string }>;
-
-const ALL_SWITCH_AGENT_OPTIONS = AGENT_OPTIONS.map((value) => ({ value, label: AGENT_LABELS[value] }));
-
-export function canSwitchAgentHarness(
-	value: string,
-	mode?: WorkspaceSession["mode"],
-): value is SwitchAgentHarness {
-	return (
-		SWITCH_AGENT_OPTIONS.some((option) => option.value === value) &&
-		(mode !== "chat" || value !== "fx")
-	);
-}
+type SwitchTargetOption = { value: SwitchAgentHarness; label: string };
 
 // SwitchAgentDialog is opened from a DropdownMenuItem ("Switch agent" in the
 // session actions menu). Radix closes that dropdown on the same click that
@@ -138,22 +123,22 @@ function useSuppressOpeningRace(open: boolean) {
 function SwitchTargetPicker({
 	currentHarness,
 	disabled,
-	mode,
+	options,
 	onChange,
 	value,
 }: {
 	currentHarness: string;
 	disabled: boolean;
-	mode?: WorkspaceSession["mode"];
+	options: SwitchTargetOption[];
 	onChange: (value: SwitchAgentHarness) => void;
 	value: SwitchAgentHarness;
 }) {
 	const { t } = useTranslation();
-	const options = ALL_SWITCH_AGENT_OPTIONS.map((option) => ({
+	const pickerOptions = options.map((option) => ({
 		...option,
-		disabled: !canSwitchAgentHarness(option.value, mode) || option.value === currentHarness,
+		disabled: option.value === currentHarness,
 	}));
-	const selected = options.find((option) => option.value === value);
+	const selected = pickerOptions.find((option) => option.value === value);
 	return (
 		<SettingsOptionMenu
 			aria-label={t("switchAgent.targetLabel")}
@@ -162,22 +147,16 @@ function SwitchTargetPicker({
 			menuClassName="settings-agent-menu-surface"
 			menuItemClassName="settings-agent-menu-item"
 			onChange={(nextValue) => {
-				if (canSwitchAgentHarness(nextValue, mode) && nextValue !== currentHarness) onChange(nextValue);
+				if (options.some((option) => option.value === nextValue) && nextValue !== currentHarness) onChange(nextValue);
 			}}
-			options={options}
+			options={pickerOptions}
 			renderMenuItem={(option) => {
-				const supported = canSwitchAgentHarness(option.value, mode);
 				const current = option.value === currentHarness;
 				return (
 					<span className="flex w-full min-w-0 items-center gap-2">
 						<AgentAvatar className="size-icon-base" decorative provider={option.value} />
 						<span className="min-w-0 flex-1 truncate">{option.label}</span>
-						{!supported ? (
-							<span className="shrink-0 text-micro text-settings-muted">
-								<span className="sr-only">, </span>
-								{t("switchAgent.comingSoon")}
-							</span>
-						) : current ? (
+						{current ? (
 							<span className="shrink-0 text-micro text-settings-muted">
 								<span className="sr-only">, </span>
 								{t("switchAgent.current")}
@@ -217,6 +196,15 @@ export function SwitchAgentDialog({ agentSwitch, container, open, session, onOpe
 	const [mode, setMode] = useState("");
 	const [modelTouched, setModelTouched] = useState(false);
 	const hostId = session.hostId;
+	const switchMode = session.mode ?? "tui";
+	const readinessQuery = useAgentReadinessQuery(open, hostId);
+	const compatibleHarnesses = (readinessQuery.data?.agents ?? [])
+		.filter((agent) => agent.switchModes?.includes(switchMode) && agent.installation.state === "installed" && agent.authentication?.state !== "unauthorized")
+		.map((agent) => agent.id);
+	useEnsureAgentReadiness({ agentIds: compatibleHarnesses, enabled: open && compatibleHarnesses.length > 0, purpose: "launch", hostId });
+	const targetOptions: SwitchTargetOption[] = (readinessQuery.data?.agents ?? [])
+		.filter((agent) => agent.switchModes?.includes(switchMode) && agent.installation.state === "installed" && agent.authentication?.state !== "unauthorized")
+		.map((agent) => ({ value: agent.id as SwitchAgentHarness, label: agent.label || agentLabel(agent.id) }));
 	const isStandalone = session.workspaceId === STANDALONE_WORKSPACE_ID;
 	const catalogProjectId = isStandalone ? "" : session.workspaceId;
 	const projectQuery = useQuery({
@@ -297,6 +285,12 @@ export function SwitchAgentDialog({ agentSwitch, container, open, session, onOpe
 		setModelWarning(undefined);
 	}, [hostId, session.id, session.provider]);
 	useEffect(() => {
+		if (!targetOptions.some((option) => option.value === targetHarness && option.value !== session.provider)) {
+			const next = targetOptions.find((option) => option.value !== session.provider);
+			if (next) setTargetHarness(next.value);
+		}
+	}, [session.provider, targetHarness, targetOptions]);
+	useEffect(() => {
 		if (open && durableSwitching) onOpenChange(false);
 	}, [durableSwitching, onOpenChange, open]);
 	const clearFailedAttempt = () => {
@@ -315,7 +309,7 @@ export function SwitchAgentDialog({ agentSwitch, container, open, session, onOpe
 
 	const submit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (admissionPending || durableSwitching || recoveryRequired) return;
+		if (admissionPending || durableSwitching || recoveryRequired || !targetOptions.some((option) => option.value === targetHarness && option.value !== session.provider)) return;
 		switchAgent.mutate(
 			{
 				session,
@@ -460,7 +454,7 @@ export function SwitchAgentDialog({ agentSwitch, container, open, session, onOpe
 									<SwitchTargetPicker
 										currentHarness={session.provider}
 										disabled={admissionPending}
-										mode={session.mode}
+										options={targetOptions}
 										onChange={changeTarget}
 										value={targetHarness}
 									/>
@@ -496,7 +490,7 @@ export function SwitchAgentDialog({ agentSwitch, container, open, session, onOpe
 										<Button
 											aria-label={admissionPending ? t("newTask.starting") : t("switchAgent.confirm")}
 											className="size-(--size-composer-toolbar-height)"
-											disabled={admissionPending}
+											disabled={admissionPending || !targetOptions.some((option) => option.value === targetHarness && option.value !== session.provider)}
 											size="none"
 											type="submit"
 											variant="primary"

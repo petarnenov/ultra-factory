@@ -597,8 +597,9 @@ func removeString(values []string, target string) []string {
 }
 
 func parseCodexEvent(source domain.UsageSourceContext, envelope codexEnvelope, state *codexParserStateV1, result *parseResult) {
-	// payload.info is the bounded object; payload.rate_limits is its sibling and
-	// is deliberately never read, so account-level quota state cannot be stored.
+	// Account-level rate limits remain deliberately outside usage ingestion;
+	// transcript records do not prove which live AO runtime generation emitted
+	// the quota event.
 	var payload struct {
 		Type string          `json:"type"`
 		Info json.RawMessage `json:"info"`

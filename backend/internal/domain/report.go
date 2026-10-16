@@ -119,6 +119,10 @@ type ReportRecord struct {
 	// SessionDisplayName is resolved at delivery time for presentation. It is
 	// intentionally not persisted with the durable report row.
 	SessionDisplayName string
+	// HostLabel names the saved remote host a pulled report came from. Like
+	// SessionDisplayName it is presentation only and never persisted; empty
+	// means the worker runs on this daemon.
+	HostLabel          string
 	State              ReportState
 	Note               string
 	Message            string

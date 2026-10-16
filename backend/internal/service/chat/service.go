@@ -63,7 +63,8 @@ type Service struct {
 	newID                  IDFactory
 	now                    Clock
 	onAccountChanged       func(domain.SessionID, string, domain.AgentHarness)
-	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation)
+	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error
+	onQuotaObserved        func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error
 	// onModelChanged syncs ChatUI's model override (including clearing it) to
 	// session metadata before the next prompt routes or a later TUI rebuild.
 	onModelChanged   func(domain.SessionID, string)
@@ -151,7 +152,10 @@ type Options struct {
 	// OnCodexCapacityChanged attributes a structured provider update to the one
 	// globally active AO Codex account. The callback owns profile-independent
 	// account state; conversation rows are not the authority for Codex capacity.
-	OnCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation)
+	OnCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error
+	// OnQuotaObserved receives exact provider window percentages transiently;
+	// the callback is never used to persist provider account details.
+	OnQuotaObserved func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error
 	// OnModelChanged syncs ChatUI's model override to session metadata before
 	// the next prompt routes. Nil leaves session metadata unchanged.
 	OnModelChanged func(domain.SessionID, string)
@@ -192,6 +196,7 @@ func New(opts Options) *Service {
 		now:                    now,
 		onAccountChanged:       opts.OnAccountChanged,
 		onCodexCapacityChanged: opts.OnCodexCapacityChanged,
+		onQuotaObserved:        opts.OnQuotaObserved,
 		onModelChanged:         opts.OnModelChanged,
 		stopProviderHost:       opts.StopProviderHost,
 		renders:                opts.Renders,
@@ -886,7 +891,7 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 	// A fresh generation per launch, so events from the controller this one
 	// replaced can be told apart from the current one's.
 	controller := newController(
-		cfg.SessionID, owner, conversation, generation, cfg.Harness, conv, s.store, s.activity, s.log, s.newID, s.now, s.onAccountChanged, s.onCodexCapacityChanged)
+		cfg.SessionID, owner, conversation, generation, cfg.Harness, conv, s.store, s.activity, s.log, s.newID, s.now, s.onAccountChanged, s.onCodexCapacityChanged, s.onQuotaObserved)
 	var commitProviderHistory func(context.Context) error
 	if liveReconnect {
 		providerTurnID := controller.restoreLiveTurnOwnership(liveRows.Turns)

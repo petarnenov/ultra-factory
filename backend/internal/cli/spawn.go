@@ -57,11 +57,22 @@ type spawnRequest struct {
 type spawnResult struct {
 	Session struct {
 		ID          string `json:"id"`
+		ProjectID   string `json:"projectId"`
 		Status      string `json:"status"`
 		DisplayName string `json:"displayName"`
 	} `json:"session"`
 	PromptBytes       int `json:"promptBytes,omitempty"`
 	SystemPromptBytes int `json:"systemPromptBytes,omitempty"`
+}
+
+// remoteWorkerLinkRequest mirrors the daemon's CreateRemoteWorkerLinkRequest
+// body for POST /api/v1/remote-worker-links.
+type remoteWorkerLinkRequest struct {
+	ParentSessionID string `json:"parentSessionId"`
+	HostID          string `json:"hostId"`
+	RemoteSessionID string `json:"remoteSessionId"`
+	RemoteProjectID string `json:"remoteProjectId"`
+	DisplayName     string `json:"displayName,omitempty"`
 }
 
 func newSpawnCommand(ctx *commandContext) *cobra.Command {
@@ -162,8 +173,10 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				}
 			}
 			// Session IDs are per daemon: a local orchestrator's ID would name an
-			// unrelated session (or none) on a remote host.
-			parentSessionID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+			// unrelated session (or none) on a remote host. The local parent is
+			// instead linked to the remote worker below, on this machine's daemon.
+			localParentID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+			parentSessionID := localParentID
 			if ctx.targetsRemote() {
 				parentSessionID = ""
 			}
@@ -199,6 +212,17 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				}
 				if len(claim.PRs) > 0 {
 					claimed = claim.PRs[0].URL
+				}
+			}
+			if ctx.remote != nil && localParentID != "" {
+				blocked, err := ctx.linkRemoteWorker(cmd.Context(), localParentID, res)
+				if err == nil && blocked != "" {
+					err = errors.New(blocked)
+				}
+				if err != nil {
+					if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: reports from %s will not reach this machine's orchestrator: %v\n", res.Session.ID, err); werr != nil {
+						return werr
+					}
 				}
 			}
 			out := cmd.OutOrStdout()
@@ -253,6 +277,25 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.BoolVar(&opts.skipAgentCheck, "skip-agent-check", false, "Skip CLI readiness warnings (the daemon still validates launch readiness)")
 	addHostFlag(cmd, ctx)
 	return cmd
+}
+
+// linkRemoteWorker tells this machine's daemon that a worker it cannot see was
+// spawned on a saved remote host, so the daemon pulls the worker's reports and
+// delivers them to the parent's project orchestrator.
+// It returns why the daemon will not poll that host, when it will not.
+func (c *commandContext) linkRemoteWorker(ctx context.Context, parentID string, res spawnResult) (string, error) {
+	req := remoteWorkerLinkRequest{
+		ParentSessionID: parentID, HostID: c.remote.hostID,
+		RemoteSessionID: res.Session.ID, RemoteProjectID: res.Session.ProjectID,
+		DisplayName: res.Session.DisplayName,
+	}
+	var link struct {
+		PullBlocked string `json:"pullBlocked"`
+	}
+	if err := c.localContext().postJSON(ctx, "remote-worker-links", req, &link); err != nil {
+		return "", err
+	}
+	return link.PullBlocked, nil
 }
 
 func (c *commandContext) fetchAgentInventory(ctx context.Context, refresh bool) (agentInventory, error) {
