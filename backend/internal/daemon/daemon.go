@@ -932,6 +932,12 @@ func Run() error {
 	if mobilebridge.KeepAwakeSupported() {
 		bs.KeepAwake = mobilebridge.NewKeepAwake(os.Getpid())
 	}
+	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, log)
+	remoteReportsDone := remoteReports.Start(ctx)
+	defer func() {
+		stop()
+		<-remoteReportsDone
+	}()
 	var nativeSessions ports.AgentNativeSessionResolver
 	if codewhaleAgent, ok := agents.Agent(domain.HarnessCodewhale); ok {
 		nativeSessions, _ = codewhaleAgent.(ports.AgentNativeSessionResolver)
@@ -952,6 +958,7 @@ func Run() error {
 		Reviews:            reviewSvc,
 		Notifications:      notifier,
 		Reports:            reportSvc,
+		RemoteWorkerLinks:  remoteWorkerSvc,
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,

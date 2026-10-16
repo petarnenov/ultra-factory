@@ -119,6 +119,23 @@ func writeRemotesFile(t *testing.T, entries ...remoteEntry) string {
 type localDaemon struct {
 	mu    sync.Mutex
 	paths []string
+	// linkStatus answers POST /api/v1/remote-worker-links; zero keeps the
+	// route unknown (404) like a daemon that predates it.
+	linkStatus      int
+	linkPullBlocked string
+	linkBodies      []string
+}
+
+func (d *localDaemon) answerLinks(status int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.linkStatus = status
+}
+
+func (d *localDaemon) links() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.linkBodies...)
 }
 
 func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[string]projectDetails) *localDaemon {
@@ -128,6 +145,21 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 		d.mu.Lock()
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
 		d.mu.Unlock()
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links" {
+			body, _ := io.ReadAll(r.Body)
+			d.mu.Lock()
+			d.linkBodies = append(d.linkBodies, string(body))
+			status, blocked := d.linkStatus, d.linkPullBlocked
+			d.mu.Unlock()
+			switch {
+			case status == http.StatusCreated:
+				writeTestJSON(w, status, map[string]string{"hostId": "host-build", "pullBlocked": blocked})
+				return
+			case status != 0:
+				writeTestJSON(w, status, map[string]string{"error": "conflict", "code": "PARENT_SESSION_TERMINATED", "message": "The parent session is terminated"})
+				return
+			}
+		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/internal/"):
 			w.WriteHeader(http.StatusNoContent)

@@ -140,6 +140,38 @@ func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.Pr
 	return s.reportsWithOutputs(ctx, orderedReportRows(rows))
 }
 
+// AcknowledgePendingSessionReports acknowledges the named reports of one
+// worker that are still pending, on behalf of a peer daemon that pulled and
+// delivered them. Reports of other sessions, and reports this daemon already
+// claimed for its own orchestrator, are left untouched. It returns the IDs it
+// acknowledged.
+func (s *Store) AcknowledgePendingSessionReports(ctx context.Context, sessionID domain.SessionID, ids []string, token string, at time.Time) ([]string, error) {
+	if sessionID == "" || token == "" || at.IsZero() {
+		return nil, domain.ErrInvalidReport
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var acknowledged []string
+	err := s.inTx(ctx, "acknowledge pulled reports", func(q *gen.Queries) error {
+		for _, id := range ids {
+			n, err := q.AcknowledgePendingSessionReport(ctx, gen.AcknowledgePendingSessionReportParams{
+				ClaimToken: token, AcknowledgedAt: nullTime(at), ID: id, SessionID: string(sessionID),
+			})
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				acknowledged = append(acknowledged, id)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("acknowledge pulled reports for %s: %w", sessionID, err)
+	}
+	return acknowledged, nil
+}
+
 // AcknowledgeReportBatch completes only the project batch holding token.
 func (s *Store) AcknowledgeReportBatch(ctx context.Context, projectID domain.ProjectID, token string, at time.Time) (int, error) {
 	if projectID == "" || token == "" || at.IsZero() {

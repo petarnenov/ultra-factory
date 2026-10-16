@@ -3690,6 +3690,56 @@ paths:
       summary: Issue a host-scoped account credential using the pairing password
       tags:
       - mobile
+  /api/v1/remote-worker-links:
+    post:
+      operationId: createRemoteWorkerLink
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRemoteWorkerLinkRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerLinkResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Link a worker on a saved remote host so this daemon pulls its reports
+        (loopback only)
+      tags:
+      - reports
   /api/v1/reports:
     get:
       operationId: listReports
@@ -3769,6 +3819,94 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Not Implemented
       summary: Persist a worker report for later orchestrator delivery
+      tags:
+      - reports
+  /api/v1/reports/acknowledge:
+    post:
+      operationId: acknowledgeReports
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcknowledgeReportsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcknowledgeReportsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Acknowledge a worker's pending reports that a peer daemon delivered
+      tags:
+      - reports
+  /api/v1/reports/pending:
+    get:
+      operationId: listPendingReports
+      parameters:
+      - description: Worker session identifier on this daemon.
+        in: query
+        name: sessionId
+        required: true
+        schema:
+          description: Worker session identifier on this daemon.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListPendingReportsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List one worker's due, still-pending reports for a peer daemon to deliver
       tags:
       - reports
   /api/v1/reviews/{reviewId}/conversation:
@@ -10832,6 +10970,29 @@ components:
       - code
       - message
       type: object
+    AcknowledgeReportsRequest:
+      properties:
+        reportIds:
+          items:
+            type: string
+          maxItems: 200
+          minItems: 1
+          type: array
+        sessionId:
+          type: string
+      required:
+      - sessionId
+      - reportIds
+      type: object
+    AcknowledgeReportsResponse:
+      properties:
+        acknowledged:
+          items:
+            type: string
+          type: array
+      required:
+      - acknowledged
+      type: object
     AcknowledgeSessionInterfaceTransitionNoticeResponse:
       properties:
         ok:
@@ -13571,6 +13732,25 @@ components:
       required:
       - side
       type: object
+    CreateRemoteWorkerLinkRequest:
+      properties:
+        displayName:
+          maxLength: 100
+          type: string
+        hostId:
+          type: string
+        parentSessionId:
+          type: string
+        remoteProjectId:
+          type: string
+        remoteSessionId:
+          type: string
+      required:
+      - parentSessionId
+      - hostId
+      - remoteSessionId
+      - remoteProjectId
+      type: object
     CreateReportRequest:
       properties:
         message:
@@ -14649,6 +14829,18 @@ components:
       - truncated
       - summary
       type: object
+    ListPendingReportsResponse:
+      properties:
+        morePending:
+          type: boolean
+        reports:
+          items:
+            $ref: '#/components/schemas/ReportResponse'
+          type: array
+      required:
+      - reports
+      - morePending
+      type: object
     ListProjectsResponse:
       properties:
         projects:
@@ -15522,6 +15714,33 @@ components:
           type: array
       required:
       - servers
+      type: object
+    RemoteWorkerLinkResponse:
+      properties:
+        createdAt:
+          format: date-time
+          type: string
+        displayName:
+          type: string
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        projectId:
+          type: string
+        pullBlocked:
+          type: string
+        remoteProjectId:
+          type: string
+        remoteSessionId:
+          type: string
+      required:
+      - hostId
+      - hostLabel
+      - remoteSessionId
+      - remoteProjectId
+      - projectId
+      - createdAt
       type: object
     RemoveProjectResult:
       properties:

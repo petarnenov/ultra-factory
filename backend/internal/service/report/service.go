@@ -2,8 +2,10 @@ package report
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,6 +91,130 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 		return reports[i].CreatedAt.Before(reports[j].CreatedAt)
 	})
 	return reports, nil
+}
+
+// MaxAcknowledgeReports bounds one acknowledgement request.
+const MaxAcknowledgeReports = 200
+
+// MaxPulledReportBytes bounds one pending-reports response well below what a
+// pulling daemon reads, so a page of large reports cannot make it fail to
+// decode the response and stall the worker for good.
+const MaxPulledReportBytes = 2 << 20
+
+// encodedReportBytes is a report's size as the pending route encodes it,
+// including HTML escaping that turns one byte into six.
+func encodedReportBytes(r domain.ReportRecord) int {
+	type output struct{ Kind, Reference, Label string }
+	outputs := make([]output, len(r.Outputs))
+	for i, o := range r.Outputs {
+		outputs[i] = output{string(o.Kind), o.Reference, o.Label}
+	}
+	encoded, err := json.Marshal(struct {
+		ID, SessionID, ProjectID, State, Note, Message string
+		Outputs                                        []output
+	}{r.ID, string(r.SessionID), string(r.ProjectID), string(r.State), r.Note, r.Message, outputs})
+	if err != nil {
+		return MaxPulledReportBytes
+	}
+	return len(encoded) + 128
+}
+
+// ListDuePending returns one worker's reports that are still pending and due
+// now, in creation order, for a peer daemon that delivers them to its own
+// orchestrator. Due keeps the local batching and done-settlement delays;
+// morePending reports pending reports that are not due yet or beyond one
+// acknowledgement's worth, so the peer keeps polling a worker that has
+// already ended. It never claims or mutates delivery
+// state; AcknowledgePulled does.
+func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID) (due []domain.ReportRecord, morePending bool, err error) {
+	if s == nil || s.store == nil {
+		return nil, false, errors.New("report: store is required")
+	}
+	if err := s.pullableWorker(ctx, sessionID); err != nil {
+		return nil, false, err
+	}
+	reader, ok := s.store.(interface {
+		ListReportsBySession(context.Context, domain.SessionID) ([]domain.ReportRecord, error)
+	})
+	if !ok {
+		return nil, false, errors.New("report: session reader is required")
+	}
+	reports, err := reader.ListReportsBySession(ctx, sessionID)
+	if err != nil {
+		return nil, false, err
+	}
+	now := s.now().UTC()
+	budget := 0
+	due = make([]domain.ReportRecord, 0, len(reports))
+	for _, report := range reports {
+		if report.DeliveryState != domain.ReportPending {
+			continue
+		}
+		if report.AvailableAt.After(now) {
+			morePending = true
+			continue
+		}
+		size := encodedReportBytes(report)
+		if len(due) == MaxAcknowledgeReports || (len(due) > 0 && budget+size > MaxPulledReportBytes) {
+			// Stop rather than skip, so a later small report never overtakes
+			// an earlier large one.
+			morePending = true
+			break
+		}
+		budget += size
+		due = append(due, report)
+	}
+	return due, morePending, nil
+}
+
+// AcknowledgePulled settles reports a peer daemon pulled and delivered. Only
+// the named worker's still-pending reports change; it returns those IDs.
+func (s *Service) AcknowledgePulled(ctx context.Context, sessionID domain.SessionID, ids []string) ([]string, error) {
+	if s == nil || s.store == nil {
+		return nil, errors.New("report: store is required")
+	}
+	if len(ids) == 0 || len(ids) > MaxAcknowledgeReports {
+		return nil, apierr.Invalid("INVALID_REPORT_IDS", "Between 1 and 200 report ids are required", nil)
+	}
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			return nil, apierr.Invalid("INVALID_REPORT_IDS", "Report ids must not be empty", nil)
+		}
+	}
+	if err := s.pullableWorker(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	acker, ok := s.store.(interface {
+		AcknowledgePendingSessionReports(context.Context, domain.SessionID, []string, string, time.Time) ([]string, error)
+	})
+	if !ok {
+		return nil, errors.New("report: acknowledgement store is required")
+	}
+	acknowledged, err := acker.AcknowledgePendingSessionReports(ctx, sessionID, ids, "pulled:"+uuid.NewString(), s.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if acknowledged == nil {
+		acknowledged = []string{}
+	}
+	return acknowledged, nil
+}
+
+func (s *Service) pullableWorker(ctx context.Context, sessionID domain.SessionID) error {
+	if sessionID == "" {
+		return apierr.Invalid("INVALID_REPORT_SESSION", "Worker session id is required", nil)
+	}
+	session, ok, err := s.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	if session.Kind != domain.KindWorker {
+		return apierr.Invalid("REPORT_WORKER_REQUIRED", "Reports belong only to worker sessions", nil)
+	}
+	return nil
 }
 
 // Create validates ownership and persists one pending report. Reports are
