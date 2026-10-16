@@ -102,9 +102,9 @@ func TestLANManagerAuthGatesSharedHandler(t *testing.T) {
 	}
 }
 
-// TestLANManagerStartAcceptsIPv6Loopback pins the dual-stack behavior of the
-// 0.0.0.0 bind (ADR 0007): switching Start to "tcp4" or an IPv4-only address
-// would silently break IPv6-only private networks such as Railway's.
+// TestLANManagerStartAcceptsIPv6Loopback заковава dual-stack поведението на
+// bind-а на 0.0.0.0 (ADR 0007): преминаването на Start към "tcp4" или към адрес
+// само за IPv4 би счупило тихо частни мрежи само с IPv6, като тази на Railway.
 func TestLANManagerStartAcceptsIPv6Loopback(t *testing.T) {
 	probe, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {

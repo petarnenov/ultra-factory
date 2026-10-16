@@ -1,23 +1,23 @@
 # syntax=docker/dockerfile:1
 
-# AO worker image for Railway: the `ao` daemon, everything systemcheck marks
-# Required (git, tmux), Node for Claude Code Chat, gh, the agent CLIs, and
-# tini and jq for the entrypoint.
+# Образ на AO worker за Railway: daemon-ът `ao`, всичко, което systemcheck
+# маркира като Required (git, tmux), Node за Claude Code Chat, gh, CLI-ите на
+# агентите, както и tini и jq за entrypoint-а.
 #
-# Build context is the REPO ROOT:
+# Контекстът на билда е КОРЕНЪТ НА РЕПОТО:
 #   docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
 #   docker buildx build --platform linux/amd64,linux/arm64 \
 #     -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
 #
-# The layout mirrors `make daemon-dist` (scripts/build-daemon-dist.sh):
-# /opt/ao/daemon/ao sits beside /opt/ao/acp-runtime, so the daemon finds the
-# Claude ACP adapter without AO_ACP_RUNTIME_DIR.
+# Подредбата повтаря `make daemon-dist` (scripts/build-daemon-dist.sh):
+# /opt/ao/daemon/ao стои до /opt/ao/acp-runtime, така че daemon-ът намира
+# Claude ACP адаптера без AO_ACP_RUNTIME_DIR.
 
 ARG GO_IMAGE=golang:1.27.1-bookworm
-# The ACP adapter needs Node 22+ on glibc 2.28+; Alpine (musl) does not work.
+# ACP адаптерът изисква Node 22+ върху glibc 2.28+; Alpine (musl) не работи.
 ARG NODE_IMAGE=node:24-bookworm-slim
 
-# ---- stage 1: the ao binary, cross-compiled on the build host ----
+# ---- етап 1: binary-то ao, крос-компилирано на хоста на билда ----
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -29,7 +29,7 @@ COPY backend/go.mod backend/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY backend ./
-# Pure-Go SQLite (modernc) builds with CGO disabled -> a static binary.
+# SQLite на чист Go (modernc) се билдва с изключен CGO -> статично binary.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
@@ -37,11 +37,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags "-s -w -X github.com/aoagents/agent-orchestrator/backend/internal/cli.Version=${AO_VERSION} -X github.com/aoagents/agent-orchestrator/backend/internal/cli.Commit=${AO_COMMIT}" \
       -o /out/ao ./cmd/ao
 
-# ---- stage 2: AO's patched Claude ACP adapter ----
-# The adapter is platform-independent JavaScript, so it builds once on the
-# build host with the same script and patches as the desktop app and
-# daemon-dist. The script also downloads a Node runtime for the build host;
-# it is dropped here because the final image already ships Node.
+# ---- етап 2: patch-натият Claude ACP адаптер на AO ----
+# Адаптерът е платформено независим JavaScript, затова се билдва веднъж на
+# хоста на билда със същия скрипт и patch-ове като десктоп приложението и
+# daemon-dist. Скриптът сваля и Node runtime за хоста на билда; тук той се
+# изтрива, защото крайният образ вече съдържа Node.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS acp
 WORKDIR /src/frontend
 COPY frontend/acp-runtime ./acp-runtime
@@ -50,18 +50,20 @@ RUN node scripts/build-acp-runtime.mjs && \
     test -f resources/acp-runtime/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js && \
     rm -rf resources/acp-runtime/node resources/acp-runtime/.ao-acp-runtime.json
 
-# ---- stage 3: the worker ----
+# ---- етап 3: worker-ът ----
 FROM ${NODE_IMAGE} AS worker
 ARG TARGETARCH
-# npm packages installed globally, each pinned. Override the whole list to add
-# or drop a CLI; Claude Code must stay because Claude Code Chat runs it.
+# npm пакети, инсталирани глобално, всеки с фиксирана версия. Замени целия
+# списък, за да добавиш или махнеш CLI; Claude Code трябва да остане, защото
+# Claude Code Chat го пуска.
 ARG AGENT_NPM_PACKAGES="@anthropic-ai/claude-code@2.1.228 @openai/codex@0.147.0 opencode-ai@1.19.3"
-# Optional; build with --build-arg CURSOR_AGENT_VERSION= to leave it out.
+# По избор; билдни с --build-arg CURSOR_AGENT_VERSION=, за да го пропуснеш.
 ARG CURSOR_AGENT_VERSION=2026.08.11-e8db854
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# gh comes from GitHub's official apt repository, which only serves the latest
-# release, so its version follows the build date rather than a pin.
+# gh идва от официалното apt хранилище на GitHub, което сервира само
+# последното издание, затова версията му следва датата на билда, а не е
+# фиксирана.
 RUN apt-get update && \
     apt-get install --yes --no-install-recommends \
         bash \
@@ -105,7 +107,7 @@ RUN if [ -n "${CURSOR_AGENT_VERSION}" ]; then \
 
 COPY --from=build /out/ao /opt/ao/daemon/ao
 COPY --from=acp /src/frontend/resources/acp-runtime /opt/ao/acp-runtime
-# The daemon requires acp-runtime/node/bin/node; point it at the image's Node.
+# Daemon-ът изисква acp-runtime/node/bin/node; насочи го към Node на образа.
 RUN mkdir -p /opt/ao/acp-runtime/node/bin && \
     ln -s /usr/local/bin/node /opt/ao/acp-runtime/node/bin/node
 COPY --chmod=0755 deploy/railway/worker/ao-worker-entrypoint.sh /usr/local/bin/ao-worker-entrypoint.sh
@@ -123,17 +125,19 @@ ENV HOME=/data/home \
     LANG=C.UTF-8 \
     PATH=/opt/ao/daemon:$PATH
 
-# Numeric so runtimes that enforce non-root can verify it; this is user ao.
+# Числово, за да могат runtime-ите, които налагат non-root, да го проверят;
+# това е потребителят ao.
 USER 10001:10001
 WORKDIR /data
 
-# 3011 is the authenticated remote-host listener. The loopback API on 3001
-# stays inside the container and is only used for the health check.
+# 3011 е автентикираният remote-host listener. Loopback API-то на 3001 остава
+# вътре в контейнера и се използва само за health check-а.
 EXPOSE 3011
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3001/healthz || exit 1
 
-# tini forwards SIGTERM to the daemon and reaps orphaned children (exited git
-# helpers otherwise stay as zombies under a PID 1 daemon). -s keeps reaping
-# when the runtime adds its own init, as `docker run --init` does.
+# tini препраща SIGTERM към daemon-а и прибира осиротелите дъщерни процеси
+# (иначе приключилите git помощници остават като зомбита под daemon с PID 1).
+# -s запазва прибирането, когато runtime-ът добавя собствен init, както прави
+# `docker run --init`.
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/ao-worker-entrypoint.sh"]

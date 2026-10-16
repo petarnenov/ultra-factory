@@ -128,39 +128,40 @@ Options:
 The archive does not install a service or tmux. The bundled Linux Node needs
 glibc 2.28 or newer.
 
-## Behind a reverse proxy
+## Зад reverse proxy
 
-The remote endpoint locks a source out for a minute after five wrong
-passwords. It keys that lockout on the TCP peer. Behind a TLS-terminating HTTP
-proxy, such as a Railway public domain, every request arrives from the proxy,
-so one client guessing wrong passwords locks out every other client.
+Отдалечената крайна точка заключва източник за една минута след пет грешни
+пароли. Ключът на този lockout е TCP peer-ът. Зад HTTP proxy, който терминира
+TLS, например публичен Railway домейн, всяка заявка пристига от proxy-то, така
+че един клиент, който отгатва грешни пароли, заключва всички останали клиенти.
 
-For that deployment only, start the daemon with:
+Само за такова разгръщане стартирай daemon-а с:
 
 ```bash
 AO_REMOTE_TRUSTED_PROXY=1 ao daemon
 ```
 
-The listener then keys the lockout on the **rightmost** `X-Forwarded-For`
-entry, the one the nearest proxy appended. Earlier entries are
-client-controlled and are ignored. If the rightmost entry is not a valid IP,
-the TCP peer is used. The loopback `CF-Connecting-IP` rule for the managed
-Cloudflare tunnel is unchanged and still applies first. The forwarded address
-never authorizes anything: every request except `GET /api/v1/identity` still
-needs the password or account credential.
+Тогава listener-ът ключува lockout-а по **най-десния** запис в
+`X-Forwarded-For` — този, който е добавил най-близкият proxy. По-ранните записи
+се контролират от клиента и се игнорират. Ако най-десният запис не е валиден IP,
+се използва TCP peer-ът. Loopback правилото за `CF-Connecting-IP` за
+управлявания Cloudflare тунел не се променя и продължава да се прилага първо.
+Препратеният адрес никога не авторизира нищо: всяка заявка освен
+`GET /api/v1/identity` все така изисква паролата или акаунт credential-а.
 
-Set it only when the proxy is the sole public path to the listener and exactly
-one proxy sits in front of it. Never set it on a desktop or a LAN, Tailscale,
-or quick-tunnel host: any client that reaches the port directly can then choose
-its own lockout key and guess without limit. Services that reach the worker
-over private networking without the proxy can do the same, so keep that
-network to your own services. The decision and the full safe/dangerous table
-are in [ADR 0005](adr/0005-trusted-proxy-remote-host.md).
+Задавай го само когато proxy-то е единственият публичен път до listener-а и пред
+него стои точно един proxy. Никога не го задавай на десктоп или на хост с LAN,
+Tailscale или quick tunnel: всеки клиент, който достига порта директно, тогава
+може сам да избере своя lockout ключ и да отгатва без ограничение. Услугите,
+които достигат worker-а през частната мрежа без proxy-то, могат да направят
+същото, затова дръж тази мрежа само за собствените си услуги. Решението и
+пълната таблица кога е безопасно и кога опасно са в
+[ADR 0005](adr/0005-trusted-proxy-remote-host.md).
 
-With the flag on, the daemon logs one warning each time the listener starts.
-In any mode, a source that becomes locked out logs one warning with the
-derived key, the TCP peer, and whether the key came from `X-Forwarded-For`,
-`CF-Connecting-IP`, or the peer.
+При включен флаг daemon-ът логва по едно предупреждение при всяко стартиране на
+listener-а. Във всеки режим източник, който бъде заключен, логва едно
+предупреждение с изведения ключ, TCP peer-а и дали ключът идва от
+`X-Forwarded-For`, `CF-Connecting-IP` или peer-а.
 
 ## Security and limits
 
