@@ -52,6 +52,7 @@ type spawnRequest struct {
 	Model           string `json:"model,omitempty"`
 	RequestedOutput string `json:"requestedOutput,omitempty"`
 	DisplayName     string `json:"displayName"`
+	RemoteSpawn     bool   `json:"remoteSpawn,omitempty"`
 }
 
 type spawnResult struct {
@@ -193,6 +194,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				Model:           strings.TrimSpace(opts.model),
 				RequestedOutput: opts.output,
 				DisplayName:     name,
+				RemoteSpawn:     ctx.targetsRemote() && opts.kind != "orchestrator",
 			}
 			var res spawnResult
 			if err := ctx.postJSON(cmd.Context(), "sessions", req, &res); err != nil {

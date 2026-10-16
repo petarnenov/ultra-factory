@@ -17781,6 +17781,8 @@ components:
         prompt:
           maxLength: 16384
           type: string
+        remoteSpawn:
+          type: boolean
         requestedOutput:
           enum:
           - artifact

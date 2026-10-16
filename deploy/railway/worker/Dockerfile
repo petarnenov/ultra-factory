@@ -26,12 +26,12 @@ ARG AO_COMMIT=unknown
 WORKDIR /src/backend
 
 COPY backend/go.mod backend/go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,target=/go/pkg/mod go mod download
 
 COPY backend ./
 # Pure-Go SQLite (modernc) builds with CGO disabled -> a static binary.
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,target=/go/pkg/mod \
+    --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/root/.cache/go-build,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath \
       -ldflags "-s -w -X github.com/aoagents/agent-orchestrator/backend/internal/cli.Version=${AO_VERSION} -X github.com/aoagents/agent-orchestrator/backend/internal/cli.Commit=${AO_COMMIT}" \

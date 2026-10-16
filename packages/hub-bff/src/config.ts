@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { hashPassword, parsePasswordHash } from "./password.ts";
 
@@ -9,6 +10,16 @@ export type Config = {
 	passwordHash: string;
 	publicOrigin?: string;
 	plaintextPassword: boolean;
+	// Directory holding hosts.json, on the hub's volume.
+	hubDataDir: string;
+	// The hub daemon's mobile/config.json, source of the "hub" host entry.
+	hubConfigPath: string;
+	railwayToken?: string;
+	railwayProjectId?: string;
+	railwayEnvironmentId?: string;
+	workerImage?: string;
+	workerUrlMode: "public" | "private";
+	maxWorkers: number;
 };
 
 // loadConfig reads the BFF's environment. It throws with an operator-facing
@@ -42,5 +53,18 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 		publicOrigin = url.origin;
 	}
 
-	return { host: env.AO_HUB_BFF_HOST ?? "::", port, spaDir, passwordHash, publicOrigin, plaintextPassword: !hash };
+	// Defaults follow the daemon's own: AO_DATA_DIR, else ~/.ao/data.
+	const daemonDataDir = path.resolve(env.AO_DATA_DIR || path.join(homedir(), ".ao", "data"));
+	const hubDataDir = path.resolve(env.AO_HUB_DATA_DIR || daemonDataDir);
+	const hubConfigPath = path.resolve(env.AO_HUB_DAEMON_PASSWORD_FILE || path.join(daemonDataDir, "mobile", "config.json"));
+	const workerUrlMode = env.AO_HUB_WORKER_URL_MODE ?? "public";
+	if (workerUrlMode !== "public" && workerUrlMode !== "private") throw new Error("AO_HUB_WORKER_URL_MODE must be public or private");
+	const maxWorkers = Number(env.AO_HUB_MAX_WORKERS ?? "5");
+	if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1) throw new Error("AO_HUB_MAX_WORKERS must be a positive integer");
+
+	return {
+		host: env.AO_HUB_BFF_HOST ?? "::", port, spaDir, passwordHash, publicOrigin, plaintextPassword: !hash, hubDataDir, hubConfigPath,
+		railwayToken: env.RAILWAY_API_TOKEN, railwayProjectId: env.RAILWAY_PROJECT_ID, railwayEnvironmentId: env.RAILWAY_ENVIRONMENT_ID,
+		workerImage: env.AO_HUB_WORKER_IMAGE, workerUrlMode, maxWorkers,
+	};
 }
