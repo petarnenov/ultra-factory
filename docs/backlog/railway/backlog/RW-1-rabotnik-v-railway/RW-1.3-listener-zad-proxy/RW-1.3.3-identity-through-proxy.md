@@ -1,19 +1,19 @@
-# RW-1.3.3 · Таск: Identity probe и Expected-Host-ID guard през proxy
+# RW-1.3.3 · Task: Identity probe and Expected-Host-ID guard through a proxy
 
-**Тип:** backend Go + проверка. **Оценка:** 0.5 чд. **Стори:** RW-1.3.
+**Type:** backend Go + verification. **Estimate:** 0.5 pd. **Story:** RW-1.3.
 
-## Цел
-Потвърди, че `GET /api/v1/identity` (единственият неавтентикиран маршрут) и `X-AO-Expected-Host-ID` (421 при несъответствие, `lan_listener.go:138`) работят коректно през HTTPS proxy и че desktop/CLI клиентите ги ползват при добавяне на хост.
+## Goal
+Confirm that `GET /api/v1/identity` (the only unauthenticated route) and `X-AO-Expected-Host-ID` (421 on mismatch, `lan_listener.go:138`) work correctly through an HTTPS proxy, and that the desktop/CLI clients use them when adding a host.
 
-## Контекст
+## Context
 - `backend/internal/httpd/auth.go:245-252` identity exemption; ADR `0003`.
 - `frontend/src/main/remote-request.ts:45-80` probe; `backend/internal/cli/remote_target.go:48-51` `remoteIdentity`.
 
-## Събтаскове
-- [ ] Провери, че identity отговорът не включва нищо чувствително, когда се сервира на публичен URL (само `hostId`, `apiVersion`).
-- [ ] Провери, че `expectedHostGuard` не зависи от `Host` header-а (който proxy-то може да презапише).
-- [ ] Ако `https://` URL към хост се отхвърля някъде в клиента (например scheme allowlist), поправи го. Търси `http://` допускания в `remote-request.ts`, `remote_target.go`.
-- [ ] Добави тест в `remote_target_test.go` за `https` URL.
+## Subtasks
+- [ ] Verify that the identity response includes nothing sensitive when served on a public URL (only `hostId`, `apiVersion`).
+- [ ] Verify that `expectedHostGuard` does not depend on the `Host` header (which the proxy may rewrite).
+- [ ] If an `https://` URL to a host is rejected anywhere in the client (for example by a scheme allowlist), fix it. Look for `http://` assumptions in `remote-request.ts`, `remote_target.go`.
+- [ ] Add a test in `remote_target_test.go` for an `https` URL.
 
-## Критерии за приемане
-- [ ] `ao host ls` след добавяне на `https://worker.up.railway.app` показва hostId, `ao project ls --host worker` работи.
+## Acceptance criteria
+- [ ] `ao host ls` after adding `https://worker.up.railway.app` shows the hostId; `ao project ls --host worker` works.

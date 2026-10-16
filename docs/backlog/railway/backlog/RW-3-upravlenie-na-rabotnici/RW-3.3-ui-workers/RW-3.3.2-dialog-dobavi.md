@@ -1,10 +1,10 @@
-# RW-3.3.2 · Таск: Диалог „Добави работник“
+# RW-3.3.2 · Task: "Add worker" dialog
 
-**Тип:** frontend React. **Оценка:** 0.5–1 чд. **Стори:** RW-3.3.
+**Type:** frontend React. **Estimate:** 0.5–1 pd. **Story:** RW-3.3.
 
-## Събтаскове
-- [ ] Два таба: „Create in Railway“ (label, размер/region ако provider-ът поддържа, Claude auth: API key или OAuth token, GitHub token, git name/email) и „Add existing by address“ (label, URL, парола → RW-2.4.3 API).
-- [ ] Валидация: label `[a-z0-9-]{3,32}` уникален; поне една Claude credential; `GH_TOKEN` формат.
-- [ ] Submit → `POST /hub/workers` → затваря диалога, списъкът показва provisioning. Грешки 429 (лимит) и 5xx с четимо съобщение.
-- [ ] Полетата за секрети са `type=password`, без autocomplete, изчистват се при затваряне.
-- [ ] Vitest: валидация и submit payload.
+## Subtasks
+- [ ] Two tabs: "Create in Railway" (label, size/region if the provider supports it, Claude auth: API key or OAuth token, GitHub token, git name/email) and "Add existing by address" (label, URL, password → RW-2.4.3 API).
+- [ ] Validation: label `[a-z0-9-]{3,32}` unique; at least one Claude credential; `GH_TOKEN` format.
+- [ ] Submit → `POST /hub/workers` → closes the dialog, the list shows provisioning. Errors 429 (limit) and 5xx with a readable message.
+- [ ] Secret fields are `type=password`, without autocomplete, and are cleared on close.
+- [ ] Vitest: validation and submit payload.

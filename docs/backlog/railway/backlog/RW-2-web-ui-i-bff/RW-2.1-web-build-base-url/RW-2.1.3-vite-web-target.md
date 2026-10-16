@@ -1,17 +1,17 @@
-# RW-2.1.3 · Таск: Vite web build target
+# RW-2.1.3 · Task: Vite web build target
 
-**Тип:** build. **Оценка:** 0.5–1 чд. **Стори:** RW-2.1.
+**Type:** build. **Estimate:** 0.5–1 pd. **Story:** RW-2.1.
 
-## Контекст
-- `frontend/scripts/dev-web.mjs` пуска Vite с `VITE_NO_ELECTRON=1` (mock). Web build-ът НЕ трябва да сетва този флаг.
-- `frontend/vite.renderer.config.ts` dev proxy за `/api`, `/mux` към `AO_DEV_API_TARGET` (:112-128).
-- Router ползва hash history (`router.tsx:15`), статичен host е ОК.
+## Context
+- `frontend/scripts/dev-web.mjs` runs Vite with `VITE_NO_ELECTRON=1` (mock). The web build MUST NOT set this flag.
+- `frontend/vite.renderer.config.ts` dev proxy for `/api`, `/mux` to `AO_DEV_API_TARGET` (:112-128).
+- The router uses hash history (`router.tsx:15`), so a static host is OK.
 
-## Събтаскове
-- [ ] `frontend/package.json`: `"build:web": "VITE_AO_WEB=1 vite build --config vite.renderer.config.ts --outDir dist-web"` и `"dev:web:real": "VITE_AO_WEB=1 vite --config vite.renderer.config.ts"` (без mock, с proxy към реален daemon).
-- [ ] В `vite.renderer.config.ts`: `base: "./"` при web, `outDir` параметризиран, proxy включва `/readyz`, `/healthz`.
+## Subtasks
+- [ ] `frontend/package.json`: `"build:web": "VITE_AO_WEB=1 vite build --config vite.renderer.config.ts --outDir dist-web"` and `"dev:web:real": "VITE_AO_WEB=1 vite --config vite.renderer.config.ts"` (no mock, with a proxy to a real daemon).
+- [ ] In `vite.renderer.config.ts`: `base: "./"` for web, parameterized `outDir`, the proxy includes `/readyz`, `/healthz`.
 - [ ] `.gitignore`: `frontend/dist-web/`.
-- [ ] Документирай в `AGENTS.md` Commands секцията (един ред).
+- [ ] Document it in the Commands section of `AGENTS.md` (one line).
 
-## Критерии за приемане
-- [ ] `npm --prefix frontend run build:web` минава; `npx serve dist-web` + proxy показва реален board.
+## Acceptance criteria
+- [ ] `npm --prefix frontend run build:web` passes; `npx serve dist-web` + proxy shows a real board.

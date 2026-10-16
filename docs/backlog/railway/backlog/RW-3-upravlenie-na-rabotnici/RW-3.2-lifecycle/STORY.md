@@ -1,14 +1,14 @@
-# RW-3.2 · Стори: Lifecycle на работник
+# RW-3.2 · Story: Worker lifecycle
 
-**Като** оператор **искам** BFF-ът да води работника през състояния provisioning → online → removing → removed с видим прогрес и възстановяване след рестарт на hub-а, **за да** не остават „сираци“ в Railway.
+**As** an operator **I want** the BFF to take the worker through the states provisioning → online → removing → removed with visible progress and recovery after a hub restart, **so that** no "orphans" are left behind in Railway.
 
-**Оценка:** 2–3 чд. **Зависимости:** RW-3.1, RW-2.4.3.
+**Estimate:** 2–3 pd. **Dependencies:** RW-3.1, RW-2.4.3.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-3.2.1 | State machine + persisted jobs в `hosts.json` | 1–1.5 |
-| RW-3.2.2 | Reconcile при старт и периодично; защита от сираци и лимит на брой | 1–1.5 |
+| RW-3.2.1 | State machine + persisted jobs in `hosts.json` | 1–1.5 |
+| RW-3.2.2 | Reconcile on startup and periodically; protection against orphans and a worker count limit | 1–1.5 |
 
-**Критерии за приемане**
-- [ ] Kill на hub-а по средата на provisioning → след рестарт работникът завършва или се маркира failed с причина; никога не остава service без запис.
-- [ ] `AO_HUB_MAX_WORKERS` се спазва с ясна грешка в UI.
+**Acceptance criteria**
+- [ ] Killing the hub in the middle of provisioning → after restart the worker either completes or is marked failed with a reason; a service is never left without a record.
+- [ ] `AO_HUB_MAX_WORKERS` is enforced with a clear error in the UI.
