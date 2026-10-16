@@ -1,6 +1,7 @@
 import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
 import { usesPreviewWorkspaceData } from "./preview-mode";
+import { createWebNotificationsBridge } from "./web-notifications";
 import { webKeybindings, webUiSettings } from "./web-settings";
 import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
@@ -338,14 +339,22 @@ export const aoBridge: AoBridge =
 			import: async () => ({ sourceName: "", entries: [] }),
 			onImportProgress: () => () => undefined,
 		},
-		notifications: {
-			show: async () => undefined,
-			setBadge: async () => undefined,
-			devBounce: async () => undefined,
-			onClick: () => () => undefined,
-			onPlaySound: () => () => undefined,
-			reportSoundFailure: () => undefined,
-		},
+		// Mock-data preview (VITE_NO_ELECTRON) stays without notifications; the web
+		// build uses Web Notifications, a document.title badge and the bundled sound.
+		notifications: usesPreviewWorkspaceData
+			? {
+				show: async () => undefined,
+				setBadge: async () => undefined,
+				devBounce: async () => undefined,
+				onClick: () => () => undefined,
+				onPlaySound: () => () => undefined,
+				reportSoundFailure: () => undefined,
+			}
+			: createWebNotificationsBridge({
+				// Dynamic import: the store imports aoBridge from this module.
+				soundEnabled: async () =>
+					(await import("../stores/sound-notifications-store")).useSoundNotificationsStore.getState().enabled,
+			}),
 		tray: {
 			setAttentionState: () => undefined,
 			onOpenSession: () => () => undefined,
