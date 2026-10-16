@@ -1,164 +1,159 @@
-# 5. Доверие към клиентския адрес от reverse proxy на remote-host listener-а
+# 5. Trusting a reverse proxy's client address on the remote-host listener
 
-Дата: 2026-10-16
-Статус: Приет
+Date: 2026-10-16
+Status: Accepted
 
-## Контекст
+## Context
 
-Автентикираният remote-host listener (LAN listener-ът на Connect Mobile от
-[0001](0001-lan-listener-for-mobile.md), включван с `ao remote-host enable`)
-ограничава отгатването на парола по източник. `authMiddleware` ключува lockout-а
-по `sourceKey(r)`, т.е. хост частта на `RemoteAddr`, и блокира този ключ за една
-минута след пет неуспеха (`backend/internal/httpd/auth.go`, `lockout`).
+The authenticated remote-host listener (the Connect Mobile LAN listener of
+[0001](0001-lan-listener-for-mobile.md), enabled by `ao remote-host enable`)
+throttles password guessing per source. `authMiddleware` keys the lockout on
+`sourceKey(r)`, the host part of `RemoteAddr`, and blocks that key for a minute
+after five failures (`backend/internal/httpd/auth.go`, `lockout`).
 
-Днес listener-ът чете точно един forwarding header. Когато TCP peer-ът е
-loopback, както `cloudflared` го достига според
-[0004](0004-cloudflare-tunnel-for-remote-mobile-access.md), единична стойност на
-`CF-Connecting-IP` замества peer-а само за ключа на lockout-а. LAN клиент не може
-да използва този header, защото неговият peer никога не е loopback.
-`X-Forwarded-For` и `X-Real-IP` не се четат никъде.
+The listener reads exactly one forwarding header today. When the TCP peer is
+loopback, which is how `cloudflared` reaches it under
+[0004](0004-cloudflare-tunnel-for-remote-mobile-access.md), a single
+`CF-Connecting-IP` value replaces the peer for the lockout key only. A LAN client
+cannot use that header, because its peer is never loopback. `X-Forwarded-For` and
+`X-Real-IP` are not read anywhere.
 
-Worker daemon, хостван в Railway и достъпван през публичен Railway домейн, стои
-зад edge-а на Railway — HTTP proxy, който терминира TLS. Тогава всяка заявка
-пристига от адрес на edge-а, а не от клиента. При сегашното ключуване всички
-клиенти делят шепа lockout ключове: един нападател, който изпраща пет грешни
-пароли, заключва оператора за минута, отново и отново. Това е отказ на услуга, а
-не заобикаляне, но прави публично достъпен worker неизползваем при тривиална
-злоупотреба.
+A worker daemon hosted on Railway and reached through a public Railway domain sits
+behind Railway's edge, a TLS-terminating HTTP proxy. Every request then arrives
+from an edge address, not from the client. With the current keying, all clients
+share a handful of lockout keys: one attacker sending five wrong passwords locks
+out the operator for a minute, repeatedly. That is a denial of service, not a
+bypass, but it makes a publicly reachable worker unusable under trivial abuse.
 
-За да е това безопасно, са нужни два факта за edge-а на Railway, които **не могат
-да се проверят без Railway акаунт**. Те са отворени въпроси за ръчното
-разгръщане в RW-1.4 (виж „Отворени въпроси за RW-1.4“ по-долу):
+Two facts about Railway's edge are needed to make this safe and **cannot be
+verified without a Railway account**. They are open questions for the manual
+deployment in RW-1.4 (see "Open questions" below):
 
-- кой header носи клиентския адрес и дали edge-ът **презаписва** стойност,
-  подадена от клиента, или **добавя** към нея;
-- дали edge-ът се свързва от предвидим диапазон адреси, който може да се отличи
-  от други peer-и, например peer-и в частната мрежа на същия проект.
+- which header carries the client address, and whether the edge **overwrites**
+  it or **appends** to a client-supplied value;
+- whether the edge connects from a predictable address range that can be told
+  apart from other peers, such as private-network peers in the same project.
 
-## Решение
+## Decision
 
-Добавяме **trusted-proxy режим по избор** за remote-host listener-а, който се
-включва само чрез променлива на средата на daemon-а:
+Add an **opt-in trusted-proxy mode** for the remote-host listener, enabled only
+by an environment variable on the daemon:
 
 ```
 AO_REMOTE_TRUSTED_PROXY=1
 ```
 
-Режимът **никога не е включен по подразбиране**, няма превключвател в UI или
-CLI и изобщо не променя loopback listener-а.
+It is **never on by default**, it has no UI or CLI toggle, and it does not change
+the loopback listener at all.
 
-Когато режимът е включен, `authMiddleware` извежда lockout ключа така:
+When the mode is on, `authMiddleware` derives the lockout key as follows:
 
-1. Ако peer-ът е loopback и има единичен валиден `CF-Connecting-IP`, използва
-   него. Това е днешното правило за cloudflared, непроменено и проверявано първо.
-2. Иначе, ако има `X-Forwarded-For`, взема **най-десния** валиден IP от всички
-   редове на `X-Forwarded-For` header-а, т.е. записа, добавен от най-близкия
-   proxy. Приема се точно един доверен hop. Когато proxy добавя, най-левият
-   запис се контролира от клиента, затова никога не се използва.
-3. Иначе, или ако стойността не се парсва като IP, използва `RemoteAddr` както
-   днес.
+1. If the peer is loopback and a single valid `CF-Connecting-IP` is present, use
+   it. This is today's cloudflared rule, unchanged and evaluated first.
+2. Otherwise, if `X-Forwarded-For` is present, take the **rightmost** valid IP
+   across all `X-Forwarded-For` header lines, which is the entry the nearest proxy
+   appended. Exactly one trusted hop is assumed. The leftmost entry is
+   client-controlled when a proxy appends, so it is never used.
+3. Otherwise, or if the value does not parse as an IP, use `RemoteAddr` as today.
 
-Изведеният ключ се използва само за lockout-а и за нищо друго. Никога не се
-използва за авторизация, за `localControlRequest`, за блокирането на control
-маршрутите в LAN, нито за решение, че заявката е локална. Bearer паролата или
-акаунт токенът остават задължителни за всяка заявка освен пробата
-`GET /api/v1/identity` от [0003](0003-unauthenticated-identity-probe.md).
+The derived key is used for the lockout and nothing else. It is never used for
+authorization, for `localControlRequest`, for the LAN control-route block, or to
+decide that a request is local. The bearer password or account token is still
+required on every request except the `GET /api/v1/identity` probe of
+[0003](0003-unauthenticated-identity-probe.md).
 
-Lockout-ът по IP остава. Бяха разгледани и отхвърлени две алтернативи:
+The per-IP lockout stays. Two alternatives were considered and rejected:
 
-- **Lockout по credential вместо по IP.** Listener-ът има една парола за връзка
-  и един акаунт токен. Заключването на credential-а позволява на всеки непознат
-  да заключи оператора, а точно този отказ този ADR премахва.
-- **Глобален таван на неуспехите.** Има същото свойство да заключва всички. Ако
-  RW-1.4 покаже, че натискът от отгатване изисква таван, това трябва да е отделно
-  решение, което ограничава скоростта, а не заключва.
+- **Lockout per credential instead of per IP.** The listener has one connection
+  password and one account token. Locking the credential lets any stranger lock
+  out the operator, which is exactly the failure this ADR exists to remove.
+- **A global failure ceiling.** It has the same lock-out-everyone property.
+  If RW-1.4 shows that guessing pressure needs a ceiling, it should be a separate
+  decision that rate-limits rather than locks.
 
-Този ADR съзнателно коригира предложението от беклога „използвай първия запис на
-`X-Forwarded-For`“. Ако се окаже, че Railway презаписва header-а с единична
-стойност, най-десният и първият съвпадат. Ако добавя, първият запис се избира от
-нападателя и използването му би позволило на един клиент свободно да сменя
-lockout ключовете си и да отгатва без ограничение.
+This ADR deliberately adjusts the backlog proposal of "use the first
+`X-Forwarded-For` entry". If Railway turns out to overwrite the header with a
+single value, rightmost and first are the same. If it appends, the first entry is
+attacker-chosen, and using it would let one client rotate lockout keys freely and
+guess without limit.
 
-### Защо header-ът не може да се подправи в предвиденото разгръщане
+### Why the header cannot be spoofed in the intended deployment
 
-Гаранцията е за това кой може да достигне сокета — същият аргумент, който прави
-`lanControlBlock`:
+The guarantee is about who can reach the socket, the same argument
+`lanControlBlock` makes:
 
-- Worker, разгърнат за този режим, **няма TCP proxy и няма директен публичен
-  порт**. Единственият публичен път до него е Railway домейнът, затова всяка
-  публична заявка минава през edge-а, а записът, добавен от самия edge, е
-  най-десният.
-- Клиентът може да сложи каквото иска в `X-Forwarded-For`, който изпраща. При
-  един доверен hop това съдържание е **вляво** от записа на edge-а и се игнорира.
+- A worker deployed for this mode has **no TCP proxy and no direct public port**.
+  The only public path to it is the Railway domain, so every public request
+  traverses the edge, and the edge's own appended entry is the rightmost one.
+- A client can put anything into the `X-Forwarded-For` it sends. With one trusted
+  hop, that content is to the **left** of the edge's entry and is ignored.
 
-**Частната мрежа е отделен случай.** Други услуги в същия Railway проект
-достигат worker-а през `*.railway.internal`, без да минават през edge-а. Техните
-заявки стигат директно до сокета и могат да носят какъвто `X-Forwarded-For`
-поискат. В този режим такъв peer може сам да избере своя lockout ключ и затова
-не се ограничава. Peer-ите в тази мрежа са собствени услуги на оператора, като
-hub-а от [0006](0006-web-bff-for-hub.md), затова това се приема за първото
-издание. Ако RW-1.4 покаже, че edge-ът идва от стабилен, документиран диапазон,
-последваща промяна може да добави `AO_REMOTE_TRUSTED_PROXY_CIDRS`, за да се
-зачита header-ът само от този диапазон. Този ADR не го добавя.
+**Private networking is a separate case.** Other services in the same Railway
+project reach the worker over `*.railway.internal` without passing the edge.
+Their requests reach the socket directly and can carry any `X-Forwarded-For`
+they like. Under this mode such a peer can choose its own lockout key and so is
+not throttled. The peers on that network are the operator's own services, such as
+the hub of [0006](0006-web-bff-for-hub.md), so this is accepted for the first
+release. If RW-1.4 shows the edge arrives from a stable, documented range, a
+follow-up may add `AO_REMOTE_TRUSTED_PROXY_CIDRS` to honor the header only from
+that range. This ADR does not add it.
 
-### Кога флагът е безопасен и кога е опасен
+### When the flag is safe and when it is dangerous
 
-| Разгръщане | Флаг | Защо |
+| Deployment | Flag | Why |
 |---|---|---|
-| Worker, чийто единствен публичен път е публичен Railway домейн (или сравним единичен proxy, който терминира TLS), по избор достъпван и през частната мрежа на Railway от собствени услуги на оператора, като hub-а от [0006](0006-web-bff-for-hub.md) | Безопасен, препоръчителен | Недоверени клиенти не могат да достигнат сокета освен през proxy-то. Приет риск: peer-и от частната мрежа могат сами да изберат lockout ключа си (виж по-горе) |
-| Worker, достъпван само през частната мрежа на Railway, без публичен домейн | Остави изключен | Няма proxy. `RemoteAddr` вече е истинският peer |
-| Десктоп или домашна машина, която използва Connect Mobile в LAN, Tailscale или управлявания cloudflared тунел | **Опасен, никога не го задавай** | Всяко LAN устройство може да изпрати `X-Forwarded-For` директно до сокета и да избегне lockout-а. Тунелът вече е покрит от loopback правилото за `CF-Connecting-IP` |
-| Worker зад два или повече proxy-та, или директно достъпен и за недоверени клиенти (Railway TCP proxy, публичен порт или споделена мрежа) | Опасен | Един доверен hop вече не идентифицира клиента, или недоверени директни клиенти могат да изберат ключа си и да избегнат lockout-а |
+| Worker whose only public path is a Railway public domain (or a comparable single TLS-terminating proxy), optionally also reached over Railway private networking by the operator's own services such as the hub of [0006](0006-web-bff-for-hub.md) | Safe, recommended | Untrusted clients cannot reach the socket except through the proxy. Accepted risk: private-network peers can choose their own lockout key (see above) |
+| Worker reached only over Railway private networking, no public domain | Leave off | No proxy is involved. `RemoteAddr` is already the real peer |
+| Desktop or home machine using Connect Mobile on a LAN, Tailscale, or the managed cloudflared tunnel | **Dangerous, never set** | Any LAN device can send `X-Forwarded-For` straight to the socket and evade the lockout. The tunnel is already covered by the loopback `CF-Connecting-IP` rule |
+| Worker behind two or more proxies, or directly reachable by untrusted clients as well (a Railway TCP proxy, a public port, or a shared network) | Dangerous | One trusted hop no longer identifies the client, or untrusted direct callers can choose their key and evade the lockout |
 
-Флагът се зачита само през средата на daemon-а, така че десктоп потребител не
-може да го включи случайно от UI. Документацията за Railway worker-и е
-единственото място, което казва на някого да го зададе.
+The flag is honored only through the daemon environment, so a desktop user cannot
+switch it on by accident from the UI. The documentation for Railway workers is the
+only place that tells anyone to set it.
 
-### Какво се логва
+### What is logged
 
-- **При старт на listener-а**, когато режимът е включен: един `Warn` ред, че
-  trusted-proxy режимът е включен и че `X-Forwarded-For` се счита за доверен за
-  lockout ключовете. Така грешно конфигуриран десктоп се вижда в логовете на `ao`.
-- **Когато ключ бъде заключен**: един `Warn` ред с изведения ключ, TCP peer-а и
-  дали ключът идва от `X-Forwarded-For`, `CF-Connecting-IP` или peer-а. Само при
-  прехода към lockout, а не при всяка неуспешна заявка, за да не залее порой
-  от заявки лога.
-- **Никога не се логват**: bearer токенът, паролата за връзка, акаунт токенът,
-  бисквитката, нито суровата верига на `X-Forwarded-For` извън избрания запис.
-- Connect-telemetry (`mobileConnectReporter`) продължава да получава TCP peer-а,
-  както днес. Не се превключва към препратения адрес.
+- **At listener start**, when the mode is on: one `Warn` line stating that
+  trusted-proxy mode is enabled and that `X-Forwarded-For` is trusted for lockout
+  keys. This makes a misconfigured desktop visible in `ao` logs.
+- **When a key becomes locked out**: one `Warn` line with the derived key, the TCP
+  peer, and whether the key came from `X-Forwarded-For`, `CF-Connecting-IP`, or
+  the peer. Only on the transition into lockout, not per failed request, so a
+  flood does not flood the log.
+- **Never logged**: the bearer token, the connection password, the account token,
+  the cookie, or the raw `X-Forwarded-For` chain beyond the chosen entry.
+- Connect-telemetry (`mobileConnectReporter`) keeps receiving the TCP peer, as it
+  does today. It is not switched to the forwarded address.
 
-## Последствия
+## Consequences
 
-- Публично изложен Railway worker вече не може да бъде заключен за всички
-  клиенти от един нападател. Защитата от brute-force остава по клиент.
-- `authMiddleware` получава един клон, зависим от средата. Нужни са му таблични
-  тестове за: изключеният флаг игнорира `X-Forwarded-For`; включеният флаг
-  използва най-десния запис; подправен най-ляв запис не променя ключа; няколко
-  реда на header-а; невалидна стойност пада обратно към peer-а; loopback
-  правилото за `CF-Connecting-IP` продължава да печели; identity пробата остава
-  изключена преди lockout-а.
-- Операторите носят конфигурационен риск: задаването на флага там, където
-  клиентите достигат сокета директно, изключва ограничаването на brute-force за
-  тези клиенти. Env променливата по избор, предупреждението при старт и
-  таблицата по-горе са смекчаващите мерки.
-- Не се добавят нов маршрут, bind или път за автентикация. Твърдите правила в
-  AGENTS.md за loopback listener-а и LAN listener-а остават непроменени освен
-  препратка към този ADR.
+- A publicly exposed Railway worker can no longer be locked for every client by a
+  single attacker. Brute-force protection stays per client.
+- `authMiddleware` gains one environment-dependent branch. It needs table tests
+  for: flag off ignores `X-Forwarded-For`; flag on uses the rightmost entry; a
+  spoofed leftmost entry does not change the key; several header lines; an
+  invalid value falls back to the peer; the loopback `CF-Connecting-IP` rule still
+  wins; the identity probe is still exempt ahead of the lockout.
+- Operators carry a configuration risk: setting the flag where clients reach the
+  socket directly disables brute-force throttling for those clients. The opt-in
+  env var, the start-up warning, and the table above are the mitigations.
+- No new route, bind, or authentication path is added. The AGENTS.md hard rules
+  for the loopback listener and the LAN listener are unchanged apart from a
+  pointer to this ADR.
 
-## Отворени въпроси за RW-1.4
+## Open questions for RW-1.4
 
-Трябва да получат отговор на реално Railway разгръщане, преди RW-1.3 да пусне
-кода:
+To be answered on a real Railway deployment before RW-1.3 ships the code:
 
-1. Кой от `X-Forwarded-For`, `X-Real-IP` или друг header задава edge-ът и дали
-   презаписва, или добавя към `X-Forwarded-For`, подаден от клиента? Провери,
-   като изпратиш `X-Forwarded-For: 203.0.113.7` през публичния домейн и запишеш
-   какво получава daemon-ът.
-2. Вижда ли контейнерът точно един proxy hop, или Railway свързва няколко?
-3. Какъв `RemoteAddr` вижда контейнерът за трафика от edge-а и стабилен ли е
-   диапазонът, отличим ли е от peer-ите в частната мрежа?
+1. Which of `X-Forwarded-For`, `X-Real-IP`, or another header does the edge set,
+   and does it overwrite or append to a client-supplied `X-Forwarded-For`? Test
+   by sending `X-Forwarded-For: 203.0.113.7` through the public domain and
+   recording what the daemon receives.
+2. Is exactly one proxy hop visible to the container, or does Railway chain
+   several?
+3. What `RemoteAddr` does the container see for edge traffic, and is it a stable
+   range distinguishable from private-network peers?
 
-Ако въпрос 1 покаже, че edge-ът добавя и не е най-близкият hop, или че препраща
-клиентските header-и непроменени, този ADR трябва да се преразгледа преди
-имплементацията.
+If question 1 shows that the edge appends and is not the nearest hop, or that it
+forwards client headers untouched, this ADR must be revised before
+implementation.
