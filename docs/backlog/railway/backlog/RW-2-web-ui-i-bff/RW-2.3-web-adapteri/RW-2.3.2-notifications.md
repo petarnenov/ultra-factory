@@ -1,11 +1,11 @@
-# RW-2.3.2 · Таск: Web Notifications и badge
+# RW-2.3.2 · Task: Web Notifications and badge
 
-**Тип:** frontend TS. **Оценка:** 0.5 чд. **Стори:** RW-2.3.
+**Type:** frontend TS. **Estimate:** 0.5 pd. **Story:** RW-2.3.
 
-## Контекст
-- `notifications` група (6 метода): OS notification, badge, sound. `main/notification-signals.ts`. Stub-ът в `bridge.ts` е no-op.
+## Context
+- The `notifications` group (6 methods): OS notification, badge, sound. `main/notification-signals.ts`. The stub in `bridge.ts` is a no-op.
 
-## Събтаскове
-- [ ] В browser stub: `notifications.show` → `new Notification(...)` след `Notification.requestPermission()` при първо взаимодействие; `setBadge(n)` → префикс `(n) ` в `document.title`; sound → `<audio>` с бъндълнат звук, ако Electron ползва такъв.
-- [ ] Permission prompt се показва от Settings → Notifications бутон, не автоматично при load.
-- [ ] Тест с mock на `Notification`.
+## Subtasks
+- [ ] In the browser stub: `notifications.show` → `new Notification(...)` after `Notification.requestPermission()` on first interaction; `setBadge(n)` → a `(n) ` prefix in `document.title`; sound → `<audio>` with a bundled sound, if Electron uses one.
+- [ ] The permission prompt is shown from a Settings → Notifications button, not automatically on load.
+- [ ] Test with a `Notification` mock.

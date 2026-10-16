@@ -1,11 +1,11 @@
-# RW-4.2.1 · Таск: Backup и redeploy стратегия
+# RW-4.2.1 · Task: Backup and redeploy strategy
 
-**Тип:** операции. **Оценка:** 0.5 чд. **Стори:** RW-4.2.
+**Type:** operations. **Estimate:** 0.5 pd. **Story:** RW-4.2.
 
-## Контекст
-- Рестарт на контейнер убива PTY host/tmux процесите (`spawn_unix.go`, `Setsid`), DB и worktrees оцеляват на volume-а.
+## Context
+- A container restart kills the PTY host/tmux processes (`spawn_unix.go`, `Setsid`); the DB and worktrees survive on the volume.
 
-## Събтаскове
-- [ ] Скрипт `deploy/railway/scripts/backup-volume.sh`: `railway ssh` + `tar` на `/data/ao/ao.db` (с `sqlite3 .backup`) и `hosts.json` към локална машина или S3-съвместим bucket.
-- [ ] Redeploy политика: BFF endpoint `POST /hub/workers/:id/drain` → маркира `draining`, UI не позволява нови сесии; когда няма активни → оператор прави redeploy. Документирай.
-- [ ] Провери поведението на daemon-а след рестарт за сесии, които са били running: статус, възможност за resume (`docs/architecture.md` lifecycle/reaper).
+## Subtasks
+- [ ] Script `deploy/railway/scripts/backup-volume.sh`: `railway ssh` + `tar` of `/data/ao/ao.db` (with `sqlite3 .backup`) and `hosts.json` to a local machine or an S3-compatible bucket.
+- [ ] Redeploy policy: BFF endpoint `POST /hub/workers/:id/drain` → marks `draining`, the UI does not allow new sessions; when there are no active ones → the operator performs the redeploy. Document it.
+- [ ] Check the daemon's behavior after a restart for sessions that were running: status, ability to resume (`docs/architecture.md` lifecycle/reaper).

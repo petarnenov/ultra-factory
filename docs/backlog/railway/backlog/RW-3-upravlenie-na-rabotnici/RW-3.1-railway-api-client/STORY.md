@@ -1,10 +1,10 @@
-# RW-3.1 · Стори: Railway API клиент в BFF-а
+# RW-3.1 · Story: Railway API client in the BFF
 
-**Като** разработчик **искам** тънък, тестван клиент към Railway GraphQL API за операциите create/delete service, volume, variables, deploy status, **за да** може lifecycle-ът в RW-3.2 да не знае за GraphQL.
+**As** a developer **I want** a thin, tested client for the Railway GraphQL API covering the create/delete service, volume, variables and deploy status operations, **so that** the lifecycle in RW-3.2 does not need to know about GraphQL.
 
-**Оценка:** 1.5–2 чд. **Зависимости:** RW-2.4.1.
+**Estimate:** 1.5–2 pd. **Dependencies:** RW-2.4.1.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-3.1.1 | Проучване и spike срещу реален Railway project (записан протокол) | 0.5 |
-| RW-3.1.2 | `railway-client.ts` с типизирани операции и тестове с записани отговори | 1–1.5 |
+| RW-3.1.1 | Research and spike against a real Railway project (recorded protocol) | 0.5 |
+| RW-3.1.2 | `railway-client.ts` with typed operations and tests with recorded responses | 1–1.5 |

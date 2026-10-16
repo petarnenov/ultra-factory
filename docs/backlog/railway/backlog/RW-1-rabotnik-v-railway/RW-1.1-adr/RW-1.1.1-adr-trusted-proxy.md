@@ -1,26 +1,26 @@
-# RW-1.1.1 · Таск: ADR за доверие на reverse proxy зад remote-host listener-а
+# RW-1.1.1 · Task: ADR for trusting a reverse proxy in front of the remote-host listener
 
-**Тип:** ADR. **Оценка:** 0.5 чд. **Стори:** RW-1.1.
+**Type:** ADR. **Estimate:** 0.5 pd. **Story:** RW-1.1.
 
-## Цел
-Решение дали и как `authMiddleware` да ползва IP на клиента от proxy header, когато daemon-ът върви зад Railway edge (TLS terminating proxy).
+## Goal
+Decide whether and how `authMiddleware` should take the client IP from a proxy header when the daemon runs behind the Railway edge (a TLS-terminating proxy).
 
-## Контекст
-- `backend/internal/httpd/auth.go:105` — lockout 5 грешки/мин на `sourceKey` = `RemoteAddr`.
-- `auth.go:260-270` — `CF-Connecting-IP` се ползва само когда peer-ът е loopback (cloudflared).
-- `X-Forwarded-For` не се чете никъде. Зад Railway всички клиенти изглеждат с един IP и един нападател блокира всички за минута.
-- Прецедент: `docs/adr/0004-*` (Cloudflare tunnel).
+## Context
+- `backend/internal/httpd/auth.go:105` — lockout after 5 failures/min on `sourceKey` = `RemoteAddr`.
+- `auth.go:260-270` — `CF-Connecting-IP` is used only when the peer is loopback (cloudflared).
+- `X-Forwarded-For` is not read anywhere. Behind Railway all clients appear with a single IP, and one attacker locks everyone out for a minute.
+- Precedent: `docs/adr/0004-*` (Cloudflare tunnel).
 
-## Събтаскове
-- [ ] Проучи кой header Railway edge подава (`X-Forwarded-For`, `X-Real-IP`) и дали peer IP-то на proxy-то е предвидимо.
-- [ ] Избери модел: (а) opt-in env `AO_REMOTE_TRUSTED_PROXY=1` → ползва първия `X-Forwarded-For`; (б) алтернатива: lockout per credential вместо per IP. Препоръка: (а) + запазен per-IP lockout, никога default on.
-- [ ] Опиши защо header-ът не може да се spoof-ва (клиентът не достига socket-а директно; private networking е отделен случай).
-- [ ] Напиши `docs/adr/000N-trusted-proxy-remote-host.md`: Context, Decision, Consequences, Security notes.
-- [ ] Добави препратка в `AGENTS.md` hard rules.
+## Subtasks
+- [ ] Research which header the Railway edge sends (`X-Forwarded-For`, `X-Real-IP`) and whether the proxy's peer IP is predictable.
+- [ ] Choose a model: (a) opt-in env `AO_REMOTE_TRUSTED_PROXY=1` → use the first `X-Forwarded-For`; (b) alternative: lockout per credential instead of per IP. Recommendation: (a) + keep the per-IP lockout, never on by default.
+- [ ] Describe why the header cannot be spoofed (the client does not reach the socket directly; private networking is a separate case).
+- [ ] Write `docs/adr/000N-trusted-proxy-remote-host.md`: Context, Decision, Consequences, Security notes.
+- [ ] Add a reference in the `AGENTS.md` hard rules.
 
-## Критерии за приемане
-- [ ] ADR-ът отговаря на: кога флагът е безопасен, кога е опасен (LAN режим без proxy), какво се логва.
-- [ ] Ревюирано от втори човек.
+## Acceptance criteria
+- [ ] The ADR answers: when the flag is safe, when it is dangerous (LAN mode without a proxy), what gets logged.
+- [ ] Reviewed by a second person.
 
-## Проверка
-Няма код. Ревю на документа.
+## Verification
+No code. Review of the document.

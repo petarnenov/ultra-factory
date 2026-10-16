@@ -1,22 +1,22 @@
-# RW-1.3.2 · Таск: Dual-stack bind на remote-host listener-а
+# RW-1.3.2 · Task: Dual-stack bind of the remote-host listener
 
-**Тип:** backend Go. **Оценка:** 0.5–1 чд. **Стори:** RW-1.3. **Зависимости:** RW-1.1.3.
+**Type:** backend Go. **Estimate:** 0.5–1 pd. **Story:** RW-1.3. **Dependencies:** RW-1.1.3.
 
-## Цел
-Listener-ът да може да слуша на `[::]` (IPv4+IPv6), за да е достъпен по Railway private networking.
+## Goal
+The listener can listen on `[::]` (IPv4+IPv6) so that it is reachable over Railway private networking.
 
-## Контекст
+## Context
 - `backend/internal/httpd/lan_listener.go:201-204` `Start` → `m.start(port, "0.0.0.0")`.
-- `backend/internal/mobilebridge/netiface.go` изброява адресите за показване при pairing.
-- Решението от RW-1.1.3 определя дали е opt-in (`AO_REMOTE_BIND=dual`) или default.
+- `backend/internal/mobilebridge/netiface.go` lists the addresses shown during pairing.
+- The decision from RW-1.1.3 determines whether this is opt-in (`AO_REMOTE_BIND=dual`) or the default.
 
-## Събтаскове
-- [ ] Config: `AO_REMOTE_BIND` ∈ {`ipv4` (default), `dual`}; валидация и тест в `config_test.go`.
-- [ ] `LANManager.Start` избира host `"0.0.0.0"` или `"::"` според конфигурацията. `StartLoopback` остава `127.0.0.1`.
-- [ ] Увери се, че `net.JoinHostPort` навсякъде, където се печата адресът (`remote_host.go:84`, status отговори), работи с IPv6 (квадратни скоби).
-- [ ] `netiface.go`: при dual включи и глобалните IPv6 адреси в списъка, или остави само IPv4 за pairing UI-я, според ADR-а.
-- [ ] Тест: listener на `::` приема връзка и по `127.0.0.1` и по `::1`.
+## Subtasks
+- [ ] Config: `AO_REMOTE_BIND` ∈ {`ipv4` (default), `dual`}; validation and a test in `config_test.go`.
+- [ ] `LANManager.Start` picks host `"0.0.0.0"` or `"::"` according to the configuration. `StartLoopback` stays on `127.0.0.1`.
+- [ ] Make sure `net.JoinHostPort` works with IPv6 (square brackets) everywhere the address is printed (`remote_host.go:84`, status responses).
+- [ ] `netiface.go`: in dual mode, also include the global IPv6 addresses in the list, or keep only IPv4 for the pairing UI, per the ADR.
+- [ ] Test: a listener on `::` accepts connections on both `127.0.0.1` and `::1`.
 
-## Критерии за приемане
-- [ ] `AO_REMOTE_BIND=dual ao daemon` + enable → `curl http://127.0.0.1:3011/api/v1/identity` и `curl 'http://[::1]:3011/api/v1/identity'` → 200.
-- [ ] Без env → поведение като днес.
+## Acceptance criteria
+- [ ] `AO_REMOTE_BIND=dual ao daemon` + enable → `curl http://127.0.0.1:3011/api/v1/identity` and `curl 'http://[::1]:3011/api/v1/identity'` → 200.
+- [ ] Without the env var → behavior as today.

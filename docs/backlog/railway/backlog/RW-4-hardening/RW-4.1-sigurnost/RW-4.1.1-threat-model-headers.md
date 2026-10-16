@@ -1,10 +1,10 @@
-# RW-4.1.1 · Таск: Threat model и security headers
+# RW-4.1.1 · Task: Threat model and security headers
 
-**Тип:** security + Node TS. **Оценка:** 0.5–1 чд. **Стори:** RW-4.1.
+**Type:** security + Node TS. **Estimate:** 0.5–1 pd. **Story:** RW-4.1.
 
-## Събтаскове
-- [ ] `docs/railway/threat-model.md`: активи (Railway токен, host credentials, агентски ключове, кодът в worktrees), нападатели, вектори, митигации, остатъчен риск. Изрично: „достъп до UI = shell на всички работници“.
-- [ ] BFF headers: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Content-Security-Policy` съгласуван с RW-2.1.2 (BFF-ът сервира SPA-то, така че CSP може да е header, не meta).
-- [ ] Session: invalidate при смяна на operator password; `GET /hub/sessions` + `DELETE` за logout навсякъде.
-- [ ] Проверка, че 401 от работник не изтича hostId/URL към неавтентикиран клиент.
-- [ ] Тестове за headers.
+## Subtasks
+- [ ] `docs/railway/threat-model.md`: assets (Railway token, host credentials, agent keys, the code in worktrees), attackers, vectors, mitigations, residual risk. Explicitly: "access to the UI = a shell on all workers".
+- [ ] BFF headers: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, `Content-Security-Policy` aligned with RW-2.1.2 (the BFF serves the SPA, so the CSP can be a header, not a meta tag).
+- [ ] Session: invalidate on operator password change; `GET /hub/sessions` + `DELETE` for logout everywhere.
+- [ ] Verify that a 401 from a worker does not leak hostId/URL to an unauthenticated client.
+- [ ] Tests for the headers.
