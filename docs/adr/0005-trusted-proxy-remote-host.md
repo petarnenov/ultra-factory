@@ -102,10 +102,10 @@ that range. This ADR does not add it.
 
 | Deployment | Flag | Why |
 |---|---|---|
-| Worker reached only through a Railway public domain (or a comparable single TLS-terminating proxy that is the sole public path) | Safe, recommended | Clients cannot reach the socket except through the proxy |
+| Worker whose only public path is a Railway public domain (or a comparable single TLS-terminating proxy), optionally also reached over Railway private networking by the operator's own services such as the hub of [0006](0006-web-bff-for-hub.md) | Safe, recommended | Untrusted clients cannot reach the socket except through the proxy. Accepted risk: private-network peers can choose their own lockout key (see above) |
 | Worker reached only over Railway private networking, no public domain | Leave off | No proxy is involved. `RemoteAddr` is already the real peer |
 | Desktop or home machine using Connect Mobile on a LAN, Tailscale, or the managed cloudflared tunnel | **Dangerous, never set** | Any LAN device can send `X-Forwarded-For` straight to the socket and evade the lockout. The tunnel is already covered by the loopback `CF-Connecting-IP` rule |
-| Worker behind two or more proxies, or reachable both directly and through a proxy | Dangerous | One trusted hop no longer identifies the client, or direct callers can choose their key |
+| Worker behind two or more proxies, or directly reachable by untrusted clients as well (a Railway TCP proxy, a public port, or a shared network) | Dangerous | One trusted hop no longer identifies the client, or untrusted direct callers can choose their key and evade the lockout |
 
 The flag is honored only through the daemon environment, so a desktop user cannot
 switch it on by accident from the UI. The documentation for Railway workers is the
