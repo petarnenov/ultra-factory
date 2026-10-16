@@ -29,7 +29,8 @@ export async function probeIdentity(baseUrl: string): Promise<IdentityResult> {
 	} catch {
 		return { ok: false, reason: "unreachable" };
 	}
-	if (typeof body?.hostId !== "string" || !body.hostId) return { ok: false, reason: "unreachable" };
+	// "hub" is the registry's alias for the hub entry, so no host may claim it.
+	if (typeof body?.hostId !== "string" || !body.hostId || body.hostId === HUB_ID) return { ok: false, reason: "unreachable" };
 	if (body.apiVersion !== REMOTE_API_VERSION) return { ok: false, reason: "unsupported_api_version" };
 	return { ok: true, identity: { hostId: body.hostId, apiVersion: body.apiVersion } };
 }

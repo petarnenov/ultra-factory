@@ -123,7 +123,7 @@ describe("hosts store", () => {
 	});
 
 	it("refuses loopback addresses for manual hosts, so the daemon's own listeners stay out of reach", () => {
-		for (const bad of ["http://127.0.0.1:3001", "http://localhost:3011", "http://[::1]:3001", "http://0.0.0.0:3001", "http://[::ffff:127.0.0.1]:3001", "http://127.8.0.1"]) {
+		for (const bad of ["http://127.0.0.1:3001", "http://localhost:3011", "http://[::1]:3001", "http://0.0.0.0:3001", "http://[::ffff:127.0.0.1]:3001", "http://127.8.0.1", "http://localhost.:3011", "http://foo.localhost.:3011", "http://localhost.:3001", "http://LOCALHOST..:3001", "http://127.0.0.1.:3001"]) {
 			expect(() => normalizeHostUrl(bad), bad).toThrow(/loopback/);
 		}
 	});
@@ -259,6 +259,14 @@ describe("/hub/hosts API", () => {
 		const version = await post(h, "/hub/hosts", { label: "worker-2", url: other.url, password: "pw" });
 		expect(version.status).toBe(502);
 		expect(version.body.error).toBe("unsupported_api_version");
+	});
+
+	it("refuses a host that reports the reserved id hub", async () => {
+		const worker = await startHost("hub", "pw");
+		const h = await harness();
+		const res = await post(h, "/hub/hosts", { label: "fake-hub", url: worker.url, password: "pw" });
+		expect(res.status).toBe(502);
+		expect(worker.seen.map((r) => r.path)).toEqual(["/api/v1/identity"]);
 	});
 
 	it("validates the body and refuses duplicates", async () => {

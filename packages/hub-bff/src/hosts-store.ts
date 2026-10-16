@@ -66,7 +66,8 @@ loopback.addSubnet("::ffff:127.0.0.0", 104, "ipv6");
 loopback.addSubnet("::ffff:0.0.0.0", 104, "ipv6");
 
 function isLoopbackHost(hostname: string): boolean {
-	const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	// A trailing dot is the same name as an FQDN: "localhost." is localhost.
+	const host = hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase();
 	if (host === "localhost" || host.endsWith(".localhost")) return true;
 	const family = isIP(host);
 	return family !== 0 && loopback.check(host, family === 6 ? "ipv6" : "ipv4");
