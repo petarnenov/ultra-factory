@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_OPTIONS } from "../lib/agent-options";
+import { agentModelsQueryKey } from "../hooks/useAgentModelsQuery";
+import { agentReadiness } from "../test/agent-readiness-fixtures";
 import {
 	deriveAgentSwitchPresentation,
 	type AgentSwitchPresentation,
@@ -29,6 +31,17 @@ vi.mock("../lib/api-client", () => ({
 		}
 		return fallback;
 	},
+}));
+
+vi.mock("../hooks/useAgentReadinessQuery", () => ({
+	useAgentReadinessQuery: (enabled: boolean) => ({
+		data: enabled ? { agents: [
+			{ ...agentReadiness("claude-code", "Claude Code"), switchModes: ["tui", "chat"] },
+			{ ...agentReadiness("codex", "Codex"), switchModes: ["tui", "chat"] },
+			{ ...agentReadiness("fx", "fx"), switchModes: ["tui"] },
+		] } : undefined,
+	}),
+	useEnsureAgentReadiness: () => true,
 }));
 
 const worker: WorkspaceSession = {
@@ -106,6 +119,21 @@ function renderControl(
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
+	queryClient.setQueryData(
+		session.hostId ? ["project", session.hostId, session.workspaceId] : ["project", session.workspaceId],
+		{ config: {} },
+	);
+	for (const agentId of AGENT_OPTIONS) {
+		queryClient.setQueryData(agentModelsQueryKey(agentId, session.workspaceId, session.hostId), {
+			agentId,
+			allowCustom: false,
+			fetchedAt: "2026-06-10T00:00:00Z",
+			models: [{ id: agentId === "codex" ? "gpt-5.4" : "claude-opus-4-6", label: "Default" }],
+			selectionMode: "catalog",
+			source: "test",
+			stale: false,
+		});
+	}
 	const control = (nextSession: WorkspaceSession, nextPresentation = presentation) => (
 		<QueryClientProvider client={queryClient}>
 			<TooltipProvider>
@@ -166,10 +194,9 @@ describe("TerminalSwitchAgentButton", () => {
 	});
 
 	it.each([
-		["unsupported provider", { provider: "cursor" }],
 		["terminated worker", { isTerminated: true, status: "terminated" }],
 		["orchestrator", { id: "orch-1", kind: "orchestrator" }],
-	] as const)("does not render for an %s", (_name, overrides) => {
+	] as const)("does not render for a %s", (_name, overrides) => {
 		renderControl({ ...worker, ...overrides } as WorkspaceSession);
 		expect(screen.queryByRole("button", { name: "Switch agent" })).not.toBeInTheDocument();
 	});
@@ -180,10 +207,10 @@ describe("TerminalSwitchAgentButton", () => {
 		expect(await screen.findByRole("button", { name: "Switch agent" })).toBeInTheDocument();
 	});
 
-	it("does not expose switching from an fx Chat worker", () => {
+	it("exposes switching from an fx Chat worker", async () => {
 		renderControl({ ...worker, mode: "chat", provider: "fx" });
 
-		expect(screen.queryByRole("button", { name: "Switch agent" })).not.toBeInTheDocument();
+		expect(await screen.findByRole("button", { name: "Switch agent" })).toBeInTheDocument();
 	});
 
 	it("opens the existing dialog and submits the selected switch", async () => {
@@ -203,8 +230,7 @@ describe("TerminalSwitchAgentButton", () => {
 		const targetAgent = within(dialog).getByRole("button", { name: "Target agent" });
 		expect(targetAgent).toHaveTextContent("Codex");
 		await userEvent.click(targetAgent);
-		expect(screen.getAllByRole("menuitem")).toHaveLength(AGENT_OPTIONS.length);
-		expect(screen.getByRole("menuitem", { name: /Cursor,\s*Coming soon/ })).toHaveAttribute("data-disabled");
+		expect(screen.getAllByRole("menuitem")).toHaveLength(3);
 		await userEvent.keyboard("{Escape}");
 		expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
 		await userEvent.click(within(dialog).getByRole("button", { name: "Switch" }));
