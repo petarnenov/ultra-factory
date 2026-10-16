@@ -5,9 +5,10 @@ import { usesPreviewWorkspaceData } from "./preview-mode";
 import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
 
-// The web build has no Electron supervisor. The daemon (or the proxy in front
-// of it) answers on the API base URL, so readiness comes from its /readyz probe
-// and starting or stopping the daemon belongs to whoever runs it.
+// Уеб билдът няма Electron супервизор. Daemon-ът (или proxy-то пред него)
+// отговаря на базовия URL на API-то, така че готовността идва от неговата
+// /readyz проба, а стартирането и спирането на daemon-а са работа на този, който
+// го пуска.
 const WEB_DAEMON_POLL_MS = 5_000;
 const WEB_DAEMON_READY_POLL_MS = 30_000;
 
@@ -15,8 +16,9 @@ function webDaemonBaseUrl(): string {
 	return (import.meta.env.VITE_AO_API_BASE_URL ?? "").replace(/\/+$/, "");
 }
 
-// The shell only trusts a ready status that carries a port. A proxy on the
-// scheme's default port leaves the URL port empty, so report the effective one.
+// Обвивката вярва само на ready статус, който носи порт. Proxy на порта по
+// подразбиране за схемата оставя порта в URL-а празен, затова се отчита
+// ефективният.
 function webDaemonPort(baseUrl: string): number {
 	const url = new URL(baseUrl || window.location.href, window.location.href);
 	if (url.port) return Number(url.port);
@@ -30,7 +32,7 @@ async function probeWebDaemon(): Promise<DaemonStatus> {
 		if (response.status !== 200) {
 			return { state: "error", message: `Daemon readiness check returned HTTP ${response.status}.` };
 		}
-		// A static host's SPA fallback also answers 200, with index.html.
+		// SPA fallback-ът на статичен хост също отговаря с 200 и index.html.
 		const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
 		if (body?.status !== "ready") {
 			return { state: "error", message: "Daemon readiness check did not return a ready daemon." };
@@ -128,7 +130,7 @@ export const aoBridge: AoBridge =
 			},
 			readText: async () => (navigator.clipboard?.readText ? navigator.clipboard.readText() : ""),
 		},
-		// Mock-data preview (VITE_NO_ELECTRON) has no daemon to probe.
+		// Preview с mock данни (VITE_NO_ELECTRON) няма daemon за проба.
 		daemon: usesPreviewWorkspaceData
 			? {
 				getStatus: async () => ({
