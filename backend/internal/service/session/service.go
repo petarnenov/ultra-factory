@@ -238,6 +238,68 @@ type Service struct {
 	// artifactDeleter deletes a session's artifact files and version rows. Nil
 	// makes DeleteArtifacts fail rather than delete outside the capture lock.
 	artifactDeleter artifactDeleter
+	// remoteSpawned records workers started from another machine and lists the
+	// active ones. Nil records nothing and never refuses an orchestrator.
+	remoteSpawned remoteSpawnedStore
+}
+
+// remoteSpawnedStore persists which sessions `ao spawn --host` started here.
+type remoteSpawnedStore interface {
+	MarkRemoteSpawned(ctx context.Context, id domain.SessionID, at time.Time) error
+	ListActiveRemoteSpawnedSessions(ctx context.Context) ([]domain.SessionID, error)
+}
+
+// SetRemoteSpawnedStore wires the record of remotely started workers.
+func (s *Service) SetRemoteSpawnedStore(store remoteSpawnedStore) {
+	s.remoteSpawned = store
+}
+
+// refuseOrchestratorForRemoteWorkers fails while a worker another machine
+// started here is active. That worker reports to its orchestrator on the other
+// machine; one started here would claim its reports first.
+func (s *Service) refuseOrchestratorForRemoteWorkers(ctx context.Context) error {
+	if s.remoteSpawned == nil {
+		return nil
+	}
+	ids, err := s.remoteSpawned.ListActiveRemoteSpawnedSessions(ctx)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	names := make([]string, len(ids))
+	for i, id := range ids {
+		names[i] = string(id)
+	}
+	return apierr.Conflict(
+		"REMOTE_WORKERS_ACTIVE",
+		"This machine runs workers started from another machine with `ao spawn --host`, and their orchestrator runs there. Stop those workers before starting an orchestrator here: "+strings.Join(names, ", "),
+		map[string]any{"sessionIds": names},
+	)
+}
+
+// refuseRemoteWorkerForLocalOrchestrators is the reverse rule: a machine that
+// already runs an orchestrator does not take a worker another machine
+// coordinates, since the local orchestrator would claim that worker's reports.
+func (s *Service) refuseRemoteWorkerForLocalOrchestrators(ctx context.Context) error {
+	active := true
+	orchestrators, err := s.List(ctx, ListFilter{Active: &active, OrchestratorOnly: true})
+	if err != nil {
+		return err
+	}
+	if len(orchestrators) == 0 {
+		return nil
+	}
+	names := make([]string, len(orchestrators))
+	for i, orch := range orchestrators {
+		names[i] = string(orch.ID)
+	}
+	return apierr.Conflict(
+		"LOCAL_ORCHESTRATOR_ACTIVE",
+		"This machine runs its own orchestrator, which would claim the reports of a worker started from another machine. Stop it before starting remote workers here: "+strings.Join(names, ", "),
+		map[string]any{"sessionIds": names},
+	)
 }
 
 // SetChatProviderPreserver wires the live Chat lifetime observation after both
@@ -323,6 +385,9 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if cfg.ProjectID == "" && cfg.Kind != domain.KindWorker {
 		return domain.Session{}, 0, 0, apierr.Invalid("STANDALONE_WORKER_REQUIRED", "Standalone sessions must be workers", nil)
 	}
+	if cfg.RemoteSpawned && cfg.Kind != domain.KindWorker {
+		return domain.Session{}, 0, 0, apierr.Invalid("REMOTE_SPAWN_WORKER_REQUIRED", "remoteSpawn is supported for worker sessions only", nil)
+	}
 	if cfg.Kind == domain.KindOrchestrator {
 		cfg.Async = true
 		unlock := s.lockOrchestratorProject(cfg.ProjectID)
@@ -367,6 +432,16 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 			return domain.Session{}, 0, 0, apierr.Invalid("HARNESS_REQUIRED", "harness is required for a standalone session", nil)
 		}
 	}
+	if cfg.Kind == domain.KindOrchestrator {
+		if err := s.refuseOrchestratorForRemoteWorkers(ctx); err != nil {
+			return domain.Session{}, 0, 0, err
+		}
+	}
+	if cfg.RemoteSpawned {
+		if err := s.refuseRemoteWorkerForLocalOrchestrators(ctx); err != nil {
+			return domain.Session{}, 0, 0, err
+		}
+	}
 	if s.agentReadiness != nil && cfg.Harness != "" {
 		readiness, err := s.agentReadiness.EnsureAgentReadiness(ctx, string(cfg.Harness), domain.AgentReadinessPurposeLaunch)
 		if err != nil {
@@ -393,6 +468,16 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		apiErr := toSpawnAPIError(err)
 		s.emitSpawnFailed(ctx, cfg, apiErr, s.now().Sub(start).Milliseconds())
 		return domain.Session{}, 0, 0, apiErr
+	}
+	if cfg.RemoteSpawned && s.remoteSpawned != nil {
+		if err := s.remoteSpawned.MarkRemoteSpawned(ctx, rec.ID, s.now()); err != nil {
+			// An unmarked worker would leave this machine free to start an
+			// orchestrator that claims its reports, so the spawn does not stand.
+			if _, _, rbErr := s.manager.RollbackSpawn(context.WithoutCancel(ctx), rec.ID); rbErr != nil {
+				return domain.Session{}, 0, 0, fmt.Errorf("%w; rollback of session %s failed: %w", err, rec.ID, rbErr)
+			}
+			return domain.Session{}, 0, 0, err
+		}
 	}
 	s.emitSpawned(ctx, rec, s.now().Sub(start).Milliseconds())
 	if firstSession {
@@ -576,6 +661,10 @@ func (s *Service) SpawnOrchestrator(
 	if err != nil {
 		return domain.Session{}, err
 	}
+	// Checked before a clean replacement retires the current orchestrator.
+	if err := s.refuseOrchestratorForRemoteWorkers(ctx); err != nil {
+		return domain.Session{}, err
+	}
 	mode := requestedMode
 	if clean {
 		existing, err := s.activeOrchestrators(ctx, projectID)
@@ -704,6 +793,17 @@ func (s *Service) lockOrchestratorProject(projectID domain.ProjectID) func() {
 
 // Restore relaunches a terminated session and returns the API-facing read model.
 func (s *Service) Restore(ctx context.Context, id domain.SessionID) (RestoreOutcome, error) {
+	if s.remoteSpawned != nil {
+		rec, found, err := s.store.GetSession(ctx, id)
+		if err != nil {
+			return RestoreOutcome{}, err
+		}
+		if found && rec.Kind == domain.KindOrchestrator {
+			if err := s.refuseOrchestratorForRemoteWorkers(ctx); err != nil {
+				return RestoreOutcome{}, err
+			}
+		}
+	}
 	res, err := s.manager.RestoreWithMode(ctx, id)
 	if err != nil {
 		return RestoreOutcome{}, toAPIError(err)

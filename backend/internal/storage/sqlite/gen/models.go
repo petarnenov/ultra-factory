@@ -549,6 +549,11 @@ type Project struct {
 	Kind          string
 }
 
+type RemoteSpawnedSession struct {
+	SessionID string
+	CreatedAt time.Time
+}
+
 type RemoteWorkerLink struct {
 	HostID          string
 	RemoteSessionID string

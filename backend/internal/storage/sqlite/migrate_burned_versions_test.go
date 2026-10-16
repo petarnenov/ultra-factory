@@ -202,6 +202,7 @@ var shippedMigrations = map[int64]string{
 	197: "0197_detach_split_orchestrator_conversations.sql",
 	198: "0198_harness_defaults.sql",
 	199: "0199_remote_worker_links.sql",
+	200: "0200_remote_spawned_sessions.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they
