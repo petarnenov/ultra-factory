@@ -1,6 +1,6 @@
-// One JSON object per line on stdout, which is what Railway's log viewer
-// indexes. Callers pass only fields they have chosen to log: never a request
-// body, a cookie, an Authorization header, a password, or a password hash.
+// По един JSON обект на ред в stdout, което индексира log viewer-ът на Railway.
+// Извикващите подават само полета, които съзнателно логват: никога тяло на
+// заявка, cookie, Authorization header, парола или хеш на парола.
 export type LogLevel = "info" | "warn" | "error";
 export type LogFields = Record<string, string | number | boolean | undefined>;
 export type Logger = (level: LogLevel, msg: string, fields?: LogFields) => void;

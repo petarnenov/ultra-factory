@@ -1,12 +1,12 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, type ScryptOptions } from "node:crypto";
 
-// Operator password hashes use scrypt from node:crypto, encoded in the PHC-style
-// form `$scrypt$ln=<log2 N>,r=<r>,p=<p>$<salt>$<hash>` (unpadded base64url).
-// See README.md for why scrypt and not argon2 or bcrypt.
+// Хешовете на паролата на оператора ползват scrypt от node:crypto, кодиран във
+// формата в стил PHC `$scrypt$ln=<log2 N>,r=<r>,p=<p>$<salt>$<hash>` (base64url
+// без padding). Защо scrypt, а не argon2 или bcrypt: виж README.md.
 const PREFIX = "scrypt";
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;
-// OWASP's scrypt baseline: N=2^17, r=8, p=1 (128 MiB per hash).
+// Базовите параметри на OWASP за scrypt: N=2^17, r=8, p=1 (128 MiB на хеш).
 export const DEFAULT_COST = { ln: 17, r: 8, p: 1 } as const;
 
 export type ScryptCost = { ln: number; r: number; p: number };
@@ -15,7 +15,7 @@ type ParsedHash = ScryptCost & { salt: Buffer; hash: Buffer };
 
 function scrypt(password: string, salt: Buffer, cost: ScryptCost): Promise<Buffer> {
 	const N = 2 ** cost.ln;
-	// Node rejects anything above 32 MiB unless maxmem is raised.
+	// Node отказва всичко над 32 MiB, ако maxmem не е вдигнат.
 	const options: ScryptOptions = { N, r: cost.r, p: cost.p, maxmem: 128 * N * cost.r * cost.p + 1024 * 1024 };
 	return new Promise((resolve, reject) => {
 		scryptCallback(password.normalize("NFKC"), salt, KEY_LENGTH, options, (err, key) => (err ? reject(err) : resolve(key)));

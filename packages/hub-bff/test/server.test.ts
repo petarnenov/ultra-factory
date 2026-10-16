@@ -10,7 +10,7 @@ import { hashPassword } from "../src/password.ts";
 import { LOGIN_ATTEMPTS_PER_MINUTE, SESSION_COOKIE, createBff } from "../src/server.ts";
 import { SESSION_IDLE_MS } from "../src/sessions.ts";
 
-// A cheap scrypt cost keeps the suite fast; production uses DEFAULT_COST.
+// Евтина цена на scrypt пази тестовете бързи; продукцията ползва DEFAULT_COST.
 const TEST_COST = { ln: 10, r: 8, p: 1 };
 const HOST = "hub.test";
 const ORIGIN = `http://${HOST}`;
@@ -177,9 +177,9 @@ describe("hub bff", () => {
 			const limited = await login(h.server, { password }, xff);
 			expect(limited.status).toBe(429);
 			expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
-			// Another client behind the same edge is unaffected.
+			// Друг клиент зад същия edge не е засегнат.
 			expect((await login(h.server, { password }, { "X-Forwarded-For": "198.51.100.8" })).status).toBe(204);
-			// The window resets after a minute.
+			// Прозорецът се нулира след минута.
 			h.advance(60_000);
 			expect((await login(h.server, { password }, xff)).status).toBe(204);
 		});
