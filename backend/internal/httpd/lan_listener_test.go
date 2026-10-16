@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
@@ -524,6 +525,55 @@ func TestLANListenerServesCodexModelRoutesFromRealRouter(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s: got %d want 404", path, resp.StatusCode)
+		}
+	}
+}
+
+// TestMobileLANBehindTLSProxy covers a worker reached through a TLS-terminating
+// reverse proxy such as Railway's edge, which rewrites Host and adds
+// X-Forwarded-* headers. The identity probe must still answer without a
+// credential and carry only the host id and version, and the expected-host
+// guard must decide on X-AO-Expected-Host-ID alone, never on Host.
+func TestMobileLANBehindTLSProxy(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	router := NewRouterWithControl(config.Config{}, log, nil, APIDeps{HostID: "h_worker"}, ControlDeps{})
+	m := NewMobileLAN(router, "h_worker", 0, nil, nil)
+	m.SetPasswordHash(mobilebridge.HashPassword("secret12"))
+	proxied := func(path, host, password, expectedHostID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		req.Header.Set("X-Forwarded-Host", "worker.up.railway.app")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Forwarded-For", "203.0.113.7")
+		if password != "" {
+			req.Header.Set("Authorization", "Bearer "+password)
+		}
+		if expectedHostID != "" {
+			req.Header.Set("X-AO-Expected-Host-ID", expectedHostID)
+		}
+		recorder := httptest.NewRecorder()
+		m.handler.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	identity := proxied("/api/v1/identity", "worker.up.railway.app", "", "")
+	if identity.Code != http.StatusOK {
+		t.Fatalf("identity through proxy: status=%d body=%q", identity.Code, identity.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(identity.Body.Bytes(), &body); err != nil {
+		t.Fatalf("identity body %q: %v", identity.Body.String(), err)
+	}
+	if len(body) != 2 || body["hostId"] != "h_worker" || body["apiVersion"] != float64(controllers.MobileAPIVersion) {
+		t.Fatalf("identity through proxy exposed %v, want only hostId and apiVersion", body)
+	}
+
+	for _, host := range []string{"worker.up.railway.app", "worker.railway.internal:3011", "127.0.0.1:3011", "h_other"} {
+		if got := proxied("/healthz", host, "secret12", "h_worker"); got.Code != http.StatusOK {
+			t.Errorf("Host %q, matching expected host: status=%d body=%q", host, got.Code, got.Body.String())
+		}
+		if got := proxied("/healthz", host, "secret12", "h_old"); got.Code != http.StatusMisdirectedRequest || !strings.Contains(got.Body.String(), `"code":"HOST_ID_MISMATCH"`) {
+			t.Errorf("Host %q, stale expected host: status=%d body=%q, want 421 HOST_ID_MISMATCH", host, got.Code, got.Body.String())
 		}
 	}
 }
