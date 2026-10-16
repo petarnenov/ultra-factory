@@ -40,7 +40,7 @@ import { StatusPill } from "./StatusPill";
 import { CoderWorkspaceTopbarButton } from "./CoderWorkspaceLinkButton";
 import { TopbarActionError, TopbarButton, topbarHeaderClass, topbarProjectLabelClass } from "./TopbarButton";
 import { SessionArchiveDialog, type SessionArchiveChoice } from "./SessionArchiveDialog";
-import { TopbarCopyPathButton, TopbarOpenEditorButton } from "./TopbarOpenEditorButton";
+import { TopbarOpenEditorButton } from "./TopbarOpenEditorButton";
 import { useSessionShortcut } from "../hooks/useAppShortcut";
 import {
 	agentSwitchStatusVisual,
@@ -278,23 +278,22 @@ export function ShellTopbar({
 						    have no local workspace to hand off to an editor: the local daemon
 						    has never heard of them, so querying it just surfaces its 404 as a
 						    confusing "Unknown session" error (see workspace.ts's `kind` doc). */}
-						{session && !hostId && project?.kind !== CLOUD_PROJECT_KIND ? (
+						{/* Web build-ът няма editor handoff, а абсолютният път на workspace-а
+						    идва само от /api/v1/desktop, който BFF-ът не пропуска (ADR 0006),
+						    затова там контролата, включително „Copy path“, изобщо липсва. */}
+						{session && !hostId && project?.kind !== CLOUD_PROJECT_KIND && capabilities.editorHandoff ? (
 							// Keyed per session so a stale launch error does not carry over
 							// when switching sessions. The prefix keeps it distinct from the
 							// kill button's key: identical sibling keys make React duplicate
 							// the nodes.
-							capabilities.editorHandoff ? (
-								<TopbarOpenEditorButton
-									key={`open-workspace-${session.id}`}
-									sessionId={session.id}
-									projectId={session.workspaceId}
-									sessionCreatedAt={session.createdAt}
-									sessionTerminated={session.isTerminated}
-									style={noDragStyle}
-								/>
-							) : (
-								<TopbarCopyPathButton key={`copy-workspace-path-${session.id}`} sessionId={session.id} style={noDragStyle} />
-							)
+							<TopbarOpenEditorButton
+								key={`open-workspace-${session.id}`}
+								sessionId={session.id}
+								projectId={session.workspaceId}
+								sessionCreatedAt={session.createdAt}
+								sessionTerminated={session.isTerminated}
+								style={noDragStyle}
+							/>
 						) : null}
 						{/* A bring-your-own Coder session names the workspace it runs in, so
 						    the customer can find it in their own Coder. */}

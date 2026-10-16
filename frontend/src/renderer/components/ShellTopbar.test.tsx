@@ -745,12 +745,13 @@ describe("ShellTopbar open-in-editor control", () => {
 		});
 	});
 
-	it("keeps only Copy path for a local session in the web build", async () => {
+	it("hides the open-in-editor control and Copy path for a local session in the web build", async () => {
 		webBuild.enabled = true;
 		try {
 			renderTopbarSessions([worker], "sess-1");
 
-			expect(await screen.findByRole("button", { name: "Copy path" })).toBeInTheDocument();
+			expect(await screen.findByRole("button", { name: "Archive session" })).toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "Copy path" })).not.toBeInTheDocument();
 			expect(screen.queryByRole("button", { name: "Open in Cursor" })).not.toBeInTheDocument();
 			expect(screen.queryByRole("button", { name: "Choose editor" })).not.toBeInTheDocument();
 		} finally {

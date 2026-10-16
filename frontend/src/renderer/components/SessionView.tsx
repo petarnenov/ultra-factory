@@ -77,7 +77,6 @@ import { apiErrorCode, apiErrorMessage } from "../lib/api-client";
 import { clientForSessionHost } from "../lib/host-clients";
 import { useHostConnection } from "../hooks/useHostConnection";
 import { sessionReviewsQueryKey } from "../lib/session-reviews";
-import { copySessionWorkspacePath } from "../lib/session-workspace-path";
 import { sessionUiKey } from "../lib/hosts";
 import { resolveSessionWorkspacePath, sessionWorkspaceFilesQueryOptions } from "../hooks/useSessionWorkspaceFiles";
 import { isAbsoluteFileReference, matchWorkspaceFilePath, normalizeWorkspaceFileReference } from "../lib/workspace-file-path";
@@ -1827,8 +1826,9 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	useSessionShortcut(
 		"copy-session-path",
 		() => {
-			if (!session || session.cloud || hostId) return;
-			copySessionWorkspacePath(sessionId).then(
+			// В web няма неблокиран източник на абсолютния път (вж. ShellTopbar).
+			if (!session || session.cloud || hostId || !capabilities.editorHandoff) return;
+			aoBridge.editorHandoff.copyWorkspacePath(sessionId).then(
 				() => showGlobalToast(t("shortcut.sessionPathCopied")),
 				(error: unknown) =>
 					showGlobalToast(t("shortcut.sessionPathCopyFailed"), error instanceof Error ? error.message : undefined, "error"),

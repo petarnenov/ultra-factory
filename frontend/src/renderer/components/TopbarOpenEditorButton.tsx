@@ -5,7 +5,6 @@ import type { OpenTarget, OpenTargetId } from "../../shared/editor-handoff";
 import { useSessionShortcut } from "../hooks/useAppShortcut";
 import { useEditorHandoffState, useOpenSessionTarget, workspaceCheckFailed, editorHandoffErrorMessage } from "../hooks/useEditorHandoff";
 import { aoBridge } from "../lib/bridge";
-import { copySessionWorkspacePath } from "../lib/session-workspace-path";
 import { useUiStore } from "../stores/ui-store";
 import { TopbarActionError, TopbarButton } from "./TopbarButton";
 import {
@@ -236,34 +235,5 @@ export function TopbarOpenEditorButton({
 				</DropdownMenu>
 			</div>
 		</>
-	);
-}
-
-// Web build-ът няма editor handoff (Electron main стартира редактора), затова
-// от менюто остава само „Copy path“ като самостоятелен бутон.
-export function TopbarCopyPathButton({ sessionId, style }: { sessionId: string; style?: React.CSSProperties }) {
-	const { t } = useTranslation();
-	const showGlobalToast = useUiStore((state) => state.showGlobalToast);
-	const [pending, setPending] = useState(false);
-	const copyPath = async () => {
-		setPending(true);
-		try {
-			await copySessionWorkspacePath(sessionId);
-			showGlobalToast(t("shortcut.sessionPathCopied"));
-		} catch (error) {
-			showGlobalToast(t("shortcut.sessionPathCopyFailed"), error instanceof Error ? error.message : undefined, "error");
-		} finally {
-			setPending(false);
-		}
-	};
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<TopbarButton aria-label={t("editor.copyPath")} disabled={pending} onClick={() => void copyPath()} style={style} variant="icon">
-					<Copy className="size-icon-md" aria-hidden="true" />
-				</TopbarButton>
-			</TooltipTrigger>
-			<TooltipContent side="bottom">{t("editor.copyPath")}</TooltipContent>
-		</Tooltip>
 	);
 }

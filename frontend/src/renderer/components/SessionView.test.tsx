@@ -1324,6 +1324,22 @@ describe("SessionView", () => {
 		copy.mockRestore();
 	});
 
+	it("ignores the copy-session-path shortcut in the web build", () => {
+		webBuild.enabled = true;
+		const copy = vi.spyOn(window.ao!.editorHandoff, "copyWorkspacePath").mockResolvedValue(undefined);
+		try {
+			render(<SessionView sessionId="sess-1" />);
+
+			act(() => appShortcutBus.emit({ id: "copy-session-path" }));
+
+			expect(copy).not.toHaveBeenCalled();
+			expect(useUiStore.getState().globalToast?.title).not.toBe("Could not copy session path");
+		} finally {
+			webBuild.enabled = false;
+			copy.mockRestore();
+		}
+	});
+
 	it("reports a failed path copy instead of failing silently", async () => {
 		const copy = vi.spyOn(window.ao!.editorHandoff, "copyWorkspacePath").mockRejectedValue(new Error("Workspace removed"));
 		render(<SessionView sessionId="sess-1" />);
