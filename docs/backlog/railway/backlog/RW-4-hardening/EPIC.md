@@ -1,16 +1,16 @@
-# RW-4 · Епик: Hardening, тестове, документация
+# RW-4 · Epic: Hardening, tests, documentation
 
-**Цел.** Системата е безопасна за публичен URL, разходите са ограничени, има e2e тест и документация за оператора.
+**Goal.** The system is safe for a public URL, costs are capped, there is an e2e test and operator documentation.
 
-**Оценка:** 3–5 чд. **Етап:** пълна цел. **Зависимости:** RW-2, RW-3.
+**Estimate:** 3–5 pd. **Stage:** full goal. **Dependencies:** RW-2, RW-3.
 
-| Стори | Име | чд |
+| Story | Name | pd |
 |---|---|---|
-| RW-4.1 | Сигурност: секрети, scope на токени, headers, одит | 1–2 |
-| RW-4.2 | Надеждност: backup, redeploy стратегия, лимити | 1 |
-| RW-4.3 | E2E тест (Playwright web) и документация | 1–2 |
+| RW-4.1 | Security: secrets, token scope, headers, audit | 1–2 |
+| RW-4.2 | Reliability: backup, redeploy strategy, limits | 1 |
+| RW-4.3 | E2E test (Playwright web) and documentation | 1–2 |
 
-**Критерии за приемане**
-- [ ] Threat model документ с митигации за: откраднат cookie, компрометиран работник, изтекъл Railway токен, brute force.
-- [ ] Playwright e2e минава срещу docker-compose от hub + worker локално.
-- [ ] `docs/` описва архитектурата и операциите; `AGENTS.md` препраща.
+**Acceptance criteria**
+- [ ] Threat model document with mitigations for: stolen cookie, compromised worker, leaked Railway token, brute force.
+- [ ] Playwright e2e passes against a local docker-compose of hub + worker.
+- [ ] `docs/` describes the architecture and operations; `AGENTS.md` links to it.

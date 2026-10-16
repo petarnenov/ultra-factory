@@ -1,16 +1,16 @@
-# RW-2.3 · Стори: Web адаптери за shortcuts, notifications, settings, clipboard
+# RW-2.3 · Story: Web adapters for shortcuts, notifications, settings, clipboard
 
-**Като** потребител в браузър **искам** клавишните комбинации, нотификациите и UI настройките да работят, **за да** е използваемо ежедневно.
+**As** a browser user **I want** keyboard shortcuts, notifications and UI settings to work, **so that** it is usable day to day.
 
-**Оценка:** 1.5–3 чд. **Зависимости:** RW-2.2.1.
+**Estimate:** 1.5–3 pd. **Dependencies:** RW-2.2.1.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-2.3.1 | Клавишни комбинации в renderer-а (днес идват от main IPC) | 0.5–1 |
-| RW-2.3.2 | Web Notifications и badge в `document.title` | 0.5 |
-| RW-2.3.3 | `uiSettings`/`keybindings` в localStorage; clipboard/openExternal проверка | 0.5–1 |
+| RW-2.3.1 | Keyboard shortcuts in the renderer (today they come from main IPC) | 0.5–1 |
+| RW-2.3.2 | Web Notifications and badge in `document.title` | 0.5 |
+| RW-2.3.3 | `uiSettings`/`keybindings` in localStorage; clipboard/openExternal check | 0.5–1 |
 
-**Критерии за приемане**
-- [ ] ⌘/Ctrl+N, ⌘/Ctrl+T, навигация между сесии и терминал shortcut-ите работят в браузър; не се дублират в Electron.
-- [ ] Нотификация при завършена сесия се показва (след permission), заглавието показва брой непрочетени.
-- [ ] Настройките преживяват reload.
+**Acceptance criteria**
+- [ ] ⌘/Ctrl+N, ⌘/Ctrl+T, navigation between sessions and the terminal shortcuts work in the browser; they are not duplicated in Electron.
+- [ ] A notification for a finished session is shown (after permission); the title shows the unread count.
+- [ ] Settings survive a reload.

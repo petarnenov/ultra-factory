@@ -1,17 +1,17 @@
-# RW-2.4 · Стори: BFF за hub-а (login, proxy, registry на хостове)
+# RW-2.4 · Story: BFF for the hub (login, proxy, host registry)
 
-**Като** оператор **искам** един публичен HTTPS endpoint с login, който сервира SPA-то и proxy-ва REST/SSE/WebSocket към daemon-а на hub-а и към всеки регистриран работник с инжектиран Bearer, **за да** работи уеб UI-ят без да се излага daemon API-то.
+**As** an operator **I want** a single public HTTPS endpoint with login that serves the SPA and proxies REST/SSE/WebSocket to the hub's daemon and to every registered worker with an injected Bearer, **so that** the web UI works without exposing the daemon API.
 
-**Оценка:** 5–8 чд. **Зависимости:** RW-1.1.2 (ADR), RW-2.1. **Блокира:** RW-2.5, RW-3.
+**Estimate:** 5–8 pd. **Dependencies:** RW-1.1.2 (ADR), RW-2.1. **Blocks:** RW-2.5, RW-3.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-2.4.1 | Скелет на BFF: static SPA, login, session cookie, CSRF | 1.5–2 |
-| RW-2.4.2 | Reverse proxy за REST/SSE/`/mux` към hub daemon-а и към хостове | 2–3 |
-| RW-2.4.3 | Registry на хостове (`hosts.json`) и API за добавяне/махане по адрес | 1–2 |
-| RW-2.4.4 | Renderer: multi-host маршрути през BFF вместо Electron `remotes` | 0.5–1 |
+| RW-2.4.1 | BFF skeleton: static SPA, login, session cookie, CSRF | 1.5–2 |
+| RW-2.4.2 | Reverse proxy for REST/SSE/`/mux` to the hub daemon and to hosts | 2–3 |
+| RW-2.4.3 | Host registry (`hosts.json`) and API for adding/removing by address | 1–2 |
+| RW-2.4.4 | Renderer: multi-host routes through the BFF instead of Electron `remotes` | 0.5–1 |
 
-**Критерии за приемане**
-- [ ] Без cookie: всичко освен `/login` и `/healthz` → 401.
-- [ ] С cookie: `/api/*`, `/mux`, SSE към hub-а работят; `/hosts/<id>/api/*`, `/hosts/<id>/mux` към работника работят с Bearer, който никога не стига до браузъра.
-- [ ] Паролата на оператора и host credentials са само на volume (0600) или в Railway variables.
+**Acceptance criteria**
+- [ ] Without a cookie: everything except `/login` and `/healthz` → 401.
+- [ ] With a cookie: `/api/*`, `/mux`, SSE to the hub work; `/hosts/<id>/api/*`, `/hosts/<id>/mux` to the worker work with a Bearer that never reaches the browser.
+- [ ] The operator password and host credentials live only on the volume (0600) or in Railway variables.

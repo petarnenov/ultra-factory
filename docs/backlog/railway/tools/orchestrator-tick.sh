@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Будилник за RW оркестратора (issue #63).
+# Wake-up ticker for the RW orchestrator (issue #63).
 #
-# Докладите на работниците от отдалечени хостове не стигат до оркестратор на
-# друга машина, така че нищо не го буди, когато работник приключи или CI стане
-# зелен. Скриптът върви на машината на оркестратора (launchd, на всеки 5 минути).
-# Когато оркестраторът е idle и отдалеченото състояние се е променило, му праща
-# кратко резюме с `ao send`. Докато има работа в ход и нищо не се променя,
-# побутва отново най-много на всеки RENUDGE_MINUTES. Никога не прекъсва активен ход.
+# Worker reports from remote hosts never reach an orchestrator on another
+# machine, so nothing wakes it when a worker finishes or CI turns green. This
+# script runs on the orchestrator's machine (launchd, every 5 minutes). When the
+# orchestrator is idle and the remote state changed, it sends the orchestrator a
+# compact summary with `ao send`. While work is in flight and nothing changed, it
+# re-nudges at most every RENUDGE_MINUTES. It never interrupts an active turn.
 #
-# Освен това проверява инвариантите, които оркестраторът трябва да пази винаги
-# (интеграционният бранч съдържа main, няма зелен немърджнат PR, няма мърджнат PR
-# с отворени таск issues, няма idle работник без PR). Всяко нарушение се праща
-# първо като ред „НАРУШЕНИЕ: ...“, записва се в лога като VIOLATION и се праща
-# отново на всеки VIOLATION_RENUDGE_MINUTES, докато е налице.
+# It also checks invariants the orchestrator must keep true (integration branch
+# contains main, no green PR left unmerged, no merged PR with open task issues,
+# no worker idle without a PR). Each violation is sent first as a
+# "VIOLATION: ..." line, logged as VIOLATION, and re-sent every
+# VIOLATION_RENUDGE_MINUTES while it persists.
 #
-# Употреба:
-#   orchestrator-tick.sh run         един тик (това вика launchd)
-#   orchestrator-tick.sh snapshot    печата състоянието, което тикът би пратил, без да праща
-#   orchestrator-tick.sh install     инсталира и зарежда launchd агента
-#   orchestrator-tick.sh uninstall   разтоварва и премахва launchd агента
-#   orchestrator-tick.sh status      показва агента и последния тик
+# Usage:
+#   orchestrator-tick.sh run         one tick (what launchd calls)
+#   orchestrator-tick.sh snapshot    print the state a tick would send, send nothing
+#   orchestrator-tick.sh install     install and load the launchd agent
+#   orchestrator-tick.sh uninstall   unload and remove the launchd agent
+#   orchestrator-tick.sh status      show the agent and the last tick
 set -euo pipefail
 
 SESSION="${RW_TICK_SESSION:-ultra-factory-1}"
@@ -28,9 +28,9 @@ REPO="${RW_TICK_REPO:-petarnenov/ultra-factory}"
 BASE="${RW_TICK_BASE:-feat/railway-hosting}"
 INTERVAL_SECONDS="${RW_TICK_INTERVAL:-300}"
 RENUDGE_MINUTES="${RW_TICK_RENUDGE_MINUTES:-30}"
-# Колко често да се побутва отново, докато инвариант е нарушен и нищо не се променя.
+# While an invariant is violated and nothing changed, re-nudge this often.
 VIOLATION_RENUDGE_MINUTES="${RW_TICK_VIOLATION_RENUDGE_MINUTES:-10}"
-# Прагове на инвариантите.
+# Invariant thresholds.
 GREEN_PR_MAX_MINUTES="${RW_TICK_GREEN_PR_MAX_MINUTES:-10}"
 IDLE_WORKER_MAX_MINUTES="${RW_TICK_IDLE_WORKER_MAX_MINUTES:-30}"
 REPO_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -57,26 +57,26 @@ snapshot() {
 		--json number,headRefName,mergeable,statusCheckRollup \
 		--jq '.[] | "  #\(.number) \(.headRefName) mergeable=\(.mergeable) checks=\([.statusCheckRollup[] | (.conclusion // .status)] | if length == 0 then "none" elif all(. == "SUCCESS" or . == "SKIPPED" or . == "NEUTRAL") then "green" elif any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT") then "red" else "pending" end)"' 2>&1 || true
 	printf '[invariants]\n'
-	invariants || printf 'НАРУШЕНИЕ: проверката на инвариантите се провали; виж %s\n' "$STATE_DIR/tick.log"
+	invariants || printf 'VIOLATION: the invariant check failed; see %s\n' "$STATE_DIR/tick.log"
 }
 
-# invariants печата по един ред „НАРУШЕНИЕ: ...“ за всяко нарушено правило и нищо,
-# когато всички са спазени. Правилата, които оркестраторът трябва да пази винаги,
-# се проверяват тук, в код, защото инструкции „след Y направи и X“ се пропускат.
+# invariants prints one "VIOLATION: ..." line per violated rule, nothing when all
+# hold. Rules the orchestrator must keep true at all times are checked here, in
+# code, because "remember to do X after Y" instructions get skipped.
 invariants() {
-	# 1. Интеграционният бранч съдържа origin/main.
+	# 1. The integration branch contains origin/main.
 	if git -C "$REPO_DIR" fetch -q origin main "$BASE" 2>/dev/null; then
 		local behind shas
 		behind="$(git -C "$REPO_DIR" rev-list --count "origin/$BASE..origin/main" 2>/dev/null || echo 0)"
 		if ((behind > 0)); then
 			shas="$(git -C "$REPO_DIR" log --format=%h -n 5 "origin/$BASE..origin/main" | paste -sd, -)"
-			printf 'НАРУШЕНИЕ: %s изостава от main с %s commit(s) (%s) → git merge origin/main в %s и push\n' "$BASE" "$behind" "$shas" "$BASE"
+			printf 'VIOLATION: %s is %s commit(s) behind main (%s) → git merge origin/main into %s and push\n' "$BASE" "$behind" "$shas" "$BASE"
 		fi
 	else
-		printf 'НАРУШЕНИЕ: git fetch на origin се провали; провери мрежата и достъпа до репото\n'
+		printf 'VIOLATION: git fetch from origin failed; check the network and repository access\n'
 	fi
 
-	# 2–4 изискват състояние от GitHub и AO; проверяват се заедно в Python.
+	# 2-4 need GitHub and AO state; evaluated together in Python.
 	local open_prs merged_prs open_issues sessions h
 	open_prs="$(gh pr list -R "$REPO" --base "$BASE" --state open --json number,headRefName,mergeable,statusCheckRollup 2>/dev/null || echo '[]')"
 	merged_prs="$(gh pr list -R "$REPO" --base "$BASE" --state merged --limit 50 --json number,body,mergedAt 2>/dev/null || echo '[]')"
@@ -114,7 +114,7 @@ def load(name, default):
 green_max = int(os.environ["GREEN_MAX"])
 idle_max = int(os.environ["IDLE_MAX"])
 
-# 2. Зелен, мърджабилен PR не стои немърджнат.
+# 2. A green, mergeable PR does not sit unmerged.
 for pr in load("OPEN_PRS", []):
     checks = pr.get("statusCheckRollup") or []
     results = [(c.get("conclusion") or c.get("state") or c.get("status") or "").upper() for c in checks]
@@ -128,9 +128,9 @@ for pr in load("OPEN_PRS", []):
         continue
     age = minutes_since(max(done))
     if age >= green_max:
-        print(f"НАРУШЕНИЕ: #{pr['number']} ({pr['headRefName']}) е зелен и мърджабилен от {age} мин → провери по „Ревю и мърдж“ и мърджни")
+        print(f"VIOLATION: #{pr['number']} ({pr['headRefName']}) has been green and mergeable for {age} min → review it per \"Review and merge\" and merge it")
 
-# 3. Мърджнат PR не оставя отворени таск issues, към които сочи.
+# 3. A merged PR leaves none of its referenced task issues open.
 open_issues = {i["number"]: i["title"] for i in load("OPEN_ISSUES", [])}
 close_re = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
 for pr in load("MERGED_PRS", []):
@@ -138,9 +138,9 @@ for pr in load("MERGED_PRS", []):
     still_open = [n for n in refs if n in open_issues]
     if still_open:
         listed = ", ".join(f"#{n}" for n in still_open)
-        print(f"НАРУШЕНИЕ: #{pr['number']} е мърджнат, но {listed} е още отворено → gh issue close по стъпка 5 на „Ревю и мърдж“")
+        print(f"VIOLATION: #{pr['number']} is merged but {listed} is still open → gh issue close per step 5 of \"Review and merge\"")
 
-# 4. Работник не стои idle без PR.
+# 4. A worker does not sit idle without a PR.
 for host, payload in load("SESSIONS", {}).items():
     items = payload.get("data", []) if isinstance(payload, dict) else payload
     for s in items or []:
@@ -151,12 +151,12 @@ for host, payload in load("SESSIONS", {}).items():
             continue
         last = parse_time(s.get("lastActivityAt"))
         if last and minutes_since(last) >= idle_max:
-            print(f"НАРУШЕНИЕ: {s.get('id')} ({branch}) на {host} е idle {minutes_since(last)} мин без PR → ao send --host {host} да докладва какво го блокира")
+            print(f"VIOLATION: {s.get('id')} ({branch}) on {host} has been idle for {minutes_since(last)} min without a PR → ao send --host {host} asking what blocks it")
 PY
 }
 
 in_flight() { # any worker branch, open PR or violated invariant in the snapshot
-	grep -q -E 'rw/|^  #[0-9]+|^НАРУШЕНИЕ:' "$1"
+	grep -q -E 'rw/|^  #[0-9]+|^VIOLATION:' "$1"
 }
 
 run_tick() {
@@ -186,11 +186,11 @@ run_tick() {
 	fi
 
 	local violations renudge_after
-	violations="$(grep '^НАРУШЕНИЕ:' "$snap" || true)"
+	violations="$(grep '^VIOLATION:' "$snap" || true)"
 	renudge_after="$RENUDGE_MINUTES"
 	if [[ -n "$violations" ]]; then
 		renudge_after="$VIOLATION_RENUDGE_MINUTES"
-		while IFS= read -r v; do log "VIOLATION ${v#НАРУШЕНИЕ: }"; done <<<"$violations"
+		while IFS= read -r v; do log "VIOLATION ${v#VIOLATION: }"; done <<<"$violations"
 	fi
 
 	local reason=""
@@ -217,15 +217,15 @@ run_tick() {
 	local msg first=""
 	if [[ -n "$violations" ]]; then
 		first="
-ПЪРВО оправи тези нарушения, преди всичко друго в цикъла:
+FIRST fix these violations, before anything else in the loop:
 $violations
 "
 	fi
-	msg="TICK (автоматичен будилник от orchestrator-tick.sh, не е съобщение от потребителя; причина: $reason).
+	msg="TICK (automatic wake-up from orchestrator-tick.sh, not a message from the user; reason: $reason).
 $first
-Докладите на работниците от другите машини не стигат до теб (issue #63), затова ето текущото състояние:
+Reports from workers on other machines do not reach you (issue #63), so here is the current state:
 $(cat "$snap")
-Направи пълен цикъл по раздел „Будилник и цикъл на съгласуване“ от инструкциите си: мърджни всеки зелен PR, който отговаря на критериите, побутни застоялите работници, пусни всеки таск с мърджнати зависимости, обнови #59. Не чакай ao report от отдалечени работници."
+Run a full pass per \"Wake-up and reconcile loop\" in your instructions: merge every green PR that meets the criteria, nudge stalled workers, start every task whose dependencies are merged, update #59. Do not wait for ao report from remote workers."
 	if ao send --session "$SESSION" --message "$msg" >/dev/null 2>&1; then
 		cp "$snap" "$last"
 		date +%s >"$stamp"

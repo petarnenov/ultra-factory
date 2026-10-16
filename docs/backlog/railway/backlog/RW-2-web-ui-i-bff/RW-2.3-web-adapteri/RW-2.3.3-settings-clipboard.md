@@ -1,12 +1,12 @@
-# RW-2.3.3 · Таск: Настройки в localStorage; clipboard и openExternal
+# RW-2.3.3 · Task: Settings in localStorage; clipboard and openExternal
 
-**Тип:** frontend TS. **Оценка:** 0.5–1 чд. **Стори:** RW-2.3.
+**Type:** frontend TS. **Estimate:** 0.5–1 pd. **Story:** RW-2.3.
 
-## Контекст
-- `uiSettings` (2), `keybindings` (3), `updateSettings` се пазят от main в `~/.ao`. В web няма такъв път; per-browser localStorage е приемливо (не е app state на daemon-а).
-- `clipboard` (20 реф.) → `navigator.clipboard`; `openExternal` → `window.open(url, "_blank", "noopener")`. Стъбовете вече правят това, провери граничните случаи (HTTP, без permission).
+## Context
+- `uiSettings` (2), `keybindings` (3), `updateSettings` are stored by main in `~/.ao`. On the web there is no such path; per-browser localStorage is acceptable (it is not daemon app state).
+- `clipboard` (20 refs) → `navigator.clipboard`; `openExternal` → `window.open(url, "_blank", "noopener")`. The stubs already do this; check the edge cases (HTTP, no permission).
 
-## Събтаскове
-- [ ] Stub `uiSettings.get/set`, `keybindings.get/set/reset` върху localStorage с try/catch и default при грешка.
-- [ ] `clipboard.readText` в браузър изисква permission и user gesture: при отказ покажи toast, не грешка.
-- [ ] Тестове.
+## Subtasks
+- [ ] Stub `uiSettings.get/set`, `keybindings.get/set/reset` on top of localStorage with try/catch and a default on error.
+- [ ] `clipboard.readText` in a browser requires permission and a user gesture: on denial show a toast, not an error.
+- [ ] Tests.

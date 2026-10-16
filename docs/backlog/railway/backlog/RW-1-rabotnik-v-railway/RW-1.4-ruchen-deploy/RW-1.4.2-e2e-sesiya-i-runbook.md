@@ -1,19 +1,19 @@
-# RW-1.4.2 · Таск: End-to-end сесия от desktop приложението и runbook
+# RW-1.4.2 · Task: End-to-end session from the desktop app and runbook
 
-**Тип:** операции + документация. **Оценка:** 0.5 чд. **Стори:** RW-1.4.
+**Type:** operations + documentation. **Estimate:** 0.5 pd. **Story:** RW-1.4.
 
-## Контекст
+## Context
 - Desktop: Settings → Remote hosts (`frontend/src/renderer/components/settings/RemoteHostsSettings.tsx`), `~/.ao/remotes.json`.
 - CLI: `ao host ls`, `ao spawn --host`.
-- Credentials идват от env на работника, не от лаптопа (`docs/self-hosted-remote.md`).
+- Credentials come from the worker's env, not from the laptop (`docs/self-hosted-remote.md`).
 
-## Събтаскове
-- [ ] Добави хоста в desktop приложението с URL и парола; провери, че се появява `host.$hostId` маршрутът.
-- [ ] Клонирай проект на работника (`/api/v1/projects/clone` през UI), пусни сесия с Claude Code, отвори терминал, прати съобщение, направи промяна, създай PR през `gh`.
-- [ ] Провери `*.localhost` preview и artifacts през remote proxy-то; запиши какво не работи.
-- [ ] Повтори ключовите стъпки с CLI: `ao spawn --host worker-1 ...`, `ao session ls --host worker-1`.
-- [ ] Runbook `deploy/railway/README.md`: предпоставки, env променливи, добавяне в desktop, ротация на парола, redeploy, какво се губи при рестарт, troubleshooting (логове, `ao remote-host status` през `railway ssh`).
+## Subtasks
+- [ ] Add the host in the desktop app with URL and password; check that the `host.$hostId` route appears.
+- [ ] Clone a project on the worker (`/api/v1/projects/clone` via the UI), start a Claude Code session, open a terminal, send a message, make a change, create a PR via `gh`.
+- [ ] Check the `*.localhost` preview and artifacts through the remote proxy; record what does not work.
+- [ ] Repeat the key steps with the CLI: `ao spawn --host worker-1 ...`, `ao session ls --host worker-1`.
+- [ ] Runbook `deploy/railway/README.md`: prerequisites, env variables, adding it in the desktop app, password rotation, redeploy, what is lost on restart, troubleshooting (logs, `ao remote-host status` via `railway ssh`).
 
-## Критерии за приемане
-- [ ] Друг човек може да повтори процедурата по runbook-а без помощ.
-- [ ] Списък „не работи/частично“ е записан и прехвърлен като бележки в RW-2 и RW-4.
+## Acceptance criteria
+- [ ] Another person can repeat the procedure from the runbook without help.
+- [ ] A "does not work / partially works" list is recorded and carried over as notes into RW-2 and RW-4.

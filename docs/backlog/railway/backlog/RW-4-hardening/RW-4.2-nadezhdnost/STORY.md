@@ -1,8 +1,8 @@
-# RW-4.2 · Стори: Надеждност и разходи
+# RW-4.2 · Story: Reliability and costs
 
-**Оценка:** 1 чд.
+**Estimate:** 1 pd.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-4.2.1 | Backup на volumes и redeploy стратегия без загуба на сесии | 0.5 |
-| RW-4.2.2 | Лимити и наблюдение на разходите | 0.5 |
+| RW-4.2.1 | Volume backup and a redeploy strategy without losing sessions | 0.5 |
+| RW-4.2.2 | Limits and cost monitoring | 0.5 |

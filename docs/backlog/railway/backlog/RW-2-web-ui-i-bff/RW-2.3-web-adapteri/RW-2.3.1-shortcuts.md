@@ -1,15 +1,15 @@
-# RW-2.3.1 · Таск: Клавишни комбинации в renderer-а
+# RW-2.3.1 · Task: Keyboard shortcuts in the renderer
 
-**Тип:** frontend TS. **Оценка:** 0.5–1 чд. **Стори:** RW-2.3.
+**Type:** frontend TS. **Estimate:** 0.5–1 pd. **Story:** RW-2.3.
 
-## Контекст
-- ~12 `app.on*Shortcut` listener-и в `preload.ts` се задействат от Electron menu accelerators (`main/menu.ts`, `app-shortcuts.ts`). В web stub-а са no-op.
-- `keybindings` група (3 метода) и `keybinding-settings.ts` в main.
+## Context
+- ~12 `app.on*Shortcut` listeners in `preload.ts` are triggered by Electron menu accelerators (`main/menu.ts`, `app-shortcuts.ts`). In the web stub they are no-ops.
+- The `keybindings` group (3 methods) and `keybinding-settings.ts` in main.
 
-## Събтаскове
-- [ ] `lib/web-shortcuts.ts`: глобален `keydown` handler при `isWebBuild`, който мапва комбинациите от текущия keybindings списък към същите callback-и, които stub-ът на `aoBridge.app.on*Shortcut` регистрира.
-- [ ] Избягвай конфликти с браузъра (⌘T/⌘N/⌘W са резервирани в някои браузъри): документирай алтернативи (Alt+…) и ги направи default за web в keybinding defaults.
-- [ ] Тест: симулирани keydown събития в jsdom задействат callback-ите.
+## Subtasks
+- [ ] `lib/web-shortcuts.ts`: a global `keydown` handler when `isWebBuild`, which maps the combinations from the current keybindings list to the same callbacks that the `aoBridge.app.on*Shortcut` stub registers.
+- [ ] Avoid conflicts with the browser (⌘T/⌘N/⌘W are reserved in some browsers): document alternatives (Alt+…) and make them the web default in the keybinding defaults.
+- [ ] Test: simulated keydown events in jsdom trigger the callbacks.
 
-## Критерии за приемане
-- [ ] Shortcut help екранът показва web комбинациите.
+## Acceptance criteria
+- [ ] The shortcut help screen shows the web combinations.

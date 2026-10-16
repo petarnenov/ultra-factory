@@ -1,16 +1,16 @@
-# RW-2.4.4 · Таск: Renderer multi-host през BFF вместо Electron `remotes`
+# RW-2.4.4 · Task: Renderer multi-host through the BFF instead of Electron `remotes`
 
-**Тип:** frontend TS. **Оценка:** 0.5–1 чд. **Стори:** RW-2.4. **Зависимости:** RW-2.4.3, RW-2.2.1.
+**Type:** frontend TS. **Estimate:** 0.5–1 pd. **Story:** RW-2.4. **Dependencies:** RW-2.4.3, RW-2.2.1.
 
-## Контекст
-- `aoBridge.remotes` (11 метода, 30 реф.) днес вика Electron main (`remotes-store.ts`, `remote-proxy.ts`) и връща loopback proxy URL за всеки хост. `lib/host-clients.ts` `clientForHost(hostId)` строи `apiClient` по този URL.
-- Маршрути `host.$hostId.*` и `RemoteHostsSettings.tsx`.
+## Context
+- `aoBridge.remotes` (11 methods, 30 refs) today calls Electron main (`remotes-store.ts`, `remote-proxy.ts`) and returns a loopback proxy URL for each host. `lib/host-clients.ts` `clientForHost(hostId)` builds an `apiClient` from that URL.
+- Routes `host.$hostId.*` and `RemoteHostsSettings.tsx`.
 
-## Събтаскове
-- [ ] Web stub за `aoBridge.remotes`: `list` → `GET /hub/hosts`; `add` → `POST /hub/hosts`; `remove` → `DELETE`; `probe` → `POST .../probe`; `baseUrlFor(hostId)` → `"/hosts/<id>"` (same-origin префикс).
-- [ ] `host-clients.ts`: base URL за хост в web режим е префикс, не абсолютен URL; `muxUrlFromApiBase` и SSE конструкцията работят с префикс (провери `terminal-mux.ts:72-77`).
-- [ ] `RemoteHostsSettings.tsx`: същият UI, данните идват от stub-а; при web скрий полетата, които нямат смисъл (tunnel, LAN адреси).
-- [ ] Тестове на stub-а и на `host-clients` с префикс.
+## Subtasks
+- [ ] Web stub for `aoBridge.remotes`: `list` → `GET /hub/hosts`; `add` → `POST /hub/hosts`; `remove` → `DELETE`; `probe` → `POST .../probe`; `baseUrlFor(hostId)` → `"/hosts/<id>"` (same-origin prefix).
+- [ ] `host-clients.ts`: in web mode a host's base URL is a prefix, not an absolute URL; `muxUrlFromApiBase` and the SSE construction work with a prefix (check `terminal-mux.ts:72-77`).
+- [ ] `RemoteHostsSettings.tsx`: the same UI, with data coming from the stub; on web hide the fields that make no sense (tunnel, LAN addresses).
+- [ ] Tests for the stub and for `host-clients` with a prefix.
 
-## Критерии за приемане
-- [ ] В web build: Settings → Remote hosts показва работника, `host/<id>` маршрутът отваря board-а му, терминал работи.
+## Acceptance criteria
+- [ ] In the web build: Settings → Remote hosts shows the worker, the `host/<id>` route opens its board, the terminal works.

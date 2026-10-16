@@ -1,15 +1,15 @@
-# RW-2.2 · Стори: Скриване на Electron-only функции в web build
+# RW-2.2 · Story: Hiding Electron-only features in the web build
 
-**Като** потребител в браузър **искам** бутоните и панелите, които изискват Electron, да са скрити или с ясно съобщение, **за да** няма счупени действия.
+**As** a browser user **I want** the buttons and panels that require Electron to be hidden or to show a clear message, **so that** there are no broken actions.
 
-**Оценка:** 1.5–2 чд. **Зависимости:** RW-2.1.3.
+**Estimate:** 1.5–2 pd. **Dependencies:** RW-2.1.3.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-2.2.1 | Capability флаг `isWebBuild` и одит на директните `window.ao` употреби | 0.5 |
-| RW-2.2.2 | Скриване: browser panel, editor handoff, CLI link, updates, tray, window chrome | 1–1.5 |
+| RW-2.2.1 | Capability flag `isWebBuild` and audit of direct `window.ao` usages | 0.5 |
+| RW-2.2.2 | Hiding: browser panel, editor handoff, CLI link, updates, tray, window chrome | 1–1.5 |
 
-**Критерии за приемане**
-- [ ] Няма runtime грешки от `window.ao.*` в web build (конзолата чиста при обход на всички маршрути).
-- [ ] Electron build-ът е визуално непроменен.
-- [ ] Спазен `DESIGN.md`: скритото не оставя празни места или счупен layout.
+**Acceptance criteria**
+- [ ] No runtime errors from `window.ao.*` in the web build (the console is clean when walking through all routes).
+- [ ] The Electron build is visually unchanged.
+- [ ] `DESIGN.md` is respected: hidden elements leave no empty gaps or broken layout.
