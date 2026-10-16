@@ -36,7 +36,7 @@ aoBridge.telemetry.onClearQueues(clearRendererTelemetryQueues);
 aoBridge.notifications.onPlaySound(() => {
 	playNotificationSound(() => aoBridge.notifications.reportSoundFailure());
 });
-// В Electron shortcut-ите идват от main процеса; тук handler-ът би ги дублирал.
+// In Electron the main process delivers shortcuts; this handler would double them.
 if (isWebBuild) {
 	installWebShortcuts({ isMac: isMacPlatform(), getOverrides: () => useKeybindingsStore.getState().overrides });
 }

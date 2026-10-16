@@ -94,8 +94,8 @@ export const aoBridge: AoBridge =
 		checkGitHubRepositoryAvailability: async () => ({ available: true }),
 			getPathForFile: () => "",
 			onOpenFolderPath: () => () => undefined,
-			// Без main процес shortcut-ите идват от keydown handler-а в
-			// web-shortcuts.ts, който се инсталира само при isWebBuild.
+			// With no main process, shortcuts come from the keydown handler in
+			// web-shortcuts.ts, which is installed only when isWebBuild.
 			...webShortcutListeners,
 			setChatDraftRisk: () => undefined,
 		},

@@ -9,12 +9,13 @@ import {
 	type ShortcutChord,
 } from "../../shared/shortcuts";
 
-// В Electron main процесът хваща application shortcut-ите в before-input-event
-// и ги праща към renderer-а по IPC (main/app-shortcuts.ts). Web build-ът няма
-// main процес, затова този модул поема същата роля в страницата: държи
-// listener-ите, които stub-ът на aoBridge.app.on*Shortcut регистрира, и ги
-// задейства от глобален keydown handler. Handler-ът се инсталира само при
-// isWebBuild, така че в Electron комбинациите не се дублират.
+// In Electron the main process catches application shortcuts in
+// before-input-event and sends them to the renderer over IPC
+// (main/app-shortcuts.ts). The web build has no main process, so this module
+// plays that role inside the page: it holds the listeners the
+// aoBridge.app.on*Shortcut stub registers and fires them from a global keydown
+// handler. The handler is installed only when isWebBuild, so Electron never
+// sees the chords twice.
 
 type Emitter<Args extends unknown[]> = {
 	on: (listener: (...args: Args) => void) => () => void;
@@ -47,8 +48,8 @@ const previousTab = emitter<[]>();
 const nextTab = emitter<[]>();
 const appShortcut = emitter<[event: AppShortcutEvent]>();
 
-// Същото разделение като legacyShortcutChannels в main/app-shortcuts.ts: тези
-// команди имат собствен listener, всички останали минават през onShortcut.
+// Same split as legacyShortcutChannels in main/app-shortcuts.ts: these commands
+// have their own listener, every other one goes through onShortcut.
 const legacyShortcuts: Partial<Record<AppShortcutId, () => void>> = {
 	"new-session": () => newSession.emit(),
 	"new-shell-terminal": () => newShellTerminal.emit(),
@@ -61,7 +62,7 @@ const legacyShortcuts: Partial<Record<AppShortcutId, () => void>> = {
 	"next-tab": () => nextTab.emit(),
 };
 
-// Browser DevTools се отварят от main; в браузъра няма какво да се задейства.
+// Main opens the Browser DevTools; in a browser there is nothing to toggle.
 const desktopOnlyShortcuts: ReadonlySet<AppShortcutId> = new Set(["toggle-browser-devtools"]);
 
 const TERMINAL_SELECTOR = ".xterm, .terminal-surface, [data-testid='session-terminal']";
@@ -100,13 +101,13 @@ export const webShortcutListeners: WebShortcutListeners = {
 	onShortcut: appShortcut.on,
 };
 
-/** Докато Settings записва нова комбинация, натиснатите клавиши отиват при нея. */
+/** While Settings records a new binding, key presses go to the recorder. */
 export function setWebShortcutRecording(active: boolean): void {
 	recording = active;
 }
 
-// ⌥1 на macOS дава "¡", а "1-9" съвпада само с цифра в key, затова цифрата се
-// взима от физическия клавиш.
+// ⌥1 on macOS types "¡" while "1-9" only matches a digit key, so the digit
+// comes from the physical key.
 function keyboardChord(event: KeyboardEvent): ShortcutChord {
 	const digit = /^Digit([1-9])$/.exec(event.code ?? "");
 	return {
@@ -127,7 +128,7 @@ function matchingShortcut(
 ): AppShortcutId | null {
 	for (const { id } of APP_SHORTCUTS) {
 		if (desktopOnlyShortcuts.has(id)) continue;
-		// web === undefined оставя default-а на build-а.
+		// web === undefined keeps the build default.
 		if (matchesAppShortcut(id, chord, isMac, overrides, web)) return id;
 	}
 	return null;
@@ -137,13 +138,13 @@ export type WebShortcutOptions = {
 	isMac: boolean;
 	getOverrides: () => KeybindingOverrides;
 	target?: Window;
-	/** Само за тестове: налага web или desktop defaults независимо от build-а. */
+	/** Tests only: forces web or desktop defaults regardless of the build. */
 	web?: boolean;
 };
 
 /**
- * Слуша keydown в capture фазата на window, преди xterm и полетата за текст, и
- * задейства listener-ите на съответната команда. Връща функция за премахване.
+ * Listens for keydown in the window capture phase, ahead of xterm and text
+ * fields, and fires the listeners of the matching command. Returns a disposer.
  */
 export function installWebShortcuts({ isMac, getOverrides, target = window, web }: WebShortcutOptions): () => void {
 	const onKeyDown = (event: KeyboardEvent) => {
@@ -153,11 +154,11 @@ export function installWebShortcuts({ isMac, getOverrides, target = window, web 
 		if (!id) return;
 		const element = event.target instanceof Element ? event.target : null;
 		if (!isMac && shortcutYieldsToTerminal(id, chord) && element?.closest(TERMINAL_SELECTOR)) return;
-		// Без отворен таб комбинацията остава за страницата, както в main.
+		// With no closable tab the chord stays with the page, as in main.
 		if (id === "close-shell-terminal" && !closeShellTerminalEnabled) return;
-		// preventDefault казва и на useAppShortcut, че командата вече е поета.
+		// preventDefault also tells useAppShortcut the command is already handled.
 		event.preventDefault();
-		// Задържан клавиш не повтаря командата.
+		// A held key does not repeat the command.
 		if (event.repeat) return;
 		const legacy = legacyShortcuts[id];
 		if (legacy) {

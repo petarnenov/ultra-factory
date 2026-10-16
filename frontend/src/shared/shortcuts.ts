@@ -123,12 +123,12 @@ const binding = (
 	...modifiers,
 });
 
-// Браузърът си запазва част от desktop комбинациите и страницата никога не ги
-// получава (или не може да ги спре): ⌘/Ctrl+N, ⌘/Ctrl+T, ⌘/Ctrl+W и Shift
-// вариантите им, Ctrl+Tab, Ctrl+PageUp/PageDown, ⌘⇧[ / ⌘⇧] и ⌘⌥←/→ (смяна на
-// таб), ⌘/Ctrl+1–9 (избор на таб). Web build-ът ползва Alt алтернативи за тези
-// команди. Alt+Shift+буква не е readline клавиш, а `code` пази съвпадението на
-// macOS, където ⌥ превръща буквата в друг символ (⌥⇧N дава "˜").
+// Browsers reserve some desktop chords, so the page never receives them (or
+// cannot cancel them): ⌘/Ctrl+N, ⌘/Ctrl+T, ⌘/Ctrl+W and their Shift variants,
+// Ctrl+Tab, Ctrl+PageUp/PageDown, ⌘⇧[ / ⌘⇧] and ⌘⌥←/→ (switch tab), ⌘/Ctrl+1–9
+// (select tab). The web build uses Alt alternatives for those commands.
+// Alt+Shift+letter is not a readline key, and `code` keeps the match on macOS,
+// where ⌥ turns the letter into another character (⌥⇧N types "˜").
 export function webShortcutBindings(id: AppShortcutId): readonly ShortcutBinding[] | undefined {
 	switch (id) {
 		case "new-session":
@@ -154,8 +154,8 @@ export function webShortcutBindings(id: AppShortcutId): readonly ShortcutBinding
 	}
 }
 
-// Main процесът и Electron renderer-ът се build-ват без VITE_AO_WEB, така че
-// там винаги остават desktop комбинациите.
+// The main process and the Electron renderer are built without VITE_AO_WEB, so
+// they always keep the desktop chords.
 const webBuildDefaults = import.meta.env.VITE_AO_WEB === "1";
 
 export function defaultShortcutBindings(
