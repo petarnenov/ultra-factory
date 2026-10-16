@@ -696,6 +696,20 @@ describe("ShellTopbar inspector state", () => {
 		expect(screen.getByTestId("session-pinned-actions-reserve")).toHaveAttribute("data-state", "expanded");
 	});
 
+	it("reserves one control for an orchestrator without the Browser inspector in the web build", () => {
+		webBuild.enabled = true;
+		try {
+			useUiStore.setState({ inspectorSessions: { [orchestrator.id]: { isOpen: true, view: "browser" } } });
+			renderTopbarSessions([orchestrator], orchestrator.id);
+
+			const reserve = screen.getByTestId("session-pinned-actions-reserve");
+			expect(reserve).toHaveAttribute("data-state", "expanded");
+			expect(reserve).toHaveAttribute("data-controls", "single");
+		} finally {
+			webBuild.enabled = false;
+		}
+	});
+
 	it("keeps one reserve mounted while the inspector changes state", () => {
 		useUiStore.setState({ inspectorSessions: { "sess-1": { isOpen: false, view: "summary" } } });
 		const view = renderTopbarSessions([worker], "sess-1");

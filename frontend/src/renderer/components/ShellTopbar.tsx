@@ -121,6 +121,8 @@ export function ShellTopbar({
 	const isArtifactsRoute = location.pathname === "/artifacts";
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
 	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
+	// Без Browser панел orchestrator-ът няма inspector и бутон за него, само Notifications.
+	const orchestratorWithoutInspector = isOrchestrator && !capabilities.browserPanel;
 	const isInspectorOpen = useUiStore((state) =>
 		currentSessionId ? inspectorIsOpen(state.inspectorSessions, sessionUiKey(currentSessionId, hostId)) : false,
 	);
@@ -373,7 +375,8 @@ export function ShellTopbar({
 					   window's right edge. Reserve their width only when the rail is closed. */
 					startingOrchestrator ? null : <div
 						className="session-pinned-actions-reserve"
-						data-state={isInspectorOpen ? "collapsed" : "expanded"}
+						data-state={isInspectorOpen && !orchestratorWithoutInspector ? "collapsed" : "expanded"}
+						data-controls={orchestratorWithoutInspector ? "single" : undefined}
 						data-testid="session-pinned-actions-reserve"
 						aria-hidden="true"
 					/>
