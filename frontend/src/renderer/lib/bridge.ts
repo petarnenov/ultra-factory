@@ -2,6 +2,7 @@ import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
 import { coerceUiSettings, DEFAULT_UI_SETTINGS } from "../../shared/ui-locale";
 import { usesPreviewWorkspaceData } from "./preview-mode";
+import { createWebNotificationsBridge } from "./web-notifications";
 export type { FeatureBuild } from "../../main/feature-builds";
 
 // The web build has no Electron supervisor. The daemon (or the proxy in front
@@ -326,14 +327,22 @@ export const aoBridge: AoBridge =
 			import: async () => ({ sourceName: "", entries: [] }),
 			onImportProgress: () => () => undefined,
 		},
-		notifications: {
-			show: async () => undefined,
-			setBadge: async () => undefined,
-			devBounce: async () => undefined,
-			onClick: () => () => undefined,
-			onPlaySound: () => () => undefined,
-			reportSoundFailure: () => undefined,
-		},
+		// Mock-data preview (VITE_NO_ELECTRON) остава без нотификации; web build-ът
+		// ползва Web Notifications, badge в document.title и бъндълнатия звук.
+		notifications: usesPreviewWorkspaceData
+			? {
+				show: async () => undefined,
+				setBadge: async () => undefined,
+				devBounce: async () => undefined,
+				onClick: () => () => undefined,
+				onPlaySound: () => () => undefined,
+				reportSoundFailure: () => undefined,
+			}
+			: createWebNotificationsBridge({
+				// Динамичен import: store-ът импортира aoBridge от този модул.
+				soundEnabled: async () =>
+					(await import("../stores/sound-notifications-store")).useSoundNotificationsStore.getState().enabled,
+			}),
 		tray: {
 			setAttentionState: () => undefined,
 			onOpenSession: () => () => undefined,
