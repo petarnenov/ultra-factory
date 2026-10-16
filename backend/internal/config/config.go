@@ -169,6 +169,12 @@ type Config struct {
 	// TrackerIntake gates the issue-intake observer daemon-wide
 	// (AO_TRACKER_INTAKE).
 	TrackerIntake bool
+	// RemoteTrustedProxy makes the remote-host listener key its lockout on the
+	// rightmost X-Forwarded-For entry instead of the TCP peer
+	// (AO_REMOTE_TRUSTED_PROXY, default off). Only for a worker whose sole
+	// public path is a single reverse proxy; never used for authorization. See
+	// docs/adr/0005-trusted-proxy-remote-host.md.
+	RemoteTrustedProxy bool
 	// Client identifies which client this deployment serves (AO_CLIENT). It is
 	// reported to clients through the settings API and gates nothing in the
 	// daemon: the cloud offering (B2B/B2C, providers, billing) is decided per
@@ -220,6 +226,7 @@ func (c Config) Addr() string {
 //	AO_CLOUD_OFFERING          cloud offering flag off|on (default off)
 //	AO_LOCAL_OFFERING          local offering off|on (default on)
 //	AO_CLOUD_CONTROL_PLANE_URL cloud control plane base URL (trimmed, must be http(s))
+//	AO_REMOTE_TRUSTED_PROXY    trust X-Forwarded-For for remote-host lockout keys off|on (default off)
 //
 // The bind host is not configurable: the daemon is loopback-only by design.
 func Load() (Config, error) {
@@ -379,6 +386,14 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 		cfg.TrackerIntake = v
+	}
+
+	if raw, ok := os.LookupEnv("AO_REMOTE_TRUSTED_PROXY"); ok && strings.TrimSpace(raw) != "" {
+		v, err := parseToggleEnv("AO_REMOTE_TRUSTED_PROXY", raw)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.RemoteTrustedProxy = v
 	}
 
 	if raw := os.Getenv("AO_CLIENT"); raw != "" {
