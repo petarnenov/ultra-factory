@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
 # AO worker image for Railway: the `ao` daemon, everything systemcheck marks
-# Required (git, tmux), Node for Claude Code Chat, gh, and the agent CLIs.
+# Required (git, tmux), Node for Claude Code Chat, gh, the agent CLIs, and
+# tini and jq for the entrypoint.
 #
 # Build context is the REPO ROOT:
 #   docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
@@ -67,8 +68,10 @@ RUN apt-get update && \
         ca-certificates \
         curl \
         git \
+        jq \
         openssh-client \
         procps \
+        tini \
         tmux && \
     install -d -m 0755 /etc/apt/keyrings && \
     curl --fail --location --silent --show-error \
@@ -130,4 +133,7 @@ EXPOSE 3011
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3001/healthz || exit 1
 
-ENTRYPOINT ["/usr/local/bin/ao-worker-entrypoint.sh"]
+# tini forwards SIGTERM to the daemon and reaps orphaned children (exited git
+# helpers otherwise stay as zombies under a PID 1 daemon). -s keeps reaping
+# when the runtime adds its own init, as `docker run --init` does.
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/ao-worker-entrypoint.sh"]
