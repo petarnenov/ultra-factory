@@ -12,6 +12,7 @@ declare global {
 		readonly VITE_AO_GIT_COMMIT?: string;
 		readonly VITE_AO_GIT_WORKTREE?: string;
 		readonly VITE_AO_GIT_DIRTY?: string;
+		readonly VITE_AO_DEVELOPER_MODE_DEFAULT?: string;
 	}
 }
 

@@ -43,9 +43,10 @@ doctor: ## Check toolchain versions and installed dependencies
 ##@ Run
 
 dev: ## Run the Electron desktop app in dev mode (builds the daemon first)
-	npm --prefix frontend run dev
+	VITE_AO_DEVELOPER_MODE_DEFAULT=on npm --prefix frontend run dev
 
 dev-cloud: ## Run the desktop app against the local cloud stack (start it with make cloud-local)
+	VITE_AO_DEVELOPER_MODE_DEFAULT=on \
 	AO_CLOUD_OFFERING=on \
 	AO_CLOUD_CONTROL_PLANE_URL=http://127.0.0.1:$${AO_CLOUD_PORT:-8081} \
 	npm --prefix frontend run dev

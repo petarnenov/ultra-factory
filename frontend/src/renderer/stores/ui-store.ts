@@ -259,7 +259,16 @@ function initialSidebarOpen() {
 }
 
 function initialDeveloperMode() {
-	return getLocalStorage()?.getItem(developerModeStorageKey) === "true";
+	const storage = getLocalStorage();
+	const stored = storage?.getItem(developerModeStorageKey);
+	// `make dev` sets VITE_AO_DEVELOPER_MODE_DEFAULT=on so a fresh dev profile
+	// starts in Developer mode. Persisting it makes every other reader of the key
+	// agree, and an explicit "false" from the toggle still wins on later launches.
+	if (stored == null && import.meta.env.VITE_AO_DEVELOPER_MODE_DEFAULT === "on") {
+		storage?.setItem(developerModeStorageKey, "true");
+		return true;
+	}
+	return stored === "true";
 }
 
 function initialRemoteHosts() {
