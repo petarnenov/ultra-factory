@@ -200,6 +200,7 @@ func (m *LANManager) PasswordHash() string {
 
 // Start binds the authenticated listener on every interface for Connect Mobile.
 func (m *LANManager) Start(port int) (int, error) {
+	// With network "tcp", Go opens 0.0.0.0 as a dual-stack socket (IPv4 and IPv6); keep it so IPv6-only private networks can reach it (ADR 0007).
 	return m.start(port, "0.0.0.0")
 }
 
