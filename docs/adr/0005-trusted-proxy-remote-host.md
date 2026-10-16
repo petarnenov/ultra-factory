@@ -1,7 +1,7 @@
 # 5. Trusting a reverse proxy's client address on the remote-host listener
 
 Date: 2026-10-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 

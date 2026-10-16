@@ -1,7 +1,7 @@
 # 6. A web BFF in front of the hub daemon
 
 Date: 2026-10-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 
@@ -110,6 +110,14 @@ daemon's authenticated listener:
 - The BFF strips any client-supplied `Authorization` header and cookie before
   forwarding and injects the stored bearer for the target host, as
   `remote-proxy.ts` does.
+- The BFF strips every client-supplied `CF-Connecting-IP` and
+  `X-Forwarded-For` header from requests it forwards to a daemon. The hub's
+  authenticated listener sees the BFF as a loopback peer, so a forwarded
+  `CF-Connecting-IP` would otherwise let a browser client choose its own lockout
+  key under the cloudflared rule, and a forwarded `X-Forwarded-For` would do the
+  same on any daemon running in the trusted-proxy mode of
+  [0005](0005-trusted-proxy-remote-host.md). The BFF applies its own login
+  throttling before forwarding.
 
 ### Login model
 

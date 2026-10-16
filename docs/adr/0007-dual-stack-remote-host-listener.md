@@ -1,7 +1,7 @@
 # 7. The remote-host listener is already dual-stack on Linux
 
 Date: 2026-10-16
-Status: Proposed
+Status: Accepted
 
 ## Context
 
