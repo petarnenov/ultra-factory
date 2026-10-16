@@ -42,8 +42,8 @@ type LANManager struct {
 // LANOption конфигурира LANManager при създаването му.
 type LANOption func(*LANManager)
 
-// WithTrustedProxy, когато е включен, ключува lockout-а по най-десния запис в
-// X-Forwarded-For вместо по TCP peer-а. Само за listener, чийто единствен
+// WithTrustedProxy ключува lockout-а по най-десния запис в X-Forwarded-For
+// вместо по TCP peer-а, когато е включен. Само за listener, чийто единствен
 // публичен път е един reverse proxy; виж docs/adr/0005-trusted-proxy-remote-host.md.
 func WithTrustedProxy(enabled bool) LANOption {
 	return func(m *LANManager) { m.trustedProxy = enabled }
