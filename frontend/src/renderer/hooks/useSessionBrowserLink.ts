@@ -39,7 +39,7 @@ export function useSessionBrowserLink(
 			// only when the target is known to be that workspace-relative file.
 			const openPreview = (target: string, workspacePath: string | undefined) => {
 				if (!capabilities.browserPanel && !hostId && (webLink || workspacePath)) {
-					// Без Browser панел уеб линкът и файлът от workspace-а се отварят в нов раздел.
+					// Without a Browser panel, web links and workspace files open in a new tab.
 					window.open(webLink ? target : attachmentURL(getApiBaseUrl(), sessionId, workspacePath!), "_blank", "noopener,noreferrer");
 					return;
 				}
@@ -48,8 +48,8 @@ export function useSessionBrowserLink(
 					setInspectorView(uiKey, "browser");
 					setInspectorOpen(uiKey, true);
 				}
-				// Без панел резултатът от daemon preview-то стига до SessionView, който го
-				// предлага като toast с линк „Open in new tab“.
+				// Without a panel, the daemon preview result reaches SessionView, which
+				// offers it as a toast with an "Open in new tab" link.
 				// Local workspace paths must go through the daemon preview resolver first.
 				// Passing an absolute worktree path directly to BrowserView opens an empty
 				// tab because Chromium cannot navigate to the filesystem path.

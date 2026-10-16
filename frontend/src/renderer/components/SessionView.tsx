@@ -125,7 +125,7 @@ const INSPECTOR_COMPACT_MAX_PX = 325;
 const TOPBAR_SECONDARY_COMPACT_MAX_PX = 759;
 const isMac = isMacPlatform();
 const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as CSSProperties) : undefined;
-// Колко дълго остава toast-ът с линка към preview, когато няма Browser панел.
+// How long the preview-link toast stays up when there is no Browser panel.
 const PREVIEW_LINK_TOAST_MS = 10_000;
 const newTerminalShortcutLabel = shortcutBindingLabel(defaultShortcutBindings("new-shell-terminal", isMac)[0], isMac);
 
@@ -1188,8 +1188,8 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	}, [cloudReviewIsRunning, cloudReviewerHandleId, cloudReviewerHarness, cloudReviewerTrigger, session?.cloud, sessionId]);
 	const isOrchestrator = session ? isOrchestratorSession(session) : false;
 	const hasInspector = Boolean(session);
-	// Inspector-ът на orchestrator-а е само Browser панелът, който web build-ът
-	// няма; там rail-ът и бутонът за него изобщо не се показват.
+	// An orchestrator's inspector is only the Browser panel, which the web build
+	// lacks; there the rail and its toggle are not rendered at all.
 	const inspectorRailAvailable = hasInspector && (!browserOnly || capabilities.browserPanel);
 	const sizing = useMemo(() => inspectorSizing(inspectorView), [inspectorView]);
 	const browserEntryWidthFloorRef = useRef<number | null>(null);
@@ -1702,7 +1702,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 		previewBaselineRef.current = { sessionId: uiSessionId, key: previewKey };
 		if (!previewKey || terminated) return;
 		if (!capabilities.browserPanel) {
-			// Без Browser панел новото preview се предлага като линк към нов раздел.
+			// Without a Browser panel, a new preview is offered as a new-tab link.
 			if (previewUrl) {
 				showGlobalToast(t("inspector.previewReady"), previewUrl, {
 					dedupeKey: `preview:${uiSessionId}`,
@@ -1826,7 +1826,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	useSessionShortcut(
 		"copy-session-path",
 		() => {
-			// В web няма неблокиран източник на абсолютния път (вж. ShellTopbar).
+			// The web build has no unblocked source for the absolute path (see ShellTopbar).
 			if (!session || session.cloud || hostId || !capabilities.editorHandoff) return;
 			aoBridge.editorHandoff.copyWorkspacePath(sessionId).then(
 				() => showGlobalToast(t("shortcut.sessionPathCopied")),

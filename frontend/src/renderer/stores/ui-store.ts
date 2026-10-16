@@ -96,7 +96,7 @@ export type GlobalToast = {
 	dismissible?: boolean;
 	durationMs?: number;
 	dedupeKey?: string;
-	/** Линк, който toast-ът отваря в нов раздел на браузъра. */
+	/** A link the toast opens in a new browser tab. */
 	link?: { label: string; href: string };
 	nonce: number;
 };

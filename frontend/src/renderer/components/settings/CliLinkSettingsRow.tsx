@@ -10,7 +10,7 @@ import { SettingsRow } from "./SettingsRow";
 export function CliLinkSettings({ enabled }: { enabled: boolean }) {
 	const [ready, setReady] = useState(false);
 	useEffect(() => {
-		// Глобалната команда `ao` се свързва от Electron main; web build-ът я няма.
+		// Electron main links the global `ao` command; the web build cannot.
 		if (!capabilities.cliLink) return;
 		let active = true;
 		setReady(false);

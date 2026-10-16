@@ -1582,8 +1582,8 @@ export function XtermTerminal(props: XtermTerminalProps) {
 			if (files.length === 0) return;
 			event.preventDefault();
 			if (isWebBuild) {
-				// Временният файл се записва от Electron main; в web още няма къде да се
-				// качи (upload endpoint-ът идва с RW-4).
+				// Electron main writes the temp file; the web build has nowhere to upload
+				// it yet (the upload endpoint arrives with RW-4).
 				useUiStore.getState().showGlobalToast(translateRef.current("terminal.fileUploadUnavailable"));
 				return;
 			}

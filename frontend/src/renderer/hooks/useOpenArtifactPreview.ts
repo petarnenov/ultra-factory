@@ -21,7 +21,7 @@ export function useOpenArtifactPreview(sessionId: string | undefined, hostId?: s
 		(url: string) => {
 			if (!sessionId) return;
 			if (!capabilities.browserPanel) {
-				// Без Browser панел артефактът се отваря в нов раздел на браузъра.
+				// Without a Browser panel the artifact opens in a new browser tab.
 				window.open(url, "_blank", "noopener,noreferrer");
 				return;
 			}

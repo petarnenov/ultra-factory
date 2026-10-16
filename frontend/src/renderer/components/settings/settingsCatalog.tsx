@@ -90,7 +90,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "browserProfiles",
 		icon: Globe2,
 		label: (t) => t("settings.browserProfiles"),
-		// Профилите и изтеглянията са на вградения Electron браузър.
+		// Profiles and downloads belong to the embedded Electron browser.
 		visible: () => capabilities.browserPanel,
 		render: (_t, titleHidden) => (
 			<>
@@ -152,7 +152,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "updates",
 		icon: RefreshCw,
 		label: (t) => t("settings.updates"),
-		// Ъпдейтите и feature build-овете сменят Electron приложението.
+		// Updates and feature builds replace the Electron app.
 		visible: () => capabilities.autoUpdate,
 		render: (_t, titleHidden) => <UpdatesSection titleHidden={titleHidden} />,
 	},

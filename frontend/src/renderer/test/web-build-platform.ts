@@ -1,8 +1,8 @@
 import type * as Platform from "../lib/platform";
 
 /**
- * Модулът lib/platform такъв, какъвто го вижда web build-ът (VITE_AO_WEB=1 без
- * Electron preload). Тестовете на скритите повърхности го подават на vi.mock:
+ * The lib/platform module as the web build sees it (VITE_AO_WEB=1, no Electron
+ * preload). Tests for the hidden surfaces pass it to vi.mock:
  *
  *   vi.mock("../lib/platform", async (importOriginal) =>
  *     (await import("../test/web-build-platform")).webBuildPlatform(await importOriginal()));

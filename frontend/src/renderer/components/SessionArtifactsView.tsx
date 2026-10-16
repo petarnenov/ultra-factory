@@ -93,8 +93,8 @@ function ArtifactMenu({ artifact, hostId, session }: { artifact: SessionArtifact
 	const open = useOpenSessionArtifacts();
 	const [copyError, setCopyError] = useState("");
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
-	// Папката с артефакти е на тази машина само за локална сесия и само Electron
-	// main може да я покаже във файловия мениджър или в терминал.
+	// The artifact directory is on this machine only for a local session, and
+	// only Electron main can reveal it in the file manager or a terminal.
 	const local = !hostId && !session.cloud && capabilities.editorHandoff;
 	// The deleted file leaves the session's artifact list on the next read.
 	const remove = useMutation({

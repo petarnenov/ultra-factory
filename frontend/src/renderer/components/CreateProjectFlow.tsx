@@ -1979,8 +1979,8 @@ function ImportSourcePicker({
 			description: t("createProject.workspaceDesc"),
 		},
 	];
-	// Локална папка се избира с native dialog-а на Electron. Web build-ът може
-	// само да клонира по URL; отдалечен host си има собствен picker.
+	// A local folder is picked with Electron's native dialog. The web build can
+	// only clone by URL; a remote host has its own picker.
 	const localSources = hostId || capabilities.nativeDialogs ? allSources : allSources.filter(({ source }) => source === "clone");
 	return (
 		<div className={onboardingPanelClass}>

@@ -214,8 +214,8 @@ export function createProjectConfig(input: CreateProjectConfigInput): components
 // banner instead of staying gated forever on a hung spawn.
 const PROVISIONING_TIMEOUT_MS = 120_000;
 
-// Прозоречният chrome, не ОС-ът: разделът в браузъра няма светофар и
-// WindowTitlebar, затова web build-ът ползва Linux shell-а на всяка ОС.
+// Window chrome, not the OS: a browser tab has no traffic lights and no
+// WindowTitlebar, so the web build uses the Linux shell on every OS.
 const isMac = isMacPlatform() && !isWebBuild;
 const isWindows = isWindowsPlatform() && !isWebBuild;
 const isLinux = isLinuxPlatform() || isWebBuild;

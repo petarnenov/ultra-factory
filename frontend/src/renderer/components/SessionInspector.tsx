@@ -275,7 +275,7 @@ export const SessionInspector = memo(function SessionInspector({
 	const reviewsAvailable = reviewsTabVisible(session);
 	const availableViewDefs = onlyBrowser ? VIEW_DEFS.filter((entry) => entry.id === "browser")
 		: VIEW_DEFS.filter((entry) => (!hostId || entry.id !== "browser" || browserView) && (reviewsAvailable || entry.id !== "reviews")
-			// Browser панелът е вграден Electron изглед; web build-ът го няма.
+			// The Browser panel is an embedded Electron view; the web build has none.
 			&& (entry.id !== "browser" || capabilities.browserPanel)
 			// The host passes a side chat view only where side chats can run.
 			&& (entry.id !== "sideChat" || sideChatView !== undefined)

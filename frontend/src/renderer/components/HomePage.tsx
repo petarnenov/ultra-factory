@@ -230,7 +230,7 @@ export function HomePage() {
 								label={t("createProject.cloneFromGit")}
 								onClick={() => requestSource("clone")}
 							/>
-							{/* Локалните папки искат native dialog-а на Electron; в web остава само клонирането. */}
+							{/* Local folders need Electron's native dialog; the web build only clones. */}
 							{capabilities.nativeDialogs ? (
 								<>
 									<HomeActionCard

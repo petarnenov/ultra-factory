@@ -46,7 +46,7 @@ export function usesFramedAppTopbar(): boolean {
  * Win/Linux as the ShellTopbar path. Fixed in PR #3421.
  */
 export function hidesShellTopbar(): boolean {
-	// Web build-ът няма светофар на macOS и ползва Linux shell-а на всяка ОС.
+	// The web build has no macOS traffic lights and uses the Linux shell on every OS.
 	return isMacPlatform() && !isWebBuild;
 }
 
@@ -93,7 +93,7 @@ export function resolveCapabilities(options: { webBuild: boolean; electronBridge
 	});
 }
 
-// Mock preview-ът (VITE_NO_ELECTRON) показва desktop UI-я: stub-овете в bridge.ts
-// заместват preload-а, а e2e тестовете минават през desktop повърхностите в него.
-// Затова той запазва desktop capabilities; само web build-ът ги изключва.
+// The mock preview (VITE_NO_ELECTRON) shows the desktop UI: the bridge.ts stubs
+// stand in for the preload, and the e2e suite drives desktop surfaces through it.
+// So it keeps the desktop capabilities; only the web build turns them off.
 export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge || usesPreviewWorkspaceData });
