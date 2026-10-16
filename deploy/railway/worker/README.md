@@ -40,6 +40,48 @@ Build arguments:
 `gh` comes from GitHub's official apt repository. That repository serves only
 the latest release, so the `gh` version follows the build date.
 
+## Публикуван image
+
+`.github/workflows/worker-image.yml` публикува image-а за `linux/amd64` и
+`linux/arm64` в GitHub Container Registry:
+
+```text
+ghcr.io/<owner>/ao-worker:<tag>          # за това repo: ghcr.io/petarnenov/ao-worker
+```
+
+| Таг | Кога се push-ва | Мести ли се |
+|---|---|---|
+| `sha-<short>` | при всяко публикуване, от първите 7 знака на commit SHA-то | не |
+| `worker-v<semver>` | при push на git таг `worker-v<semver>`, например `worker-v0.1.0` | не |
+
+Image-ът на работника е отделен канал: никога не се тагва с версиите на
+desktop release-ите и няма `latest`. Насочи Railway service към таг
+`worker-v<semver>`, или към таг `sha-<short>`, за да пробваш commit, който
+още не е пуснат. `ao version` в тагнат image показва името на тага; другите
+build-ове показват `dev` и commit-а.
+
+Workflow-ът се пуска при push в `main`, който пипа входовете на image-а
+(`backend/`, `deploy/railway/worker/`, `frontend/acp-runtime/`, ACP build
+скриптовете във `frontend/scripts/` или самия workflow), при всеки таг
+`worker-v*`, при pull request-и, които пипат същите пътища, и при ръчно
+пускане. Публикува само push в `main` или таг `worker-v*`; pull request-ите и
+ръчното пускане билдват двете платформи и минават smoke без push.
+Публикуването чака smoke job-а. Той пуска `linux/amd64` image-а на празен
+volume със зададен `AO_REMOTE_PASSWORD` и проверява, че
+`GET :3011/api/v1/identity` връща 200 с `hostId` и че listener-ът приема тази
+парола. `make ci-local` пуска същите job-ове локално без cache-а на GitHub
+Actions и никога не прави login или push.
+
+За release push-ни таг от commit в `main`:
+
+```bash
+git tag worker-v0.1.0 && git push origin worker-v0.1.0
+```
+
+Първият push създава пакета `ao-worker` като private. За да може Railway да
+го тегли без credentials за registry-то, направи го public от настройките
+**Packages** на owner-а.
+
 ## Layout and environment
 
 | Path or variable | Value |
