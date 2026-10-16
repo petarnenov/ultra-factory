@@ -12,6 +12,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
 )
 
 // Store is the report service's persistence and ownership boundary.
@@ -132,6 +133,19 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 	}
 	if err := s.pullableWorker(ctx, sessionID); err != nil {
 		return nil, false, err
+	}
+	// A peer daemon pulling this worker's reports runs its orchestrator. Mark
+	// the worker as remotely started so this machine refuses an orchestrator
+	// of its own, which would claim the reports first. This also covers
+	// workers started before `ao spawn --host` sent remoteSpawn.
+	if requestscope.IsLAN(ctx) {
+		if marker, ok := s.store.(interface {
+			MarkRemoteSpawned(context.Context, domain.SessionID, time.Time) error
+		}); ok {
+			if err := marker.MarkRemoteSpawned(ctx, sessionID, s.now().UTC()); err != nil {
+				return nil, false, err
+			}
+		}
 	}
 	reader, ok := s.store.(interface {
 		ListReportsBySession(context.Context, domain.SessionID) ([]domain.ReportRecord, error)

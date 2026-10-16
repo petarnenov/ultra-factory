@@ -118,3 +118,47 @@ func TestRemoteSpawnWarnsWhenTheDaemonWillNotPollTheHost(t *testing.T) {
 		t.Fatalf("stderr = %q", errOut)
 	}
 }
+
+func TestRemoteSpawnMarksTheWorkerAsRemote(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "")
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "s3cret")
+	serveRemoteSpawn(remote)
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+	if _, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--project", "widgets", "--name", "auth refactor", "--prompt", "do it", "--agent", "claude-code", "--skip-agent-check"); err != nil {
+		t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+	}
+	req, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+	if !ok {
+		t.Fatal("spawn request did not reach the remote host")
+	}
+	var got spawnRequest
+	if err := json.Unmarshal([]byte(req.body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.RemoteSpawn {
+		t.Fatalf("remote worker spawn body = %s, want remoteSpawn true", req.body)
+	}
+}
+
+func TestRemoteOrchestratorSpawnIsNotMarkedRemote(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "")
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "s3cret")
+	serveRemoteSpawn(remote)
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+	if _, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--project", "widgets", "--kind", "orchestrator", "--name", "coord", "--agent", "claude-code", "--skip-agent-check"); err != nil {
+		t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+	}
+	req, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+	if !ok {
+		t.Fatal("spawn request did not reach the remote host")
+	}
+	if strings.Contains(req.body, "remoteSpawn") {
+		t.Fatalf("orchestrator spawn body = %s, want no remoteSpawn", req.body)
+	}
+}
