@@ -408,7 +408,7 @@ PY
 				printf '%s\n' 'daemon service PATH omits bundled Node' >&2; exit 1;
 			}
 			[[ ":$(<"$tmp/service-path"):" == *":$tmp/bin:"*"$tmp/host/current/resources/acp-runtime/node/bin:"* ]] || {
-				printf '%s\n' 'bundled Node must come after the installer PATH so a user node (and its npm) wins' >&2; exit 1;
+				printf '%s\n' 'вграденият Node трябва да е след PATH-а на инсталатора, за да печели node на потребителя (и неговият npm)' >&2; exit 1;
 			}
 		else
 			[[ "$result" != 0 ]] || { cat "$tmp/out" >&2; exit 1; }

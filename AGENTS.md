@@ -1,28 +1,41 @@
 # AGENTS.md
 
-Operational guidance for coding agents working in this repository. Keep changes small, match the current rewrite architecture, and prefer the documented daemon/API boundaries over behavior from the old TypeScript implementation.
+Насоки за агентите, които пишат код в това репо. Дръж промените малки, следвай текущата архитектура на пренаписването и предпочитай документираните граници на daemon/API пред поведението на старата TypeScript имплементация.
 
-## Repo layout
+## Език
 
-- `backend/`: Go rewrite of Agent Orchestrator with the Cobra `ao` CLI, loopback HTTP daemon, services, SQLite storage, lifecycle/reaper, runtime/workspace/agent/tracker adapters, terminal mux, and tests.
-- `frontend/`: Electron + React supervisor wired to the daemon through the generated typed client. Treat it as a thin supervisor/UI surface; do not move daemon logic into it.
-- `docs/`: Current architecture and status notes. Start here before changing lifecycle, CLI, agents, storage, or daemon behavior.
-- `test/`: External smoke/e2e assets, including the CLI fresh-install container check.
-- `.github/workflows/`: CI definitions. Mirror these commands locally when possible.
+**Всички документи, коментари и подобни текстове в репото се пишат само на български.** Това включва:
 
-## Commands
+- Markdown/MDX документация, ADR-и, беклог, runbook-ове, README файлове;
+- коментари в кода (Go, TypeScript, shell, SQL, YAML и т.н.), включително doc коментари;
+- commit съобщения: типът по Conventional Commits остава на латиница (`feat:`, `fix:`, `docs:` …), а описанието и тялото са на български;
+- описания на PR-и, issues, коментари в issues и в ревюта.
 
-From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`):
+На оригиналния си език остават: кодът и идентификаторите, имената на файлове, пътища и команди, API полета, ключове в конфигурации и логове, низовете, които програмата показва или парсва, и текстовете в продукта, които минават през i18n. Технически термини без утвърден превод (например `worktree`, `daemon`, `listener`) може да останат на английски в български текст.
+
+Нов текст на английски не се добавя. Съществуващ английски текст (документ, раздел, коментар) се превежда, когато го редактираш. Целият файл не е нужно да се превежда наведнъж.
+
+## Структура на репото
+
+- `backend/`: Go пренаписване на Agent Orchestrator с Cobra CLI `ao`, loopback HTTP daemon, услуги, SQLite хранилище, lifecycle/reaper, адаптери за runtime/workspace/agent/tracker, terminal mux и тестове.
+- `frontend/`: Electron + React супервизор, свързан с daemon-а през генерирания типизиран клиент. Третирай го като тънък супервизор/UI слой; не местѝ логика на daemon-а в него.
+- `docs/`: текущата архитектура и статус. Започни оттук, преди да променяш lifecycle, CLI, агенти, хранилище или поведение на daemon-а.
+- `test/`: външни smoke/e2e ресурси, включително контейнерната проверка на CLI при чиста инсталация.
+- `.github/workflows/`: CI дефиниции. Повтаряй тези команди локално, когато е възможно.
+
+## Команди
+
+От корена на репото, освен ако не е казано друго. Коренният `Makefile` ги обвива (`make help`, `make setup`, `make doctor`, `make check`):
 
 ```bash
 npm run lint                         # backend go test ./... + golangci-lint v2.13.2
-npm run frontend:typecheck           # frontend TypeScript check
-npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
-npm run api                          # regenerate OpenAPI spec + frontend TS types (see API contract changes below)
-npx @redwoodjs/agent-ci run --all    # local workflow validation; requires Docker socket
+npm run frontend:typecheck           # TypeScript проверка на frontend-а
+npm run sqlc                         # регенерира backend/internal/storage/sqlite/gen от queries/schema
+npm run api                          # регенерира OpenAPI спецификацията + TS типовете на frontend-а (виж „Промени в API договора“)
+npx @redwoodjs/agent-ci run --all    # локална проверка на workflow-ите; изисква Docker socket
 ```
 
-Backend-specific checks:
+Проверки за backend-а:
 
 ```bash
 cd backend
@@ -33,7 +46,7 @@ go vet ./...
 go run ./cmd/ao start
 ```
 
-Frontend-specific checks:
+Проверки за frontend-а:
 
 ```bash
 cd frontend
@@ -41,120 +54,120 @@ npm run typecheck
 npm run build
 ```
 
-When showing or demoing frontend changes, run `ao preview [url]` from inside the session so the change renders in the desktop browser panel (the inspector rail's Browser tab); do not just describe it.
+Когато показваш или демонстрираш промени във frontend-а, пусни `ao preview [url]` от сесията, за да се покаже промяната в браузър панела на desktop приложението (табът Browser в inspector-а); не я описвай само с думи.
 
-### Desktop lab (running the real Electron app for UI review)
+### Desktop лаборатория (истинското Electron приложение за UI ревю)
 
-For visual verification that needs the real app rather than `ao preview` or `dev:web`, run the checkout in an isolated worktree against scratch data. Never use the invoking working tree (it may hold unrelated uncommitted work) and never touch the user's real `~/.ao` data.
+За визуална проверка, която изисква истинското приложение, а не `ao preview` или `dev:web`, пусни checkout-а в изолиран worktree срещу временни данни. Никога не ползвай работното дърво, от което си извикан (може да съдържа несвързана некомитната работа), и никога не пипай реалните данни на потребителя в `~/.ao`.
 
 ```bash
-git worktree add /tmp/ao-lab <branch>   # the PR branch under review
+git worktree add /tmp/ao-lab <branch>   # бранчът на PR-а за ревю
 cd /tmp/ao-lab/frontend
-npm ci                                  # never symlink node_modules from another checkout (see below)
+npm ci                                  # никога не symlink-вай node_modules от друг checkout (виж по-долу)
 npm run build:daemon -- --dev
 AO_DATA_DIR=/tmp/ao-lab-data ./node_modules/.bin/electron-forge start
 ```
 
-- **Run a real `npm ci`.** Symlinking another checkout's `node_modules` makes React resolve from two physical paths and shares the Vite optimizer cache across checkouts: the symptom is a black window with `Invalid hook call` / `useSyncExternalStore` errors in the renderer console. It also writes `.vite/deps` output into the other checkout's tree.
-- **Isolate data with `AO_DATA_DIR`.** The lab starts with an empty board; create throwaway sessions inside it to exercise list/detail flows. The Electron `userData` dir already defaults to a dev path, not the production one.
-- **Diagnose with `ELECTRON_ENABLE_LOGGING=1`.** Renderer console errors (the cause of most blank windows) land in the launcher's stdout.
-- **Killing the forge wrapper is not enough.** The Electron main process cmdline is just `Electron .`, so `pkill -f electron-forge` leaves the app running and the next launch exits silently. Kill the `Electron.app/.../MacOS/Electron` main process explicitly before relaunching.
-- A missing-dependency warning for a lazily imported module (for example `mermaid`, which is dynamically imported on first use) does not blank the window; treat it as informational.
+- **Пусни истински `npm ci`.** Symlink към `node_modules` на друг checkout кара React да се зарежда от два физически пътя и споделя кеша на Vite optimizer-а между checkout-ите. Симптомът е черен прозорец с грешки `Invalid hook call` / `useSyncExternalStore` в конзолата на renderer-а. Освен това записва `.vite/deps` в дървото на другия checkout.
+- **Изолирай данните с `AO_DATA_DIR`.** Лабораторията започва с празен борд; създай временни сесии в нея, за да упражниш списъците и детайлите. Директорията `userData` на Electron по подразбиране вече е dev път, не продукционният.
+- **Диагностицирай с `ELECTRON_ENABLE_LOGGING=1`.** Грешките в конзолата на renderer-а (причината за повечето празни прозорци) излизат в stdout на стартиращия процес.
+- **Не стига да спреш forge обвивката.** Командният ред на main процеса на Electron е само `Electron .`, затова `pkill -f electron-forge` оставя приложението да работи и следващото стартиране излиза тихо. Спри изрично main процеса `Electron.app/.../MacOS/Electron`, преди да стартираш отново.
+- Предупреждение за липсваща зависимост на модул, който се зарежда мързеливо (например `mermaid`, който се импортира динамично при първа употреба), не изпразва прозореца; третирай го като информативно.
 
-## Where to look first
+## Откъде да започнеш
 
-- `README.md`: Current run/config/test quickstart.
-- `docs/README.md`: Docs index.
-- `docs/documentation-map.md`: Which artifacts are the machine-readable contract layer (`openapi.yaml`, `AGENTS.md`, `skills/`, sqlc `gen/`), what each is source of truth for, and how CI keeps them from drifting.
-- `docs/architecture.md`: Backend mental model, package layout, lifecycle/session/service boundaries, and load-bearing rules.
-- `docs/STATUS.md`: What is shipped on `main` today and what is still in flight.
-- `docs/cli/README.md`: Intended CLI shape, a thin Cobra client over daemon HTTP with no direct storage/runtime access.
-- `CLAUDE.md`: Compatibility pointer for Claude Code. It directs agents back to `AGENTS.md`.
+- `README.md`: бърз старт за пускане, конфигурация и тестове.
+- `docs/README.md`: индекс на документацията.
+- `docs/documentation-map.md`: кои артефакти са машинно четимият договорен слой (`openapi.yaml`, `AGENTS.md`, `skills/`, sqlc `gen/`), за какво е източник на истина всеки и как CI пази да не се разминават.
+- `docs/architecture.md`: мисловният модел на backend-а, пакетите, границите на lifecycle/session/service и носещите правила.
+- `docs/STATUS.md`: какво е пуснато в `main` днес и какво още е в работа.
+- `docs/cli/README.md`: замисленият вид на CLI-я: тънък Cobra клиент над HTTP на daemon-а, без директен достъп до хранилището или runtime-а.
+- `CLAUDE.md`: указател за Claude Code, който връща агентите към `AGENTS.md`.
 
-For code entry points:
+Входни точки в кода:
 
-- CLI commands: `backend/internal/cli/*.go`; follow nearby command/test patterns before adding a new style.
-- HTTP controllers and DTOs: `backend/internal/httpd/controllers/`.
-- Service read/write boundaries: `backend/internal/service/`.
-- Domain vocabulary: `backend/internal/domain/`.
-- Port contracts: `backend/internal/ports/`.
-- SQLite queries/migrations/store: `backend/internal/storage/sqlite/`.
-- Generated sqlc code: `backend/internal/storage/sqlite/gen/`.
+- CLI команди: `backend/internal/cli/*.go`; следвай съседните команди и тестове, преди да въвеждаш нов стил.
+- HTTP контролери и DTO-та: `backend/internal/httpd/controllers/`.
+- Граници за четене/запис на услугите: `backend/internal/service/`.
+- Речник на домейна: `backend/internal/domain/`.
+- Договори на портовете: `backend/internal/ports/`.
+- SQLite заявки, миграции и store: `backend/internal/storage/sqlite/`.
+- Генериран sqlc код: `backend/internal/storage/sqlite/gen/`.
 
-## Distribution
+## Дистрибуция
 
-- The **desktop app** (GitHub Releases) is the canonical, auto-updating install path. Point users there first.
-- **npm still works but is no longer recommended.** `0.10.0` is the final version published to npm; the `@aoagents/ao` package is frozen and will not receive further updates. It remains a legacy on-ramp for users who already have `ao` on their PATH, where `ao start` fetches and opens the desktop build. Do not add features, docs, or flows that treat npm as the intended way to install AO.
-- **Exactly one publisher.** Only the designated release conductor runs a real publish, on any channel. Divergent artifacts from multiple publishers made the 28-29 Jul macOS incident unreadable. Use the fork dev loop for test builds. Full rule and rationale: `frontend/docs/desktop-release.md`, "Hard rule: exactly one publisher".
-- **Verify macOS artifacts with `frontend/scripts/verify-mac-artifact.sh`, never by hand.** It extracts with `ditto -x -k` and runs `codesign --verify --deep --strict`, `spctl -a -vv -t exec`, `xcrun stapler validate`. Plain `unzip` breaks the seal and yields a convincing false failure; `spctl` without `-vv` prints nothing at all on success.
-- **macOS ships both a `.zip` and a `.dmg`.** The dmg is first install only. The zip and `latest-mac.yml` must keep publishing forever: electron-updater cannot install an update from a dmg. macOS differential updates are permanently disabled (full download only); see issues #3151 and #3267.
+- **Desktop приложението** (GitHub Releases) е каноничният път за инсталиране с автоматични ъпдейти. Насочвай потребителите първо там.
+- **npm още работи, но вече не се препоръчва.** `0.10.0` е последната версия в npm; пакетът `@aoagents/ao` е замразен и няма да получава ъпдейти. Остава като наследен вход за потребители, които вече имат `ao` в PATH, където `ao start` изтегля и отваря desktop build-а. Не добавяй функции, документи или потоци, които третират npm като предвидения начин за инсталиране на AO.
+- **Точно един публикуващ.** Само определеният release conductor прави истинска публикация, по който и да е канал. Различни артефакти от няколко публикуващи направиха macOS инцидента от 28–29 юли неразбираем. За тестови build-ове ползвай dev цикъла на fork-а. Пълното правило и мотивите: `frontend/docs/desktop-release.md`, „Hard rule: exactly one publisher“.
+- **Проверявай macOS артефактите с `frontend/scripts/verify-mac-artifact.sh`, никога на ръка.** Скриптът разархивира с `ditto -x -k` и пуска `codesign --verify --deep --strict`, `spctl -a -vv -t exec`, `xcrun stapler validate`. Обикновеният `unzip` чупи печата и дава убедителен фалшив неуспех; `spctl` без `-vv` при успех не печата нищо.
+- **macOS се доставя и като `.zip`, и като `.dmg`.** Dmg-то е само за първа инсталация. Zip-ът и `latest-mac.yml` трябва да се публикуват завинаги: electron-updater не може да инсталира ъпдейт от dmg. Диференциалните ъпдейти за macOS са изключени завинаги (само пълно изтегляне); виж issues #3151 и #3267.
 
-## Coding conventions
+## Конвенции за кода
 
-- Keep every change surgical and directly tied to the task. Avoid drive-by cleanup, broad renames, formatting churn, speculative abstractions, and architectural refactors unless the task explicitly asks for them.
-- Follow existing Go package boundaries. CLI code should call daemon HTTP routes through shared CLI client helpers; it should not open SQLite, spawn runtimes, or call adapters directly.
-- Keep Cobra commands in the relevant command file and table-test them in the style of `backend/internal/cli/*_test.go`.
-- Mirror existing response/request DTOs in the CLI instead of importing HTTP controller packages into CLI code, unless the package already establishes that dependency.
-- Return usage errors as `usageError` so CLI misuse exits 2; runtime/daemon failures should exit 1.
-- Preserve API error envelopes and request IDs when surfacing daemon errors.
-- Use `context.Context` as the first argument for functions that do I/O or blocking work.
-- Do not add abstractions for one-off use cases. Add helpers only when they remove duplication across real call sites.
-- Tests should cover the user-visible behavior and boundary being changed: happy path, validation/missing args, daemon error envelopes, and any destructive confirmation path.
+- Всяка промяна да е хирургическа и пряко свързана със задачата. Избягвай странично почистване, широки преименувания, промени само във форматирането, спекулативни абстракции и архитектурни рефактори, освен ако задачата изрично не ги иска.
+- Следвай съществуващите граници на Go пакетите. CLI кодът вика HTTP маршрутите на daemon-а през общите CLI клиентски помощници; не отваря SQLite, не стартира runtime-и и не вика адаптери директно.
+- Дръж Cobra командите в съответния файл и ги тествай таблично в стила на `backend/internal/cli/*_test.go`.
+- Огледай съществуващите DTO-та за заявки/отговори в CLI-я, вместо да импортираш пакети на HTTP контролерите в CLI кода, освен ако пакетът вече не установява тази зависимост.
+- Връщай грешките от неправилна употреба като `usageError`, за да излиза CLI-ят с код 2; грешките от runtime/daemon излизат с код 1.
+- Запазвай API обвивките на грешките и request ID-тата, когато показваш грешки от daemon-а.
+- Използвай `context.Context` като първи аргумент на функции, които правят I/O или блокиращи операции.
+- Не добавяй абстракции за еднократна употреба. Добавяй помощници само когато премахват дублиране между реални места на извикване.
+- Тестовете покриват видимото за потребителя поведение и границата, която се променя: успешния път, валидация/липсващи аргументи, обвивките на грешки от daemon-а и всеки път с разрушително потвърждение.
 
-## Hard rules and boundaries
+## Твърди правила и граници
 
-- The daemon's **primary (loopback) listener** stays bound to `127.0.0.1` and unauthenticated. Do not change its bind host or add auth to it.
-- The daemon MAY run a **second, opt-in LAN listener** (the "Connect Mobile" feature) that binds `0.0.0.0` **only while explicitly enabled**, **only** behind the bearer-password `authMiddleware`, serving the app API but never the loopback-gated control routes (`/shutdown`, telemetry, mobile control). **Exactly one route is exempt from `authMiddleware`: `GET /api/v1/identity`**, which returns an opaque host id and the mobile contract version so a phone can confirm which machine answered before presenting a credential. See `docs/adr/0003-unauthenticated-identity-probe.md`. The exemption is an exact path, `GET` only, and checked ahead of the lockout; any further unauthenticated route needs its own ADR. The direct LAN listener is plaintext for trusted home networks. See `docs/adr/0001-lan-listener-for-mobile.md` and `CONTEXT.md` for the original decision. Current managed cloudflared and Tailscale TLS endpoints wrap this authenticated mobile path; they do not authorize exposing the primary listener or adding an unauthenticated route. See `frontend/src/docs/content/configuration/remote-access.mdx` for current pairing behavior. Do not add any other network-facing bind.
-- The CLI is a thin client. Do not port old in-process TypeScript CLI behavior that bypasses daemon HTTP routes.
-- Do not store derived/display session status. Status is derived from durable facts (`activity_state`, `is_terminated`, PR/check/comment facts) at service read time.
-- Do not treat failed/unknown runtime probes as proof a session is dead.
-- Do not force-delete dirty registered worktrees.
-- Do not modify already-merged SQLite migrations. Add a new migration instead.
-- Do not hand-edit `backend/internal/storage/sqlite/gen/*`; change `backend/internal/storage/sqlite/queries/*` or migrations and run `npm run sqlc`.
-- SQLite change events come from DB triggers into `change_log`; do not add parallel manual CDC emission from store methods unless the architecture changes explicitly.
-- Keep generated OpenAPI/API DTO drift in mind: controller response shapes live in `backend/internal/httpd/controllers/dto.go` and tests may assert CLI/HTTP wire compatibility.
-- Do not add network calls to tests unless the package already has an integration/e2e pattern for them. Prefer `httptest`, fakes, and injected dependencies.
-- Do not commit local run state, daemon data, temporary worktrees, build outputs, or credentials.
-- All AO-owned app state lives under `~/.ao` only. The daemon's data dir, `running.json`, worktrees, and the Electron supervisor's `userData` (Chromium cache, cookies, local/session storage, crash dumps) must resolve under `~/.ao` (overridable via `AO_DATA_DIR`/`AO_RUN_FILE`). Never write to or otherwise use `~/Library/Application Support` or any other OS default app-data location for AO state. The sole read exception is an explicit, user-initiated browser-profile import: it may read only validated, known source-browser profile files, must never write to the source profile, must keep source paths out of the renderer, and must place every snapshot, staging file, and imported result under `~/.ao`. `main.ts` pins Electron's `userData` to `~/.ao/electron`; do not remove that override or rely on Electron's default path.
+- **Основният (loopback) listener** на daemon-а остава вързан за `127.0.0.1` и без автентикация. Не променяй bind адреса му и не добавяй auth към него.
+- Daemon-ът МОЖЕ да пуска **втори LAN listener по избор** (функцията „Connect Mobile“), който се bind-ва на `0.0.0.0` **само докато е изрично включен** и **само** зад bearer-password `authMiddleware`. Той сервира API-то на приложението, но никога маршрутите за управление, достъпни само от loopback (`/shutdown`, телеметрия, управление на mobile). **Точно един маршрут е изключен от `authMiddleware`: `GET /api/v1/identity`**, който връща непрозрачен host id и версията на mobile договора, за да може телефонът да потвърди коя машина е отговорила, преди да изпрати credential. Виж `docs/adr/0003-unauthenticated-identity-probe.md`. Изключението е за точен път, само `GET`, и се проверява преди lockout-а; всеки следващ неавтентикиран маршрут изисква собствен ADR. Директният LAN listener е без криптиране, за доверени домашни мрежи. Виж `docs/adr/0001-lan-listener-for-mobile.md` и `CONTEXT.md` за първоначалното решение. Управляваните TLS крайни точки на cloudflared и Tailscale обвиват този автентикиран mobile път; те не разрешават излагане на основния listener или добавяне на неавтентикиран маршрут. Виж `frontend/src/docs/content/configuration/remote-access.mdx` за текущото поведение при сдвояване. Не добавяй друг bind към мрежата.
+- CLI-ят е тънък клиент. Не пренасяй старо вътрешнопроцесно поведение на TypeScript CLI-я, което заобикаля HTTP маршрутите на daemon-а.
+- Не пази производен/показван статус на сесията. Статусът се извежда от трайни факти (`activity_state`, `is_terminated`, факти за PR/check/коментари) при четене в услугата.
+- Не приемай неуспешна/неизвестна проверка на runtime като доказателство, че сесията е мъртва.
+- Не изтривай принудително регистрирани worktree-ове с некомитнати промени.
+- Не променяй вече слети SQLite миграции. Добави нова миграция.
+- Не редактирай на ръка `backend/internal/storage/sqlite/gen/*`; промени `backend/internal/storage/sqlite/queries/*` или миграциите и пусни `npm run sqlc`.
+- Събитията за промени в SQLite идват от DB тригери в `change_log`; не добавяй паралелно ръчно CDC излъчване от методите на store-а, освен ако архитектурата изрично не се промени.
+- Имай предвид разминаването между генерирания OpenAPI и API DTO-тата: формите на отговорите на контролерите са в `backend/internal/httpd/controllers/dto.go`, а тестовете може да проверяват съвместимостта между CLI и HTTP.
+- Не добавяй мрежови извиквания в тестове, освен ако пакетът вече няма модел за интеграционни/e2e тестове. Предпочитай `httptest`, фалшиви имплементации и инжектирани зависимости.
+- Не комитвай локално състояние от пускане, данни на daemon-а, временни worktree-ове, build изходи или credentials.
+- Цялото състояние на AO живее само под `~/.ao`. Директорията с данни на daemon-а, `running.json`, worktree-овете и `userData` на Electron супервизора (Chromium кеш, cookies, local/session storage, crash dumps) трябва да са под `~/.ao` (може да се пренасочат с `AO_DATA_DIR`/`AO_RUN_FILE`). Никога не записвай и не ползвай `~/Library/Application Support` или друго стандартно за ОС място за данни на приложения за състояние на AO. Единственото изключение за четене е изричен импорт на браузърен профил, инициран от потребителя: той може да чете само валидирани, известни файлове от профила на източника, никога не записва в профила на източника, не показва пътищата на източника в renderer-а и поставя всеки snapshot, междинен файл и импортиран резултат под `~/.ao`. `main.ts` закрепва `userData` на Electron към `~/.ao/electron`; не премахвай тази настройка и не разчитай на пътя по подразбиране на Electron.
 
-## API contract changes
+## Промени в API договора
 
-The daemon API is code-first. The OpenAPI spec and frontend TypeScript types are generated artifacts. Edit the source, then regenerate.
+API-то на daemon-а е code-first. OpenAPI спецификацията и TypeScript типовете на frontend-а са генерирани артефакти. Редактирай източника, после регенерирай.
 
-**Source files to edit:**
+**Файлове-източници за редакция:**
 
-- `backend/internal/httpd/controllers/dto.go`: request/response shapes.
-- `backend/internal/httpd/apispec/specgen/build.go`: operation registry. Add a `schemaNames` entry for any new named type.
+- `backend/internal/httpd/controllers/dto.go`: форми на заявки/отговори.
+- `backend/internal/httpd/apispec/specgen/build.go`: регистър на операциите. Добави запис в `schemaNames` за всеки нов именуван тип.
 
-**Regenerate after editing:**
+**Регенерирай след редакция:**
 
 ```bash
-npm run api          # runs api:spec then api:ts in sequence
+npm run api          # пуска api:spec, после api:ts
 ```
 
-This is equivalent to running:
+Това е еквивалентно на:
 
 ```bash
 npm run api:spec     # cd backend && go generate ./internal/httpd/apispec/...
 npm run api:ts       # npx openapi-typescript@7.4.4 backend/internal/httpd/apispec/openapi.yaml -o frontend/src/api/schema.ts
 ```
 
-**Verify:**
+**Провери:**
 
 ```bash
-cd backend && go test ./internal/httpd/...    # spec drift + route/spec parity tests (does not cover schema.ts; the api-drift CI job checks it)
+cd backend && go test ./internal/httpd/...    # тестове за разминаване на спецификацията и съответствие маршрути/спецификация (не покриват schema.ts; него го проверява CI задачата api-drift)
 ```
 
-Commit `openapi.yaml` and `frontend/src/api/schema.ts` together with the Go changes. CI will regenerate both files and fail if the committed versions are out of date. The CLI hand-mirrored DTOs remain a deliberate manual boundary and are not generated.
+Комитвай `openapi.yaml` и `frontend/src/api/schema.ts` заедно с Go промените. CI ще регенерира двата файла и ще падне, ако комитнатите версии са остарели. Ръчно огледаните DTO-та в CLI-я остават съзнателна ръчна граница и не се генерират.
 
-## PR hygiene
+## Хигиена на PR-ите
 
-- When creating or updating a PR, follow `.agents/skills/pr-description/SKILL.md` so the published description starts with verified category change counts.
+- Когато създаваш или обновяваш PR, следвай `.agents/skills/pr-description/SKILL.md`, за да започва публикуваното описание с проверени бройки на промените по категории.
 
-- Before creating or handing over a PR, run all CI validation jobs locally using the workflow commands, pinned runtimes, and CI environment (including complete suites, not only focused tests). Fix failures and rerun the affected full suites before sharing the PR. A local pass is not a guarantee: verify the remote checks too. If a job cannot run locally (for example, an unavailable native OS runner, Docker, or required credentials), explicitly report the exact gap and verify that job in CI; never label it locally passed. Do not execute publishing or production deployment as a validation step.
+- Преди да създадеш или предадеш PR, пусни локално всички CI задачи за валидация с командите от workflow-ите, закрепените runtime версии и CI средата (включително пълните набори, не само фокусирани тестове). Оправи грешките и пусни отново засегнатите пълни набори, преди да споделиш PR-а. Локалното минаване не е гаранция: провери и отдалечените проверки. Ако задача не може да се пусне локално (например липсва runner за съответната ОС, Docker или нужни credentials), посочи точно какво липсва и провери задачата в CI; никога не я отбелязвай като минала локално. Не изпълнявай публикуване или продукционен деплой като стъпка за валидация.
 
-- Branch from `main` unless explicitly continuing an existing PR.
-- Keep one issue per PR. If asked for separate work, create a separate branch and PR.
-- Use conventional commit messages (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
-- Explain intentional omissions in the PR body, especially when the TypeScript original had more behavior than the Go rewrite domain currently supports.
-- Run the narrowest relevant tests first, then the repo/CI commands that match the touched area.
+- Започвай бранч от `main`, освен ако изрично не продължаваш съществуващ PR.
+- Един issue на PR. Ако е поискана отделна работа, направи отделен бранч и PR.
+- Използвай Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`) с описание на български (виж „Език“).
+- Обяснявай съзнателните пропуски в описанието на PR-а, особено когато оригиналът на TypeScript е имал повече поведение, отколкото домейнът на Go пренаписването поддържа в момента.
+- Пускай първо най-тесните релевантни тестове, после командите на репото/CI, които съответстват на засегнатата област.

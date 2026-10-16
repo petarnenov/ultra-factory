@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Wake-up ticker for the RW orchestrator (issue #63).
+# Будилник за RW оркестратора (issue #63).
 #
-# Worker reports from remote hosts never reach an orchestrator on another
-# machine, so nothing wakes it when a worker finishes or CI turns green. This
-# script runs on the orchestrator's machine (launchd, every 5 minutes). When the
-# orchestrator is idle and the remote state changed, it sends the orchestrator a
-# compact summary with `ao send`. While work is in flight and nothing changed, it
-# re-nudges at most every RENUDGE_MINUTES. It never interrupts an active turn.
+# Докладите на работниците от отдалечени хостове не стигат до оркестратор на
+# друга машина, така че нищо не го буди, когато работник приключи или CI стане
+# зелен. Скриптът върви на машината на оркестратора (launchd, на всеки 5 минути).
+# Когато оркестраторът е idle и отдалеченото състояние се е променило, му праща
+# кратко резюме с `ao send`. Докато има работа в ход и нищо не се променя,
+# побутва отново най-много на всеки RENUDGE_MINUTES. Никога не прекъсва активен ход.
 #
-# It also checks invariants the orchestrator must keep true (integration branch
-# contains main, no green PR left unmerged, no merged PR with open task issues,
-# no worker idle without a PR). Each violation is sent first as a
-# "НАРУШЕНИЕ: ..." line, logged as VIOLATION, and re-sent every
-# VIOLATION_RENUDGE_MINUTES while it persists.
+# Освен това проверява инвариантите, които оркестраторът трябва да пази винаги
+# (интеграционният бранч съдържа main, няма зелен немърджнат PR, няма мърджнат PR
+# с отворени таск issues, няма idle работник без PR). Всяко нарушение се праща
+# първо като ред „НАРУШЕНИЕ: ...“, записва се в лога като VIOLATION и се праща
+# отново на всеки VIOLATION_RENUDGE_MINUTES, докато е налице.
 #
-# Usage:
-#   orchestrator-tick.sh run         one tick (what launchd calls)
-#   orchestrator-tick.sh snapshot    print the state a tick would send, send nothing
-#   orchestrator-tick.sh install     install and load the launchd agent
-#   orchestrator-tick.sh uninstall   unload and remove the launchd agent
-#   orchestrator-tick.sh status      show the agent and the last tick
+# Употреба:
+#   orchestrator-tick.sh run         един тик (това вика launchd)
+#   orchestrator-tick.sh snapshot    печата състоянието, което тикът би пратил, без да праща
+#   orchestrator-tick.sh install     инсталира и зарежда launchd агента
+#   orchestrator-tick.sh uninstall   разтоварва и премахва launchd агента
+#   orchestrator-tick.sh status      показва агента и последния тик
 set -euo pipefail
 
 SESSION="${RW_TICK_SESSION:-ultra-factory-1}"
@@ -28,9 +28,9 @@ REPO="${RW_TICK_REPO:-petarnenov/ultra-factory}"
 BASE="${RW_TICK_BASE:-feat/railway-hosting}"
 INTERVAL_SECONDS="${RW_TICK_INTERVAL:-300}"
 RENUDGE_MINUTES="${RW_TICK_RENUDGE_MINUTES:-30}"
-# While an invariant is violated and nothing changed, re-nudge this often.
+# Колко често да се побутва отново, докато инвариант е нарушен и нищо не се променя.
 VIOLATION_RENUDGE_MINUTES="${RW_TICK_VIOLATION_RENUDGE_MINUTES:-10}"
-# Invariant thresholds.
+# Прагове на инвариантите.
 GREEN_PR_MAX_MINUTES="${RW_TICK_GREEN_PR_MAX_MINUTES:-10}"
 IDLE_WORKER_MAX_MINUTES="${RW_TICK_IDLE_WORKER_MAX_MINUTES:-30}"
 REPO_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
@@ -60,11 +60,11 @@ snapshot() {
 	invariants || printf 'НАРУШЕНИЕ: проверката на инвариантите се провали; виж %s\n' "$STATE_DIR/tick.log"
 }
 
-# invariants prints one "НАРУШЕНИЕ: ..." line per violated rule, nothing when all
-# hold. Rules the orchestrator must keep true at all times are checked here, in
-# code, because "remember to do X after Y" instructions get skipped.
+# invariants печата по един ред „НАРУШЕНИЕ: ...“ за всяко нарушено правило и нищо,
+# когато всички са спазени. Правилата, които оркестраторът трябва да пази винаги,
+# се проверяват тук, в код, защото инструкции „след Y направи и X“ се пропускат.
 invariants() {
-	# 1. The integration branch contains origin/main.
+	# 1. Интеграционният бранч съдържа origin/main.
 	if git -C "$REPO_DIR" fetch -q origin main "$BASE" 2>/dev/null; then
 		local behind shas
 		behind="$(git -C "$REPO_DIR" rev-list --count "origin/$BASE..origin/main" 2>/dev/null || echo 0)"
@@ -76,7 +76,7 @@ invariants() {
 		printf 'НАРУШЕНИЕ: git fetch на origin се провали; провери мрежата и достъпа до репото\n'
 	fi
 
-	# 2-4 need GitHub and AO state; evaluated together in Python.
+	# 2–4 изискват състояние от GitHub и AO; проверяват се заедно в Python.
 	local open_prs merged_prs open_issues sessions h
 	open_prs="$(gh pr list -R "$REPO" --base "$BASE" --state open --json number,headRefName,mergeable,statusCheckRollup 2>/dev/null || echo '[]')"
 	merged_prs="$(gh pr list -R "$REPO" --base "$BASE" --state merged --limit 50 --json number,body,mergedAt 2>/dev/null || echo '[]')"
@@ -114,7 +114,7 @@ def load(name, default):
 green_max = int(os.environ["GREEN_MAX"])
 idle_max = int(os.environ["IDLE_MAX"])
 
-# 2. A green, mergeable PR does not sit unmerged.
+# 2. Зелен, мърджабилен PR не стои немърджнат.
 for pr in load("OPEN_PRS", []):
     checks = pr.get("statusCheckRollup") or []
     results = [(c.get("conclusion") or c.get("state") or c.get("status") or "").upper() for c in checks]
@@ -130,7 +130,7 @@ for pr in load("OPEN_PRS", []):
     if age >= green_max:
         print(f"НАРУШЕНИЕ: #{pr['number']} ({pr['headRefName']}) е зелен и мърджабилен от {age} мин → провери по „Ревю и мърдж“ и мърджни")
 
-# 3. A merged PR leaves none of its referenced task issues open.
+# 3. Мърджнат PR не оставя отворени таск issues, към които сочи.
 open_issues = {i["number"]: i["title"] for i in load("OPEN_ISSUES", [])}
 close_re = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
 for pr in load("MERGED_PRS", []):
@@ -140,7 +140,7 @@ for pr in load("MERGED_PRS", []):
         listed = ", ".join(f"#{n}" for n in still_open)
         print(f"НАРУШЕНИЕ: #{pr['number']} е мърджнат, но {listed} е още отворено → gh issue close по стъпка 5 на „Ревю и мърдж“")
 
-# 4. A worker does not sit idle without a PR.
+# 4. Работник не стои idle без PR.
 for host, payload in load("SESSIONS", {}).items():
     items = payload.get("data", []) if isinstance(payload, dict) else payload
     for s in items or []:
