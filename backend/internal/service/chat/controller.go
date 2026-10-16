@@ -208,7 +208,8 @@ type Controller struct {
 	newID                  IDFactory
 	now                    Clock
 	onAccountChanged       func(domain.SessionID, string, domain.AgentHarness)
-	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation)
+	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error
+	onQuotaObserved        func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error
 
 	// sendMu serializes command dispatch so only one operation mutates the
 	// provider conversation at a time.
@@ -365,7 +366,8 @@ func newController(
 	newID IDFactory,
 	now Clock,
 	onAccountChanged func(domain.SessionID, string, domain.AgentHarness),
-	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation),
+	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error,
+	onQuotaObserved func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error,
 ) *Controller {
 	c := &Controller{
 		sessionID:              sessionID,
@@ -381,6 +383,7 @@ func newController(
 		now:                    now,
 		onAccountChanged:       onAccountChanged,
 		onCodexCapacityChanged: onCodexCapacityChanged,
+		onQuotaObserved:        onQuotaObserved,
 		state:                  ports.ChatControllerReady,
 		settings:               conversation.Settings,
 		mcpServers:             map[string]domain.ConversationMCPServer{},
@@ -2734,9 +2737,10 @@ func (c *Controller) project() {
 		}
 		projected, primaryTurn, err := c.projectEvent(ctx, event)
 		// A terminal receipt compacts the entire prompt, so it cannot pass a
-		// failed earlier projection. Retry transient store errors in order; if
-		// still failing, detach and leave the journal for a replacement controller.
-		for attempt := 0; err != nil && persistent && attempt < 3; attempt++ {
+		// failed earlier projection. Retry transient store errors and quota
+		// snapshot callbacks in order; if a persistent event still fails, detach
+		// and leave the journal for a replacement controller.
+		for attempt := 0; err != nil && (persistent || event.Kind == ports.ChatEventRateLimits) && attempt < 3; attempt++ {
 			time.Sleep(20 * time.Millisecond)
 			projected, primaryTurn, err = c.projectEvent(ctx, event)
 		}
@@ -3289,9 +3293,32 @@ func (c *Controller) apply(ctx context.Context, event ports.ChatEvent) error {
 		}
 		if c.harness == domain.HarnessCodex {
 			if c.onCodexCapacityChanged != nil && event.RateLimits.CodexCapacity != nil {
-				c.onCodexCapacityChanged(c.sessionID, c.generation, *event.RateLimits.CodexCapacity)
+				if err := retryQuotaSnapshotCallback(func() error {
+					return c.onCodexCapacityChanged(c.sessionID, c.generation, *event.RateLimits.CodexCapacity)
+				}); err != nil {
+					c.log.Warn("low Codex quota snapshot failed after retries; continuing event projection", "session", c.sessionID, "error", err)
+				}
 			}
 			return nil
+		}
+		if c.onQuotaObserved != nil {
+			remaining := 101.0
+			known := false
+			for _, used := range []float64{event.RateLimits.PrimaryUsedPercent, event.RateLimits.SecondaryUsedPercent} {
+				if used >= 0 && used <= 100 {
+					known = true
+					if value := 100 - used; value < remaining {
+						remaining = value
+					}
+				}
+			}
+			if known {
+				if err := retryQuotaSnapshotCallback(func() error {
+					return c.onQuotaObserved(c.sessionID, c.generation, c.harness, remaining, c.now())
+				}); err != nil {
+					c.log.Warn("low quota snapshot failed after retries; continuing event projection", "session", c.sessionID, "error", err)
+				}
+			}
 		}
 		return c.store.RecordRateLimits(ctx, c.conversation.ID, domain.ConversationRateLimits{
 			PrimaryUsedPercent:       event.RateLimits.PrimaryUsedPercent,
@@ -3334,6 +3361,20 @@ func (c *Controller) apply(ctx context.Context, event ports.ChatEvent) error {
 		// An event kind this build does not model is archived but not projected.
 		return nil
 	}
+}
+
+func retryQuotaSnapshotCallback(callback func() error) error {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		err = callback()
+		if err == nil {
+			return nil
+		}
+		if attempt < 2 {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	return err
 }
 
 // afterProject performs effects that intentionally live outside the SQLite

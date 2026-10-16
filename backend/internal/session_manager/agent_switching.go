@@ -254,9 +254,6 @@ func (m *Manager) admitAgentSwitch(ctx context.Context, id domain.SessionID, cfg
 		(mode == domain.SessionModeTUI && rec.Metadata.RuntimeHandleID == "") {
 		return domain.AgentSwitch{}, nil, fmt.Errorf("switch agent %s: %w", id, ErrIncompleteHandle)
 	}
-	if !switchHarnessSupported(rec.Harness) || !switchHarnessSupported(cfg.TargetHarness) {
-		return domain.AgentSwitch{}, nil, fmt.Errorf("switch agent %s: %w: supported harnesses are claude-code, codex, and fx", id, ErrUnsupportedSwitchHarness)
-	}
 	if rec.Harness == cfg.TargetHarness {
 		return domain.AgentSwitch{}, nil, fmt.Errorf("switch agent %s: %w: %s", id, ErrAlreadyUsingHarness, cfg.TargetHarness)
 	}
@@ -721,6 +718,25 @@ func (m *Manager) executeAgentSwitch(ctx context.Context, admitted *admittedAgen
 		Workspaces:            m.captureWorkspaceFacts(ctx, stoppedSession),
 		PullRequests:          m.capturePRFacts(ctx, id),
 		CapturedAt:            m.clock(),
+	}
+	if quota, ok := m.readQuotaSnapshot(ctx, id, stoppedSession.Harness, stoppedSession.Metadata.RuntimeLaunchID); ok {
+		if strings.TrimSpace(finalContext.OriginalTask) == "" {
+			finalContext.OriginalTask = quota.OriginalTask
+		}
+		if strings.TrimSpace(finalContext.LatestUserPrompt) == "" {
+			finalContext.LatestUserPrompt = quota.LatestUserPrompt
+		}
+		if strings.TrimSpace(finalContext.LatestAssistantUpdate) == "" {
+			finalContext.LatestAssistantUpdate = quota.AssistantUpdate
+		}
+		if len(finalContext.Workspaces) == 0 {
+			for _, fact := range quota.Workspaces {
+				finalContext.Workspaces = append(finalContext.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
+			}
+		}
+		if len(finalContext.PullRequests) == 0 {
+			finalContext.PullRequests = quota.PullRequests
+		}
 	}
 	if observedTranscript != nil {
 		finalContext.SourceTranscriptPath = observedTranscript.Path
@@ -1269,15 +1285,6 @@ func (m *Manager) resolveTargetActivationOutcome(
 	return current, false, sourceStillOwns, nil
 }
 
-func switchHarnessSupported(h domain.AgentHarness) bool {
-	switch h {
-	case domain.HarnessClaudeCode, domain.HarnessCodex, domain.HarnessFX:
-		return true
-	default:
-		return false
-	}
-}
-
 func validateContinuationAgent(agent ports.Agent) (ports.ContinuationCapabilities, error) {
 	provider, ok := agent.(ports.AgentContinuationCapabilityProvider)
 	if !ok {
@@ -1501,7 +1508,14 @@ func appendAgentContinuationProtocol(systemPrompt string) string {
 // delivery acknowledgement did not. Older switches without a finalized
 // artifact used a visible provider turn and need no hidden replay.
 func (m *Manager) systemPromptForNativeRestore(ctx context.Context, rec domain.SessionRecord, base string) (string, error) {
-	if rec.Kind != domain.KindWorker || !switchHarnessSupported(rec.Harness) {
+	if rec.Kind != domain.KindWorker {
+		return base, nil
+	}
+	agent, ok := m.agents.Agent(rec.Harness)
+	if !ok {
+		return base, nil
+	}
+	if _, err := validateContinuationAgent(agent); err != nil {
 		return base, nil
 	}
 	store, ok := m.store.(ports.AgentSwitchStore)
@@ -3067,6 +3081,7 @@ func (m *Manager) failAgentSwitchWithRecorder(ctx context.Context, store ports.A
 
 func (m *Manager) completeAcknowledgedAgentSwitch(ctx context.Context, store ports.AgentSwitchStore, sw domain.AgentSwitch) (domain.AgentSwitch, error) {
 	if sw.State == domain.AgentSwitchCompleted {
+		m.cleanupQuotaSnapshotAfterHandoff(ctx, sw)
 		return sw, nil
 	}
 	if sw.State != domain.AgentSwitchDelivering || sw.TargetAcknowledgedAt == nil {
@@ -3074,6 +3089,7 @@ func (m *Manager) completeAcknowledgedAgentSwitch(ctx context.Context, store por
 	}
 	err := m.advanceAgentSwitch(ctx, store, &sw, domain.AgentSwitchCompleted, nil)
 	if err == nil {
+		m.cleanupQuotaSnapshotAfterHandoff(ctx, sw)
 		return sw, nil
 	}
 	latest, reloadErr := requireAgentSwitch(ctx, store, sw.ID)
@@ -3081,9 +3097,18 @@ func (m *Manager) completeAcknowledgedAgentSwitch(ctx context.Context, store por
 		return sw, errors.Join(err, reloadErr)
 	}
 	if latest.State.Terminal() {
+		if latest.State == domain.AgentSwitchCompleted {
+			m.cleanupQuotaSnapshotAfterHandoff(ctx, latest)
+		}
 		return latest, nil
 	}
 	return latest, err
+}
+
+func (m *Manager) cleanupQuotaSnapshotAfterHandoff(ctx context.Context, sw domain.AgentSwitch) {
+	if err := m.removeQuotaSnapshot(ctx, sw.SessionID, string(sw.SourceGenerationID)); err != nil {
+		m.logger.Warn("agent switch completed but low-quota snapshot cleanup failed", "sessionID", sw.SessionID, "switchID", sw.ID, "error", err)
+	}
 }
 
 // ListAgentSwitches returns the durable history for one AO session.

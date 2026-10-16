@@ -26,6 +26,12 @@ const switchMocks = vi.hoisted(() => ({
 	},
 }));
 
+const readinessMocks = vi.hoisted(() => ({
+	agents: [] as Array<Record<string, unknown>>,
+	agentsByHost: {} as Record<string, Array<Record<string, unknown>>>,
+	ensure: vi.fn(),
+}));
+
 vi.mock("../hooks/useSwitchAgent", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../hooks/useSwitchAgent")>();
 	return {
@@ -37,6 +43,16 @@ vi.mock("../hooks/useSwitchAgent", async (importOriginal) => {
 		useSwitchAgentState: () => switchMocks.state,
 	};
 });
+
+vi.mock("../hooks/useAgentReadinessQuery", () => ({
+	useAgentReadinessQuery: (enabled: boolean, hostId?: string) => ({
+		data: enabled ? { agents: readinessMocks.agentsByHost?.[hostId ?? "local"] ?? readinessMocks.agents } : undefined,
+	}),
+	useEnsureAgentReadiness: (options: unknown) => {
+		readinessMocks.ensure(options);
+		return true;
+	},
+}));
 
 const worker: WorkspaceSession = {
 	activity: { state: "active", lastActivityAt: "2026-06-10T00:00:00Z" },
@@ -115,6 +131,13 @@ function renderDialog(
 }
 
 beforeEach(() => {
+	readinessMocks.agents = [
+		{ id: "claude-code", label: "Claude Code", installation: { state: "installed" }, switchModes: ["tui", "chat"] },
+		{ id: "codex", label: "Codex", installation: { state: "installed" }, switchModes: ["tui", "chat"] },
+		{ id: "fx", label: "fx", installation: { state: "installed" }, switchModes: ["tui"] },
+	];
+	readinessMocks.agentsByHost = {};
+	readinessMocks.ensure.mockReset();
 	switchMocks.clear.mockReset();
 	switchMocks.mutate.mockReset();
 	switchMocks.recoverMutate.mockReset();
@@ -205,14 +228,40 @@ describe("SwitchAgentDialog", () => {
 		);
 	});
 
-	it("keeps fx unavailable as a Chat switch target", async () => {
+	it("omits targets that do not advertise the session mode", async () => {
 		renderDialog({ ...worker, mode: "chat" });
 		const dialog = screen.getByRole("dialog", { name: "Switch agent" });
 		await userEvent.click(within(dialog).getByRole("button", { name: "Target agent" }));
 
-		expect(screen.getByRole("menuitem", { name: /fx,\s*Coming soon/ })).toHaveAttribute(
-			"data-disabled",
-		);
+		expect(screen.queryByRole("menuitem", { name: "fx" })).not.toBeInTheDocument();
+		expect(screen.getByRole("menuitem", { name: "Codex" })).toBeInTheDocument();
+	});
+
+	it("offers a newly advertised installed harness without a UI allowlist", async () => {
+		readinessMocks.agents.push({ id: "opencode", label: "OpenCode", installation: { state: "installed" }, switchModes: ["tui"] });
+		renderDialog({ ...worker, mode: "tui" });
+		const dialog = screen.getByRole("dialog", { name: "Switch agent" });
+		await userEvent.click(within(dialog).getByRole("button", { name: "Target agent" }));
+
+		const option = screen.getByRole("menuitem", { name: "OpenCode" });
+		expect(option).not.toHaveAttribute("data-disabled");
+		await userEvent.click(option);
+		await userEvent.click(within(dialog).getByRole("button", { name: "Switch" }));
+		expect(switchMocks.mutate).toHaveBeenCalledWith(expect.objectContaining({ targetHarness: "opencode" }), expect.any(Object));
+	});
+
+	it("reads readiness from the session's host and excludes uninstalled targets", async () => {
+		readinessMocks.agentsByHost["remote-1"] = [
+			{ id: "codex", label: "Codex", installation: { state: "not_installed" }, switchModes: ["tui"] },
+			{ id: "remote-agent", label: "Remote Agent", installation: { state: "installed" }, switchModes: ["tui"] },
+		];
+		renderDialog({ ...worker, hostId: "remote-1", mode: "tui" });
+		const dialog = screen.getByRole("dialog", { name: "Switch agent" });
+		await userEvent.click(within(dialog).getByRole("button", { name: "Target agent" }));
+
+		expect(screen.queryByRole("menuitem", { name: "Codex" })).not.toBeInTheDocument();
+		expect(screen.getByRole("menuitem", { name: "Remote Agent" })).toBeInTheDocument();
+		expect(readinessMocks.ensure).toHaveBeenCalledWith(expect.objectContaining({ hostId: "remote-1", purpose: "launch" }));
 	});
 
 	it("keeps direct model IDs in the same searchable model picker", async () => {

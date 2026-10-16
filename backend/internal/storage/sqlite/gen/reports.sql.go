@@ -11,6 +11,34 @@ import (
 	"time"
 )
 
+const acknowledgePendingSessionReport = `-- name: AcknowledgePendingSessionReport :execrows
+UPDATE reports
+SET delivery_state = 'acknowledged', claim_token = ?1,
+    claimed_at = ?2, acknowledged_at = ?2,
+    delivery_attempts = delivery_attempts + 1, last_error = ''
+WHERE id = ?3 AND session_id = ?4 AND delivery_state = 'pending'
+`
+
+type AcknowledgePendingSessionReportParams struct {
+	ClaimToken     string
+	AcknowledgedAt sql.NullTime
+	ID             string
+	SessionID      string
+}
+
+func (q *Queries) AcknowledgePendingSessionReport(ctx context.Context, arg AcknowledgePendingSessionReportParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, acknowledgePendingSessionReport,
+		arg.ClaimToken,
+		arg.AcknowledgedAt,
+		arg.ID,
+		arg.SessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const acknowledgeReport = `-- name: AcknowledgeReport :one
 UPDATE reports
 SET delivery_state = 'acknowledged', acknowledged_at = ?1

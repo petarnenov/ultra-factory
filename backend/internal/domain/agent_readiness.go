@@ -272,6 +272,7 @@ type AgentReadinessSnapshot struct {
 	Installation       AgentInstallationObservation   `json:"installation"`
 	Authentication     AgentAuthenticationObservation `json:"authentication"`
 	EffectiveReadiness AgentEffectiveReadiness        `json:"effectiveReadiness" enum:"ready,not_ready,unknown"`
+	SwitchModes        []SessionMode                  `json:"switchModes,omitempty" description:"Session interfaces this harness can receive a durable context handoff in."`
 	UsageCount         int                            `json:"usageCount"`
 	LastUsedAt         *time.Time                     `json:"lastUsedAt,omitempty" format:"date-time"`
 }

@@ -6571,11 +6571,12 @@ func TestCodexRateLimitsUpdateActiveAccountCapacityWithoutConversationPersistenc
 		Drivers: fakeRegistry{driver: fakeDriver{conv: conv}},
 		Log:     slog.New(slog.DiscardHandler),
 		NewID:   func() string { return "bound-capacity" },
-		OnCodexCapacityChanged: func(sessionID domain.SessionID, generation string, observation ports.CodexCapacityObservation) {
+		OnCodexCapacityChanged: func(sessionID domain.SessionID, generation string, observation ports.CodexCapacityObservation) error {
 			if sessionID != testSession || generation != "managed-generation" {
 				t.Errorf("capacity attribution = %s/%s", sessionID, generation)
 			}
 			updates <- observation
+			return nil
 		},
 	})
 	ctrl, err := svc.Start(context.Background(), chatsvc.StartConfig{
