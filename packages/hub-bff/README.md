@@ -41,6 +41,7 @@ npm --prefix packages/hub-bff run typecheck
 |---|---|---|
 | `AO_HUB_SPA_DIR` | yes | Directory of the web build (`frontend/dist-web`), must contain `index.html`. |
 | `AO_WEB_PASSWORD_HASH` | one of | Operator password hash from `npm run hash-password`. Preferred. |
+| `AO_HUB_OPERATOR_PASSWORD_HASH` | alias | The hub image's name for `AO_WEB_PASSWORD_HASH`. Set one or the other. |
 | `AO_WEB_PASSWORD` | one of | Plaintext operator password. Hashed at start-up, removed from the process env, never logged. |
 | `PORT` | no | Listen port. Railway sets it. Default `8080`. |
 | `AO_HUB_BFF_HOST` | no | Listen address. Default `::` (all interfaces, dual-stack), which Railway needs. |
