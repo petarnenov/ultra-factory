@@ -22,6 +22,19 @@ describe("GlobalToast", () => {
 		expect(screen.getByText("Second")).toBeInTheDocument();
 	});
 
+	it("renders a link that opens in a new tab", () => {
+		useUiStore.getState().showGlobalToast("Preview ready", "http://localhost:5173/", {
+			link: { label: "Open in new tab", href: "http://localhost:5173/" },
+		});
+
+		render(<GlobalToast />);
+
+		const link = screen.getByRole("link", { name: "Open in new tab" });
+		expect(link).toHaveAttribute("href", "http://localhost:5173/");
+		expect(link).toHaveAttribute("target", "_blank");
+		expect(link).toHaveAttribute("rel", "noopener noreferrer");
+	});
+
 	it("pauses auto-dismiss while hovered and keeps errors up longer", () => {
 		vi.useFakeTimers();
 		const store = useUiStore.getState();

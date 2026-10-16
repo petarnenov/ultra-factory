@@ -9,7 +9,7 @@ import { useOpenArtifactPreview } from "../hooks/useOpenArtifactPreview";
 import { deleteSessionArtifactFile, sessionArtifactFileQueryOptions } from "../hooks/useSessionWorkspaceFiles";
 import { workspaceQueryKeyForHost } from "../hooks/useWorkspaceQuery";
 import { aoBridge } from "../lib/bridge";
-import { isMacPlatform, isWindowsPlatform } from "../lib/platform";
+import { capabilities, isMacPlatform, isWindowsPlatform } from "../lib/platform";
 import { formatTimeTerse } from "../lib/format-time";
 import { sessionUiKey } from "../lib/hosts";
 import { cn } from "../lib/utils";
@@ -93,8 +93,9 @@ function ArtifactMenu({ artifact, hostId, session }: { artifact: SessionArtifact
 	const open = useOpenSessionArtifacts();
 	const [copyError, setCopyError] = useState("");
 	const [confirmingDelete, setConfirmingDelete] = useState(false);
-	// The artifact directory is on this machine only for a local session.
-	const local = !hostId && !session.cloud;
+	// The artifact directory is on this machine only for a local session, and
+	// only Electron main can reveal it in the file manager or a terminal.
+	const local = !hostId && !session.cloud && capabilities.editorHandoff;
 	// The deleted file leaves the session's artifact list on the next read.
 	const remove = useMutation({
 		mutationFn: () => deleteSessionArtifactFile({ path: artifact.path, sessionId: session.id, hostId }),
@@ -355,7 +356,7 @@ export function SessionArtifactsView({
 			<div className="flex h-8 shrink-0 items-center gap-0.5 pl-3 pr-1 text-sm text-muted-foreground">
 				<span className="min-w-0 flex-1 truncate">{t("artifacts.title")}</span>
 				{/* The artifact directory is on this machine only for a local session. */}
-				{!hostId && !session.cloud && artifacts.length > 0 ? <OpenArtifactsFolderButtons sessionId={session.id} /> : null}
+				{!hostId && !session.cloud && capabilities.editorHandoff && artifacts.length > 0 ? <OpenArtifactsFolderButtons sessionId={session.id} /> : null}
 			</div>
 			{artifacts.length === 0 ? (
 				<PanelMessage>{t("artifacts.sessionEmpty")}</PanelMessage>

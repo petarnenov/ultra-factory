@@ -139,7 +139,7 @@ import { SessionArchiveDialog, type SessionArchiveChoice } from "./SessionArchiv
 import { CreateProjectFlow, type CloneProjectInput, type CreateProjectInput } from "./CreateProjectFlow";
 import { ResizeHandle } from "./ResizeHandle";
 import { NAV_ROW_HIGHLIGHT_HOST_CLASS, NavRowHighlight } from "./NavRowHighlight";
-import { isLinuxPlatform, isMacPlatform } from "../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild } from "../lib/platform";
 import { useCloudSession } from "../lib/cloud-session";
 import type { RemoteHost } from "../hooks/useRemoteHosts";
 import { sessionNavigateTarget } from "../lib/navigate-to-session";
@@ -150,7 +150,7 @@ import { RemoteHostsSection } from "./RemoteHostsSection";
 // sidebar toggle + history arrows above this surface. Windows hangs the sidebar
 // under its custom titlebar.
 const isMac = isMacPlatform();
-const brandInTitlebar = isMac || isLinuxPlatform();
+const brandInTitlebar = isMac || isLinuxPlatform() || isWebBuild;
 const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
 // One row-action layout shared by project rows, session rows, and the section

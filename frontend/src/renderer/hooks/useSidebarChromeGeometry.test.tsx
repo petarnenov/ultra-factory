@@ -8,7 +8,7 @@ import {
 	useSidebarChromeGeometry,
 } from "./useSidebarChromeGeometry";
 
-vi.mock("../lib/platform", () => ({ isMacPlatform: () => true }));
+vi.mock("../lib/platform", () => ({ isMacPlatform: () => true, isWebBuild: false }));
 
 type ObserverCallback = (entries: Partial<ResizeObserverEntry>[]) => void;
 let observerCallback: ObserverCallback | null = null;

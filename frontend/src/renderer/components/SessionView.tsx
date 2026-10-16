@@ -93,7 +93,7 @@ import {
 	openSessionFile,
 	type SessionFileTabState,
 } from "../lib/session-file-tabs";
-import { isMacPlatform } from "../lib/platform";
+import { capabilities, isMacPlatform } from "../lib/platform";
 import { useShell } from "../lib/shell-context";
 import { cn } from "../lib/utils";
 import { usesPreviewWorkspaceData } from "../lib/preview-mode";
@@ -125,6 +125,8 @@ const INSPECTOR_COMPACT_MAX_PX = 325;
 const TOPBAR_SECONDARY_COMPACT_MAX_PX = 759;
 const isMac = isMacPlatform();
 const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as CSSProperties) : undefined;
+// How long the preview-link toast stays up when there is no Browser panel.
+const PREVIEW_LINK_TOAST_MS = 10_000;
 const newTerminalShortcutLabel = shortcutBindingLabel(defaultShortcutBindings("new-shell-terminal", isMac)[0], isMac);
 
 type ReviewsResponse = components["schemas"]["ListReviewsResponse"];
@@ -1186,6 +1188,9 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	}, [cloudReviewIsRunning, cloudReviewerHandleId, cloudReviewerHarness, cloudReviewerTrigger, session?.cloud, sessionId]);
 	const isOrchestrator = session ? isOrchestratorSession(session) : false;
 	const hasInspector = Boolean(session);
+	// An orchestrator's inspector is only the Browser panel, which the web build
+	// lacks; there the rail and its toggle are not rendered at all.
+	const inspectorRailAvailable = hasInspector && (!browserOnly || capabilities.browserPanel);
 	const sizing = useMemo(() => inspectorSizing(inspectorView), [inspectorView]);
 	const browserEntryWidthFloorRef = useRef<number | null>(null);
 
@@ -1300,6 +1305,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	const browserSlotVisible = Boolean(
 		session &&
 			hasInspector &&
+			capabilities.browserPanel &&
 			(browserPoppedOut || (inspectorPanelVisible && inspectorView === "browser")),
 	);
 	useEffect(() => {
@@ -1695,6 +1701,18 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 		if (baseline.key === previewKey) return;
 		previewBaselineRef.current = { sessionId: uiSessionId, key: previewKey };
 		if (!previewKey || terminated) return;
+		if (!capabilities.browserPanel) {
+			// Without a Browser panel, a new preview is offered as a new-tab link.
+			if (previewUrl) {
+				showGlobalToast(t("inspector.previewReady"), previewUrl, {
+					dedupeKey: `preview:${uiSessionId}`,
+					dismissible: true,
+					durationMs: PREVIEW_LINK_TOAST_MS,
+					link: { label: t("inspector.openInNewTab"), href: previewUrl },
+				});
+			}
+			return;
+		}
 		// Only the routed session mounts SessionView. A new explicit preview
 		// reveals its panel; entering a session with an existing target does not.
 		revealBrowserPanel();
@@ -1705,6 +1723,8 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 		uiSessionId,
 		terminated,
 		revealBrowserPanel,
+		showGlobalToast,
+		t,
 	]);
 
 	// Explicit open commands reveal once per command. A fast command's start
@@ -1806,7 +1826,8 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	useSessionShortcut(
 		"copy-session-path",
 		() => {
-			if (!session || session.cloud || hostId) return;
+			// The web build has no unblocked source for the absolute path (see ShellTopbar).
+			if (!session || session.cloud || hostId || !capabilities.editorHandoff) return;
 			aoBridge.editorHandoff.copyWorkspacePath(sessionId).then(
 				() => showGlobalToast(t("shortcut.sessionPathCopied")),
 				(error: unknown) =>
@@ -2096,7 +2117,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 						</div>
 					</div>
 				</div>
-				{hasInspector ? (
+				{inspectorRailAvailable ? (
 					<SessionInspectorRail
 						sessionKey={uiSessionId}
 						showCollapsedHandle={!browserOnly}
@@ -2152,41 +2173,43 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 			</div>
 			{hasInspector ? (
 				<div className="session-pinned-actions" data-testid="session-pinned-actions" style={noDragStyle}>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<TopbarButton
-								aria-label={
-									browserOnly
-										? `${isInspectorOpen ? t("common.close") : t("inspector.open")} ${t("inspector.browser")}`
-										: isInspectorOpen ? t("shell.closeInspector") : t("shell.openInspector")
-								}
-								aria-pressed={isInspectorOpen}
-								onClick={handleToggleInspector}
-								style={noDragStyle}
-								variant="icon"
-							>
-								{browserOnly ? (
-									<span className="relative inline-flex">
-										<Globe2 aria-hidden="true" className="size-icon-md" />
-										{!isInspectorOpen && browserUnseen ? (
-											<span
-												aria-hidden="true"
-												className="pointer-events-none absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary ring-2 ring-background"
-												data-testid="orchestrator-browser-unseen-indicator"
-											/>
-										) : null}
-									</span>
-								) : (
-									<PanelRight className="size-icon-md" aria-hidden="true" />
-								)}
-							</TopbarButton>
-						</TooltipTrigger>
-						<TooltipContent side="bottom">
-							{browserOnly
-								? `${isInspectorOpen ? t("common.close") : t("inspector.open")} ${t("inspector.browser")}`
-								: isInspectorOpen ? t("shell.closeInspectorTitle") : t("shell.openInspectorTitle")}
-						</TooltipContent>
-					</Tooltip>
+					{inspectorRailAvailable ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<TopbarButton
+									aria-label={
+										browserOnly
+											? `${isInspectorOpen ? t("common.close") : t("inspector.open")} ${t("inspector.browser")}`
+											: isInspectorOpen ? t("shell.closeInspector") : t("shell.openInspector")
+									}
+									aria-pressed={isInspectorOpen}
+									onClick={handleToggleInspector}
+									style={noDragStyle}
+									variant="icon"
+								>
+									{browserOnly ? (
+										<span className="relative inline-flex">
+											<Globe2 aria-hidden="true" className="size-icon-md" />
+											{!isInspectorOpen && browserUnseen ? (
+												<span
+													aria-hidden="true"
+													className="pointer-events-none absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary ring-2 ring-background"
+													data-testid="orchestrator-browser-unseen-indicator"
+												/>
+											) : null}
+										</span>
+									) : (
+										<PanelRight className="size-icon-md" aria-hidden="true" />
+									)}
+								</TopbarButton>
+							</TooltipTrigger>
+							<TooltipContent side="bottom">
+								{browserOnly
+									? `${isInspectorOpen ? t("common.close") : t("inspector.open")} ${t("inspector.browser")}`
+									: isInspectorOpen ? t("shell.closeInspectorTitle") : t("shell.openInspectorTitle")}
+							</TooltipContent>
+						</Tooltip>
+					) : null}
 					{/* Keep the global notification action trailing at the window edge. */}
 					<NotificationCenter style={noDragStyle} />
 				</div>

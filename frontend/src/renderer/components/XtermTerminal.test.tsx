@@ -109,6 +109,17 @@ const state = vi.hoisted(() => ({
 	},
 }));
 
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	return {
+		...actual,
+		get isWebBuild() {
+			return webBuild.enabled;
+		},
+	};
+});
+
 vi.mock("@xterm/xterm", () => ({
 	Terminal: class FakeTerminal {
 		options: Record<string, unknown>;
@@ -2895,6 +2906,26 @@ describe("XtermTerminal", () => {
 		window.removeEventListener("drop", bubbled);
 		expect(bubbled).toHaveBeenCalledTimes(1);
 		expect(saveDroppedFile).not.toHaveBeenCalled();
+	});
+
+	it("explains that file upload is unavailable in the web build instead of saving the drop", () => {
+		webBuild.enabled = true;
+		try {
+			const saveDroppedFile = vi.fn();
+			window.ao!.terminal.saveDroppedFile = saveDroppedFile;
+			const onInput = vi.fn();
+			const { container } = render(<XtermTerminal theme="dark" onReady={(terminal) => terminal.onUserInput(onInput)} />);
+			const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+
+			fireEvent.drop(container.firstElementChild!, { dataTransfer: dropTransfer({ isDirectory: false }, [file]) });
+
+			expect(saveDroppedFile).not.toHaveBeenCalled();
+			expect(onInput).not.toHaveBeenCalled();
+			expect(useUiStore.getState().globalToasts.map((toast) => toast.title)).toContain("File upload isn't available on the web");
+		} finally {
+			webBuild.enabled = false;
+			useUiStore.getState().clearGlobalToast();
+		}
 	});
 
 	it("does not extend a drag selection into a neighboring pane or keep auto-scrolling", () => {

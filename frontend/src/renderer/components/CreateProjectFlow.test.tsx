@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { useState, type ComponentProps, type ReactNode } from "react";
-import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { CreateProjectFlow, type CloneProjectInput, type CreateProjectInput } from "./CreateProjectFlow";
 import { useUiStore } from "../stores/ui-store";
 import { ShellProvider, type ShellContextValue } from "../lib/shell-context";
@@ -49,6 +49,18 @@ vi.mock("../lib/bridge", () => ({
 		},
 	},
 }));
+
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	const web = (await import("../test/web-build-platform")).webBuildPlatform(actual);
+	return {
+		...actual,
+		get capabilities() {
+			return webBuild.enabled ? web.capabilities : actual.capabilities;
+		},
+	};
+});
 
 vi.mock("../lib/api-client", () => ({
 	apiClient: {
@@ -487,6 +499,34 @@ describe("CreateProjectFlow remote host", () => {
 			body: { remoteUrl: "file:///source/empty-repository.git", destinationParent: "/repo" },
 		});
 		expect(apiMocks.POST).not.toHaveBeenCalled();
+	});
+});
+
+describe("CreateProjectFlow in the web build", () => {
+	afterEach(() => {
+		webBuild.enabled = false;
+	});
+
+	it("offers only Clone from URL for this machine", async () => {
+		webBuild.enabled = true;
+		const user = userEvent.setup();
+		renderChooseFlow();
+
+		await user.click(screen.getByRole("button", { name: "New project" }));
+
+		expect(await screen.findByRole("button", { name: "Clone a repo" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Open a local folder" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Open a workspace" })).not.toBeInTheDocument();
+	});
+
+	it("keeps the remote folder picker for a remote host", () => {
+		webBuild.enabled = true;
+		render(<QueryClientProvider client={new QueryClient()}><CreateProjectFlow
+			mode="choose" initialOpen hostId="host-a" hostLabel="Host A" connected
+			onCreateProject={noop.onCreateProject} onInitializeProject={noop.onInitializeProject}
+		/></QueryClientProvider>);
+
+		expect(screen.getByRole("button", { name: "Open a local folder" })).toBeInTheDocument();
 	});
 });
 

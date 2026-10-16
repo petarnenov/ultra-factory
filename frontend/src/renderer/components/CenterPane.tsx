@@ -44,7 +44,7 @@ import {
 	type AgentSwitchPresentation,
 } from "../lib/agent-switch-presentation";
 import { agentLabel } from "../lib/agent-options";
-import { isLinuxPlatform, isMacPlatform } from "../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild } from "../lib/platform";
 import { aoBridge } from "../lib/bridge";
 import { handleTerminalTabListKeyDown } from "../lib/terminal-tabs";
 import { cn } from "../lib/utils";
@@ -123,8 +123,8 @@ type AuxiliaryTab =
 
 const WHEEL_ZOOM_THRESHOLD = 80;
 const WHEEL_ZOOM_RESET_MS = 250;
-const isMac = isMacPlatform();
-const isLinux = isLinuxPlatform();
+const isMac = isMacPlatform() && !isWebBuild;
+const isLinux = isLinuxPlatform() || isWebBuild;
 
 function DraggableWorkspaceTab({ children, value }: { children: ReactNode; value: string }) {
 	const dragControls = useDragControls();

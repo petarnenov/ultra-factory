@@ -9,7 +9,7 @@ import { hasConfirmedHarnessUpdate, harnessUpdateNoticeKey, installedAgentIds, i
 import { useWorkspaceTopbarBottom } from "../hooks/useWorkspaceTopbarBottom";
 import { AGENT_OPTIONS, agentLabel, type AgentId } from "../lib/agent-options";
 import { aoBridge } from "../lib/bridge";
-import { isWindowsPlatform } from "../lib/platform";
+import { isWebBuild, isWindowsPlatform } from "../lib/platform";
 import { cn } from "../lib/utils";
 import { useUiStore } from "../stores/ui-store";
 import { AgentAvatar } from "./AgentAvatar";
@@ -266,7 +266,7 @@ function NoticeFrame({ label, children }: { label: string; children: ReactNode }
 	const topbarBottom = useWorkspaceTopbarBottom();
 	// Until a bar is laid out, assume the board's: below the toolbar (and Windows' titlebar).
 	const top = topbarBottom === null
-		? isWindowsPlatform() ? "calc(var(--size-window-titlebar) + var(--size-toolbar) + var(--space-3))" : "calc(var(--size-toolbar) + var(--space-3))"
+		? isWindowsPlatform() && !isWebBuild ? "calc(var(--size-window-titlebar) + var(--size-toolbar) + var(--space-3))" : "calc(var(--size-toolbar) + var(--space-3))"
 		: `calc(${topbarBottom}px + var(--space-3))`;
 	return <aside role="region" aria-label={label}
 		className="fixed right-4 isolate z-[calc(var(--z-overlay)-1)] w-[min(300px,calc(100vw-32px))] text-card-foreground"
