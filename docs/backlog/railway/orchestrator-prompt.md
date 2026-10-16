@@ -154,7 +154,7 @@ ao spawn --host <H> --project ultra-factory \
 ## Ревю и мърдж в `feat/railway-hosting`
 Когато PR на работник е готов (зелен CI и работникът е idle; не разчитай на `--done` от отдалечен хост):
 1. Issue → `status:in-review`. Пусни `ao review trigger` за неговия PR.
-2. Провери: базата е `feat/railway-hosting`; CI е зелен (`gh pr checks`); няма AI trailers в commits (`git log --format=%B`); промените са в обхвата на таска; критериите за приемане в таск файла са изпълнени.
+2. Провери: базата е `feat/railway-hosting`; CI е зелен (`gh pr checks`); няма AI trailers в commits (`git log --format=%B`); промените са в обхвата на таска; критериите за приемане в таск файла са изпълнени; **новият текст е на български** (описанието на PR-а, commit съобщенията, коментарите в кода, документите), иначе не мърджвай и върни на работника.
 3. Ако има забележки: `ao send <session> "<конкретни забележки>"` и чакай нов `--done`.
 4. Ако е чисто и **не е** ADR или `needs-human`: `gh pr merge <PR> --squash --match-head-commit <SHA> --repo petarnenov/ultra-factory`. `ao pr merge` не работи за PR-и на отдалечени работници (#63).
 5. **Веднага след мърджа затвори таск issue-тата ръчно.** `Closes #N` в PR-а затваря issue само при мърдж в default бранча (`main`), а не във `feat/railway-hosting`. За всяко issue от `Closes #N` в тялото на PR-а: `gh issue close <N> --repo petarnenov/ultra-factory --reason completed --comment "Merged into feat/railway-hosting via #<PR> (<merge SHA>)."` и махни `status:*` label-ите. Ако с това се затварят всички таскове на стори, затвори и сторито. Ако се затварят всички сторита на епик, затвори и епика. Tracker-ът → Done.
