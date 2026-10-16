@@ -1,20 +1,20 @@
-# RW-1.2.3 · Таск: CI build и publish на worker image-а
+# RW-1.2.3 · Task: CI build and publish of the worker image
 
-**Тип:** CI. **Оценка:** 0.5–1 чд. **Стори:** RW-1.2.
+**Type:** CI. **Estimate:** 0.5–1 pd. **Story:** RW-1.2.
 
-## Цел
-GitHub Actions workflow, който билдва `deploy/railway/worker/Dockerfile` за amd64/arm64 и го публикува в GHCR при таг и при промяна на съответните пътища.
+## Goal
+A GitHub Actions workflow that builds `deploy/railway/worker/Dockerfile` for amd64/arm64 and publishes it to GHCR on a tag and on changes to the relevant paths.
 
-## Контекст
-- `.github/workflows/` съдържа текущите CI дефиниции; `AGENTS.md` иска локално огледало с `npx @redwoodjs/agent-ci run --all` (Docker).
-- `AGENTS.md` „Distribution“: само release conductor публикува desktop артефакти. Worker image-ът е нов канал: тагвай с `worker-v<semver>` и `sha-<short>`, не с desktop версиите, за да не се смесват.
+## Context
+- `.github/workflows/` contains the current CI definitions; `AGENTS.md` requires a local mirror with `npx @redwoodjs/agent-ci run --all` (Docker).
+- `AGENTS.md` "Distribution": only the release conductor publishes desktop artifacts. The worker image is a new channel: tag it with `worker-v<semver>` and `sha-<short>`, not with the desktop versions, so they do not get mixed up.
 
-## Събтаскове
-- [ ] `.github/workflows/worker-image.yml`: triggers `push` на `main` за пътища `backend/**`, `deploy/railway/worker/**`, `frontend/scripts/build-acp-runtime.mjs`; `push` на тагове `worker-v*`; `workflow_dispatch`.
-- [ ] `docker/setup-qemu-action`, `setup-buildx-action`, `login-action` към `ghcr.io` с `GITHUB_TOKEN`, `build-push-action` с cache `type=gha`.
-- [ ] Smoke job: пусни image-а с временен volume, провери `/api/v1/identity` на :3011 → 200.
-- [ ] Запиши image URL и тагването в `deploy/railway/worker/README.md`.
-- [ ] Добави workflow-а към agent-ci локалната проверка, ако е приложимо.
+## Subtasks
+- [ ] `.github/workflows/worker-image.yml`: triggers `push` on `main` for paths `backend/**`, `deploy/railway/worker/**`, `frontend/scripts/build-acp-runtime.mjs`; `push` of tags `worker-v*`; `workflow_dispatch`.
+- [ ] `docker/setup-qemu-action`, `setup-buildx-action`, `login-action` to `ghcr.io` with `GITHUB_TOKEN`, `build-push-action` with cache `type=gha`.
+- [ ] Smoke job: run the image with a temporary volume, check `/api/v1/identity` on :3011 → 200.
+- [ ] Record the image URL and the tagging scheme in `deploy/railway/worker/README.md`.
+- [ ] Add the workflow to the agent-ci local check, if applicable.
 
-## Критерии за приемане
-- [ ] `ghcr.io/<org>/ao-worker:sha-<x>` и `:worker-v0.1.0` съществуват и smoke job-ът е зелен.
+## Acceptance criteria
+- [ ] `ghcr.io/<org>/ao-worker:sha-<x>` and `:worker-v0.1.0` exist and the smoke job is green.

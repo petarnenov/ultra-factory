@@ -1,18 +1,18 @@
-# RW-2.4.3 · Таск: Registry на хостове и API за добавяне/махане по адрес
+# RW-2.4.3 · Task: Host registry and API for adding/removing by address
 
-**Тип:** Node TS. **Оценка:** 1–2 чд. **Стори:** RW-2.4. **Зависимости:** RW-2.4.1.
+**Type:** Node TS. **Estimate:** 1–2 pd. **Story:** RW-2.4. **Dependencies:** RW-2.4.1.
 
-## Контекст
-- Формат, съвместим с desktop `~/.ao/remotes.json` и CLI `remoteEntry` (`backend/internal/cli/remote_target.go:31-37`): `{label, url, password, hostId, accountUserId?}`. Разшири с `source: "manual"|"railway"`, `railway?: {serviceId, volumeId, environmentId}`, `createdAt`, `status`.
-- Път: `AO_HUB_DATA_DIR/hosts.json` на volume-а на hub-а, 0600, атомарен запис (tmp + rename).
-- Identity probe: `GET <url>/api/v1/identity` → `{hostId, apiVersion}` (неавтентикиран); после `GET <url>/api/v1/projects` с Bearer за валидиране на паролата.
+## Context
+- Format compatible with the desktop `~/.ao/remotes.json` and the CLI `remoteEntry` (`backend/internal/cli/remote_target.go:31-37`): `{label, url, password, hostId, accountUserId?}`. Extend it with `source: "manual"|"railway"`, `railway?: {serviceId, volumeId, environmentId}`, `createdAt`, `status`.
+- Path: `AO_HUB_DATA_DIR/hosts.json` on the hub's volume, 0600, atomic write (tmp + rename).
+- Identity probe: `GET <url>/api/v1/identity` → `{hostId, apiVersion}` (unauthenticated); then `GET <url>/api/v1/projects` with a Bearer to validate the password.
 
-## Събтаскове
-- [ ] `hosts-store.ts`: load/save/list/get/add/remove с валидация (`url` само `http(s)://`, label уникален).
-- [ ] BFF API (auth required): `GET /hub/hosts` (без пароли), `POST /hub/hosts` `{label,url,password}` → probe identity + auth check → запис; `DELETE /hub/hosts/:id` (не трие нищо в Railway); `POST /hub/hosts/:id/probe` → статус.
-- [ ] Статус polling: на 30 s probe на всеки хост, `status: online|unreachable|auth_failed`, изложен в `GET /hub/hosts`.
-- [ ] Записът `hub` се създава автоматично при старт от `mobile/config.json` на същия volume (B2) и не може да се трие.
-- [ ] Тестове със fake хост.
+## Subtasks
+- [ ] `hosts-store.ts`: load/save/list/get/add/remove with validation (`url` only `http(s)://`, label unique).
+- [ ] BFF API (auth required): `GET /hub/hosts` (without passwords), `POST /hub/hosts` `{label,url,password}` → probe identity + auth check → write; `DELETE /hub/hosts/:id` (does not delete anything in Railway); `POST /hub/hosts/:id/probe` → status.
+- [ ] Status polling: every 30 s probe every host, `status: online|unreachable|auth_failed`, exposed in `GET /hub/hosts`.
+- [ ] The `hub` entry is created automatically at startup from `mobile/config.json` on the same volume (B2) and cannot be deleted.
+- [ ] Tests with a fake host.
 
-## Критерии за приемане
-- [ ] Добавяне на валидиран работник от RW-1.4 през `curl` към BFF-а, после `/hosts/<id>/api/v1/projects` работи.
+## Acceptance criteria
+- [ ] Adding the validated worker from RW-1.4 via `curl` to the BFF, after which `/hosts/<id>/api/v1/projects` works.
