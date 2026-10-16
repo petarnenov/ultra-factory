@@ -81,7 +81,19 @@ const productUiReactBoundary: Plugin = {
 	},
 };
 
+// VITE_AO_WEB=1 selects the standalone web target (build:web, dev:web:real):
+// the real renderer served from a static host behind a proxy to the daemon, as
+// opposed to the Electron renderer or the VITE_NO_ELECTRON mock preview.
+const isWebTarget = process.env.VITE_AO_WEB === "1";
+const devApiTarget = process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001";
+
 export default defineConfig({
+	// Relative asset URLs so dist-web works from any mount path; the router uses
+	// hash history, so no server-side route fallback is needed.
+	base: isWebTarget ? "./" : undefined,
+	build: {
+		outDir: isWebTarget ? "dist-web" : undefined,
+	},
 	define: {
 		"import.meta.env.VITE_AO_GIT_BRANCH": JSON.stringify(DEV_BUILD_INFO.branch),
 		"import.meta.env.VITE_AO_GIT_COMMIT": JSON.stringify(DEV_BUILD_INFO.commit),
@@ -109,20 +121,16 @@ export default defineConfig({
 			),
 		},
 	},
-	// Dev proxy for VITE_NO_ELECTRON=1 browser preview — forwards /api and /mux
-	// to the daemon so the renderer can be tested against a running daemon from
-	// a plain browser without an Electron shell.
+	// Dev proxy for browser runs (VITE_NO_ELECTRON=1 preview, VITE_AO_WEB=1
+	// dev:web:real) — forwards /api, /mux and the daemon health probes to the
+	// daemon so the renderer can be tested against a running daemon from a
+	// plain browser without an Electron shell.
 	server: {
 		proxy: {
-			"/api": {
-				target: process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001",
-				changeOrigin: false,
-			},
-			"/mux": {
-				target: process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001",
-				changeOrigin: false,
-				ws: true,
-			},
+			"/api": { target: devApiTarget, changeOrigin: false },
+			"/mux": { target: devApiTarget, changeOrigin: false, ws: true },
+			"/readyz": { target: devApiTarget, changeOrigin: false },
+			"/healthz": { target: devApiTarget, changeOrigin: false },
 		},
 	},
 	plugins: [
@@ -142,7 +150,7 @@ export default defineConfig({
 		testTimeout: 20_000,
 		// Anchor node_modules at any depth: a bare "node_modules/**" replaces
 		// vitest's default "**/node_modules/**" and only matches the root.
-		exclude: ["**/node_modules/**", "dist/**", "dist-electron/**", "e2e/**"],
+		exclude: ["**/node_modules/**", "dist/**", "dist-web/**", "dist-electron/**", "e2e/**"],
 		globals: true,
 		setupFiles: "./src/renderer/test/setup.ts",
 	},
