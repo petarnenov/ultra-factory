@@ -7,8 +7,8 @@ the web build of the renderer, owns the single-operator login, and (from
 RW-2.4.2) proxies to daemons through their authenticated listeners. It never
 connects to the daemon's loopback listener on `127.0.0.1:3001`.
 
-This package is the RW-2.4.1 skeleton: static SPA, login, session cookie, CSRF,
-and login throttling. The `/api/*`, `/mux`, `/hosts/*`, and `/readyz` prefixes
+This package has the RW-2.4.1 skeleton (static SPA, login, session cookie, CSRF,
+and login throttling) and the RW-2.4.3 host registry under `/hub/hosts`. The `/api/*`, `/mux`, `/hosts/*`, and `/readyz` prefixes
 are reserved for the proxy and answer `501` to a signed-in caller until RW-2.4.2.
 
 ## Running
@@ -32,6 +32,8 @@ npm --prefix packages/hub-bff run typecheck
 | `AO_WEB_PASSWORD` | one of | Plaintext operator password. Hashed at start-up, removed from the process env, never logged. |
 | `PORT` | no | Listen port. Railway sets it. Default `8080`. |
 | `AO_HUB_BFF_HOST` | no | Listen address. Default `::` (all interfaces, dual-stack), which Railway needs. |
+| `AO_HUB_DATA_DIR` | no | Directory of `hosts.json`, the host registry, on the hub volume. Default `AO_DATA_DIR`, else `~/.ao/data`. |
+| `AO_HUB_DAEMON_PASSWORD_FILE` | no | The hub daemon's `mobile/config.json`, source of the `hub` entry. Default `<AO_DATA_DIR or ~/.ao/data>/mobile/config.json`. |
 | `AO_WEB_ORIGIN` | no | Public origin such as `https://hub.example.com`. When set, state-changing requests must carry exactly this `Origin`; otherwise `Origin` must match the request's `Host`. |
 
 Rotating the password is changing the variable and redeploying. Sessions live in
@@ -45,11 +47,42 @@ memory, so a redeploy also signs everyone out.
 | `GET /login`, `GET /_bff/login.{css,js}` | none | Minimal login page served by the BFF itself, with a strict CSP. Redirects to `/` when already signed in. |
 | `POST /login` | none | JSON `{"password": "..."}`. `204` + session cookie, `401` on a wrong password, `429` + `Retry-After` when throttled, `503` + `Retry-After` when 2 password checks are already running. |
 | `POST /logout` | none | Ends the session and clears the cookie. `204`. |
+| `GET /hub/hosts` | session | `{"hosts":[...]}`: every registered host with its last `status`. Never includes a password or token. |
+| `POST /hub/hosts` | session | JSON `{"label","url","password"}`. Probes `GET <url>/api/v1/identity`, then checks the bearer with `GET <url>/api/v1/projects`, then saves. `201 {"host":...}`; `400` invalid input; `409` duplicate label or host; `422 host_credential_rejected`; `502 host_unreachable` or `unsupported_api_version`. |
+| `DELETE /hub/hosts/:id` | session | Removes the registry record only (nothing in Railway is deleted). `204`; `404`; `409 hub_not_removable` for the hub entry. |
+| `POST /hub/hosts/:id/probe` | session | Probes the host now. `200 {"host":...}` with the new `status`; `404`. |
 | everything else | session | The SPA from `AO_HUB_SPA_DIR`, with `index.html` as the fallback for extensionless client-side routes. Without a session: `302 /login` for a page navigation, `401 {"error":"unauthorized"}` otherwise. |
 
 The login page is the BFF's own, not a route in the SPA: ADR 0006 puts the SPA
 shell itself behind the session, so the SPA cannot render a login form before
 sign-in. The SPA only needs to treat a `401` from the BFF as "go to `/login`".
+
+## Host registry
+
+`<AO_HUB_DATA_DIR>/hosts.json` is a JSON array of host records with the field
+names of the desktop's `remotes.json` and the CLI's `remoteEntry`
+(`label`, `url`, `password`, `hostId`, `accountUserId`), plus `source`
+(`manual`, `railway`, or `hub`), `railway` (`serviceId`, `volumeId`,
+`environmentId`), `createdAt`, `status`, and `checkedAt`. It is written
+atomically (temporary file + rename) with mode `0600`, and the BFF refuses to
+start if it is readable by group or others. A host's `id` in the API is its
+`hostId`; the hub entry is also reachable as `hub`.
+
+- **Status** is `unknown` until the first probe, then `online`, `unreachable`,
+  or `auth_failed`. Every host is probed at startup and every 30 s. A probe
+  calls the unauthenticated identity route, then an authenticated read with
+  `X-AO-Expected-Host-ID`. A worker that answers with a different host id is
+  `unreachable`, and is sent no bearer. Redirects are never followed.
+- **The `hub` entry** is created from the hub daemon's `mobile/config.json` on
+  the same volume (ADR 0006, B2): `http://127.0.0.1:<lastPort>` (default
+  `3011`), with the account token as the bearer when there is one, else the
+  connection password. It is refreshed before every poll, so a rotated
+  credential is picked up, and it cannot be deleted. A `lastPort` of `3001`,
+  the daemon's unauthenticated listener, is refused.
+- **Manual hosts** may not use a loopback address, so the registry can never
+  point the proxy at the hub daemon's own listeners.
+- **Proxy lookup**: `HostsStore.getHost(id)` returns `{url, hostId, bearer}`
+  for the reverse proxy, and only for an entry whose identity is confirmed.
 
 ## Security model
 
