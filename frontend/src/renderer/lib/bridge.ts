@@ -1,7 +1,7 @@
 import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
-import { coerceUiSettings, DEFAULT_UI_SETTINGS } from "../../shared/ui-locale";
 import { usesPreviewWorkspaceData } from "./preview-mode";
+import { webKeybindings, webUiSettings } from "./web-settings";
 import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
 
@@ -48,6 +48,25 @@ async function probeWebDaemon(): Promise<DaemonStatus> {
 
 async function unsupportedWebDaemonControl(): Promise<DaemonStatus> {
 	return { ...(await probeWebDaemon()), supported: false };
+}
+
+// Browsers allow clipboard reads only in a secure context, after a user
+// gesture and with permission. Paste is a user action, so a denial is told to
+// the user in a toast and resolves to empty text instead of failing the caller.
+// ui-store imports this module, hence the lazy import.
+async function readWebClipboardText(): Promise<string> {
+	try {
+		if (!navigator.clipboard?.readText) throw new Error("Clipboard API is unavailable");
+		return await navigator.clipboard.readText();
+	} catch {
+		const { useUiStore } = await import("../stores/ui-store");
+		useUiStore.getState().showGlobalToast(
+			"Clipboard access is blocked",
+			"Allow clipboard access for this site, or paste with your browser's paste shortcut.",
+			{ tone: "info", dedupeKey: "web-clipboard-read-denied" },
+		);
+		return "";
+	}
 }
 
 const webDaemonBridge: AoBridge["daemon"] = {
@@ -128,7 +147,7 @@ export const aoBridge: AoBridge =
 					await navigator.clipboard.writeText(text);
 				}
 			},
-			readText: async () => (navigator.clipboard?.readText ? navigator.clipboard.readText() : ""),
+			readText: readWebClipboardText,
 		},
 		// Preview с mock данни (VITE_NO_ELECTRON) няма daemon за проба.
 		daemon: usesPreviewWorkspaceData
@@ -348,13 +367,9 @@ export const aoBridge: AoBridge =
 			set: async () => undefined,
 			setMacDifferentialUpdates: async () => undefined,
 		},
-		uiSettings: {
-			get: async () => ({ ...DEFAULT_UI_SETTINGS }),
-			set: async (settings) => coerceUiSettings({ ...DEFAULT_UI_SETTINGS, ...settings }),
-		},
+		uiSettings: webUiSettings,
 		keybindings: {
-			get: async () => ({}),
-			set: async (overrides) => overrides,
+			...webKeybindings,
 			setRecording: async (active) => setWebShortcutRecording(active),
 		},
 		updates: {
