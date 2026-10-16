@@ -6222,6 +6222,7 @@ export interface components {
             parentSessionId?: string;
             projectId?: string;
             prompt?: string;
+            remoteSpawn?: boolean;
             /** @enum {string} */
             requestedOutput?: "artifact";
             /** @enum {string} */

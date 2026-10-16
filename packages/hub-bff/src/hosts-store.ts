@@ -9,7 +9,7 @@ import path from "node:path";
 // remoteEntry (backend/internal/cli/remote_target.go), so a record can move
 // between them, and adds the hub's own bookkeeping fields.
 
-export type HostStatus = "unknown" | "online" | "unreachable" | "auth_failed";
+export type HostStatus = "unknown" | "provisioning" | "online" | "unreachable" | "auth_failed" | "removing" | "failed";
 // "hub" marks the hub daemon's own entry, created from its mobile/config.json.
 export type HostSource = "manual" | "railway" | "hub";
 
@@ -22,8 +22,11 @@ export type HostEntry = {
 	// sent to an entry without it.
 	hostId?: string;
 	accountUserId?: string;
+	id?: string;
 	source: HostSource;
 	railway?: { serviceId: string; volumeId: string; environmentId: string };
+	lastError?: string;
+	desired?: "running" | "removed";
 	createdAt: string;
 	status: HostStatus;
 	checkedAt?: string;
@@ -102,7 +105,7 @@ function normalizeLabel(raw: unknown): string {
 }
 
 function idOf(entry: HostEntry): string {
-	return entry.hostId ?? (entry.source === "hub" ? HUB_ID : "");
+	return entry.id ?? entry.hostId ?? (entry.source === "hub" ? HUB_ID : "");
 }
 
 function toPublic(entry: HostEntry): PublicHost {
@@ -166,6 +169,7 @@ export class HostsStore {
 			source: raw.source ?? "manual",
 			createdAt: raw.createdAt ?? new Date(this.#now()).toISOString(),
 			status: raw.status ?? "unknown",
+			...(raw.id ? { id: raw.id } : {}),
 		}));
 	}
 
@@ -199,9 +203,13 @@ export class HostsStore {
 		return this.#hosts.map(toPublic);
 	}
 
+	listRailwayWorkers(): HostEntry[] {
+		return this.#hosts.filter((host) => host.source === "railway").map((host) => ({ ...host, ...(host.railway ? { railway: { ...host.railway } } : {}) }));
+	}
+
 	// get finds an entry by its host id, or the hub entry by "hub".
 	get(id: string): HostEntry | undefined {
-		const entry = id === HUB_ID ? this.#hosts.find((h) => h.source === "hub") : this.#hosts.find((h) => h.hostId === id);
+		const entry = id === HUB_ID ? this.#hosts.find((h) => h.source === "hub") : this.#hosts.find((h) => h.hostId === id || h.id === id);
 		return entry && { ...entry };
 	}
 
@@ -258,10 +266,51 @@ export class HostsStore {
 		});
 	}
 
+	// createWorker writes its intent before any provider call, making provisioning recoverable after a crash.
+	async createWorker(input: { id: string; label: unknown; password: string; maxWorkers?: number }): Promise<PublicHost> {
+		const label = normalizeLabel(input.label);
+		return this.#mutate(async (hosts) => {
+			const workerCount = hosts.filter((host) => host.source === "railway").length;
+			if (input.maxWorkers !== undefined && workerCount >= input.maxWorkers) {
+				throw new HostsValidationError("worker_limit_reached", `worker limit reached (${workerCount}/${input.maxWorkers})`);
+			}
+			if (label.toLowerCase() === HUB_LABEL || hosts.some((h) => h.label.toLowerCase() === label.toLowerCase())) {
+				throw new HostsValidationError("label_taken", `a host labelled "${label}" already exists`);
+			}
+			const entry: HostEntry = {
+				id: input.id, label, url: "", password: input.password, source: "railway",
+				createdAt: new Date(this.#now()).toISOString(), status: "provisioning", desired: "running",
+			};
+			await this.#save([...hosts, entry]);
+			return toPublic(entry);
+		});
+	}
+
+	async updateWorker(id: string, update: Partial<Pick<HostEntry, "url" | "hostId" | "railway" | "status" | "lastError" | "desired">>): Promise<PublicHost | undefined> {
+		return this.#mutate(async (hosts) => {
+			const index = hosts.findIndex((h) => h.id === id || h.hostId === id);
+			if (index < 0) return undefined;
+			const next = { ...hosts[index], ...update };
+			hosts[index] = next;
+			await this.#save(hosts);
+			return toPublic(next);
+		});
+	}
+
+	async removeWorker(id: string): Promise<boolean> {
+		return this.#mutate(async (hosts) => {
+			const index = hosts.findIndex((h) => h.id === id || h.hostId === id);
+			if (index < 0) return false;
+			if (hosts[index].source !== "railway") throw new HostsValidationError("not_railway_worker", "host is not a Railway worker");
+			await this.#save(hosts.filter((_, i) => i !== index));
+			return true;
+		});
+	}
+
 	// remove deletes only the registry record. It never touches Railway.
 	async remove(id: string): Promise<boolean> {
 		return this.#mutate(async (hosts) => {
-			const index = hosts.findIndex((h) => (id === HUB_ID ? h.source === "hub" : h.hostId === id));
+			const index = hosts.findIndex((h) => (id === HUB_ID ? h.source === "hub" : h.hostId === id || h.id === id));
 			if (index < 0) return false;
 			if (hosts[index].source === "hub") throw new HostsValidationError("hub_not_removable", "the hub entry cannot be removed");
 			await this.#save(hosts.filter((_, i) => i !== index));
@@ -295,7 +344,7 @@ export class HostsStore {
 	// status or the hub's host id changes, not on every poll.
 	async recordProbe(id: string, result: { status: HostStatus; hostId?: string }): Promise<PublicHost | undefined> {
 		return this.#mutate(async (hosts) => {
-			const index = hosts.findIndex((h) => (id === HUB_ID ? h.source === "hub" : h.hostId === id));
+			const index = hosts.findIndex((h) => (id === HUB_ID ? h.source === "hub" : h.hostId === id || h.id === id));
 			if (index < 0) return undefined;
 			const entry = hosts[index];
 			const checkedAt = new Date(this.#now()).toISOString();

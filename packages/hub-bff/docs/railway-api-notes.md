@@ -164,6 +164,27 @@ established.
   to GHCR. The public-image observation above is not a worker-image benchmark.
 - Minimum working deletion permissions, the applicable project service-count
   limit, and this project's maximum volume size remain unverified.
+- **Open question — volume size:** no verified Railway API operation; `volumeCreate`
+  accepts `mountPath`, `environmentId` and `region` only; revisit with an
+  authorized token.
+
+## RW-3.2.2 service reconciliation
+
+The [official Manage Projects API examples](https://docs.railway.com/integrations/api/manage-projects)
+document fetching a project with its services using
+`project(id: $id) { services { edges { node { id name } } } }`. The BFF uses
+that documented shape to list project services and compares service IDs with
+`hosts.json`. Since the documented API example does not show a label/tag filter,
+the BFF recognizes services created under its existing `ao-worker-<id>` name
+convention. Confirm whether Railway supports a stable service label/tag query
+before changing this matching rule.
+
+Orphans are logged and returned by authenticated `GET /hub/workers`; they are
+never deleted automatically. The current SPA has no worker-management screen,
+and safe Adopt/Delete actions are not implemented. Adoption would require a
+verified way to recover the worker URL and credential and to associate its
+volume; deleting an orphan also needs a user-confirmed cleanup flow and verified
+delete permissions. These remain open follow-ups.
 - The task file has no separate Verification command section. This PR changes
   documentation only; git diff --check is the local whitespace check. Product
   test suites and make check are not required for this docs-only change.

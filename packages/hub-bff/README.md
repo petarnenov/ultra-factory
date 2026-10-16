@@ -8,6 +8,20 @@ connects to the daemon's loopback listener on `127.0.0.1:3001`.
 
 This package provides static SPA serving, login, session cookies, CSRF checks,
 login throttling, a daemon proxy, and the host registry under `/hub/hosts`.
+It also reconciles Railway workers through `/hub/workers` when Railway is configured.
+
+## Railway worker client
+
+`src/railway-client.ts` implements the provider-neutral `WorkerProvider` using
+Railway's GraphQL API. Supply the token, token kind, project ID, and environment
+ID through `RailwayClientOptions`. Project tokens use the
+`Project-Access-Token` header by default; account tokens use `Authorization:
+Bearer`. Automated tests use recorded response shapes and a fake fetch. The
+manual create-to-running-to-delete integration test remains skipped: the
+project token tested in RW-3.1.1 could not delete services or volumes, and no
+account/workspace token with cleanup permissions has been authorized or
+verified. Do not run the lifecycle against Railway until that permission is
+established.
 
 ## Running
 
@@ -33,6 +47,7 @@ npm --prefix packages/hub-bff run typecheck
 | `AO_HUB_DATA_DIR` | no | Directory of `hosts.json`, the host registry, on the hub volume. Default `AO_DATA_DIR`, else `~/.ao/data`. |
 | `AO_HUB_DAEMON_PASSWORD_FILE` | no | The hub daemon's `mobile/config.json`, source of the `hub` entry. Default `<AO_DATA_DIR or ~/.ao/data>/mobile/config.json`. |
 | `AO_WEB_ORIGIN` | no | Public origin such as `https://hub.example.com`. When set, state-changing requests must carry exactly this `Origin`; otherwise `Origin` must match the request's `Host`. |
+| `AO_HUB_MAX_WORKERS` | no | Maximum registered Railway workers. Default `5`; must be a positive integer. |
 
 Rotating the password is changing the variable and redeploying. Sessions live in
 memory, so a redeploy also signs everyone out.
@@ -49,11 +64,22 @@ memory, so a redeploy also signs everyone out.
 | `POST /hub/hosts` | session | JSON `{"label","url","password"}`. Probes `GET <url>/api/v1/identity`, then checks the bearer with `GET <url>/api/v1/projects`, then saves. `201 {"host":...}`; `400` invalid input; `409` duplicate label or host; `422 host_credential_rejected`; `502 host_unreachable` or `unsupported_api_version`. |
 | `DELETE /hub/hosts/:id` | session | Removes the registry record only (nothing in Railway is deleted). `204`; `404`; `409 hub_not_removable` for the hub entry. |
 | `POST /hub/hosts/:id/probe` | session | Probes the host now. `200 {"host":...}` with the new `status`; `404`. |
+| `GET /hub/workers` | session | Returns registered hosts, detected Railway service orphans, status counts, the last successful reconcile, and the configured worker limit. Does not adopt or delete orphans. |
+| `POST /hub/workers` | session | Creates a Railway worker asynchronously. Returns `202`; returns `429 {"error":"worker_limit_reached","count","limit"}` at the configured limit. |
+| `DELETE /hub/workers/:id` | session | Requests deletion of a registered Railway worker; failed deletion remains recorded for manual cleanup. |
 | everything else | session | The SPA from `AO_HUB_SPA_DIR`, with `index.html` as the fallback for extensionless client-side routes. Without a session: `302 /login` for a page navigation, `401 {"error":"unauthorized"}` otherwise. |
 
 The login page is the BFF's own, not a route in the SPA: ADR 0006 puts the SPA
 shell itself behind the session, so the SPA cannot render a login form before
 sign-in. The SPA only needs to treat a `401` from the BFF as "go to `/login`".
+
+Worker reconciliation resumes recorded provisioning and removing jobs on BFF
+startup, then lists project services every five minutes. It matches the
+`ao-worker-` service-name prefix used by this BFF and logs unmatched services as
+orphans; it never deletes them. The Railway API example documents listing
+services under a project, but does not document a label/tag filter. The BFF
+currently has no worker-management screen, and orphan adoption/deletion actions
+are not available until a safe workflow is defined.
 
 ## Host registry
 
