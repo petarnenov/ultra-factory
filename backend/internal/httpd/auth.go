@@ -78,8 +78,8 @@ func (a *authState) retiredPasswordMatches(token string) bool {
 	return false
 }
 
-// maxAuthFailures е броят неуспешни опити, след които ключът на източника се
-// заключва до изтичане на прозореца му.
+// maxAuthFailures is how many failed attempts lock a source key out until its
+// window expires.
 const maxAuthFailures = 5
 
 // lockout throttles password guessing per source address.
@@ -113,9 +113,9 @@ func (l *lockout) blocked(src string) bool {
 	return false
 }
 
-// fail записва неуспешен опит и съобщава дали точно този опит е заключил src,
-// така че преходът към lockout да се логне веднъж, а не при всяка неуспешна
-// заявка.
+// fail records a failed attempt and reports whether this attempt locked src
+// out, so the transition into lockout can be logged once rather than per
+// failed request.
 func (l *lockout) fail(src string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -157,16 +157,16 @@ func sourceKey(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// Откъде идва lockout ключът. Логва се, когато ключ бъде заключен.
+// Where a lockout key came from. Logged when a key becomes locked out.
 const (
 	lockoutKeyFromPeer           = "peer"
 	lockoutKeyFromCFConnectingIP = "cf-connecting-ip"
 	lockoutKeyFromForwardedFor   = "x-forwarded-for"
 )
 
-// lockoutKey извежда ключа, срещу който се броят неуспешните опити, като
-// започва от TCP peer-а. Ключът ограничава отгатването и нищо друго: никога не
-// се използва за авторизация, нито за решение, че заявката е локална. Виж
+// lockoutKey derives the key failed attempts are counted against, starting
+// from the TCP peer. The key throttles guessing and nothing else: it is never
+// used for authorization or to decide that a request is local. See
 // docs/adr/0005-trusted-proxy-remote-host.md.
 func lockoutKey(r *http.Request, peer string, trustedProxy bool) (key, from string) {
 	// Cloudflared connects from loopback, so use its visitor IP for lockout
@@ -186,11 +186,10 @@ func lockoutKey(r *http.Request, peer string, trustedProxy bool) (key, from stri
 	return peer, lockoutKeyFromPeer
 }
 
-// rightmostForwardedFor връща последния запис в X-Forwarded-For от всички
-// редове на header-а — този, който е добавил най-близкият proxy. Приема се точно
-// един доверен hop: всичко вляво от него се контролира от клиента, затова
-// последен запис, който не се парсва, дава nil, вместо да се падне обратно към
-// по-ранен.
+// rightmostForwardedFor returns the last X-Forwarded-For entry across all
+// header lines, which is the one the nearest proxy appended. Exactly one
+// trusted hop is assumed: everything to its left is client-controlled, so an
+// unparseable last entry yields nil rather than falling back to an earlier one.
 func rightmostForwardedFor(lines []string) net.IP {
 	if len(lines) == 0 {
 		return nil
@@ -302,9 +301,9 @@ func isIdentityProbe(r *http.Request) bool {
 	return r.Method == http.MethodGet && r.URL.Path == identityProbePath
 }
 
-// trustedProxy е AO_REMOTE_TRUSTED_PROXY: когато е зададен, lockout ключът се
-// взема от X-Forwarded-For (виж lockoutKey). log, който може да е nil, получава
-// по един ред всеки път, когато ключ бъде заключен.
+// trustedProxy is AO_REMOTE_TRUSTED_PROXY: when set, the lockout key is taken
+// from X-Forwarded-For (see lockoutKey). log, which may be nil, receives one
+// line each time a key becomes locked out.
 func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter, trustedProxy bool, log *slog.Logger) func(http.Handler) http.Handler {
 	log = loggerOrDefault(log)
 	return func(next http.Handler) http.Handler {
