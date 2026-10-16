@@ -1,156 +1,159 @@
-# 6. A web BFF in front of the hub daemon
+# 6. Уеб BFF пред daemon-а на hub-а
 
-Date: 2026-10-16
-Status: Accepted
+Дата: 2026-10-16
+Статус: Приет
 
-## Context
+## Контекст
 
-AO is planned to run on Railway as a **hub**: one container with the
-orchestrating daemon, plus a web build of the renderer, used from a browser
-instead of the desktop app. Worker daemons run as separate Railway services and
-are reached the way the desktop reaches remote hosts today: through the
-authenticated remote-host listener on `:3011` with a bearer credential.
+Планира се AO да работи в Railway като **hub**: един контейнер с оркестриращия
+daemon плюс уеб билд на renderer-а, използван от браузър вместо от десктоп
+приложението. Worker daemon-ите работят като отделни Railway услуги и се
+достигат така, както десктопът днес достига отдалечени хостове: през
+автентикирания remote-host listener на `:3011` с bearer credential.
 
-A browser cannot talk to a daemon directly:
+Браузърът не може да говори директно с daemon:
 
-- the primary listener is `127.0.0.1:3001`, unauthenticated by design, and the
-  AGENTS.md hard rules forbid changing its bind host or adding auth to it;
-- `EventSource` and `WebSocket` cannot set an `Authorization` header, so even the
-  authenticated listener cannot be used from a page without a credential in the
-  URL;
-- AGENTS.md forbids any other network-facing bind in the daemon.
+- основният listener е `127.0.0.1:3001`, без автентикация по замисъл, а твърдите
+  правила в AGENTS.md забраняват да се сменя bind хостът му или да му се добавя
+  auth;
+- `EventSource` и `WebSocket` не могат да задават `Authorization` header, така
+  че дори автентикираният listener не може да се използва от страница без
+  credential в URL-а;
+- AGENTS.md забранява всеки друг bind към мрежата в daemon-а.
 
-The desktop solves the same problem in `frontend/src/main/remote-proxy.ts`: a
-trusted process on the same machine holds the credential in memory and injects
-`Authorization: Bearer` on every forwarded REST, SSE, and `/mux` request. The
-renderer never sees the credential.
+Десктопът решава същия проблем във `frontend/src/main/remote-proxy.ts`: доверен
+процес на същата машина държи credential-а в паметта и инжектира
+`Authorization: Bearer` във всяка препратена REST, SSE и `/mux` заявка.
+Renderer-ът никога не вижда credential-а.
 
-The web UI needs the same kind of trusted process: a **backend-for-frontend
-(BFF)**, a small Node server in the hub container that serves the static SPA,
-owns the browser login, and proxies to daemons. The open question is which hub
-daemon listener the BFF talks to.
+Уеб UI-ят се нуждае от същия вид доверен процес: **backend-for-frontend
+(BFF)** — малък Node сървър в контейнера на hub-а, който сервира статичния SPA,
+притежава входа в браузъра и проксира към daemon-ите. Отвореният въпрос е с кой
+listener на daemon-а на hub-а говори BFF-ът.
 
-**B1. Proxy the loopback listener.** The BFF forwards to `127.0.0.1:3001`. The
-daemon is untouched, and every route is available, including those the
-remote-host listener blocks. The BFF login becomes the only thing standing between
-the internet and the unauthenticated, all-powerful loopback API, including
-`/shutdown`, telemetry, Connect Mobile control, and host installers.
+**B1. Проксиране на loopback listener-а.** BFF-ът препраща към `127.0.0.1:3001`.
+Daemon-ът остава непокътнат и всеки маршрут е достъпен, включително тези, които
+remote-host listener-ът блокира. Входът в BFF-а става единственото нещо между
+интернет и неавтентикираното, всемогъщо loopback API, включително `/shutdown`,
+телеметрията, управлението на Connect Mobile и инсталаторите на хоста.
 
-**B2. Treat the hub like any worker.** The hub daemon also enables its
-authenticated listener, and the BFF talks to it with a bearer credential, the same
-path it uses for every worker. The loopback listener stays reachable only from
-processes inside the container.
+**B2. Hub-ът се третира като всеки worker.** Daemon-ът на hub-а също включва
+автентикирания си listener и BFF-ът говори с него с bearer credential — същият
+път, който използва за всеки worker. Loopback listener-ът остава достъпен само
+от процеси вътре в контейнера.
 
-### Routes the authenticated listener does not serve
+### Маршрути, които автентикираният listener не сервира
 
-`lanControlBlock` (`backend/internal/httpd/lan_listener.go`) answers 404 for these
-before authentication, on the physical socket, regardless of headers:
+`lanControlBlock` (`backend/internal/httpd/lan_listener.go`) отговаря с 404 за
+тях преди автентикацията, на физическия сокет, независимо от header-ите:
 
-| Route | Feature | B1 (loopback) | B2 (`:3011` + Bearer) |
+| Маршрут | Функция | B1 (loopback) | B2 (`:3011` + Bearer) |
 |---|---|---|---|
-| `/shutdown` | Stop the daemon | Reachable | Blocked |
-| `/internal/*` | Telemetry | Reachable | Blocked |
-| `/api/v1/mobile/*` | Connect Mobile control: pairing, password rotation, tunnel | Reachable | Blocked |
-| `/api/v1/dev/*` | Developer maintenance (for example project import) | Reachable | Blocked |
-| `/api/v1/browser/*` | Built-in browser panel and agent CDP browser | Reachable | Blocked |
-| `/api/v1/desktop/*` | Desktop-only session workspace and artifact views | Reachable | Blocked |
-| `/api/v1/side-chats/launch/*` | Side-chat launch handoff | Reachable | Blocked |
-| `/api/v1/system/install/*` and `POST /api/v1/agents/{target}/install` for non-agent targets | Host-mutating installers | Reachable | Blocked |
-| `/api/v1/agents/codex/accounts/*`, `/api/v1/agents/codex/account-switches/*` | Personal Codex account management | Reachable | Blocked |
-| `/api/v1/sessions/{id}/preview/server` | Starting a session preview dev server | Reachable | Blocked |
-| Everything else in the app API: projects, sessions, spawn/send/kill, conversations, terminals over `/mux`, SSE events, PRs, read-only Codex models, harness install for agent targets | Core supervision | Reachable | Reachable |
-| `GET /api/v1/identity` | Host identity probe ([0003](0003-unauthenticated-identity-probe.md)) | Reachable | Reachable without credential |
+| `/shutdown` | Спиране на daemon-а | Достъпен | Блокиран |
+| `/internal/*` | Телеметрия | Достъпен | Блокиран |
+| `/api/v1/mobile/*` | Управление на Connect Mobile: сдвояване, смяна на паролата, тунел | Достъпен | Блокиран |
+| `/api/v1/dev/*` | Поддръжка за разработчици (например импорт на проект) | Достъпен | Блокиран |
+| `/api/v1/browser/*` | Вграденият браузър панел и CDP браузърът на агента | Достъпен | Блокиран |
+| `/api/v1/desktop/*` | Изгледи на workspace и артефакти на сесията, само за десктоп | Достъпен | Блокиран |
+| `/api/v1/side-chats/launch/*` | Предаване при стартиране на side-chat | Достъпен | Блокиран |
+| `/api/v1/system/install/*` и `POST /api/v1/agents/{target}/install` за цели, които не са агенти | Инсталатори, които променят хоста | Достъпен | Блокиран |
+| `/api/v1/agents/codex/accounts/*`, `/api/v1/agents/codex/account-switches/*` | Управление на личните Codex акаунти | Достъпен | Блокиран |
+| `/api/v1/sessions/{id}/preview/server` | Стартиране на dev сървър за preview на сесията | Достъпен | Блокиран |
+| Всичко останало в API-то на приложението: проекти, сесии, spawn/send/kill, разговори, терминали през `/mux`, SSE събития, PR-и, Codex модели само за четене, инсталиране на harness за цели агенти | Основен надзор | Достъпен | Достъпен |
+| `GET /api/v1/identity` | Проба за идентичност на хоста ([0003](0003-unauthenticated-identity-probe.md)) | Достъпен | Достъпен без credential |
 
-## Decision
+## Решение
 
-**Adopt B2.** The BFF reaches the hub daemon exactly as it reaches a worker:
-through the authenticated listener with a bearer credential.
+**Приемаме B2.** BFF-ът достига daemon-а на hub-а точно както достига worker:
+през автентикирания listener с bearer credential.
 
-- The hub daemon enables the authenticated listener in its existing
-  **loopback-only** mode (`LANManager.StartLoopback`, restored on boot from
-  `"loopbackOnly": true` with `"noPublicTunnel": true` in
-  `<AO_DATA_DIR>/mobile/config.json`, so no managed tunnel is started).
-  The hub therefore adds **no network bind in the daemon**: the authenticated
-  socket is `127.0.0.1:3011`, and only the BFF in the same container uses it.
-  The exact pre-seeded file is specified in RW-2.4, which reuses the worker
-  entrypoint approach of RW-1.2.
-- The BFF never connects to `127.0.0.1:3001`. A test in RW-2.4 must pin this,
-  for example by asserting that the configured hub upstream port is the
-  authenticated one.
-- The daemon code is unchanged by this ADR.
+- Daemon-ът на hub-а включва автентикирания listener в съществуващия му режим
+  **само за loopback** (`LANManager.StartLoopback`, възстановяван при стартиране
+  от `"loopbackOnly": true` с `"noPublicTunnel": true` в
+  `<AO_DATA_DIR>/mobile/config.json`, така че не се пуска управляван тунел).
+  Следователно hub-ът **не добавя bind към мрежата в daemon-а**: автентикираният
+  сокет е `127.0.0.1:3011` и само BFF-ът в същия контейнер го използва.
+  Точният предварително записан файл се уточнява в RW-2.4, който преизползва
+  подхода на worker entrypoint-а от RW-1.2.
+- BFF-ът никога не се свързва към `127.0.0.1:3001`. Тест в RW-2.4 трябва да
+  закове това, например като проверява, че конфигурираният upstream порт на
+  hub-а е автентикираният.
+- Този ADR не променя кода на daemon-а.
 
-The table above is the list of features **not available in the web UI** under
-B2: daemon shutdown, telemetry, Connect Mobile control, developer maintenance,
-the built-in browser panel and CDP browser, desktop workspace and artifact
-views, side-chat launch, host installers, Codex account management, and session
-preview dev servers. Most of these are already Electron-only, and the rest
-(installers, account management, Connect Mobile, shutdown) are host
-administration that belongs in the container image and environment, not in a
-browser tab. The web build hides the corresponding UI (RW-2.x).
+Таблицата по-горе е списъкът с функции, **недостъпни в уеб UI-я** при B2:
+спиране на daemon-а, телеметрия, управление на Connect Mobile, поддръжка за
+разработчици, вграденият браузър панел и CDP браузърът, изгледите на десктоп
+workspace и артефакти, стартиране на side-chat, инсталаторите на хоста,
+управлението на Codex акаунти и dev сървърите за preview на сесии. Повечето от
+тях вече са само за Electron, а останалите (инсталатори, управление на акаунти,
+Connect Mobile, спиране) са администриране на хоста, което принадлежи на образа
+и средата на контейнера, а не на таб в браузъра. Уеб билдът скрива съответния UI
+(RW-2.x).
 
-B1 is rejected. It would turn a browser login into the sole guard of the
-unauthenticated loopback API, which is a direct conflict with the hard rule that
-keeps that listener safe "because the OS guarantees nothing off-box can reach
-it". B1 should be reconsidered only if the list above proves unacceptable, and
-then through its own ADR.
+B1 се отхвърля. Той би превърнал входа в браузъра в единствената защита на
+неавтентикираното loopback API, което е пряк конфликт с твърдото правило, което
+пази този listener безопасен, „защото ОС гарантира, че нищо извън машината не
+може да го достигне“. B1 трябва да се преразгледа само ако списъкът по-горе се
+окаже неприемлив, и то чрез собствен ADR.
 
-### The BFF is the one new public bind, and it is not the daemon
+### BFF-ът е единственият нов публичен bind и той не е daemon-ът
 
-The BFF listens on Railway's `$PORT` and is the hub's only public surface. It is
-a separate process, not a daemon listener, so the "no other network-facing bind"
-rule for the daemon still holds. The BFF follows the same discipline as the
-daemon's authenticated listener:
+BFF-ът слуша на `$PORT` на Railway и е единствената публична повърхност на
+hub-а. Той е отделен процес, а не listener на daemon-а, така че правилото „няма
+друг bind към мрежата“ за daemon-а продължава да важи. BFF-ът следва същата
+дисциплина като автентикирания listener на daemon-а:
 
-- **Unauthenticated routes are limited to:** the login page and its static
-  assets, `POST` login, and a health check that returns a fixed body and touches
-  no daemon. Everything else, including the SPA shell after login, the API proxy,
-  SSE, and `/mux`, requires a valid session.
-- The BFF does **not** forward the daemon's `GET /api/v1/identity` to
-  unauthenticated callers.
-- The BFF strips any client-supplied `Authorization` header and cookie before
-  forwarding and injects the stored bearer for the target host, as
-  `remote-proxy.ts` does.
-- The BFF strips every client-supplied `CF-Connecting-IP` and
-  `X-Forwarded-For` header from requests it forwards to a daemon. The hub's
-  authenticated listener sees the BFF as a loopback peer, so a forwarded
-  `CF-Connecting-IP` would otherwise let a browser client choose its own lockout
-  key under the cloudflared rule, and a forwarded `X-Forwarded-For` would do the
-  same on any daemon running in the trusted-proxy mode of
-  [0005](0005-trusted-proxy-remote-host.md). The BFF applies its own login
-  throttling before forwarding.
+- **Неавтентикираните маршрути са само:** страницата за вход и нейните статични
+  ресурси, `POST` за вход и health check, който връща фиксирано тяло и не докосва
+  daemon. Всичко останало, включително обвивката на SPA след входа, API proxy-то,
+  SSE и `/mux`, изисква валидна сесия.
+- BFF-ът **не** препраща `GET /api/v1/identity` на daemon-а към неавтентикирани
+  извикващи.
+- BFF-ът премахва всеки подаден от клиента `Authorization` header и бисквитка,
+  преди да препрати, и инжектира съхранения bearer за целевия хост, както прави
+  `remote-proxy.ts`.
+- BFF-ът премахва всеки подаден от клиента `CF-Connecting-IP` и
+  `X-Forwarded-For` header от заявките, които препраща към daemon. Автентикираният
+  listener на hub-а вижда BFF-а като loopback peer, така че иначе препратен
+  `CF-Connecting-IP` би позволил на браузърен клиент сам да избере lockout ключа
+  си по правилото за cloudflared, а препратен `X-Forwarded-For` би направил
+  същото на всеки daemon в trusted-proxy режима от
+  [0005](0005-trusted-proxy-remote-host.md). BFF-ът прилага собствено
+  ограничаване на входовете, преди да препрати.
 
-### Login model
+### Модел на входа
 
-MVP: **one operator, one password, one session cookie.**
+MVP: **един оператор, една парола, една сесийна бисквитка.**
 
-- The operator password is provided as a Railway variable
-  (`AO_WEB_PASSWORD_HASH`, a salted scrypt or argon2id hash; a plaintext
-  `AO_WEB_PASSWORD` is hashed at start-up and never logged). There is no
-  sign-up, no user list, and no password reset flow: rotating the variable and
-  redeploying is the reset.
-- A successful login issues a random 256-bit session id in a cookie with
-  `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`. Sessions are kept in BFF
-  memory with an idle timeout and an absolute lifetime, so a redeploy logs
-  everyone out.
-- State-changing requests require a matching `Origin` header in addition to the
-  `SameSite=Strict` cookie.
-- Login attempts are throttled per client address using the same
-  rightmost-`X-Forwarded-For` rule as [0005](0005-trusted-proxy-remote-host.md),
-  since the BFF sits behind the same Railway edge.
+- Паролата на оператора се подава като Railway променлива
+  (`AO_WEB_PASSWORD_HASH`, salted scrypt или argon2id хеш; `AO_WEB_PASSWORD` в
+  чист текст се хешира при старт и никога не се логва). Няма регистрация, списък
+  с потребители, нито поток за възстановяване на парола: смяната на
+  променливата и повторното разгръщане са възстановяването.
+- Успешният вход издава случаен 256-битов session id в бисквитка с `HttpOnly`,
+  `Secure`, `SameSite=Strict`, `Path=/`. Сесиите се пазят в паметта на BFF-а с
+  таймаут при неактивност и абсолютен живот, така че повторно разгръщане излогва
+  всички.
+- Заявките, които променят състояние, изискват съвпадащ `Origin` header в
+  допълнение към бисквитката с `SameSite=Strict`.
+- Опитите за вход се ограничават по клиентски адрес със същото правило за
+  най-десния `X-Forwarded-For` като в [0005](0005-trusted-proxy-remote-host.md),
+  защото BFF-ът стои зад същия Railway edge.
 
-**OIDC is an option for later**, not part of the MVP: an operator who sets
-`AO_WEB_OIDC_ISSUER`, client id, and secret, plus an allow-list of subjects or
-emails, gets an OIDC login in place of the password. The session cookie model
-above is unchanged. AO remains single-user: OIDC narrows who can be the one
-operator. It does not add multi-tenancy.
+**OIDC е опция за по-късно**, не е част от MVP: оператор, който зададе
+`AO_WEB_OIDC_ISSUER`, client id и secret, плюс allow-list на subjects или
+имейли, получава OIDC вход вместо паролата. Моделът на сесийната бисквитка
+по-горе не се променя. AO остава за един потребител: OIDC стеснява кой може да
+бъде единственият оператор. Не добавя multi-tenancy.
 
-### Where host credentials live
+### Къде живеят credential-ите на хостовете
 
-The BFF keeps the hosts it proxies to in **`hosts.json` on the hub volume**, under
-the hub's AO data dir (`<AO_DATA_DIR>/hosts.json`, so `~/.ao/hosts.json` by
-default), mode `0600`, written atomically. Each entry uses the field names of
-the desktop's `remotes.json` (`RemoteEntry` in `frontend/src/main/remotes-store.ts`)
-so the same record can move between them:
+BFF-ът пази хостовете, към които проксира, в **`hosts.json` на volume-а на
+hub-а**, под директорията с данни на AO на hub-а (`<AO_DATA_DIR>/hosts.json`, т.е.
+`~/.ao/hosts.json` по подразбиране), с mode `0600`, записван атомарно. Всеки
+запис използва имената на полетата от `remotes.json` на десктопа (`RemoteEntry`
+във `frontend/src/main/remotes-store.ts`), така че един и същ запис може да се
+мести между тях:
 
 ```json
 [
@@ -159,33 +162,36 @@ so the same record can move between them:
 ]
 ```
 
-- `password` holds whatever bearer the host accepts: the connection password or,
-  preferably, the account token.
-- An entry without `hostId` is not used until the BFF has paired it with
-  `GET /api/v1/identity`, matching the desktop's rule that a saved password is
-  only sent to a confirmed host.
-- The BFF refuses to start if `hosts.json` is readable by group or others, as the
-  desktop does for `remotes.json`.
-- Credentials never reach the browser. The SPA addresses hosts by `hostId`, and
-  the BFF resolves the upstream URL and bearer.
+- `password` съдържа какъвто bearer приема хостът: паролата за връзка или, за
+  предпочитане, акаунт токена.
+- Запис без `hostId` не се използва, докато BFF-ът не го сдвои чрез
+  `GET /api/v1/identity`, в съответствие с правилото на десктопа, че запазена
+  парола се изпраща само към потвърден хост.
+- BFF-ът отказва да стартира, ако `hosts.json` може да се чете от групата или
+  от другите, както прави десктопът за `remotes.json`.
+- Credential-ите никога не стигат до браузъра. SPA адресира хостовете по
+  `hostId`, а BFF-ът определя upstream URL-а и bearer-а.
 
-## Consequences
+## Последствия
 
-- One code path for all hosts. The hub is "worker zero" to the BFF, and the
-  multi-host routing that already exists in the renderer (`host.$hostId.*`,
-  `clientForHost`) maps directly onto BFF routes.
-- No change to the daemon and no relaxation of the loopback hard rule. The
-  loopback-gated control routes stay unreachable from the internet even if the
-  BFF login is broken, because the BFF never talks to the loopback listener.
-- The web UI is deliberately smaller than the desktop app. The list above is the
-  contract; adding any of those features to the web means revisiting this ADR.
-- A compromised BFF session is still equivalent to a shell on every host: the
-  app API spawns agents and terminals. The login, cookie flags, and throttling
-  above are therefore load-bearing, and the Railway API token of RW-3 must be
-  project-scoped.
-- `hosts.json` on the hub volume is a credential store for every worker. Volume
-  backups must be protected like `~/.ao`, as already noted for `identity.json` in
-  [0003](0003-unauthenticated-identity-probe.md).
-- RW-2.4 can be implemented from this ADR: upstream selection, auth model, cookie
-  flags, credential storage and format, and the unavailable-feature list are
-  fixed here.
+- Един път в кода за всички хостове. За BFF-а hub-ът е „worker нула“, а
+  маршрутизирането между много хостове, което вече съществува в renderer-а
+  (`host.$hostId.*`, `clientForHost`), се съпоставя директно с маршрутите на
+  BFF-а.
+- Няма промяна в daemon-а и няма отслабване на твърдото правило за loopback.
+  Control маршрутите, ограничени до loopback, остават недостъпни от интернет
+  дори ако входът в BFF-а е счупен, защото BFF-ът никога не говори с loopback
+  listener-а.
+- Уеб UI-ят е съзнателно по-малък от десктоп приложението. Списъкът по-горе е
+  договорът; добавянето на която и да е от тези функции в уеб изисква
+  преразглеждане на този ADR.
+- Компрометирана BFF сесия все още е равностойна на shell на всеки хост: API-то
+  на приложението пуска агенти и терминали. Затова входът, флаговете на
+  бисквитката и ограничаването по-горе са носещи, а Railway API токенът от RW-3
+  трябва да е ограничен до проекта.
+- `hosts.json` на volume-а на hub-а е хранилище на credential-и за всеки worker.
+  Архивите на volume-а трябва да се пазят като `~/.ao`, както вече е отбелязано
+  за `identity.json` в [0003](0003-unauthenticated-identity-probe.md).
+- RW-2.4 може да се имплементира по този ADR: изборът на upstream, моделът на
+  auth, флаговете на бисквитката, съхранението и форматът на credential-ите и
+  списъкът с недостъпни функции са фиксирани тук.

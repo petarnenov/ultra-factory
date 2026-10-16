@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Tests the pre-seed logic of ao-worker-entrypoint.sh with
-# AO_ENTRYPOINT_DRY_RUN=1: nothing is exec'd and no daemon starts.
-# Needs bash, git, jq, and coreutils. Run: deploy/railway/worker/entrypoint_test.sh
+# Тества логиката за предварително записване на ao-worker-entrypoint.sh с
+# AO_ENTRYPOINT_DRY_RUN=1: нищо не се изпълнява с exec и не стартира daemon.
+# Изисква bash, git, jq и coreutils. Пускане: deploy/railway/worker/entrypoint_test.sh
 set -euo pipefail
 
 script="$(cd "$(dirname "$0")" && pwd)/ao-worker-entrypoint.sh"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-# Stubs record any call. gh must not be the real one, and ao/curl must never
-# run in a dry run.
+# Stub-овете записват всяко извикване. gh не трябва да е истинският, а ao/curl
+# никога не трябва да се пускат при dry run.
 mkdir -p "$tmp/bin"
 for tool in ao curl gh; do
 	printf '%s\n' '#!/bin/sh' "echo \"$tool \$*\" >> \"\$TEST_CALLS\"" > "$tmp/bin/$tool"
@@ -22,9 +22,9 @@ fail() {
 	failures=$((failures + 1))
 }
 
-# run <case> [VAR=value ...] [-- command...]: runs the entrypoint in a clean
-# environment with its own HOME and AO_DATA_DIR. Sets $data, $home, $config,
-# $out (combined output), and $status.
+# run <case> [VAR=value ...] [-- command...]: пуска entrypoint-а в чиста среда
+# със собствени HOME и AO_DATA_DIR. Задава $data, $home, $config, $out (общия
+# изход) и $status.
 run() {
 	local case=$1
 	shift
@@ -51,8 +51,8 @@ mode() { stat -c %a "$1"; }
 field() { jq -r "$1" "$config"; }
 calls() { cat "$TEST_CALLS" 2>/dev/null || true; }
 
-# Password from env, written once with an explicit port. Quotes and
-# backslashes must survive JSON encoding.
+# Парола от средата, записана веднъж с изричен порт. Кавичките и обратните
+# наклонени черти трябва да оцелеят при JSON кодирането.
 password='pa"ss\word'
 run env-password AO_REMOTE_PASSWORD="$password" AO_REMOTE_PORT=4011
 [[ $status == 0 ]] || fail "env-password: exit $status: $out"
@@ -66,7 +66,7 @@ run env-password AO_REMOTE_PASSWORD="$password" AO_REMOTE_PORT=4011
 [[ $out != *"$password"* ]] || fail "env-password: password from env was logged"
 [[ -z $(calls) ]] || fail "env-password: dry run called $(calls)"
 
-# A restart keeps the saved config even when the env password changed.
+# Рестартът запазва записания config дори когато паролата в средата е сменена.
 cp "$config" "$tmp/saved.json"
 run env-password AO_REMOTE_PASSWORD=other-password
 [[ $status == 0 ]] || fail "restart: exit $status: $out"
@@ -74,7 +74,7 @@ cmp -s "$config" "$tmp/saved.json" || fail "restart: config.json changed: $(cat 
 [[ $out == *"differs from the saved password"* ]] || fail "restart: no warning about the ignored env password: $out"
 [[ $out == *"password: ********"* ]] || fail "restart: password not masked: $out"
 
-# No env: generate an 8-character password and show it on the first start only.
+# Без среда: генерира парола от 8 знака и я показва само при първия старт.
 run generated
 [[ $status == 0 ]] || fail "generated: exit $status: $out"
 generated=$(field .password)
@@ -85,8 +85,8 @@ run generated
 [[ $(field .password) == "$generated" ]] || fail "generated: restart changed the password"
 [[ $out != *"$generated"* ]] || fail "generated: password logged again on restart"
 
-# Account token: armed as sha256 hex, replacing a daemon-issued token, and
-# revoked once the variable is unset.
+# Акаунт токен: активира се като sha256 hex, заменя токен, издаден от
+# daemon-а, и се отнема, щом променливата бъде махната.
 token=$(printf '%064d' 7)
 run token AO_REMOTE_PASSWORD=pw123456
 jq '.accountTokenHash = "old" | .accountToken = "old-token" | .accountTokenOwner = "user-a"' "$config" > "$tmp/issued.json"
@@ -103,7 +103,7 @@ run token
 [[ $(field '.accountTokenHash // "unset"') == unset ]] || fail "token: hash kept after the variable was unset"
 [[ $out == *"account token revoked"* ]] || fail "token: no revocation log: $out"
 
-# A token the daemon issued (hash with the token beside it) is not ours to revoke.
+# Токен, издаден от daemon-а (хеш с токена до него), не е наш, за да го отнемаме.
 cp "$tmp/issued.json" "$config"
 run token
 [[ $(field .accountTokenHash) == old && $(field .accountToken) == old-token ]] || fail "token: daemon-issued token was revoked"
@@ -111,7 +111,7 @@ run token
 run short-token AO_REMOTE_ACCOUNT_TOKEN=short
 [[ $out == *"shorter than 32 characters"* ]] || fail "short-token: no warning: $out"
 
-# git identity and gh credential helper from env.
+# git идентичност и credential helper на gh от средата.
 run creds AO_GIT_USER_NAME="AO Worker" AO_GIT_USER_EMAIL=worker@example.com GH_TOKEN=ghp_test ANTHROPIC_API_KEY=sk-test
 [[ $status == 0 ]] || fail "creds: exit $status: $out"
 [[ $(HOME="$home" GIT_CONFIG_NOSYSTEM=1 git config --global user.name) == "AO Worker" ]] || fail "creds: git user.name not set"
@@ -123,11 +123,11 @@ run no-creds
 [[ -z $(calls) && ! -e $home/.gitconfig ]] || fail "no-creds: gh or git configured without env"
 [[ $out == *"credentials from env: none"* ]] || fail "no-creds: credential summary: $out"
 
-# A given command replaces the daemon.
+# Подадена команда замества daemon-а.
 run command -- sh -c 'echo hi'
 [[ $out == *"would exec: sh -c echo hi"* ]] || fail "command: $out"
 
-# An existing disabled config is left alone, with a hint.
+# Съществуващ изключен config се оставя непроменен, с подсказка.
 run disabled
 jq '.enabled = false' "$config" > "$tmp/disabled.json" && cp "$tmp/disabled.json" "$config"
 run disabled
@@ -141,7 +141,7 @@ done
 run leading-zero AO_REMOTE_PORT=03011
 [[ $(field .lastPort) == 3011 ]] || fail "leading-zero: lastPort is $(field .lastPort)"
 
-# An unwritable volume fails with the Railway hint (meaningless as root).
+# Volume без права за запис се проваля с подсказката за Railway (безсмислено като root).
 if [[ $(id -u) != 0 ]]; then
 	mkdir -p "$tmp/readonly/data"
 	chmod 500 "$tmp/readonly/data"

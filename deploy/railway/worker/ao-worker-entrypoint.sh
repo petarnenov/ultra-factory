@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Entrypoint of the AO worker image. It runs under tini on every container
-# start and then replaces itself with the given command, or with `ao daemon`
-# in the foreground when there is none:
+# Entrypoint на образа на AO worker. Изпълнява се под tini при всеки старт на
+# контейнера и след това се заменя с подадената команда или, ако няма такава,
+# с `ao daemon` на преден план:
 #
-#   1. As root (Railway with RAILWAY_RUN_UID=0): hand the root-owned volume to
-#      uid 10001 and re-run this script as that user.
-#   2. Create AO_DATA_DIR and HOME (mode 0700).
-#   3. On the first start, write <AO_DATA_DIR>/mobile/config.json so the daemon
-#      restores the remote-host listener on boot. Later starts keep the file.
-#   4. Arm or revoke the account token from AO_REMOTE_ACCOUNT_TOKEN.
-#   5. Configure git and gh from the environment.
-#   6. exec the daemon; a detached helper logs hostId and the listener once
-#      the daemon is ready.
+#   1. Като root (Railway с RAILWAY_RUN_UID=0): предава volume-а със собственик
+#      root на uid 10001 и пуска този скрипт отново като този потребител.
+#   2. Създава AO_DATA_DIR и HOME (mode 0700).
+#   3. При първия старт записва <AO_DATA_DIR>/mobile/config.json, за да
+#      възстанови daemon-ът remote-host listener-а при стартиране. Следващите
+#      стартове запазват файла.
+#   4. Активира или отнема акаунт токена от AO_REMOTE_ACCOUNT_TOKEN.
+#   5. Конфигурира git и gh от средата.
+#   6. Изпълнява daemon-а с exec; отделен помощен процес логва hostId и
+#      listener-а, щом daemon-ът е готов.
 #
-# AO_ENTRYPOINT_DRY_RUN=1 runs steps 2-5 and prints the command instead of
-# running it (see entrypoint_test.sh). README.md documents every variable.
+# AO_ENTRYPOINT_DRY_RUN=1 изпълнява стъпки 2-5 и печата командата, вместо да я
+# изпълни (виж entrypoint_test.sh). README.md документира всяка променлива.
 set -euo pipefail
 
 readonly ao_uid=10001 ao_gid=10001
@@ -35,10 +36,11 @@ if (($# == 0)); then
 	set -- ao daemon
 fi
 
-# Railway mounts volumes owned by root, and build-time ownership does not
-# carry over to them (https://docs.railway.com/volumes). With RAILWAY_RUN_UID=0
-# the script starts as root, chowns the volume once, and drops to uid 10001
-# for everything else, the daemon included.
+# Railway монтира volume-ите със собственик root, а собствеността, зададена при
+# билда, не се пренася върху тях (https://docs.railway.com/volumes). С
+# RAILWAY_RUN_UID=0 скриптът стартира като root, сменя собственика на volume-а
+# веднъж с chown и преминава към uid 10001 за всичко останало, включително
+# daemon-а.
 if [[ $(id -u) == 0 && $dry_run != 1 ]]; then
 	for dir in "$volume_root" "$data_dir" "$home_dir"; do
 		if [[ -d $dir && $(stat -c %u "$dir") != "$ao_uid" ]]; then
@@ -60,7 +62,7 @@ prepare_dirs() {
 	done
 }
 
-# Same alphabet and length as mobilebridge.GeneratePassword.
+# Същата азбука и дължина като mobilebridge.GeneratePassword.
 generate_password() {
 	local chars=""
 	while ((${#chars} < 8)); do
@@ -69,7 +71,7 @@ generate_password() {
 	printf '%s' "${chars:0:8}"
 }
 
-# write_config replaces config.json atomically, keeping it 0600 like
+# write_config заменя config.json атомарно и го държи 0600 като
 # mobilebridge.Save.
 write_config() {
 	local tmp
@@ -84,10 +86,11 @@ write_config() {
 	mv "$tmp" "$config"
 }
 
-# The daemon restores the listener from config.json on boot (RestoreOnBoot):
-# enabled, password, and lastPort as the port to bind. noPublicTunnel matches
-# what `ao remote-host enable` saves. An existing file always wins, so a
-# restart keeps the password that paired clients already hold.
+# Daemon-ът възстановява listener-а от config.json при стартиране
+# (RestoreOnBoot): enabled, password и lastPort като порт за bind.
+# noPublicTunnel съвпада с това, което записва `ao remote-host enable`.
+# Съществуващ файл винаги печели, така че рестартът запазва паролата, която
+# сдвоените клиенти вече държат.
 seed_remote_host() {
 	local password port saved_password
 	if [[ -e $config ]]; then
@@ -121,10 +124,10 @@ seed_remote_host() {
 	fi
 }
 
-# AO_REMOTE_ACCOUNT_TOKEN is written as accountTokenHash (sha256 hex, the
-# digest the listener compares Bearer tokens against). The daemon's
-# POST /api/v1/remote-host/account-token cannot be used: it mints its own
-# random token and never accepts one from the caller.
+# AO_REMOTE_ACCOUNT_TOKEN се записва като accountTokenHash (sha256 hex —
+# digest-ът, с който listener-ът сравнява Bearer токените).
+# POST /api/v1/remote-host/account-token на daemon-а не може да се използва:
+# той създава собствен случаен токен и никога не приема такъв от извикващия.
 apply_account_token() {
 	local hash
 	[[ -e $config ]] || return 0
@@ -134,21 +137,22 @@ apply_account_token() {
 		fi
 		hash=$(printf '%s' "$AO_REMOTE_ACCOUNT_TOKEN" | sha256sum | cut -d' ' -f1)
 		if [[ $(jq -r '.accountTokenHash // ""' "$config") != "$hash" ]]; then
-			# accountToken/accountTokenOwner belong to a token the daemon issued.
+			# accountToken/accountTokenOwner принадлежат на токен, издаден от daemon-а.
 			write_config --arg hash "$hash" '.accountTokenHash = $hash | del(.accountToken, .accountTokenOwner)' "$config"
 		fi
 		log "account token armed from AO_REMOTE_ACCOUNT_TOKEN"
 	elif jq -e '(.accountTokenHash // "") != "" and (.accountToken // "") == ""' "$config" >/dev/null; then
-		# Only this script stores a hash without the token beside it; the
-		# daemon's issuance always saves both. The variable is gone, so revoke.
+		# Само този скрипт записва хеш без токена до него; при издаване daemon-ът
+		# винаги записва и двете. Променливата я няма, затова токенът се отнема.
 		write_config 'del(.accountTokenHash)' "$config"
 		log "account token revoked: AO_REMOTE_ACCOUNT_TOKEN is no longer set"
 	fi
 }
 
-# Credentials stay in the environment, where the CLIs read them: gh reads
-# GH_TOKEN/GITHUB_TOKEN, Claude Code reads CLAUDE_CODE_OAUTH_TOKEN,
-# ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN. Only git needs files in $HOME.
+# Credential-ите остават в средата, откъдето CLI-ите ги четат: gh чете
+# GH_TOKEN/GITHUB_TOKEN, Claude Code чете CLAUDE_CODE_OAUTH_TOKEN,
+# ANTHROPIC_API_KEY или ANTHROPIC_AUTH_TOKEN. Само git има нужда от файлове в
+# $HOME.
 configure_credentials() {
 	local name present=()
 	if [[ -n ${AO_GIT_USER_NAME:-} ]]; then
@@ -158,7 +162,7 @@ configure_credentials() {
 		git config --global user.email "$AO_GIT_USER_EMAIL"
 	fi
 	if [[ -n ${GH_TOKEN:-}${GITHUB_TOKEN:-} ]]; then
-		# Lets git push over HTTPS with the same token as gh.
+		# Позволява на git да push-ва през HTTPS със същия токен като gh.
 		gh auth setup-git || log "warning: gh auth setup-git failed; git over HTTPS will not use the GitHub token"
 	fi
 	for name in GH_TOKEN GITHUB_TOKEN CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN OPENAI_API_KEY; do
@@ -169,8 +173,8 @@ configure_credentials() {
 	log "credentials from env: ${present[*]:-none}"
 }
 
-# report_when_ready logs what a hub needs to register this worker. It never
-# prints the password.
+# report_when_ready логва това, от което hub има нужда, за да регистрира този
+# worker. Никога не печата паролата.
 report_when_ready() {
 	local identity status attempt
 	for ((attempt = 0; attempt < 120; attempt++)); do
@@ -200,8 +204,8 @@ if [[ $dry_run == 1 ]]; then
 	exit 0
 fi
 if [[ $* == "ao daemon" ]]; then
-	# The subshell exits at once, so the helper is re-parented to tini (which
-	# reaps it) instead of becoming a zombie under the daemon.
+	# Subshell-ът излиза веднага, така че помощният процес се пренасочва към tini
+	# като родител (който го прибира), вместо да стане зомби под daemon-а.
 	(report_when_ready &)
 fi
 exec "$@"

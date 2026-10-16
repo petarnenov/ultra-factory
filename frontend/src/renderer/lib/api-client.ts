@@ -10,8 +10,9 @@ function devApiBaseUrl(): string {
 }
 
 const explicitApiBaseUrl = import.meta.env.VITE_AO_API_BASE_URL;
-// The web build is served same-origin with the daemon (behind a proxy), so its
-// placeholder base is the page origin, never the Electron loopback default.
+// Уеб билдът се сервира same-origin с daemon-а (зад proxy), затова временната
+// му база е origin-ът на страницата, никога loopback стойността по подразбиране
+// на Electron.
 const isWebBuild = import.meta.env.VITE_AO_WEB === "1";
 const initialApiBaseUrl =
 	explicitApiBaseUrl ?? (import.meta.env.DEV || isWebBuild ? devApiBaseUrl() : "http://127.0.0.1:3001");
