@@ -32,7 +32,7 @@ export type HostEntry = {
 // What the browser may see: everything except the credential.
 export type PublicHost = Omit<HostEntry, "password"> & { id: string; removable: boolean };
 
-// The upstream lookup the reverse proxy of RW-2.4.2 resolves hosts through.
+// The upstream the reverse proxy resolves a host to (ProxyHost in proxy.ts).
 export type Upstream = { url: string; hostId: string; bearer: string };
 
 export const HUB_LABEL = "hub";
@@ -72,8 +72,9 @@ function isLoopbackHost(hostname: string): boolean {
 	return family !== 0 && loopback.check(host, family === 6 ? "ipv6" : "ipv4");
 }
 
-// normalizeHostUrl accepts only an http(s) base URL without credentials, query,
-// or fragment, and returns it without a trailing slash. Manual hosts may not
+// normalizeHostUrl accepts only an http(s) origin, without credentials, path,
+// query, or fragment (the proxy forwards to origins only), and returns it
+// without a trailing slash. Manual hosts may not
 // point at loopback: on the hub that is the daemon itself, and the only
 // loopback upstream allowed is the hub entry built from mobile/config.json.
 export function normalizeHostUrl(raw: unknown, allowLoopback = false): string {
@@ -86,9 +87,9 @@ export function normalizeHostUrl(raw: unknown, allowLoopback = false): string {
 	}
 	if (url.protocol !== "http:" && url.protocol !== "https:") throw new HostsValidationError("invalid_url", "url must use http:// or https://");
 	if (url.username || url.password) throw new HostsValidationError("invalid_url", "url must not contain credentials");
-	if (url.search || url.hash) throw new HostsValidationError("invalid_url", "url must not contain a query or fragment");
+	if (url.pathname !== "/" || url.search || url.hash) throw new HostsValidationError("invalid_url", "url must be an origin without a path, query, or fragment");
 	if (!allowLoopback && isLoopbackHost(url.hostname)) throw new HostsValidationError("invalid_url", "url must not point at a loopback address");
-	return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+	return url.origin;
 }
 
 function normalizeLabel(raw: unknown): string {
@@ -208,13 +209,17 @@ export class HostsStore {
 		return entry && toPublic(entry);
 	}
 
-	// getHost is the reverse proxy's lookup. It answers only for an entry whose
-	// identity has been confirmed, so a credential is never sent to an
-	// unpaired address (ADR 0006).
+	// getHost and getHub implement the reverse proxy's ProxyHosts. They answer
+	// only for an entry whose identity has been confirmed, so a credential is
+	// never sent to an unpaired address (ADR 0006).
 	getHost(id: string): Upstream | undefined {
 		const entry = this.get(id);
 		if (!entry?.hostId || !entry.password) return undefined;
 		return { url: entry.url, hostId: entry.hostId, bearer: entry.password };
+	}
+
+	getHub(): Upstream | undefined {
+		return this.getHost(HUB_ID);
 	}
 
 	// labelTaken lets the API refuse a duplicate before probing the address.

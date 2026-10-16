@@ -3,13 +3,11 @@
 The web backend-for-frontend for the AO hub on Railway, as decided in
 [ADR 0006](../../docs/adr/0006-web-bff-for-hub.md). It is a separate Node
 process, not a daemon listener. It is the hub's only public surface: it serves
-the web build of the renderer, owns the single-operator login, and (from
-RW-2.4.2) proxies to daemons through their authenticated listeners. It never
+the web build of the renderer, owns the single-operator login, and proxies to daemons through their authenticated listeners. It never
 connects to the daemon's loopback listener on `127.0.0.1:3001`.
 
-This package has the RW-2.4.1 skeleton (static SPA, login, session cookie, CSRF,
-and login throttling) and the RW-2.4.3 host registry under `/hub/hosts`. The `/api/*`, `/mux`, `/hosts/*`, and `/readyz` prefixes
-are reserved for the proxy and answer `501` to a signed-in caller until RW-2.4.2.
+This package provides static SPA serving, login, session cookies, CSRF checks,
+login throttling, a daemon proxy, and the host registry under `/hub/hosts`.
 
 ## Running
 
@@ -81,8 +79,10 @@ start if it is readable by group or others. A host's `id` in the API is its
   the daemon's unauthenticated listener, is refused.
 - **Manual hosts** may not use a loopback address, so the registry can never
   point the proxy at the hub daemon's own listeners.
-- **Proxy lookup**: `HostsStore.getHost(id)` returns `{url, hostId, bearer}`
-  for the reverse proxy, and only for an entry whose identity is confirmed.
+- **Proxy lookup**: `HostsStore` implements the proxy's `ProxyHosts`:
+  `getHub()` and `getHost(id)` return `{url, hostId, bearer}`, and only for an
+  entry whose identity is confirmed.
+- **URLs** are origins only (`http(s)://host[:port]`), as the proxy requires.
 
 ## Security model
 
@@ -147,3 +147,34 @@ second per check on a developer machine, which also slows guessing). The
 hash is stored as `$scrypt$ln=17,r=8,p=1$<salt>$<hash>` (unpadded base64url),
 so the cost can be raised later without breaking existing hashes. Comparison
 uses `timingSafeEqual`.
+
+### Daemon proxy integration
+
+`createBff({ hosts, ... })` accepts the `ProxyHosts` interface from `src/proxy.ts`:
+`getHub()` and `getHost(id)` return a paired `{ url, hostId, bearer }` entry or
+`undefined`. `main.ts` passes the `HostsStore` (see "Host registry"), which
+answers only for paired entries and supplies the automatic hub entry. A host
+that is not registered or not paired yet answers 404. No browser-provided URL
+is used.
+
+The hub entry must target the authenticated loopback listener (normally
+`http://127.0.0.1:3011`), never the primary daemon listener. Port 3001 is rejected.
+Both HTTP and HTTPS upstreams are supported; HTTPS uses Node's normal certificate
+verification. Upstream URLs must be origins without paths or embedded credentials.
+
+Authenticated requests to `/api/*` (including preview/artifact file routes),
+`/readyz`, and `/mux` use the hub. `/hosts/:hostId` prefixes select a registered
+host and are removed before forwarding. `/healthz` stays local and public.
+WebSocket upgrades additionally require the same Origin check as mutations.
+
+The proxy replaces credentials and the expected host ID, strips browser cookies,
+Origin, client IP forwarding headers, and hop-by-hop headers, and never forwards
+upstream `Set-Cookie` headers. Preview file requests get an upstream-only `ao_conn`
+cookie. SSE and WebSocket streams have no idle timeout and close upstream work
+when the browser disconnects. Upstream connection failures and credential
+rejections return 502 JSON with a generated `requestId`; a host's 401 never logs
+out the browser session. A WebSocket transport error after upgrading closes with
+code 1011 where the downstream socket is still writable.
+
+Run `npm run hub-bff:check` from the repository root for the typecheck and fake
+upstream tests (REST, SSE, WebSocket, and authentication boundaries).

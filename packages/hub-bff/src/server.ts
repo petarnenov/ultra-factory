@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
 import type { HostsApi } from "./hosts-api.ts";
+import { createProxy, hasSafeRequestPath, rejectUpgrade, type ProxyHosts } from "./proxy.ts";
 import type { Logger } from "./log.ts";
 import { parsePasswordHash, verifyPassword, type ParsedHash } from "./password.ts";
 import { clientKey, RateLimiter } from "./rate-limit.ts";
@@ -16,8 +17,7 @@ const MAX_LOGIN_BODY_BYTES = 4096;
 // this many concurrent checks, login answers 503 without calling scrypt.
 export const MAX_CONCURRENT_PASSWORD_CHECKS = 2;
 
-// Path prefixes owned by the daemon proxy of RW-2.4.2. Until it lands they
-// answer 501 to an authenticated caller instead of falling through to the SPA.
+// Reserve daemon paths so unknown hosts and routes never fall through to the SPA.
 const PROXY_PREFIXES = ["/api/", "/mux", "/hosts/", "/readyz"];
 const HOSTS_API_PREFIX = "/hub/hosts";
 
@@ -53,13 +53,14 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export type BffOptions = {
 	spaDir: string;
+	hosts?: ProxyHosts;
 	passwordHash: string;
 	// When set, state-changing requests must carry exactly this Origin.
 	// Otherwise the Origin must match the request's Host.
 	publicOrigin?: string;
 	log: Logger;
 	// The host registry routes under /hub/hosts (RW-2.4.3).
-	hosts?: HostsApi;
+	hostsApi?: HostsApi;
 	now?: () => number;
 	// Tests only: replaces the password check.
 	verify?: (candidate: string, hash: ParsedHash) => Promise<boolean>;
@@ -67,6 +68,7 @@ export type BffOptions = {
 
 export function createBff(options: BffOptions): Server {
 	const { log } = options;
+	const proxy = createProxy(options.hosts);
 	const spaDir = path.resolve(options.spaDir);
 	const password = parsePasswordHash(options.passwordHash);
 	const sessions = new SessionStore(options.now);
@@ -118,11 +120,11 @@ export function createBff(options: BffOptions): Server {
 			return sendJson(res, 401, { error: "unauthorized" });
 		}
 
-		if (options.hosts && (pathname === HOSTS_API_PREFIX || pathname.startsWith(`${HOSTS_API_PREFIX}/`))) {
-			return options.hosts(req, res, pathname);
+		if (options.hostsApi && (pathname === HOSTS_API_PREFIX || pathname.startsWith(`${HOSTS_API_PREFIX}/`))) {
+			return options.hostsApi(req, res, pathname);
 		}
 		if (PROXY_PREFIXES.some((p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p))) {
-			return sendJson(res, 501, { error: "not_implemented" });
+			return proxy.http(req, res);
 		}
 		if (!safe) return sendJson(res, 405, { error: "method_not_allowed" });
 		return serveSpa(req, res, pathname);
@@ -201,7 +203,9 @@ export function createBff(options: BffOptions): Server {
 			.pipe(res);
 	}
 
-	return createServer((req, res) => {
+	const server = createServer((req, res) => {
+		// Reject ambiguous paths before WHATWG URL normalization can hide them.
+		if (!hasSafeRequestPath(req.url ?? "")) return sendJson(res, 404, { error: "not_found" });
 		const started = Date.now();
 		let pathname: string;
 		try {
@@ -226,6 +230,12 @@ export function createBff(options: BffOptions): Server {
 			else res.destroy();
 		});
 	});
+	server.on("upgrade", (req, socket, head) => {
+		if (!sameOrigin(req, options.publicOrigin)) return rejectUpgrade(socket, 403, "cross_origin_request");
+		if (!sessions.touch(readCookie(req, SESSION_COOKIE))) return rejectUpgrade(socket, 401, "unauthorized");
+		proxy.upgrade(req, socket, head);
+	});
+	return server;
 }
 
 // sameOrigin accepts a state-changing request only when the browser says it is

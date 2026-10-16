@@ -14,8 +14,8 @@ try {
 	const store = await HostsStore.open(config.hubDataDir);
 	const monitor = createHostsMonitor({ store, hubConfigPath: config.hubConfigPath, log });
 	await monitor.syncHub();
-	const hosts = createHostsApi({ store, monitor, log });
-	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts });
+	const hostsApi = createHostsApi({ store, monitor, log });
+	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {
 			host: config.host,

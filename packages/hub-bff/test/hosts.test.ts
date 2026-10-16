@@ -90,7 +90,8 @@ async function harness(): Promise<Harness> {
 		spaDir,
 		passwordHash,
 		log,
-		hosts: createHostsApi({ store, monitor, log, allowLoopback: true }),
+		hosts: store,
+		hostsApi: createHostsApi({ store, monitor, log, allowLoopback: true }),
 		verify: async (candidate) => candidate === OPERATOR_PASSWORD,
 	});
 	const res = await request(server).post("/login").set("Host", HOST).set("Origin", ORIGIN).send({ password: OPERATOR_PASSWORD });
@@ -116,7 +117,7 @@ describe("hosts store", () => {
 	it("accepts only http(s) URLs without credentials, query, or fragment", () => {
 		expect(normalizeHostUrl("https://worker-1.up.railway.app/")).toBe("https://worker-1.up.railway.app");
 		expect(normalizeHostUrl("http://worker-1.railway.internal:3011")).toBe("http://worker-1.railway.internal:3011");
-		for (const bad of ["ftp://w.example", "file:///etc/passwd", "worker-1:3011", "https://u:p@w.example", "https://w.example/?a=1", "https://w.example/#x", ""]) {
+		for (const bad of ["ftp://w.example", "file:///etc/passwd", "worker-1:3011", "https://u:p@w.example", "https://w.example/?a=1", "https://w.example/#x", "https://w.example/ao", ""]) {
 			expect(() => normalizeHostUrl(bad), bad).toThrow();
 		}
 	});
@@ -220,6 +221,20 @@ describe("/hub/hosts API", () => {
 
 		// The reverse proxy's lookup.
 		expect(h.store.getHost("h_worker")).toEqual({ url: worker.url, hostId: "h_worker", bearer: "worker-secret" });
+	});
+
+	it("proxies /hosts/<id>/api/v1/projects to a host added through the API", async () => {
+		const worker = await startHost("h_worker", "worker-secret");
+		const h = await harness();
+		expect((await request(h.server).get("/hosts/h_worker/api/v1/projects").set("Cookie", h.cookie)).status).toBe(404);
+		expect((await post(h, "/hub/hosts", { label: "worker-1", url: worker.url, password: "worker-secret" })).status).toBe(201);
+		worker.seen = [];
+		const res = await request(h.server).get("/hosts/h_worker/api/v1/projects").set("Cookie", h.cookie);
+		expect(res.status).toBe(200);
+		expect(res.body).toEqual({ projects: [] });
+		expect(worker.seen.map((r) => [r.path, r.headers.authorization, r.headers["x-ao-expected-host-id"]])).toEqual([
+			["/api/v1/projects", "Bearer worker-secret", "h_worker"],
+		]);
 	});
 
 	it("refuses a wrong password with 422, not 401", async () => {
@@ -333,6 +348,11 @@ describe("hub entry", () => {
 		expect(JSON.stringify(after)).not.toContain("hub-token");
 		expect(h.store.getHost("hub")).toEqual({ url: hub.url, hostId: "h_hub", bearer: "hub-token" });
 		expect(h.store.getHost("h_hub")).toEqual({ url: hub.url, hostId: "h_hub", bearer: "hub-token" });
+		expect(h.store.getHub()).toEqual({ url: hub.url, hostId: "h_hub", bearer: "hub-token" });
+		// The proxy now routes /api/* to the hub with its bearer.
+		hub.seen = [];
+		expect((await request(h.server).get("/api/v1/projects").set("Cookie", h.cookie)).status).toBe(200);
+		expect(hub.seen[0].headers.authorization).toBe("Bearer hub-token");
 
 		for (const id of ["hub", "h_hub"]) {
 			const res = await del(h, `/hub/hosts/${id}`);
