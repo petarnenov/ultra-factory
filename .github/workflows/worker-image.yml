@@ -1,12 +1,12 @@
 name: Worker image
 
-# Билдва image-а на Railway работника (deploy/railway/worker/Dockerfile) за
+# Билдва образа на Railway worker-а (deploy/railway/worker/Dockerfile) за
 # linux/amd64 и linux/arm64 и го публикува като ghcr.io/<owner>/ao-worker.
 # Публикува само push в main или таг worker-v*, и то едва след зелен smoke
 # job. Pull request-ите и ръчното пускане билдват и минават smoke без push.
 # Таговете са описани в deploy/railway/worker/README.md.
 #
-# Пътищата са всички входове на image-а: build context-ът, който пропуска
+# Пътищата са всички входове на образа: build context-ът, който пропуска
 # deploy/railway/worker/Dockerfile.dockerignore, плюс този файл. Path
 # филтрите не се прилагат при push на таг, затова всеки таг worker-v* билдва.
 
@@ -50,7 +50,7 @@ env:
   AO_COMMIT: ${{ github.sha }}
 
 jobs:
-  # Пуска image-а както Railway (entrypoint, празен volume,
+  # Пуска образа както Railway (entrypoint, празен volume,
   # AO_REMOTE_PASSWORD) и проверява remote-host listener-а на :3011.
   smoke:
     name: Smoke (linux/amd64)
@@ -96,7 +96,7 @@ jobs:
             --volume ao-worker-smoke:/data \
             ao-worker:smoke
 
-      # curl върви във втори контейнер в мрежата на работника, така че
+      # curl върви във втори контейнер в мрежата на worker-а, така че
       # проверките стигат до bind-а на 0.0.0.0:3011 отвън, както proxy-то на
       # Railway, и не им трябва порт на хоста.
       - name: Check the remote-host listener on :3011
@@ -158,7 +158,7 @@ jobs:
       # sha-<short> при всеки build; worker-v<semver> само при таг worker-v*.
       # Версиите на desktop release-ите не се ползват и няма подвижен таг.
       # Публикува само при push в main или таг worker-v*, никога под local-ci.
-      # Имената на image-и в GHCR трябва да са с малки букви. Owner-ът идва от
+      # Имената на образите в GHCR трябва да са с малки букви. Owner-ът идва от
       # GITHUB_REPOSITORY, защото local-ci не задава GITHUB_REPOSITORY_OWNER.
       - name: Tags and publish settings
         id: mode
