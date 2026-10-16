@@ -1,10 +1,10 @@
-# Backlog
+# Беклог
 
-Planning documents that are not yet implementation: analysis reports and the
-epic → story → task → subtask breakdowns derived from them. Each subdirectory
-is one initiative. Items here describe intended work; the code and `STATUS.md`
-remain the source of truth for what is shipped.
+Документи за планиране, които още не са имплементация: аналитични отчети и
+разбивките им на епици, сторита, таскове и събтаскове. Всяка поддиректория е
+една инициатива. Тук е описана планираната работа; източник на истина за
+пуснатото остават кодът и `STATUS.md`.
 
-| Initiative | Report | Backlog |
+| Инициатива | Отчет | Беклог |
 | --- | --- | --- |
-| Hosting the orchestrator with a web UI on Railway and managing workers from it | [railway/railway-report.md](railway/railway-report.md) | [railway/backlog/README.md](railway/backlog/README.md) |
+| Оркестраторът с уеб UI в Railway и управление на работници от него | [railway/railway-report.md](railway/railway-report.md) | [railway/backlog/README.md](railway/backlog/README.md) |

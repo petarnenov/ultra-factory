@@ -241,10 +241,10 @@ if "$install_only"; then
 fi
 
 # A daemon launched by a service must see the same harness tools as this shell.
-# The bundled Node goes last, as a fallback for hosts without one: ahead of the
-# user's PATH it shadows their nvm/system node, and `npm` from that install then
-# runs under the bundled runtime (`#!/usr/bin/env node`), which can crash. The
-# ACP adapter does not need it on PATH; it launches the bundled node by path.
+# Вграденият Node е последен, като резерва за хостове без собствен node: пред
+# PATH-а на потребителя той засенчва неговия nvm/системен node и `npm` от тази
+# инсталация тръгва под вградения runtime (`#!/usr/bin/env node`), който може да
+# крашне. ACP адаптерът няма нужда от него в PATH; вика вградения node по път.
 runner="$host_root/run-daemon.sh"
 service_path="$HOME/.local/bin:$HOME/.ao/bin:$PATH:$host_root/current/resources/acp-runtime/node/bin"
 printf '#!/usr/bin/env bash\nexport PATH=%q\n' "$service_path" > "$runner"
