@@ -66,6 +66,8 @@ Thumbs.db
 # electron-forge / vite build output
 .vite/
 dist-electron/
+# standalone web renderer build (npm --prefix frontend run build:web)
+frontend/dist-web/
 # electron-builder debug dump, written to the cwd on every NSIS build
 builder-debug.yml
 
