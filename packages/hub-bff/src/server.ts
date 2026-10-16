@@ -2,7 +2,7 @@ import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
-import { createProxy, rejectUpgrade, type ProxyHosts } from "./proxy.ts";
+import { createProxy, hasSafeRequestPath, rejectUpgrade, type ProxyHosts } from "./proxy.ts";
 import type { Logger } from "./log.ts";
 import { parsePasswordHash, verifyPassword, type ParsedHash } from "./password.ts";
 import { clientKey, RateLimiter } from "./rate-limit.ts";
@@ -197,6 +197,8 @@ export function createBff(options: BffOptions): Server {
 	}
 
 	const server = createServer((req, res) => {
+		// Reject ambiguous paths before WHATWG URL normalization can hide them.
+		if (!hasSafeRequestPath(req.url ?? "")) return sendJson(res, 404, { error: "not_found" });
 		const started = Date.now();
 		let pathname: string;
 		try {

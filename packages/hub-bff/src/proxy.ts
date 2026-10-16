@@ -7,10 +7,26 @@ export type ProxyHost = { url: string; hostId: string; bearer: string };
 // RW-2.4.3 supplies paired registry entries, including the authenticated hub.
 export type ProxyHosts = { getHost(id: string): ProxyHost | undefined; getHub(): ProxyHost | undefined };
 
+// Validate before URL parsing can normalize traversal or separator spellings.
+// Query values are opaque and may legitimately contain encoded paths.
+export function hasSafeRequestPath(raw: string): boolean {
+	const pathname = raw.split("?")[0];
+	if (!pathname.startsWith("/") || pathname.includes("//")) return false;
+	try {
+		return pathname.split("/").every((segment) => {
+			const decoded = decodeURIComponent(segment);
+			return decoded !== "." && decoded !== ".." && !/[\\/\0]/.test(decoded);
+		});
+	} catch {
+		return false;
+	}
+}
+
 function route(raw: string): { id?: string; path: string } | undefined {
-	const match = /^(?:\/hosts\/([^/?]+))?(\/(?:api\/[^?]*|mux|readyz))(\?.*)?$/.exec(raw);
+	if (!hasSafeRequestPath(raw)) return undefined;
+	const match = /^(?:\/hosts\/([A-Za-z0-9_-]+))?(\/(?:api\/[^?]*|mux|readyz))(\?.*)?$/.exec(raw);
 	if (!match) return undefined;
-	return { id: match[1] ? decodeURIComponent(match[1]) : undefined, path: match[2] + (match[3] ?? "") };
+	return { id: match[1], path: match[2] + (match[3] ?? "") };
 }
 
 // Remove both standard hop-by-hop headers and fields nominated by Connection.

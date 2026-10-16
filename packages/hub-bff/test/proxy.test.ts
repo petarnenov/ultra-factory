@@ -17,6 +17,7 @@ let cookie: string;
 let host: ProxyHost;
 let address: string;
 let received: IncomingMessage[];
+let hostLookups: string[];
 
 async function listen(server: Server): Promise<string> {
 	servers.push(server);
@@ -27,7 +28,7 @@ async function listen(server: Server): Promise<string> {
 }
 
 beforeEach(async () => {
-	servers = []; sockets = new Set(); received = [];
+	servers = []; sockets = new Set(); received = []; hostLookups = [];
 	upstream = createServer((req, res) => {
 		received.push(req);
 		if (req.url === "/api/reject") { res.writeHead(401).end("secret upstream body"); return; }
@@ -37,7 +38,7 @@ beforeEach(async () => {
 		req.on("end", () => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ url: req.url, method: req.method, body })); });
 	});
 	host = { url: await listen(upstream), hostId: "h_test", bearer: "upstream-secret" };
-	bff = createBff({ spaDir: "/unused", passwordHash: await hashPassword("test", { ln: 10, r: 8, p: 1 }), publicOrigin: origin, log: () => {}, hosts: { getHub: () => host, getHost: (id) => id === "h_test" ? host : undefined } });
+	bff = createBff({ spaDir: "/unused", passwordHash: await hashPassword("test", { ln: 10, r: 8, p: 1 }), publicOrigin: origin, log: () => {}, hosts: { getHub: () => host, getHost: (id) => { hostLookups.push(id); return id === "h_test" ? host : undefined; } } });
 	address = await listen(bff);
 	const login = await request(bff).post("/login").set("Origin", origin).send({ password: "test" });
 	cookie = login.headers["set-cookie"][0].split(";")[0];
@@ -129,7 +130,7 @@ it("streams three SSE events before upstream completion and aborts when the clie
 });
 
 function upgrade(url: string, headers: Record<string, string> = {}) {
-	const req = httpRequest(address + url, { headers: { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", Origin: origin, Cookie: cookie, ...headers } });
+	const req = httpRequest(address, { path: url, headers: { Connection: "Upgrade", Upgrade: "websocket", "Sec-WebSocket-Version": "13", "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", Origin: origin, Cookie: cookie, ...headers } });
 	req.end();
 	return req;
 }
@@ -187,4 +188,56 @@ it("rejects invalid configured headers without crashing an upgrade", async () =>
 it("does not forward an unauthenticated identity probe", async () => {
 	expect((await request(bff).get("/api/v1/identity")).status).toBe(401);
 	expect(received).toHaveLength(0);
+});
+
+// Pass path separately: URL-based clients normalize dot segments before sending.
+async function rawGet(path: string): Promise<number | undefined> {
+	return new Promise((resolve, reject) => {
+		const req = httpRequest(address, { path, headers: { Cookie: cookie } }, (res) => {
+			res.resume();
+			resolve(res.statusCode);
+		});
+		req.on("error", reject);
+		req.end();
+	});
+}
+
+const unsafePaths = [
+	"/api/../shutdown", "/api/./items", "/api/%2e/items", "/api/%2E%2e/shutdown",
+	"/api/.%2e/shutdown", "/api/%2e./shutdown", "/api//items",
+	"/api/items%2fother", "/api/items%2Fother", "/api/items%5cother", "/api/items%5Cother",
+	"/api/items\\other", "/api/%", "/api/%00", "//api/items",
+	"/hosts/h_test/api/%2e%2e/%2e%2e/shutdown", "/hosts/h_test/api/../readyz",
+	"/hosts/h_test//mux", "/hosts/h_test/./mux", "/hosts/h_test/%2e/mux",
+	"/hosts/h_test/api/items%2fother", "/hosts/h_test/api/items%5cother",
+];
+
+it.each(unsafePaths)("rejects ambiguous HTTP path %s before normalization or lookup", async (path) => {
+	expect(await rawGet(path)).toBe(404);
+	expect(received).toHaveLength(0);
+	expect(hostLookups).toHaveLength(0);
+});
+
+it.each(unsafePaths)("rejects ambiguous upgrade path %s before lookup", async (path) => {
+	const [res] = await once(upgrade(path), "response");
+	res.resume();
+	expect(res.statusCode).toBe(404);
+	expect(received).toHaveLength(0);
+	expect(hostLookups).toHaveLength(0);
+});
+
+it.each(["h.test", "h:test", "h@test", "%68_test", "h%20test", "h%2ftest", "h%5ctest"])("rejects invalid host id %s without registry lookup", async (id) => {
+	expect(await rawGet(`/hosts/${id}/api/items`)).toBe(404);
+	const [res] = await once(upgrade(`/hosts/${id}/mux`), "response");
+	res.resume();
+	expect(res.statusCode).toBe(404);
+	expect(hostLookups).toHaveLength(0);
+	expect(received).toHaveLength(0);
+});
+
+it("preserves encoded query values and ordinary dot-containing path segments", async () => {
+	const path = "/hosts/h_test/api/file.name?q=../%2f%5c//";
+	expect(await rawGet(path)).toBe(200);
+	expect(received[0].url).toBe(path.replace("/hosts/h_test", ""));
+	expect(hostLookups).toEqual(["h_test"]);
 });
