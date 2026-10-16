@@ -164,6 +164,9 @@ established.
   to GHCR. The public-image observation above is not a worker-image benchmark.
 - Minimum working deletion permissions, the applicable project service-count
   limit, and this project's maximum volume size remain unverified.
+- **Open question — volume size:** no verified Railway API operation; `volumeCreate`
+  accepts `mountPath`, `environmentId` and `region` only; revisit with an
+  authorized token.
 - The task file has no separate Verification command section. This PR changes
   documentation only; git diff --check is the local whitespace check. Product
   test suites and make check are not required for this docs-only change.

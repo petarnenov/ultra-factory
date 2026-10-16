@@ -9,6 +9,19 @@ connects to the daemon's loopback listener on `127.0.0.1:3001`.
 This package provides static SPA serving, login, session cookies, CSRF checks,
 login throttling, a daemon proxy, and the host registry under `/hub/hosts`.
 
+## Railway worker client
+
+`src/railway-client.ts` implements the provider-neutral `WorkerProvider` using
+Railway's GraphQL API. Supply the token, token kind, project ID, and environment
+ID through `RailwayClientOptions`. Project tokens use the
+`Project-Access-Token` header by default; account tokens use `Authorization:
+Bearer`. Automated tests use recorded response shapes and a fake fetch. The
+manual create-to-running-to-delete integration test remains skipped: the
+project token tested in RW-3.1.1 could not delete services or volumes, and no
+account/workspace token with cleanup permissions has been authorized or
+verified. Do not run the lifecycle against Railway until that permission is
+established.
+
 ## Running
 
 Node 24 runs the TypeScript sources directly (type stripping), so there is no
