@@ -1,7 +1,76 @@
 import type { AoBridge } from "../../preload";
+import type { DaemonStatus } from "../../shared/daemon-status";
 import { coerceUiSettings, DEFAULT_UI_SETTINGS } from "../../shared/ui-locale";
+import { usesPreviewWorkspaceData } from "./preview-mode";
 export type { FeatureBuild } from "../../main/feature-builds";
 
+// The web build has no Electron supervisor. The daemon (or the proxy in front
+// of it) answers on the API base URL, so readiness comes from its /readyz probe
+// and starting or stopping the daemon belongs to whoever runs it.
+const WEB_DAEMON_POLL_MS = 5_000;
+const WEB_DAEMON_READY_POLL_MS = 30_000;
+
+function webDaemonBaseUrl(): string {
+	return (import.meta.env.VITE_AO_API_BASE_URL ?? "").replace(/\/+$/, "");
+}
+
+// The shell only trusts a ready status that carries a port. A proxy on the
+// scheme's default port leaves the URL port empty, so report the effective one.
+function webDaemonPort(baseUrl: string): number {
+	const url = new URL(baseUrl || window.location.href, window.location.href);
+	if (url.port) return Number(url.port);
+	return url.protocol === "https:" ? 443 : 80;
+}
+
+async function probeWebDaemon(): Promise<DaemonStatus> {
+	const baseUrl = webDaemonBaseUrl();
+	try {
+		const response = await fetch(`${baseUrl}/readyz`, { cache: "no-store" });
+		if (response.status !== 200) {
+			return { state: "error", message: `Daemon readiness check returned HTTP ${response.status}.` };
+		}
+		// A static host's SPA fallback also answers 200, with index.html.
+		const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
+		if (body?.status !== "ready") {
+			return { state: "error", message: "Daemon readiness check did not return a ready daemon." };
+		}
+		return { state: "ready", port: webDaemonPort(baseUrl) };
+	} catch (error) {
+		return {
+			state: "error",
+			message: `Daemon readiness check failed: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+}
+
+async function unsupportedWebDaemonControl(): Promise<DaemonStatus> {
+	return { ...(await probeWebDaemon()), supported: false };
+}
+
+const webDaemonBridge: AoBridge["daemon"] = {
+	getStatus: probeWebDaemon,
+	start: unsupportedWebDaemonControl,
+	stop: unsupportedWebDaemonControl,
+	restart: unsupportedWebDaemonControl,
+	onStatus: (listener) => {
+		let active = true;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const schedule = (delayMs: number) => {
+			timer = setTimeout(() => {
+				void probeWebDaemon().then((status) => {
+					if (!active) return;
+					listener(status);
+					schedule(status.state === "ready" ? WEB_DAEMON_READY_POLL_MS : WEB_DAEMON_POLL_MS);
+				});
+			}, delayMs);
+		};
+		schedule(WEB_DAEMON_POLL_MS);
+		return () => {
+			active = false;
+			clearTimeout(timer);
+		};
+	},
+};
 
 export const aoBridge: AoBridge =
 	window.ao ??
@@ -66,16 +135,19 @@ export const aoBridge: AoBridge =
 			},
 			readText: async () => (navigator.clipboard?.readText ? navigator.clipboard.readText() : ""),
 		},
-		daemon: {
-			getStatus: async () => ({
-				state: "stopped",
-				message: "Electron preload is not available in browser preview.",
-			}),
-			start: async () => ({ state: "starting" }),
-			stop: async () => ({ state: "stopped" }),
-			restart: async () => ({ state: "starting" }),
-			onStatus: () => () => undefined,
-		},
+		// Mock-data preview (VITE_NO_ELECTRON) has no daemon to probe.
+		daemon: usesPreviewWorkspaceData
+			? {
+				getStatus: async () => ({
+					state: "stopped",
+					message: "Electron preload is not available in browser preview.",
+				}),
+				start: async () => ({ state: "starting" }),
+				stop: async () => ({ state: "stopped" }),
+				restart: async () => ({ state: "starting" }),
+				onStatus: () => () => undefined,
+			}
+			: webDaemonBridge,
 		sideChats: { capture: async () => undefined },
 		editorHandoff: {
 			getState: async () => ({
