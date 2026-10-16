@@ -3,8 +3,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonStatus } from "../../shared/daemon-status";
 
-// aoBridge избира window.ao или браузърния stub при зареждане на модула, затова
-// всеки тест премахва фалшивия preload от setup-а и импортира свежо копие.
+// aoBridge picks window.ao or the browser stub when the module loads, so each
+// test removes the setup's fake preload and imports a fresh copy.
 
 vi.mock("./event-transport", () => ({
 	createEventTransport: () => ({ connect: () => () => undefined }),
