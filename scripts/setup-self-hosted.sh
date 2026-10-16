@@ -241,8 +241,12 @@ if "$install_only"; then
 fi
 
 # A daemon launched by a service must see the same harness tools as this shell.
+# The bundled Node goes last, as a fallback for hosts without one: ahead of the
+# user's PATH it shadows their nvm/system node, and `npm` from that install then
+# runs under the bundled runtime (`#!/usr/bin/env node`), which can crash. The
+# ACP adapter does not need it on PATH; it launches the bundled node by path.
 runner="$host_root/run-daemon.sh"
-service_path="$HOME/.local/bin:$HOME/.ao/bin:$host_root/current/resources/acp-runtime/node/bin:$PATH"
+service_path="$HOME/.local/bin:$HOME/.ao/bin:$PATH:$host_root/current/resources/acp-runtime/node/bin"
 printf '#!/usr/bin/env bash\nexport PATH=%q\n' "$service_path" > "$runner"
 for name in AO_DATA_DIR AO_RUN_FILE AO_PORT; do
 	if [[ -n "${!name-}" ]]; then
