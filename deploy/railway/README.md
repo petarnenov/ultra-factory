@@ -49,10 +49,12 @@ has not returned a readable sanitized Railway report. No secret values are
 needed as evidence.
 
 The user supplied independent read-only public probe results dated
-2026-10-16 22:18 UTC, with no credentials used or exposed. HTTPS
+2026-10-16 22:18 UTC from the orchestrator client, with no credentials used or
+exposed. HTTPS
 `GET https://ultra-factory-production.up.railway.app/api/v1/identity` returned
-HTTP 200 with TLS verification success. Direct HTTP and HTTPS probes to that
-hostname on port `3001` both timed out from the probe client. These establish
+HTTP 200 with TLS verification result `0`. Direct HTTP and HTTPS probes to that
+hostname on port `3001` both timed out (curl status `000`) from that client.
+These establish
 public endpoint response and observed port unreachability from that client,
 not Railway routing configuration or universal port isolation. The host ID
 comparison against worker-local identity remains pending.
