@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { contentSecurityPolicy } from "./vite.renderer.config";
+import { contentSecurityPolicy } from "./vite.renderer.csp";
 
 describe("packaged renderer CSP", () => {
 	it("frames agent renders from the loopback daemon and nothing else", () => {
