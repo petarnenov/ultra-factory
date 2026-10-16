@@ -23,13 +23,14 @@ describe("RailwayClient", () => {
 		const fetch = vi.fn<typeof globalThis.fetch>()
 			.mockResolvedValueOnce(reply({ data: { serviceCreate: { id: "<SERVICE_ID>", name: "worker" } } }))
 			.mockResolvedValueOnce(reply({ data: { volumeCreate: { id: "<VOLUME_ID>", name: "worker-volume" } } }))
+			.mockResolvedValueOnce(reply({ data: { serviceDomainCreate: { id: "<DOMAIN_ID>", domain: "worker.up.railway.app" } } }))
 			.mockResolvedValueOnce(reply({ data: { variableUpsert: true } }))
 			.mockResolvedValueOnce(reply({ data: { serviceInstanceRedeploy: "<DEPLOYMENT_ID>" } }));
 		const client = new RailwayClient({ ...options, fetch });
 
 		await expect(client.create({ name: "worker", image: "example/worker:latest", env: { AO_WORKER: "true" }, volumeMountPath: "/data" }))
-			.resolves.toEqual({ serviceId: "<SERVICE_ID>", volumeId: "<VOLUME_ID>" });
-		expect(fetch).toHaveBeenCalledTimes(4);
+			.resolves.toEqual({ serviceId: "<SERVICE_ID>", volumeId: "<VOLUME_ID>", environmentId: options.environmentId, url: "https://worker.up.railway.app" });
+		expect(fetch).toHaveBeenCalledTimes(5);
 		const firstRequest = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { query: string; variables: { input: { source: { image: string } } } };
 		expect(firstRequest.query).toBe(railwayQueries.createService);
 		expect(firstRequest.variables.input.source.image).toBe("example/worker:latest");

@@ -3,13 +3,14 @@ export type WorkerSpec = {
 	image: string;
 	env: Record<string, string>;
 	volumeMountPath: "/data";
+	urlMode?: "public" | "private";
 	region?: string;
 };
 
 export type WorkerStatus = "provisioning" | "running" | "failed" | "stopped";
 
 export interface WorkerProvider {
-	create(spec: WorkerSpec): Promise<{ serviceId: string; volumeId: string }>;
+	create(spec: WorkerSpec): Promise<{ serviceId: string; volumeId: string; environmentId: string; url: string }>;
 	getStatus(serviceId: string): Promise<WorkerStatus>;
 	setVariables(serviceId: string, variables: Record<string, string>): Promise<void>;
 	redeploy(serviceId: string): Promise<void>;
@@ -47,6 +48,7 @@ export class RailwayApiError extends Error {
 export const railwayQueries = {
 	createService: `mutation($input: ServiceCreateInput!) { serviceCreate(input: $input) { id name } }`,
 	createVolume: `mutation($input: VolumeCreateInput!) { volumeCreate(input: $input) { id name } }`,
+	createDomain: `mutation($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }`,
 	upsertVariable: `mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }`,
 	status: `query($serviceId: String!, $environmentId: String!) { serviceInstance(serviceId: $serviceId, environmentId: $environmentId) { serviceName latestDeployment { id status createdAt } } }`,
 	redeploy: `mutation($serviceId: String!, $environmentId: String!) { serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId) }`,
@@ -87,7 +89,7 @@ export class RailwayClient implements WorkerProvider {
 		this.authHeader = (options.tokenKind ?? "project") === "project" ? "Project-Access-Token" : "Authorization";
 	}
 
-	async create(spec: WorkerSpec): Promise<{ serviceId: string; volumeId: string }> {
+	async create(spec: WorkerSpec): Promise<{ serviceId: string; volumeId: string; environmentId: string; url: string }> {
 		const service = await this.request<{ serviceCreate: { id: string } }>(railwayQueries.createService, {
 			input: {
 				projectId: this.options.projectId,
@@ -110,6 +112,16 @@ export class RailwayClient implements WorkerProvider {
 		});
 		const volumeId = volume.volumeCreate?.id;
 		if (!volumeId) throw new RailwayApiError();
+		let url: string;
+		if (spec.urlMode === "private") {
+			url = `http://${spec.name}.railway.internal:3011`;
+		} else {
+			const domain = await this.request<{ serviceDomainCreate: { domain: string } }>(railwayQueries.createDomain, {
+				input: { serviceId, environmentId: this.options.environmentId, targetPort: 3011 },
+			});
+			if (!domain.serviceDomainCreate?.domain) throw new RailwayApiError();
+			url = `https://${domain.serviceDomainCreate.domain}`;
+		}
 		if (spec.region) {
 			await this.request(railwayQueries.updateServiceInstance, {
 				serviceId,
@@ -120,7 +132,7 @@ export class RailwayClient implements WorkerProvider {
 
 		await this.setVariables(serviceId, spec.env);
 		await this.redeploy(serviceId);
-		return { serviceId, volumeId };
+		return { serviceId, volumeId, environmentId: this.options.environmentId, url };
 	}
 
 	async setVariables(serviceId: string, variables: Record<string, string>): Promise<void> {
