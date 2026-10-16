@@ -82,6 +82,7 @@ import { resolveSessionWorkspacePath, sessionWorkspaceFilesQueryOptions } from "
 import { isAbsoluteFileReference, matchWorkspaceFilePath, normalizeWorkspaceFileReference } from "../lib/workspace-file-path";
 import { markFileViewerPerformance } from "../lib/file-viewer-performance";
 import { aoBridge } from "../lib/bridge";
+import { electronBridge } from "../lib/electron-bridge";
 import {
 	chatDraftDialogCopy,
 } from "../lib/chat-draft-boundary";
@@ -727,7 +728,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	const reviewerQuery = useQuery({
 		queryKey: sessionReviewsQueryKey(sessionId, hostId),
 		enabled: Boolean(
-			(hostId ? remoteBase : window.ao) && session && !session.cloud && sessionIsActive(session) && !isOrchestratorSession(session) && session.prs.length > 0,
+			(hostId ? remoteBase : electronBridge()) && session && !session.cloud && sessionIsActive(session) && !isOrchestratorSession(session) && session.prs.length > 0,
 		),
 		refetchInterval: (query) => {
 			const data = query.state.data as ReviewsResponse | undefined;
@@ -1327,7 +1328,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	const browserViewId = browserView.viewId;
 	useEffect(
 		() =>
-			window.ao?.browser.onClosePanel((targetViewId) => {
+			electronBridge()?.browser.onClosePanel((targetViewId) => {
 				if (!browserViewId || targetViewId !== browserViewId) return;
 				setBrowserPopOutState({ sessionId, phase: "docked" });
 				setInspectorOpenForSession(uiSessionId, false);
