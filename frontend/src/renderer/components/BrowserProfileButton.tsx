@@ -2,6 +2,7 @@ import { ChevronDown, UserRound } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { BrowserProfileViewState } from "../../shared/browser-profiles";
+import { electronBridge } from "../lib/electron-bridge";
 import { useUiStore } from "../stores/ui-store";
 import { Button } from "./ui/button";
 
@@ -18,16 +19,17 @@ export function BrowserProfileButton({
 	const label = profileState.profileName ?? t("browser.profile.temporary");
 
 	useEffect(() => {
-		return window.ao?.browser.onProfileManage((managedViewId) => {
+		return electronBridge()?.browser.onProfileManage((managedViewId) => {
 			if (managedViewId === viewId) openGlobalSettings("browserProfiles");
 		});
 	}, [openGlobalSettings, viewId]);
 
 	const openMenu = () => {
-		if (!viewId || !window.ao?.browser) return;
+		const bridge = electronBridge();
+		if (!viewId || !bridge?.browser) return;
 		const rect = buttonRef.current?.getBoundingClientRect();
 		if (!rect) return;
-		void window.ao.browser
+		void bridge.browser
 			.showProfileMenu({
 				viewId,
 				bounds: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },

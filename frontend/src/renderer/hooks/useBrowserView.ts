@@ -19,6 +19,7 @@ import type {
 import type { BrowserProfileViewState } from "../../shared/browser-profiles";
 import { BROWSER_OVERLAY_CANDIDATE_SELECTOR, OPEN_BROWSER_OVERLAY_SELECTOR } from "../lib/dom-selectors";
 import { aoBridge } from "../lib/bridge";
+import { electronBridge } from "../lib/electron-bridge";
 
 export type { BrowserNavState };
 
@@ -309,7 +310,7 @@ export function useBrowserView({
 	const overlayOpenRef = useRef(false);
 	const tabNoticeTimerRef = useRef<number | null>(null);
 	const tabsStateRef = useRef(tabsState);
-	const hasNativeBrowser = Boolean(window.ao?.browser);
+	const hasNativeBrowser = Boolean(electronBridge()?.browser);
 
 	useEffect(() => {
 		activeRef.current = active;
@@ -348,7 +349,7 @@ export function useBrowserView({
 	const sendHiddenBounds = useCallback((id = viewIdRef.current) => {
 		if (!id) return;
 		publishBrowserHole(id, null);
-		window.ao?.browser.setBounds({
+		electronBridge()?.browser.setBounds({
 			viewId: id,
 			revision: claimLayoutRevision(),
 			rect: HIDDEN_RECT,
@@ -383,7 +384,7 @@ export function useBrowserView({
 			visible: rect.width > 0 && rect.height > 0,
 		};
 		publishBrowserHole(id, payload.visible ? rect : null);
-		window.ao?.browser.setBounds(payload);
+		electronBridge()?.browser.setBounds(payload);
 	}, [sendHiddenBounds]);
 
 	const cancelScheduledMeasure = useCallback(() => {
@@ -448,7 +449,7 @@ export function useBrowserView({
 	);
 
 	useEffect(() => {
-		return window.ao?.browser.onBoundsApplied((result) => {
+		return electronBridge()?.browser.onBoundsApplied((result) => {
 			if (result.viewId !== viewIdRef.current || result.revision <= appliedLayoutRevisionRef.current) return;
 			appliedLayoutRevisionRef.current = result.revision;
 		});
@@ -507,24 +508,24 @@ export function useBrowserView({
 				viewIdRef.current = "";
 			};
 		}
-		window.ao?.browser.ensure(sessionId, false).then((state) => {
+		electronBridge()?.browser.ensure(sessionId, false).then((state) => {
 			if (disposed) return;
 			viewIdRef.current = state.viewId;
 			setViewId(state.viewId);
 			setNavState(state);
-			void window.ao?.browser
+			void electronBridge()?.browser
 				.getProfile(state.viewId)
 				.then((profile) => {
 					if (!disposed && viewIdRef.current === profile.viewId) setProfileState(profile);
 				})
 				.catch(() => undefined);
-			void window.ao?.browser
+			void electronBridge()?.browser
 				.getTabs(state.viewId)
 				.then((tabs) => {
 					if (!disposed && viewIdRef.current === tabs.viewId) setTabsState(tabs);
 				})
 				.catch(() => undefined);
-			void window.ao?.browser
+			void electronBridge()?.browser
 				.getFindState(state.viewId)
 				.then((find) => {
 					if (!disposed && viewIdRef.current === find.viewId) setFindState(find);
@@ -537,7 +538,7 @@ export function useBrowserView({
 			const id = viewIdRef.current;
 			if (id) {
 				if (annotationModeRef.current) {
-					void window.ao?.browser.setAnnotationMode({
+					void electronBridge()?.browser.setAnnotationMode({
 						viewId: id,
 						enabled: false,
 					});
@@ -555,21 +556,21 @@ export function useBrowserView({
 	]);
 
 	useEffect(() => {
-		return window.ao?.browser.onNavState((state) => {
+		return electronBridge()?.browser.onNavState((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setNavState(state);
 		});
 	}, []);
 
 	useEffect(() => {
-		return window.ao?.browser.onFindState((state) => {
+		return electronBridge()?.browser.onFindState((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setFindState(state);
 		});
 	}, []);
 
 	useEffect(() => {
-		return window.ao?.browser.onFindOpen((state) => {
+		return electronBridge()?.browser.onFindOpen((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setFindState(state);
 			setFindOpenRequest((current) => current + 1);
@@ -577,7 +578,7 @@ export function useBrowserView({
 	}, []);
 
 	useEffect(() => {
-		return window.ao?.browser.onTabsState((state) => {
+		return electronBridge()?.browser.onTabsState((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setTabsState(state);
 			const change = state.change;
@@ -615,21 +616,21 @@ export function useBrowserView({
 	const reorderTabs = useCallback((orderedIds: string[]) => setTabOrder(orderedIds), []);
 
 	useEffect(() => {
-		return window.ao?.browser.onDevToolsState((state) => {
+		return electronBridge()?.browser.onDevToolsState((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setDevtoolsState(state);
 		});
 	}, []);
 
 	useEffect(() => {
-		return window.ao?.browser.onProfileState((state) => {
+		return electronBridge()?.browser.onProfileState((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setProfileState(state);
 		});
 	}, []);
 
 	useEffect(() => {
-		return window.ao?.browser.onAgentActivity((state) => {
+		return electronBridge()?.browser.onAgentActivity((state) => {
 			if (state.viewId !== viewIdRef.current) return;
 			setAgentBrowserActive(state.active);
 			setAgentBrowserActivity(state);
@@ -641,8 +642,8 @@ export function useBrowserView({
 		const applyState = (state: BrowserRuntimeState) => {
 			if (!disposed) setBrowserRuntimeConnected(state.connected);
 		};
-		const unsubscribe = window.ao?.browser.onRuntimeState(applyState);
-		void window.ao?.browser.getRuntimeState().then(applyState);
+		const unsubscribe = electronBridge()?.browser.onRuntimeState(applyState);
+		void electronBridge()?.browser.getRuntimeState().then(applyState);
 		return () => {
 			disposed = true;
 			unsubscribe?.();
@@ -650,7 +651,7 @@ export function useBrowserView({
 	}, []);
 
 	const reconnectBrowserRuntime = useCallback(async () => {
-		await window.ao?.browser.reconnectRuntime();
+		await electronBridge()?.browser.reconnectRuntime();
 	}, []);
 
 	useEffect(
@@ -696,7 +697,7 @@ export function useBrowserView({
 				overlayOpenRef.current = open;
 				// The live page never moves or becomes a bitmap. Reordering the explicit
 				// transparent shell is the complete overlay handoff for menus/dialogs.
-				window.ao?.browser.setOverlayOpen(open);
+				electronBridge()?.browser.setOverlayOpen(open);
 			}
 		};
 		const containsOverlayCandidate = (node: Node): boolean =>
@@ -738,7 +739,7 @@ export function useBrowserView({
 		return () => {
 			observer.disconnect();
 			resizeObserver.disconnect();
-			window.ao?.browser.setOverlayOpen(false);
+			electronBridge()?.browser.setOverlayOpen(false);
 			overlayOpenRef.current = false;
 		};
 	}, [hasNativeBrowser, scheduleSettleMeasure]);
@@ -780,7 +781,7 @@ export function useBrowserView({
 				return;
 			}
 			const styles = getComputedStyle(document.documentElement);
-			await window.ao!.browser.setAnnotationMode({
+			await electronBridge()!.browser.setAnnotationMode({
 				viewId: id,
 				enabled,
 				theme: {
@@ -803,7 +804,7 @@ export function useBrowserView({
 		async (action: BrowserAnnotationActionInput["action"]) => {
 			const id = viewIdRef.current;
 			if (!id || !hasNativeBrowser) return;
-			await window.ao!.browser.annotationAction({ viewId: id, action });
+			await electronBridge()!.browser.annotationAction({ viewId: id, action });
 		},
 		[hasNativeBrowser],
 	);
@@ -813,13 +814,13 @@ export function useBrowserView({
 			const viewId = viewIdRef.current;
 			if (!viewId || !hasNativeBrowser) return;
 			try {
-				const state = await window.ao!.browser.selectTab({ viewId, tabId });
+				const state = await electronBridge()!.browser.selectTab({ viewId, tabId });
 				if (viewIdRef.current === state.viewId) setTabsState(state);
 			} catch {
 				// The native view may already have switched before automation
 				// synchronization fails. Read the actual selection back instead of
 				// showing a misleading switch-failure notice in the toolbar.
-				const state = await window.ao!.browser.getTabs(viewId).catch(() => undefined);
+				const state = await electronBridge()!.browser.getTabs(viewId).catch(() => undefined);
 				if (state && viewIdRef.current === state.viewId) setTabsState(state);
 			}
 		},
@@ -836,7 +837,7 @@ export function useBrowserView({
 			// handleCloseTab in BrowserPanel.tsx otherwise).
 			const closing = tabsStateRef.current.tabs.find((tab) => tab.id === tabId);
 			try {
-				const state = await window.ao!.browser.closeTab({ viewId, tabId });
+				const state = await electronBridge()!.browser.closeTab({ viewId, tabId });
 				if (viewIdRef.current !== state.viewId) return;
 				setTabsState(state);
 				// Only remember it once the main process confirms it's actually gone —
@@ -858,7 +859,7 @@ export function useBrowserView({
 				// reports failure) — resync instead of leaving this tab's row
 				// showing in the rail after it's genuinely gone, which just
 				// re-fails identically on every retry.
-				window.ao?.browser
+				electronBridge()?.browser
 					.getTabs(viewId)
 					.then((state) => {
 						if (viewIdRef.current === state.viewId) setTabsState(state);
@@ -874,13 +875,13 @@ export function useBrowserView({
 			if (!hasNativeBrowser) return;
 			let viewId = viewIdRef.current;
 			if (!viewId) {
-				const ensured = await window.ao!.browser.ensure(sessionId, false);
+				const ensured = await electronBridge()!.browser.ensure(sessionId, false);
 				viewId = ensured.viewId;
 				viewIdRef.current = viewId;
 				setViewId(viewId);
 				setNavState(ensured);
 			}
-			const state = await window.ao!.browser.openTab({ viewId, url });
+			const state = await electronBridge()!.browser.openTab({ viewId, url });
 			if (viewIdRef.current === state.viewId) setTabsState(state);
 		},
 		[hasNativeBrowser, sessionId],
@@ -890,7 +891,7 @@ export function useBrowserView({
 			if (!hasNativeBrowser) return;
 			let id = viewIdRef.current;
 			if (!id) {
-				const ensured = await window.ao!.browser.ensure(sessionId, false);
+				const ensured = await electronBridge()!.browser.ensure(sessionId, false);
 				id = ensured.viewId;
 				viewIdRef.current = id;
 				setViewId(id);
@@ -901,7 +902,7 @@ export function useBrowserView({
 			// navigation/title updates, so refresh it before deciding whether this URL
 			// already has a tab and should be selected instead of duplicated.
 			try {
-				const next = await window.ao!.browser.getTabs(id);
+				const next = await electronBridge()!.browser.getTabs(id);
 				tabs = next.tabs;
 				if (viewIdRef.current === id) setTabsState(next);
 			} catch {
@@ -915,7 +916,7 @@ export function useBrowserView({
 			}
 			const activeTab = tabs.find((tab) => tab.active);
 			if (activeTab && isBlankTabUrl(activeTab.url)) {
-				const state = await window.ao!.browser.navigate({ viewId: id, url });
+				const state = await electronBridge()!.browser.navigate({ viewId: id, url });
 				if (viewIdRef.current === state.viewId) setNavState(state);
 				return;
 			}
@@ -946,7 +947,7 @@ export function useBrowserView({
 			const id = viewIdRef.current;
 			if (!id || !hasNativeBrowser) return;
 			try {
-				const next = await window.ao!.browser.devtools({
+				const next = await electronBridge()!.browser.devtools({
 					viewId: id,
 					operation,
 					placement,
@@ -966,8 +967,8 @@ export function useBrowserView({
 			if (payload.viewId !== viewIdRef.current) return;
 			setAnnotationModeState(false);
 		};
-		const offSubmit = window.ao?.browser.onAnnotationSubmit(handleDone);
-		const offCancel = window.ao?.browser.onAnnotationCancel(handleDone);
+		const offSubmit = electronBridge()?.browser.onAnnotationSubmit(handleDone);
+		const offCancel = electronBridge()?.browser.onAnnotationCancel(handleDone);
 		return () => {
 			offSubmit?.();
 			offCancel?.();
@@ -975,7 +976,7 @@ export function useBrowserView({
 	}, []);
 
 	useEffect(() => {
-		const offState = window.ao?.browser.onAnnotationState((payload) => {
+		const offState = electronBridge()?.browser.onAnnotationState((payload) => {
 			if (payload.viewId !== viewIdRef.current) return;
 			setAnnotationState({
 				count: payload.count,
@@ -1003,7 +1004,7 @@ export function useBrowserView({
 				}));
 				return Promise.resolve();
 			}
-			return withView((id) => window.ao!.browser.navigate({ viewId: id, url }));
+			return withView((id) => electronBridge()!.browser.navigate({ viewId: id, url }));
 		},
 		[hasNativeBrowser, withView],
 	);
@@ -1018,7 +1019,7 @@ export function useBrowserView({
 			}));
 			return Promise.resolve();
 		}
-		return withView((id) => window.ao!.browser.clear(id));
+		return withView((id) => electronBridge()!.browser.clear(id));
 	}, [hasNativeBrowser, withView]);
 
 	const findInPage = useCallback(
@@ -1028,7 +1029,7 @@ export function useBrowserView({
 				return Promise.resolve();
 			}
 			return withView(async (id) => {
-				const state = await window.ao!.browser.findInPage({ viewId: id, query, forward, newSession });
+				const state = await electronBridge()!.browser.findInPage({ viewId: id, query, forward, newSession });
 				if (viewIdRef.current === state.viewId) setFindState(state);
 			});
 		},
@@ -1042,7 +1043,7 @@ export function useBrowserView({
 				return Promise.resolve();
 			}
 			return withView(async (id) => {
-				const state = await window.ao!.browser.stopFindInPage({ viewId: id, focusPage });
+				const state = await electronBridge()!.browser.stopFindInPage({ viewId: id, focusPage });
 				if (viewIdRef.current === state.viewId) setFindState(state);
 			});
 		},
@@ -1095,12 +1096,12 @@ export function useBrowserView({
 		const id = viewIdRef.current;
 		if (!id) return;
 		if (annotationModeRef.current) {
-			void window.ao?.browser.setAnnotationMode({ viewId: id, enabled: false });
+			void electronBridge()?.browser.setAnnotationMode({ viewId: id, enabled: false });
 			setAnnotationModeState(false);
 		}
 		overlayOpenRef.current = false;
 		sendHiddenBounds(id);
-		window.ao?.browser.destroy(id);
+		electronBridge()?.browser.destroy(id);
 		viewIdRef.current = "";
 		setViewId("");
 		setNavState(EMPTY_NAV_STATE);
@@ -1130,10 +1131,10 @@ export function useBrowserView({
 		navState: stateBelongsToSession ? navState : EMPTY_NAV_STATE,
 		slotRef,
 		navigate,
-		goBack: () => (hasNativeBrowser ? withView((id) => window.ao!.browser.goBack(id)) : Promise.resolve()),
-		goForward: () => (hasNativeBrowser ? withView((id) => window.ao!.browser.goForward(id)) : Promise.resolve()),
-		reload: () => (hasNativeBrowser ? withView((id) => window.ao!.browser.reload(id)) : Promise.resolve()),
-		stop: () => (hasNativeBrowser ? withView((id) => window.ao!.browser.stop(id)) : Promise.resolve()),
+		goBack: () => (hasNativeBrowser ? withView((id) => electronBridge()!.browser.goBack(id)) : Promise.resolve()),
+		goForward: () => (hasNativeBrowser ? withView((id) => electronBridge()!.browser.goForward(id)) : Promise.resolve()),
+		reload: () => (hasNativeBrowser ? withView((id) => electronBridge()!.browser.reload(id)) : Promise.resolve()),
+		stop: () => (hasNativeBrowser ? withView((id) => electronBridge()!.browser.stop(id)) : Promise.resolve()),
 		findState: stateBelongsToSession ? findState : EMPTY_FIND_STATE,
 		findOpenRequest: stateBelongsToSession ? findOpenRequest : 0,
 		findInPage,

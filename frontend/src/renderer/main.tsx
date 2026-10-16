@@ -14,6 +14,7 @@ import { CloudOnboardingGate } from "./components/CloudOnboardingGate";
 import { CloudNotificationRuntime } from "./components/CloudNotificationRuntime";
 import { applyRendererTelemetryPolicy, clearRendererTelemetryQueues, initTelemetry, isDeniedEvent } from "./lib/telemetry";
 import { aoBridge } from "./lib/bridge";
+import { electronBridge } from "./lib/electron-bridge";
 import { startDaemonFailureTelemetry } from "./lib/daemon-telemetry";
 import { startUpdateTelemetry } from "./lib/update-telemetry";
 import { startSessionManagementTelemetry } from "./lib/session-management-telemetry";
@@ -68,7 +69,7 @@ if (import.meta.env.DEV) {
 		});
 		console.log("[testNotif] bell updated - click away from AO now, bounce fires in 3s");
 		setTimeout(() => {
-			void window.ao?.notifications.devBounce();
+			void electronBridge()?.notifications.devBounce();
 			// Restore normal stale time after bounce
 			queryClient.setQueryDefaults(key, { staleTime: 0 });
 		}, 3000);
