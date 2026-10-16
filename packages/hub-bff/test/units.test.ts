@@ -64,6 +64,16 @@ describe("loadConfig", () => {
 			await expect(loadConfig({ ...base, AO_WEB_ORIGIN: "https://hub.example.com/app" })).rejects.toThrow(/AO_WEB_ORIGIN/);
 		});
 	});
+
+	it("defaults the worker limit to five and validates overrides", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect((await loadConfig(base)).maxWorkers).toBe(5);
+			expect((await loadConfig({ ...base, AO_HUB_MAX_WORKERS: "8" })).maxWorkers).toBe(8);
+			await expect(loadConfig({ ...base, AO_HUB_MAX_WORKERS: "0" })).rejects.toThrow(/AO_HUB_MAX_WORKERS/);
+		});
+	});
 });
 
 describe("jsonLogger", () => {

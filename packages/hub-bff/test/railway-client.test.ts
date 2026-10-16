@@ -45,6 +45,22 @@ describe("RailwayClient", () => {
 		expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: `Bearer ${options.token}` });
 	});
 
+	it("lists project services using the documented project services connection", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(reply({ data: { project: { services: { edges: [
+			{ node: { id: "service-1", name: "ao-worker-one" } },
+			{ node: { id: "service-2", name: "api" } },
+		] } } } }));
+		const client = new RailwayClient({ ...options, fetch });
+
+		await expect(client.list()).resolves.toEqual([
+			{ id: "service-1", name: "ao-worker-one" },
+			{ id: "service-2", name: "api" },
+		]);
+		const request = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { query: string; variables: { projectId: string } };
+		expect(request.query).toBe(railwayQueries.listServices);
+		expect(request.variables.projectId).toBe(options.projectId);
+	});
+
 	it("retries 429 and 5xx responses", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>()
 			.mockResolvedValueOnce(new Response("{}", { status: 429, headers: { "Retry-After": "2" } }))

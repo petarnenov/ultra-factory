@@ -203,6 +203,10 @@ export class HostsStore {
 		return this.#hosts.map(toPublic);
 	}
 
+	listRailwayWorkers(): HostEntry[] {
+		return this.#hosts.filter((host) => host.source === "railway").map((host) => ({ ...host, ...(host.railway ? { railway: { ...host.railway } } : {}) }));
+	}
+
 	// get finds an entry by its host id, or the hub entry by "hub".
 	get(id: string): HostEntry | undefined {
 		const entry = id === HUB_ID ? this.#hosts.find((h) => h.source === "hub") : this.#hosts.find((h) => h.hostId === id || h.id === id);
@@ -263,9 +267,13 @@ export class HostsStore {
 	}
 
 	// createWorker writes its intent before any provider call, making provisioning recoverable after a crash.
-	async createWorker(input: { id: string; label: unknown; password: string }): Promise<PublicHost> {
+	async createWorker(input: { id: string; label: unknown; password: string; maxWorkers?: number }): Promise<PublicHost> {
 		const label = normalizeLabel(input.label);
 		return this.#mutate(async (hosts) => {
+			const workerCount = hosts.filter((host) => host.source === "railway").length;
+			if (input.maxWorkers !== undefined && workerCount >= input.maxWorkers) {
+				throw new HostsValidationError("worker_limit_reached", `worker limit reached (${workerCount}/${input.maxWorkers})`);
+			}
 			if (label.toLowerCase() === HUB_LABEL || hosts.some((h) => h.label.toLowerCase() === label.toLowerCase())) {
 				throw new HostsValidationError("label_taken", `a host labelled "${label}" already exists`);
 			}
