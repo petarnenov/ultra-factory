@@ -123,7 +123,50 @@ const binding = (
 	...modifiers,
 });
 
-export function defaultShortcutBindings(id: AppShortcutId, isMac: boolean): readonly ShortcutBinding[] {
+// Браузърът си запазва част от desktop комбинациите и страницата никога не ги
+// получава (или не може да ги спре): ⌘/Ctrl+N, ⌘/Ctrl+T, ⌘/Ctrl+W и Shift
+// вариантите им, Ctrl+Tab, Ctrl+PageUp/PageDown, ⌘⇧[ / ⌘⇧] и ⌘⌥←/→ (смяна на
+// таб), ⌘/Ctrl+1–9 (избор на таб). Web build-ът ползва Alt алтернативи за тези
+// команди. Alt+Shift+буква не е readline клавиш, а `code` пази съвпадението на
+// macOS, където ⌥ превръща буквата в друг символ (⌥⇧N дава "˜").
+export function webShortcutBindings(id: AppShortcutId): readonly ShortcutBinding[] | undefined {
+	switch (id) {
+		case "new-session":
+			return [binding("n", { alt: true, shift: true, code: "KeyN" })];
+		case "new-shell-terminal":
+			return [binding("t", { alt: true, shift: true, code: "KeyT" })];
+		case "close-shell-terminal":
+			return [binding("w", { alt: true, shift: true, code: "KeyW" })];
+		case "reopen-closed-tab":
+			return [binding("r", { alt: true, shift: true, code: "KeyR" })];
+		case "previous-session":
+			return [binding("ArrowUp", { alt: true })];
+		case "next-session":
+			return [binding("ArrowDown", { alt: true })];
+		case "previous-tab":
+			return [binding("[", { alt: true, shift: true, code: "BracketLeft" })];
+		case "next-tab":
+			return [binding("]", { alt: true, shift: true, code: "BracketRight" })];
+		case "jump-to-session":
+			return [binding("1-9", { alt: true })];
+		default:
+			return undefined;
+	}
+}
+
+// Main процесът и Electron renderer-ът се build-ват без VITE_AO_WEB, така че
+// там винаги остават desktop комбинациите.
+const webBuildDefaults = import.meta.env.VITE_AO_WEB === "1";
+
+export function defaultShortcutBindings(
+	id: AppShortcutId,
+	isMac: boolean,
+	web: boolean = webBuildDefaults,
+): readonly ShortcutBinding[] {
+	return (web ? webShortcutBindings(id) : undefined) ?? desktopShortcutBindings(id, isMac);
+}
+
+function desktopShortcutBindings(id: AppShortcutId, isMac: boolean): readonly ShortcutBinding[] {
 	const primary = isMac ? { meta: true } : { ctrl: true };
 	switch (id) {
 		case "new-session":
@@ -206,8 +249,9 @@ export function effectiveShortcutBindings(
 	id: AppShortcutId,
 	isMac: boolean,
 	overrides: KeybindingOverrides = {},
+	web: boolean = webBuildDefaults,
 ): readonly ShortcutBinding[] {
-	return overrides[id] ?? defaultShortcutBindings(id, isMac);
+	return overrides[id] ?? defaultShortcutBindings(id, isMac, web);
 }
 
 function normalizedKey(key: string): string {
@@ -317,8 +361,9 @@ export function matchesAppShortcut(
 	chord: ShortcutChord,
 	isMac: boolean,
 	overrides: KeybindingOverrides = {},
+	web: boolean = webBuildDefaults,
 ): boolean {
-	return effectiveShortcutBindings(id, isMac, overrides).some((candidate) => matchesShortcutBinding(chord, candidate));
+	return effectiveShortcutBindings(id, isMac, overrides, web).some((candidate) => matchesShortcutBinding(chord, candidate));
 }
 
 export function shortcutBindingKeys(binding: ShortcutBinding, isMac: boolean): readonly string[] {

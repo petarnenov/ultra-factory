@@ -22,6 +22,9 @@ import { appI18n } from "./i18n";
 import { useLocaleStore } from "./stores/locale-store";
 import { useSoundNotificationsStore } from "./stores/sound-notifications-store";
 import { useTelemetryPolicyStore } from "./stores/telemetry-policy-store";
+import { useKeybindingsStore } from "./stores/keybindings-store";
+import { isMacPlatform, isWebBuild } from "./lib/platform";
+import { installWebShortcuts } from "./lib/web-shortcuts";
 
 const router = createAppRouter(queryClient);
 
@@ -33,6 +36,10 @@ aoBridge.telemetry.onClearQueues(clearRendererTelemetryQueues);
 aoBridge.notifications.onPlaySound(() => {
 	playNotificationSound(() => aoBridge.notifications.reportSoundFailure());
 });
+// В Electron shortcut-ите идват от main процеса; тук handler-ът би ги дублирал.
+if (isWebBuild) {
+	installWebShortcuts({ isMac: isMacPlatform(), getOverrides: () => useKeybindingsStore.getState().overrides });
+}
 aoBridge.telemetry.onPolicy((view) => applyRendererTelemetryPolicy(view.eventsEnabled && view.acknowledged && view.state === "applied"));
 
 if (import.meta.env.DEV) {

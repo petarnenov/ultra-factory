@@ -2,6 +2,7 @@ import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
 import { coerceUiSettings, DEFAULT_UI_SETTINGS } from "../../shared/ui-locale";
 import { usesPreviewWorkspaceData } from "./preview-mode";
+import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
 
 // The web build has no Electron supervisor. The daemon (or the proxy in front
@@ -91,18 +92,10 @@ export const aoBridge: AoBridge =
 		checkGitHubRepositoryAvailability: async () => ({ available: true }),
 			getPathForFile: () => "",
 			onOpenFolderPath: () => () => undefined,
-			onNewSessionShortcut: () => () => undefined,
-			onKeyboardShortcutsHelp: () => () => undefined,
-			onNewShellTerminalShortcut: () => () => undefined,
-			onCloseShellTerminalShortcut: () => () => undefined,
-			setCloseShellTerminalShortcutEnabled: () => undefined,
+			// Без main процес shortcut-ите идват от keydown handler-а в
+			// web-shortcuts.ts, който се инсталира само при isWebBuild.
+			...webShortcutListeners,
 			setChatDraftRisk: () => undefined,
-			onOpenSettingsShortcut: () => () => undefined,
-			onPreviousSessionShortcut: () => () => undefined,
-			onNextSessionShortcut: () => () => undefined,
-			onPreviousTabShortcut: () => () => undefined,
-			onNextTabShortcut: () => () => undefined,
-			onShortcut: () => () => undefined,
 		},
 		terminal: {
 			saveDroppedFile: async () => "",
@@ -360,7 +353,7 @@ export const aoBridge: AoBridge =
 		keybindings: {
 			get: async () => ({}),
 			set: async (overrides) => overrides,
-			setRecording: async () => undefined,
+			setRecording: async (active) => setWebShortcutRecording(active),
 		},
 		updates: {
 			getStatus: async () => ({ state: "idle" }),
