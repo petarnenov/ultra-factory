@@ -3,13 +3,17 @@ import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
 import type { Logger } from "./log.ts";
-import { parsePasswordHash, verifyPassword } from "./password.ts";
+import { parsePasswordHash, verifyPassword, type ParsedHash } from "./password.ts";
 import { clientKey, RateLimiter } from "./rate-limit.ts";
 import { SESSION_ABSOLUTE_MS, SessionStore } from "./sessions.ts";
 
 export const SESSION_COOKIE = "ao_hub_session";
 export const LOGIN_ATTEMPTS_PER_MINUTE = 5;
 const MAX_LOGIN_BODY_BYTES = 4096;
+// Всяка проверка със scrypt заема ~128 MiB. Лимитът на login е на клиент, затова
+// много различни адреси наведнъж могат да изчерпят паметта на малък контейнер.
+// Над този брой едновременни проверки login отговаря с 503, без да вика scrypt.
+export const MAX_CONCURRENT_PASSWORD_CHECKS = 2;
 
 // Префикси на пътища, които принадлежат на proxy-то към daemon-а от RW-2.4.2.
 // Докато то не е готово, отговарят с 501 на автентикиран клиент, вместо да
@@ -54,6 +58,8 @@ export type BffOptions = {
 	publicOrigin?: string;
 	log: Logger;
 	now?: () => number;
+	// Само за тестове: подменя проверката на паролата.
+	verify?: (candidate: string, hash: ParsedHash) => Promise<boolean>;
 };
 
 export function createBff(options: BffOptions): Server {
@@ -62,6 +68,8 @@ export function createBff(options: BffOptions): Server {
 	const password = parsePasswordHash(options.passwordHash);
 	const sessions = new SessionStore(options.now);
 	const loginLimiter = new RateLimiter(LOGIN_ATTEMPTS_PER_MINUTE, 60_000, options.now);
+	const verify = options.verify ?? verifyPassword;
+	let passwordChecksInFlight = 0;
 	const loginAssets = new Map(
 		Object.entries(LOGIN_ASSETS).map(([route, a]) => [route, { body: readFileSync(path.join(LOGIN_DIR, a.file)), type: a.type }]),
 	);
@@ -131,7 +139,23 @@ export function createBff(options: BffOptions): Server {
 		} catch {
 			return sendJson(res, 400, { error: "invalid_request" });
 		}
-		if (typeof candidate !== "string" || candidate.length === 0 || !(await verifyPassword(candidate, password))) {
+		if (typeof candidate !== "string" || candidate.length === 0) {
+			log("warn", "login failed", { client });
+			return sendJson(res, 401, { error: "invalid_credentials" });
+		}
+		if (passwordChecksInFlight >= MAX_CONCURRENT_PASSWORD_CHECKS) {
+			log("warn", "login refused: password checks busy", { client });
+			res.setHeader("Retry-After", "1");
+			return sendJson(res, 503, { error: "busy" });
+		}
+		passwordChecksInFlight += 1;
+		let ok: boolean;
+		try {
+			ok = await verify(candidate, password);
+		} finally {
+			passwordChecksInFlight -= 1;
+		}
+		if (!ok) {
 			log("warn", "login failed", { client });
 			return sendJson(res, 401, { error: "invalid_credentials" });
 		}

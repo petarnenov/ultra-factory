@@ -4,10 +4,10 @@ import type { Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import request from "supertest";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LogFields } from "../src/log.ts";
 import { hashPassword } from "../src/password.ts";
-import { LOGIN_ATTEMPTS_PER_MINUTE, SESSION_COOKIE, createBff } from "../src/server.ts";
+import { LOGIN_ATTEMPTS_PER_MINUTE, MAX_CONCURRENT_PASSWORD_CHECKS, SESSION_COOKIE, createBff } from "../src/server.ts";
 import { SESSION_IDLE_MS } from "../src/sessions.ts";
 
 // Евтина цена на scrypt пази тестовете бързи; продукцията ползва DEFAULT_COST.
@@ -190,6 +190,40 @@ describe("hub bff", () => {
 				expect((await login(h.server, { password: "wrong" }, spoofed)).status).toBe(401);
 			}
 			expect((await login(h.server, { password }, { "X-Forwarded-For": "203.0.113.99, 198.51.100.9" })).status).toBe(429);
+		});
+	});
+
+	describe("concurrent password checks", () => {
+		it(`refuses with 503 above ${MAX_CONCURRENT_PASSWORD_CHECKS} checks in flight without calling scrypt`, async () => {
+			const pending: Array<(ok: boolean) => void> = [];
+			let calls = 0;
+			const verify = () => {
+				calls += 1;
+				return new Promise<boolean>((resolve) => pending.push(resolve));
+			};
+			const server = createBff({ spaDir, passwordHash, log: () => {}, verify });
+			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+			try {
+				// Различни клиенти, за да не се намесва лимитът на клиент.
+				const inFlight = Array.from({ length: MAX_CONCURRENT_PASSWORD_CHECKS }, (_, i) =>
+					login(server, { password }, { "X-Forwarded-For": `198.51.100.${20 + i}` }).then((r) => r),
+				);
+				await vi.waitFor(() => expect(calls).toBe(MAX_CONCURRENT_PASSWORD_CHECKS));
+				const refused = await login(server, { password }, { "X-Forwarded-For": "198.51.100.99" });
+				expect(refused.status).toBe(503);
+				expect(refused.body).toEqual({ error: "busy" });
+				expect(refused.headers["retry-after"]).toBe("1");
+				expect(calls).toBe(MAX_CONCURRENT_PASSWORD_CHECKS);
+				// Освободеният слот отново приема проверки.
+				for (const resolve of pending.splice(0)) resolve(true);
+				for (const res of await Promise.all(inFlight)) expect(res.status).toBe(204);
+				const next = login(server, { password }, { "X-Forwarded-For": "198.51.100.99" }).then((r) => r);
+				await vi.waitFor(() => expect(calls).toBe(MAX_CONCURRENT_PASSWORD_CHECKS + 1));
+				pending.splice(0).forEach((resolve) => resolve(false));
+				expect((await next).status).toBe(401);
+			} finally {
+				server.close();
+			}
 		});
 	});
 

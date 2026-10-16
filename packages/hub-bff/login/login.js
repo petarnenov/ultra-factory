@@ -8,6 +8,7 @@ const button = form.querySelector("button");
 const MESSAGES = {
 	401: "Incorrect password.",
 	429: "Too many attempts. Wait a minute and try again.",
+	503: "The server is busy. Try again in a moment.",
 };
 
 form.addEventListener("submit", async (event) => {

@@ -11,7 +11,7 @@ export const DEFAULT_COST = { ln: 17, r: 8, p: 1 } as const;
 
 export type ScryptCost = { ln: number; r: number; p: number };
 
-type ParsedHash = ScryptCost & { salt: Buffer; hash: Buffer };
+export type ParsedHash = ScryptCost & { salt: Buffer; hash: Buffer };
 
 function scrypt(password: string, salt: Buffer, cost: ScryptCost): Promise<Buffer> {
 	const N = 2 ** cost.ln;
