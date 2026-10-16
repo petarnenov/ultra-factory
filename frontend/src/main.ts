@@ -69,7 +69,7 @@ import {
 } from "./main/ui-settings";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, renameSync, writeFileSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -118,6 +118,7 @@ import {
 	resolveDaemonFromRunFile,
 } from "./shared/daemon-attach";
 import { browserDaemonOwnershipDecision, shouldReplacePortHolder } from "./shared/daemon-takeover";
+import { devInstanceLockMessage, singletonLockHolderPid } from "./shared/dev-instance-lock";
 import {
 	buildDaemonEnv,
 	devDaemonAllowedOrigins,
@@ -477,7 +478,18 @@ protocol.registerSchemesAsPrivileged([
 // Must run before app.whenReady().
 registerCloudProtocol();
 if (!app.requestSingleInstanceLock()) {
-	app.exit(0);
+	if (isDev) {
+		let lockTarget: string | null = null;
+		try {
+			lockTarget = readlinkSync(path.join(app.getPath("userData"), "SingletonLock"));
+		} catch {
+			// No readable lock: the message falls back to an unnamed holder.
+		}
+		console.error(devInstanceLockMessage(app.getPath("userData"), singletonLockHolderPid(lockTarget)));
+		app.exit(1);
+	} else {
+		app.exit(0);
+	}
 }
 
 // Maps app://renderer/<path> to the built renderer in dist/. Paths without a
@@ -3077,7 +3089,12 @@ app.on("second-instance", (_event, argv) => {
 		return;
 	}
 	const window = BaseWindow.getAllWindows()[0];
-	if (!window) return;
+	if (!window) {
+		// Every window was closed but the app stayed in the Dock/tray: a relaunch
+		// should open one, the same as clicking the Dock icon ("activate").
+		if (app.isReady()) void createWindow().catch((error) => console.error("failed to recreate main window:", error));
+		return;
+	}
 	if (window.isMinimized()) window.restore();
 	window.show();
 	window.focus();
