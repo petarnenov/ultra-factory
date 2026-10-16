@@ -59,6 +59,21 @@ const CLOUD_CP_WS_ORIGINS = (() => {
 	return origins;
 })();
 
+// An explicit VITE_AO_API_BASE_URL in a web build may point at another origin;
+// allow exactly that origin (and its websocket twin for /mux), nothing broader.
+function explicitApiOrigins(): string[] {
+	const configured = process.env.VITE_AO_API_BASE_URL?.trim();
+	if (!configured) return [];
+	let url: URL;
+	try {
+		url = new URL(configured);
+	} catch {
+		return [];
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return [];
+	return [url.origin, `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}`];
+}
+
 // CSP for the renderer. The daemon is loopback-only, so network access is
 // pinned to 127.0.0.1 (REST + SSE over http, terminal mux over ws), plus the
 // cloud control-plane websocket origins above. The policy is injected here
@@ -67,7 +82,15 @@ const CLOUD_CP_WS_ORIGINS = (() => {
 // needs it. Enforcing CSP in dev keeps dev/packaged parity — a connect-src
 // gap then fails on the developer's screen, not weeks later in a packaged
 // build (that skew is exactly how the cloud-terminal block in #4666 shipped).
-export function contentSecurityPolicy(mode: "build" | "serve"): string {
+//
+// The web build (VITE_AO_WEB=1) is served same-origin with the daemon behind a
+// proxy, so nothing points at 127.0.0.1: REST, SSE, and the /mux websocket all
+// stay on 'self' (CSP Level 3 matches same-origin ws:/wss: under 'self').
+export function contentSecurityPolicy(
+	mode: "build" | "serve",
+	web: boolean = process.env.VITE_AO_WEB === "1",
+): string {
+	if (web) return webContentSecurityPolicy(mode);
 	return [
 		"default-src 'self'",
 		// react-refresh injects its inline preamble in serve mode; a hash is
@@ -104,5 +127,30 @@ export function contentSecurityPolicy(mode: "build" | "serve"): string {
 		// keeps its own sandbox from the daemon's CSP header either way.
 		// *.localhost is the inline-artifact origin an HTML artifact is framed from.
 		"frame-src 'self' http://127.0.0.1:* http://*.localhost:*",
+	].join("; ");
+}
+
+function webContentSecurityPolicy(mode: "build" | "serve"): string {
+	return [
+		"default-src 'self'",
+		mode === "serve" ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
+		"style-src 'self' 'unsafe-inline'",
+		// Repository avatars from self-hosted SCM instances, as in the desktop
+		// policy, minus the loopback daemon origins.
+		"img-src 'self' data: https:",
+		"font-src 'self' data:",
+		[
+			"connect-src",
+			"'self'",
+			...explicitApiOrigins(),
+			mode === "serve" ? "ws://localhost:*" : "",
+			...POSTHOG_ORIGINS,
+			...CLOUD_CP_WS_ORIGINS,
+		]
+			.filter(Boolean)
+			.join(" "),
+		"object-src 'none'",
+		"base-uri 'self'",
+		"frame-src 'self'",
 	].join("; ");
 }

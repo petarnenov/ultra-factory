@@ -508,3 +508,77 @@ describe("apiErrorDetails", () => {
 		},
 	);
 });
+
+describe("web build (VITE_AO_WEB=1)", () => {
+	// The module reads its env at import time, so each case imports fresh copies
+	// of api-client and daemon-status under the stubbed env. DEV is forced off
+	// to match a production web bundle.
+	async function loadModules(env: Record<string, string>) {
+		vi.resetModules();
+		vi.stubEnv("DEV", false);
+		for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+		const api = await import("./api-client");
+		const { applyDaemonStatus } = await import("./daemon-status");
+		return { ...api, applyDaemonStatus };
+	}
+
+	function recordFetches(): string[] {
+		const seenUrls: string[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+			seenUrls.push(input instanceof Request ? input.url : input.toString());
+			return new Response(JSON.stringify({ projects: [] }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			});
+		});
+		return seenUrls;
+	}
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+		vi.resetModules();
+	});
+
+	it("uses the same-origin base when the daemon reports ready, ignoring its loopback port", async () => {
+		const web = await loadModules({ VITE_AO_WEB: "1" });
+		const seenUrls = recordFetches();
+
+		expect(web.hasTrustedApiBaseUrl()).toBe(false);
+		web.applyDaemonStatus({ state: "ready", port: 4317 });
+
+		expect(web.hasTrustedApiBaseUrl()).toBe(true);
+		expect(web.getApiBaseUrl()).toBe("");
+		await web.apiClient.GET("/api/v1/projects");
+		expect(seenUrls).toEqual([`${window.location.origin}/api/v1/projects`]);
+		expect(seenUrls.some((url) => url.includes("127.0.0.1"))).toBe(false);
+	});
+
+	it("uses an explicit VITE_AO_API_BASE_URL when one is configured", async () => {
+		const web = await loadModules({ VITE_AO_WEB: "1", VITE_AO_API_BASE_URL: "https://ao.example.test/" });
+		const seenUrls = recordFetches();
+
+		web.applyDaemonStatus({ state: "ready", port: 4317 });
+
+		expect(web.getApiBaseUrl()).toBe("https://ao.example.test");
+		await web.apiClient.GET("/api/v1/projects");
+		expect(seenUrls).toEqual(["https://ao.example.test/api/v1/projects"]);
+	});
+
+	it("drops the trusted base when the daemon stops", async () => {
+		const web = await loadModules({ VITE_AO_WEB: "1" });
+
+		web.applyDaemonStatus({ state: "ready", port: 4317 });
+		web.applyDaemonStatus({ state: "stopped" });
+
+		expect(web.hasTrustedApiBaseUrl()).toBe(false);
+	});
+
+	it("keeps the Electron loopback base outside the web build", async () => {
+		const desktop = await loadModules({});
+
+		desktop.applyDaemonStatus({ state: "ready", port: 4317 });
+
+		expect(desktop.getApiBaseUrl()).toBe("http://127.0.0.1:4317");
+	});
+});
