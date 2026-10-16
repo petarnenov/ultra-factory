@@ -27,7 +27,7 @@ type LANManager struct {
 	log         *slog.Logger
 	state       *authState // shared with authMiddleware; SetPasswordHash writes through here
 	lock        *lockout
-	// trustedProxy ключува lockout-а по X-Forwarded-For (AO_REMOTE_TRUSTED_PROXY).
+	// trustedProxy keys the lockout on X-Forwarded-For (AO_REMOTE_TRUSTED_PROXY).
 	trustedProxy bool
 
 	transitionMu sync.Mutex // serializes Start and Stop without blocking status reads
@@ -39,12 +39,12 @@ type LANManager struct {
 	bindHost     string
 }
 
-// LANOption конфигурира LANManager при създаването му.
+// LANOption configures a LANManager at construction.
 type LANOption func(*LANManager)
 
-// WithTrustedProxy ключува lockout-а по най-десния запис в X-Forwarded-For
-// вместо по TCP peer-а, когато е включен. Само за listener, чийто единствен
-// публичен път е един reverse proxy; виж docs/adr/0005-trusted-proxy-remote-host.md.
+// WithTrustedProxy keys the lockout on the rightmost X-Forwarded-For entry
+// instead of the TCP peer when enabled. Only for a listener whose sole public
+// path is a single reverse proxy; see docs/adr/0005-trusted-proxy-remote-host.md.
 func WithTrustedProxy(enabled bool) LANOption {
 	return func(m *LANManager) { m.trustedProxy = enabled }
 }
@@ -215,7 +215,7 @@ func (m *LANManager) PasswordHash() string {
 
 // Start binds the authenticated listener on every interface for Connect Mobile.
 func (m *LANManager) Start(port int) (int, error) {
-	// С мрежа "tcp" Go отваря 0.0.0.0 като dual-stack сокет (IPv4 и IPv6); запази го така, за да го достигат частни мрежи само с IPv6 (ADR 0007).
+	// With network "tcp", Go opens 0.0.0.0 as a dual-stack socket (IPv4 and IPv6); keep it so IPv6-only private networks can reach it (ADR 0007).
 	return m.start(port, "0.0.0.0")
 }
 

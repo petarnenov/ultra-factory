@@ -169,11 +169,11 @@ type Config struct {
 	// TrackerIntake gates the issue-intake observer daemon-wide
 	// (AO_TRACKER_INTAKE).
 	TrackerIntake bool
-	// RemoteTrustedProxy кара remote-host listener-а да ключува lockout-а си по
-	// най-десния запис в X-Forwarded-For вместо по TCP peer-а
-	// (AO_REMOTE_TRUSTED_PROXY, по подразбиране off). Само за worker, чийто
-	// единствен публичен път е един reverse proxy; никога не се използва за
-	// авторизация. Виж docs/adr/0005-trusted-proxy-remote-host.md.
+	// RemoteTrustedProxy makes the remote-host listener key its lockout on the
+	// rightmost X-Forwarded-For entry instead of the TCP peer
+	// (AO_REMOTE_TRUSTED_PROXY, default off). Only for a worker whose sole
+	// public path is a single reverse proxy; never used for authorization. See
+	// docs/adr/0005-trusted-proxy-remote-host.md.
 	RemoteTrustedProxy bool
 	// Client identifies which client this deployment serves (AO_CLIENT). It is
 	// reported to clients through the settings API and gates nothing in the
@@ -226,7 +226,7 @@ func (c Config) Addr() string {
 //	AO_CLOUD_OFFERING          cloud offering flag off|on (default off)
 //	AO_LOCAL_OFFERING          local offering off|on (default on)
 //	AO_CLOUD_CONTROL_PLANE_URL cloud control plane base URL (trimmed, must be http(s))
-//	AO_REMOTE_TRUSTED_PROXY    доверие към X-Forwarded-For за lockout ключовете на remote-host off|on (по подразбиране off)
+//	AO_REMOTE_TRUSTED_PROXY    trust X-Forwarded-For for remote-host lockout keys off|on (default off)
 //
 // The bind host is not configurable: the daemon is loopback-only by design.
 func Load() (Config, error) {
