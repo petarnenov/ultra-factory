@@ -81,15 +81,16 @@ const productUiReactBoundary: Plugin = {
 	},
 };
 
-// VITE_AO_WEB=1 selects the standalone web target (build:web, dev:web:real):
-// the real renderer served from a static host behind a proxy to the daemon, as
-// opposed to the Electron renderer or the VITE_NO_ELECTRON mock preview.
+// VITE_AO_WEB=1 избира самостоятелната уеб цел (build:web, dev:web:real):
+// истинският renderer, сервиран от статичен хост зад proxy към daemon-а, за
+// разлика от Electron renderer-а или mock preview-то с VITE_NO_ELECTRON.
 const isWebTarget = process.env.VITE_AO_WEB === "1";
 const devApiTarget = process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001";
 
 export default defineConfig({
-	// Relative asset URLs so dist-web works from any mount path; the router uses
-	// hash history, so no server-side route fallback is needed.
+	// Относителни URL-и на ресурсите, за да работи dist-web от всеки път на
+	// монтиране; router-ът използва hash history, така че не е нужен fallback на
+	// маршрутите от страна на сървъра.
 	base: isWebTarget ? "./" : undefined,
 	build: {
 		outDir: isWebTarget ? "dist-web" : undefined,
@@ -121,10 +122,10 @@ export default defineConfig({
 			),
 		},
 	},
-	// Dev proxy for browser runs (VITE_NO_ELECTRON=1 preview, VITE_AO_WEB=1
-	// dev:web:real) — forwards /api, /mux and the daemon health probes to the
-	// daemon so the renderer can be tested against a running daemon from a
-	// plain browser without an Electron shell.
+	// Dev proxy за пускане в браузър (preview с VITE_NO_ELECTRON=1, VITE_AO_WEB=1
+	// dev:web:real) — препраща /api, /mux и health пробите на daemon-а към
+	// daemon-а, за да може renderer-ът да се тества срещу работещ daemon от
+	// обикновен браузър без Electron обвивка.
 	server: {
 		proxy: {
 			"/api": { target: devApiTarget, changeOrigin: false },
