@@ -40,6 +40,48 @@ Build arguments:
 `gh` comes from GitHub's official apt repository. That repository serves only
 the latest release, so the `gh` version follows the build date.
 
+## Published image
+
+`.github/workflows/worker-image.yml` publishes the image for `linux/amd64` and
+`linux/arm64` to GitHub Container Registry:
+
+```text
+ghcr.io/<owner>/ao-worker:<tag>          # this repository: ghcr.io/petarnenov/ao-worker
+```
+
+| Tag | Pushed when | Moves |
+|---|---|---|
+| `sha-<short>` | every publish, from the 7-character commit SHA | no |
+| `worker-v<semver>` | a `worker-v<semver>` git tag is pushed, for example `worker-v0.1.0` | no |
+
+The worker image is its own channel: it is never tagged with desktop release
+versions, and there is no `latest`. Point a Railway service at a
+`worker-v<semver>` tag, or at a `sha-<short>` tag to try an unreleased commit.
+`ao version` in a tagged image prints the tag name; other builds print `dev`
+and the commit.
+
+The workflow runs on a push to `main` that touches the image's inputs
+(`backend/`, `deploy/railway/worker/`, `frontend/acp-runtime/`, the ACP build
+scripts in `frontend/scripts/`, or the workflow itself), on every `worker-v*`
+tag, on pull requests that touch the same paths, and on a manual run. Only a
+push to `main` or a `worker-v*` tag publishes; pull requests and manual runs
+build both platforms and smoke-test without pushing. Publishing waits for the
+smoke job, which starts the `linux/amd64` image on an empty volume with
+`AO_REMOTE_PASSWORD` set and checks that `GET :3011/api/v1/identity` returns
+200 with a `hostId` and that the listener accepts that password.
+`make ci-local` runs the same jobs locally without the GitHub Actions cache
+and never logs in or pushes.
+
+To cut a release, push a tag from a commit on `main`:
+
+```bash
+git tag worker-v0.1.0 && git push origin worker-v0.1.0
+```
+
+The first push creates the `ao-worker` package as private. To let Railway pull
+it without registry credentials, make it public under the owner's
+**Packages** settings.
+
 ## Layout and environment
 
 | Path or variable | Value |

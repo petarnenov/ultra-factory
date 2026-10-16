@@ -3,6 +3,7 @@ import { aoBridge } from "../lib/bridge";
 import { connectHost, connectedHosts, disconnectHost } from "../lib/host-clients";
 import { useCloudSession } from "../lib/cloud-session";
 import { listAccountRemoteHosts } from "../lib/account-remote-hosts";
+import { isWebBuild } from "../lib/platform";
 import { useSettings } from "./useSettings";
 import { useUiStore } from "../stores/ui-store";
 
@@ -32,8 +33,10 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: () => Promise<
 	const { status, session } = useCloudSession();
 	const accountId = session?.user.id ?? "";
 	const { settings } = useSettings();
-	const cloudBaseUrl = settings?.cloudControlPlaneUrl ?? "";
-	const enabled = remoteHostsEnabled && status === "authenticated" && Boolean(accountId);
+	// The web build's hosts come from the hub BFF behind its own sign-in, not from
+	// an AO Cloud account (see RemoteHostsSettings).
+	const cloudBaseUrl = isWebBuild ? "" : settings?.cloudControlPlaneUrl ?? "";
+	const enabled = remoteHostsEnabled && (isWebBuild || (status === "authenticated" && Boolean(accountId)));
 	const enabledRef = useRef(enabled);
 	enabledRef.current = enabled;
 	const accountRef = useRef(accountId);
