@@ -1,10 +1,10 @@
-# RW-3.2.2 · Таск: Reconcile, сираци и лимити
+# RW-3.2.2 · Task: Reconcile, orphans and limits
 
-**Тип:** Node TS. **Оценка:** 1–1.5 чд. **Стори:** RW-3.2. **Зависимости:** RW-3.2.1.
+**Type:** Node TS. **Estimate:** 1–1.5 pd. **Story:** RW-3.2. **Dependencies:** RW-3.2.1.
 
-## Събтаскове
-- [ ] При старт на BFF-а: за всеки host с `status ∈ {provisioning, removing}` продължи job-а (poll или delete).
-- [ ] Периодично (5 мин): `provider.list()` на services с label/tag `ao-worker=1` в project-а; service без запис в `hosts.json` → лог WARNING „orphan“ + показване в UI с бутон „Adopt“/„Delete“. Никога автоматично триене.
-- [ ] `AO_HUB_MAX_WORKERS` (default 5): `POST /hub/workers` → 429 при достигане, с брой и лимит в тялото.
-- [ ] Метрики в лог: брой работници по статус, последен reconcile.
-- [ ] Тестове: orphan detection, resume след рестарт, лимит.
+## Subtasks
+- [ ] On BFF startup: for every host with `status ∈ {provisioning, removing}`, resume the job (poll or delete).
+- [ ] Periodically (5 min): `provider.list()` of services with label/tag `ao-worker=1` in the project; a service with no record in `hosts.json` → WARNING log "orphan" + shown in the UI with an "Adopt"/"Delete" button. Never delete automatically.
+- [ ] `AO_HUB_MAX_WORKERS` (default 5): `POST /hub/workers` → 429 when reached, with the count and the limit in the body.
+- [ ] Metrics in the log: number of workers by status, last reconcile.
+- [ ] Tests: orphan detection, resume after restart, limit.

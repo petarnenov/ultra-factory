@@ -1,44 +1,44 @@
-# Образ на AO worker (Railway)
+# AO worker image (Railway)
 
-Контейнерен образ, който пуска AO daemon-а като отдалечен worker хост. Съдържа
-binary-то `ao` (чист Go, `CGO_ENABLED=0`), всичко, което `systemcheck` маркира
-като Required (`git`, `tmux`), Node 24 с patch-натия Claude ACP адаптер на AO за
-Claude Code Chat, `gh`, CLI-ите на агентите, както и `tini` и `jq` за
-entrypoint-а.
+A container image that runs the AO daemon as a remote worker host. It holds
+the `ao` binary (pure Go, `CGO_ENABLED=0`), everything `systemcheck` marks
+Required (`git`, `tmux`), Node 24 with AO's patched Claude ACP adapter for
+Claude Code Chat, `gh`, the agent CLIs, and `tini` and `jq` for the
+entrypoint.
 
-## Билд
+## Build
 
-Контекстът на билда е коренът на репото. `Dockerfile.dockerignore` ограничава
-контекста до файловете, които образът използва.
+The build context is the repository root. `Dockerfile.dockerignore` limits the
+context to the files the image uses.
 
 ```bash
 docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
 docker run --rm ao-worker:dev sh -c 'ao version && git --version && tmux -V && node -v && claude --version && gh --version'
 ```
 
-Multi-arch с buildx. Go binary-то и ACP адаптерът се билдват на хоста на билда;
-само последният етап работи под емулация за другата архитектура:
+Multi-arch with buildx. The Go binary and the ACP adapter build on the build
+host; only the final stage runs under emulation for the other architecture:
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 \
   -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
 ```
 
-Buildx builder от тип `docker-container` изпълнява arm64 стъпките с QEMU, който
-идва с BuildKit. На builder без емулация я регистрирай веднъж на хоста с
+A `docker-container` buildx builder runs arm64 steps with BuildKit's bundled
+QEMU. On a builder without emulation, register it once on the host with
 `docker run --privileged --rm tonistiigi/binfmt --install arm64`.
 
-Аргументи на билда:
+Build arguments:
 
-| Аргумент | По подразбиране | Предназначение |
+| Argument | Default | Purpose |
 |---|---|---|
-| `AGENT_NPM_PACKAGES` | `@anthropic-ai/claude-code@2.1.228 @openai/codex@0.147.0 opencode-ai@1.19.3` | Глобални npm инсталации с фиксирани версии. Дръж Claude Code в списъка. |
-| `CURSOR_AGENT_VERSION` | `2026.08.11-e8db854` | Издание на Cursor Agent. Задай го празно, за да остане Cursor извън образа. |
-| `AO_VERSION`, `AO_COMMIT` | `dev`, `unknown` | Записват се в `ao version`. |
-| `GO_IMAGE`, `NODE_IMAGE` | `golang:1.27.1-bookworm`, `node:24-bookworm-slim` | Базови образи. |
+| `AGENT_NPM_PACKAGES` | `@anthropic-ai/claude-code@2.1.228 @openai/codex@0.147.0 opencode-ai@1.19.3` | Pinned global npm installs. Keep Claude Code in the list. |
+| `CURSOR_AGENT_VERSION` | `2026.08.11-e8db854` | Cursor Agent release. Set it empty to leave Cursor out. |
+| `AO_VERSION`, `AO_COMMIT` | `dev`, `unknown` | Stamped into `ao version`. |
+| `GO_IMAGE`, `NODE_IMAGE` | `golang:1.27.1-bookworm`, `node:24-bookworm-slim` | Base images. |
 
-`gh` идва от официалното apt хранилище на GitHub. То сервира само последното
-издание, така че версията на `gh` следва датата на билда.
+`gh` comes from GitHub's official apt repository. That repository serves only
+the latest release, so the `gh` version follows the build date.
 
 ## Published image
 
@@ -82,115 +82,109 @@ The first push creates the `ao-worker` package as private. To let Railway pull
 it without registry credentials, make it public under the owner's
 **Packages** settings.
 
-## Подредба и среда
+## Layout and environment
 
-| Път или променлива | Стойност |
+| Path or variable | Value |
 |---|---|
-| `/opt/ao/daemon/ao` | daemon и CLI, в `PATH` |
-| `/opt/ao/acp-runtime` | patch-натият `claude-agent-acp`; `node/bin/node` сочи към Node на образа |
-| `/usr/local/bin/ao-worker-entrypoint.sh` | entrypoint, пускан от `tini -s` |
-| потребител | `ao`, uid/gid 10001 |
+| `/opt/ao/daemon/ao` | daemon and CLI, on `PATH` |
+| `/opt/ao/acp-runtime` | patched `claude-agent-acp`; `node/bin/node` links to the image's Node |
+| `/usr/local/bin/ao-worker-entrypoint.sh` | entrypoint, run by `tini -s` |
+| user | `ao`, uid/gid 10001 |
 | `HOME` | `/data/home` |
 | `WORKDIR` | `/data` |
 | `AO_DATA_DIR` | `/data/ao` |
 | `AO_RUN_FILE` | `/data/ao/running.json` |
 | `AO_HARNESS_UPDATE_CHECKS` | `off` |
 | `EXPOSE` | `3011` (remote-host listener) |
-| `HEALTHCHECK` | `GET http://127.0.0.1:3001/healthz` вътре в контейнера |
+| `HEALTHCHECK` | `GET http://127.0.0.1:3001/healthz` inside the container |
 
-Daemon-ът намира `acp-runtime/` до `daemon/`, същата подредба като при
-`make daemon-dist`, така че `AO_ACP_RUNTIME_DIR` не е нужна. `tmux` идва от
-Debian и се намира в `PATH`, така че и `AO_TMUX_BINARY` не е нужна.
+The daemon finds `acp-runtime/` next to `daemon/`, the same layout as
+`make daemon-dist`, so `AO_ACP_RUNTIME_DIR` is not needed. `tmux` comes from
+Debian and is found on `PATH`, so `AO_TMUX_BINARY` is not needed either.
 
-## Размер
+## Size
 
-Измерено на 2026-10-16 от `main` @ f421a7098 със стойностите по подразбиране
-по-горе:
+Measured 2026-10-16 from `main` @ f421a7098 with the defaults above:
 
-| Платформа | Компресиран (слоеве в registry) | Разпакетиран |
+| Platform | Compressed (registry layers) | Unpacked |
 |---|---|---|
 | linux/amd64 | 559 MiB | 2.2 GB |
-| linux/arm64 | 490 MiB | не е измерен |
+| linux/arm64 | 490 MiB | not measured |
 
-Целта е под 1.5 GB компресиран. По-голямата част са CLI-ите на агентите: npm
-слоят е около 1 GB разпакетиран (само Claude Code е около 300 MB).
+The target is under 1.5 GB compressed. The agent CLIs are most of it: the npm
+layer is about 1 GB unpacked (Claude Code alone is about 300 MB).
 
 ## Entrypoint
 
-`tini` е PID 1. Той препраща `SIGTERM` към daemon-а и прибира осиротелите
-дъщерни процеси, които daemon като PID 1 оставя като зомбита. `-s` запазва това
-работещо, когато runtime-ът добавя собствен init (`docker run --init`).
-Entrypoint-ът (`ao-worker-entrypoint.sh`) се изпълнява при всеки старт и след
-това се заменя с подадената команда или, ако няма такава, с `ao daemon` на
-преден план:
+`tini` is PID 1. It forwards `SIGTERM` to the daemon and reaps orphaned
+children, which a PID 1 daemon leaves as zombies. `-s` keeps that working
+when the runtime adds its own init (`docker run --init`). The entrypoint
+(`ao-worker-entrypoint.sh`) runs on every start and then replaces itself with
+the given command, or `ao daemon` in the foreground when there is none:
 
-1. **Като root** предава `/data`, `AO_DATA_DIR` и `HOME` на uid 10001
-   (`chown -R`, само когато собственикът на най-горното ниво е грешен) и се
-   пуска отново като uid 10001 със `setpriv`. Daemon-ът никога не работи като
-   root.
-2. Създава `AO_DATA_DIR` и `HOME` (mode 0700). Ако не са записваеми, излиза с
-   подсказка за `RAILWAY_RUN_UID=0`.
-3. **Само при първия старт** (няма `<AO_DATA_DIR>/mobile/config.json`): записва
+1. **As root**, it hands `/data`, `AO_DATA_DIR`, and `HOME` to uid 10001
+   (`chown -R`, only when the top-level owner is wrong) and re-runs itself as
+   uid 10001 with `setpriv`. The daemon never runs as root.
+2. Creates `AO_DATA_DIR` and `HOME` (mode 0700). If they are not writable it
+   exits with a hint about `RAILWAY_RUN_UID=0`.
+3. **First start only** (no `<AO_DATA_DIR>/mobile/config.json`): writes
    `{"enabled":true,"password":...,"lastPort":...,"noPublicTunnel":true}`
-   с mode 0600. Daemon-ът възстановява remote-host listener-а от него при
-   стартиране, така че не е нужен интерактивен `ao remote-host enable`.
-   `noPublicTunnel` е това, което записва `ao remote-host enable`. Паролата е
-   `AO_REMOTE_PASSWORD` или генерирана парола от 8 знака, която се логва само
-   при този старт. Следващите стартове оставят файла както е и логват паролата
-   маскирана; `ao remote-host status` в контейнера я показва.
-4. Активира или отнема акаунт токена (виж по-долу).
-5. Задава git идентичността и credential helper-а на `gh` от средата.
-6. Изпълнява командата с `exec`. За `ao daemon` отделен помощен процес изчаква
-   `/readyz` и логва `hostId` и адреса и порта на listener-а.
+   with mode 0600. The daemon restores the remote-host listener from it on
+   boot, so no interactive `ao remote-host enable` is needed.
+   `noPublicTunnel` is what `ao remote-host enable` saves. The password is
+   `AO_REMOTE_PASSWORD`, or a generated 8-character one that is logged on
+   that start only. Later starts keep the file as it is and log the password
+   masked; `ao remote-host status` in the container shows it.
+4. Arms or revokes the account token (below).
+5. Sets the git identity and the `gh` credential helper from the environment.
+6. `exec`s the command. For `ao daemon`, a detached helper waits for
+   `/readyz` and logs `hostId` and the listener address and port.
 
-`AO_ENTRYPOINT_DRY_RUN=1` изпълнява стъпки 2-5 и печата командата, вместо да я
-изпълни. `entrypoint_test.sh` го използва, за да тества логиката за
-предварителното записване:
+`AO_ENTRYPOINT_DRY_RUN=1` runs steps 2-5 and prints the command instead of
+running it. `entrypoint_test.sh` uses it to test the pre-seed logic:
 
 ```bash
 deploy/railway/worker/entrypoint_test.sh
 ```
 
-### Променливи
+### Variables
 
-| Променлива | За какво се използва |
+| Variable | Used for |
 |---|---|
-| `AO_REMOTE_PASSWORD` | Паролата на remote-host при първия старт. Игнорира се, щом `config.json` съществува; изтрий файла, за да се запише наново. |
-| `AO_REMOTE_PORT` | `lastPort` при първия старт, по подразбиране `3011`. Ако портът е зает, daemon-ът пада обратно към ефимерен порт; логът при старт показва истинския. |
-| `AO_REMOTE_ACCOUNT_TOKEN` | 256-битов Bearer credential за публичен URL, например `openssl rand -hex 32`. |
-| `AO_GIT_USER_NAME`, `AO_GIT_USER_EMAIL` | `git config --global user.name/user.email` в `HOME`. |
-| `GH_TOKEN` (или `GITHUB_TOKEN`) | Чете се директно от `gh`; entrypoint-ът пуска и `gh auth setup-git`, за да го използва `git` през HTTPS. |
-| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | Четат се директно от Claude Code, нищо не се записва. |
-| `AO_PORT` | Портът на loopback API-то, който помощният процес при старт проверява, по подразбиране `3001`. |
+| `AO_REMOTE_PASSWORD` | Remote-host password on the first start. Ignored once `config.json` exists; delete the file to re-seed. |
+| `AO_REMOTE_PORT` | `lastPort` on the first start, default `3011`. The daemon falls back to an ephemeral port if it is taken; the startup log shows the real one. |
+| `AO_REMOTE_ACCOUNT_TOKEN` | 256-bit Bearer credential for a public URL, for example `openssl rand -hex 32`. |
+| `AO_GIT_USER_NAME`, `AO_GIT_USER_EMAIL` | `git config --global user.name/user.email` in `HOME`. |
+| `GH_TOKEN` (or `GITHUB_TOKEN`) | Read by `gh` directly; the entrypoint also runs `gh auth setup-git` so `git` over HTTPS uses it. |
+| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` | Read by Claude Code directly, nothing is written. |
+| `AO_PORT` | Loopback API port the startup helper polls, default `3001`. |
 
-Логът при старт посочва кои променливи с credential-и са зададени, но никога
-стойностите им.
+The startup log names which credential variables are set, never their
+values.
 
-**Акаунт токен.** При всеки старт entrypoint-ът записва `accountTokenHash`,
-SHA-256 hex на `AO_REMOTE_ACCOUNT_TOKEN`, в `config.json`. Listener-ът приема
-този токен като Bearer credential наред с паролата.
-`POST /api/v1/remote-host/account-token` на daemon-а не се използва: той създава
-собствен случаен токен и не може да приеме такъв от извикващия. Издадени от
-daemon-а `accountToken`/`accountTokenOwner` отпадат, когато променливата ги
-замени. Когато променливата бъде премахната, следващият старт премахва хеш,
-записан от entrypoint-а (хеш без `accountToken` до него); токен, издаден от
-daemon-а, се запазва. Смяната на паролата в AO също отнема токена до следващия
-старт, който го записва отново.
+**Account token.** The entrypoint writes `accountTokenHash`, the SHA-256 hex
+of `AO_REMOTE_ACCOUNT_TOKEN`, into `config.json` on every start. The
+listener accepts that token as a Bearer credential beside the password. The
+daemon's `POST /api/v1/remote-host/account-token` is not used: it mints its
+own random token and cannot take one from the caller. A daemon-issued
+`accountToken`/`accountTokenOwner` is dropped when the variable replaces it.
+When the variable is removed, the next start removes a hash that the
+entrypoint wrote (a hash with no `accountToken` beside it); a token the
+daemon issued is kept. Rotating the password in AO also revokes the token
+until the next start writes it again.
 
 ### Railway
 
-- Монтирай volume-а на `/data`. Railway монтира volume-ите със собственик root, а
-  собствеността, зададена по време на билда, не се пренася
-  ([документация](https://docs.railway.com/volumes)). Задай `RAILWAY_RUN_UID=0`
-  на услугата, за да стартира entrypoint-ът като root, да смени собственика на
-  volume-а с chown и да премине към uid 10001. Без него контейнерът излиза с
-  грешка за `/data/ao`.
-- Остави командата за старт на услугата празна. По подразбиране тя е
-  `ENTRYPOINT` на образа, който пуска `tini` и предварителното записване.
-  Документацията на Railway не казва дали потребителска команда за старт запазва
-  `ENTRYPOINT`
-  ([документация](https://docs.railway.com/reference/build-and-start-commands)).
+- Mount the volume at `/data`. Railway mounts volumes owned by root, and
+  ownership set at build time does not carry over
+  ([docs](https://docs.railway.com/volumes)). Set `RAILWAY_RUN_UID=0` on the
+  service so the entrypoint starts as root, chowns the volume, and drops to
+  uid 10001. Without it the container exits with an error about `/data/ao`.
+- Leave the service's start command empty. Its default is the image's
+  `ENTRYPOINT`, which runs `tini` and the pre-seed. Railway's docs do not say
+  whether a custom start command keeps the `ENTRYPOINT`
+  ([docs](https://docs.railway.com/reference/build-and-start-commands)).
 
-Локално именуван volume (`-v vol:/data`) започва с `/data` от образа, който
-вече е собственост на uid 10001, така че там `RAILWAY_RUN_UID` не е нужна. За да
-имитираш Railway, пусни с `-u 0`.
+Locally, a named volume (`-v vol:/data`) starts with the image's `/data`, which
+is already owned by uid 10001, so `RAILWAY_RUN_UID` is not needed there. To
+mimic Railway, run with `-u 0`.

@@ -59,8 +59,8 @@ const CLOUD_CP_WS_ORIGINS = (() => {
 	return origins;
 })();
 
-// Изричен VITE_AO_API_BASE_URL в уеб билд може да сочи към друг origin;
-// разреши точно този origin (и websocket близнака му за /mux), нищо по-широко.
+// An explicit VITE_AO_API_BASE_URL in a web build may point at another origin;
+// allow exactly that origin (and its websocket twin for /mux), nothing broader.
 function explicitApiOrigins(): string[] {
 	const configured = process.env.VITE_AO_API_BASE_URL?.trim();
 	if (!configured) return [];
@@ -83,9 +83,9 @@ function explicitApiOrigins(): string[] {
 // gap then fails on the developer's screen, not weeks later in a packaged
 // build (that skew is exactly how the cloud-terminal block in #4666 shipped).
 //
-// Уеб билдът (VITE_AO_WEB=1) се сервира same-origin с daemon-а зад proxy,
-// затова нищо не сочи към 127.0.0.1: REST, SSE и /mux websocket-ът остават
-// на 'self' (CSP Level 3 съпоставя same-origin ws:/wss: с 'self').
+// The web build (VITE_AO_WEB=1) is served same-origin with the daemon behind a
+// proxy, so nothing points at 127.0.0.1: REST, SSE, and the /mux websocket all
+// stay on 'self' (CSP Level 3 matches same-origin ws:/wss: under 'self').
 export function contentSecurityPolicy(
 	mode: "build" | "serve",
 	web: boolean = process.env.VITE_AO_WEB === "1",
@@ -135,8 +135,8 @@ function webContentSecurityPolicy(mode: "build" | "serve"): string {
 		"default-src 'self'",
 		mode === "serve" ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
 		"style-src 'self' 'unsafe-inline'",
-		// Аватари на репота от self-hosted SCM инстанции, както в политиката за
-		// десктопа, без loopback origin-ите на daemon-а.
+		// Repository avatars from self-hosted SCM instances, as in the desktop
+		// policy, minus the loopback daemon origins.
 		"img-src 'self' data: https:",
 		"font-src 'self' data:",
 		[

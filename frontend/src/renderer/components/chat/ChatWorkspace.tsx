@@ -88,7 +88,7 @@ import { aoBridge } from "../../lib/bridge";
 import { isDialogOrMenuOpen } from "../../lib/dom-selectors";
 import { clampTerminalFontSize, initialTerminalFontSize, terminalFontSizeStorageKey } from "../../lib/terminal-font-size";
 import { createTerminalMux, muxUrlFromApiBase } from "../../lib/terminal-mux";
-import { isLinuxPlatform, isMacPlatform } from "../../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild } from "../../lib/platform";
 import { handleTerminalTabListKeyDown } from "../../lib/terminal-tabs";
 import { agentLabel } from "../../lib/agent-options";
 import type { ApprovalMode } from "../../types/conversation";
@@ -274,8 +274,8 @@ const ShellTerminalTabEntry = memo(function ShellTerminalTabEntry({
 	);
 });
 
-const isMac = isMacPlatform();
-const isLinux = isLinuxPlatform();
+const isMac = isMacPlatform() && !isWebBuild;
+const isLinux = isLinuxPlatform() || isWebBuild;
 
 type MessageEditDraft = ChatDraftInlineEdit;
 

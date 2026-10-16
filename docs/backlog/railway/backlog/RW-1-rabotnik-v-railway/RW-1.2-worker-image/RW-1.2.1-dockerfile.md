@@ -1,32 +1,32 @@
-# RW-1.2.1 · Таск: Dockerfile на работника
+# RW-1.2.1 · Task: Worker Dockerfile
 
-**Тип:** инфраструктура. **Оценка:** 1 чд. **Стори:** RW-1.2.
+**Type:** infrastructure. **Estimate:** 1 pd. **Story:** RW-1.2.
 
-## Цел
-`deploy/railway/worker/Dockerfile` (нова директория), който билдва `ao` (pure Go, CGO off) и инсталира runtime зависимостите.
+## Goal
+`deploy/railway/worker/Dockerfile` (new directory) that builds `ao` (pure Go, CGO off) and installs the runtime dependencies.
 
-## Контекст
-- Прецеденти: `test/cli/Dockerfile` (multi-stage Go build, `golang:1.27.1-bookworm`), `cloud/Dockerfile` worker target (`node:22-trixie-slim`, claude-code, codex, opencode, cursor-agent, gh, git, tmux, user uid 10001).
-- `scripts/build-daemon-dist.sh` бъндълва Node 24 и patched `claude-agent-acp` в `acp-runtime/`. Бъндълнатият Node иска glibc ≥ 2.28, Alpine не става.
-- Required binaries по `backend/internal/service/systemcheck/systemcheck.go:181-197`: git, tmux. ACP chat изисква node.
-- `AO_TMUX_BINARY` (`backend/internal/tmuxbin/resolve.go:36`) ако tmux не е бъндълнат.
+## Context
+- Precedents: `test/cli/Dockerfile` (multi-stage Go build, `golang:1.27.1-bookworm`), the `cloud/Dockerfile` worker target (`node:22-trixie-slim`, claude-code, codex, opencode, cursor-agent, gh, git, tmux, user uid 10001).
+- `scripts/build-daemon-dist.sh` bundles Node 24 and a patched `claude-agent-acp` into `acp-runtime/`. The bundled Node requires glibc ≥ 2.28, so Alpine will not work.
+- Required binaries per `backend/internal/service/systemcheck/systemcheck.go:181-197`: git, tmux. ACP chat requires node.
+- `AO_TMUX_BINARY` (`backend/internal/tmuxbin/resolve.go:36`) if tmux is not bundled.
 
-## Събтаскове
-- [ ] Stage 1: `go build -trimpath -o /out/ao ./cmd/ao` с `CGO_ENABLED=0` от `backend/`.
-- [ ] Stage 2: база `node:24-bookworm-slim` (или trixie). `apt-get install git tmux bash ca-certificates openssh-client curl` + `gh` от официалния apt repo.
-- [ ] Инсталирай агентски CLI-та като build ARG списък с пинати версии: `@anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`; по желание `cursor-agent`. Копирай patched `claude-agent-acp` от `frontend/scripts/build-acp-runtime.mjs` output или преизползвай логиката на `build-daemon-dist.sh`.
+## Subtasks
+- [ ] Stage 1: `go build -trimpath -o /out/ao ./cmd/ao` with `CGO_ENABLED=0` from `backend/`.
+- [ ] Stage 2: base `node:24-bookworm-slim` (or trixie). `apt-get install git tmux bash ca-certificates openssh-client curl` + `gh` from the official apt repo.
+- [ ] Install the agent CLIs as a build ARG list with pinned versions: `@anthropic-ai/claude-code`, `@openai/codex`, `opencode-ai`; optionally `cursor-agent`. Copy the patched `claude-agent-acp` from the `frontend/scripts/build-acp-runtime.mjs` output or reuse the logic of `build-daemon-dist.sh`.
 - [ ] Non-root user `ao` (uid 10001), `HOME=/data/home`, `WORKDIR /data`.
 - [ ] `ENV AO_DATA_DIR=/data/ao AO_RUN_FILE=/data/ao/running.json AO_HARNESS_UPDATE_CHECKS=off`.
-- [ ] `EXPOSE 3011`, `HEALTHCHECK` към `http://127.0.0.1:3001/healthz`.
+- [ ] `EXPOSE 3011`, `HEALTHCHECK` against `http://127.0.0.1:3001/healthz`.
 - [ ] `ENTRYPOINT ["/usr/local/bin/ao-worker-entrypoint.sh"]` (RW-1.2.2).
-- [ ] Multi-arch (`linux/amd64`, `linux/arm64`) чрез buildx.
+- [ ] Multi-arch (`linux/amd64`, `linux/arm64`) via buildx.
 
-## Критерии за приемане
-- [ ] Image < 1.5 GB компресиран (измери и запиши в README на директорията).
-- [ ] `docker run --rm <img> ao version` работи; `which git tmux node claude gh` връща пътища.
-- [ ] Няма root процеси след старт.
+## Acceptance criteria
+- [ ] Image < 1.5 GB compressed (measure it and record it in the directory's README).
+- [ ] `docker run --rm <img> ao version` works; `which git tmux node claude gh` returns paths.
+- [ ] No root processes after startup.
 
-## Проверка
+## Verification
 ```
 docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
 docker run --rm ao-worker:dev sh -c 'ao version && git --version && tmux -V && node -v && claude --version && gh --version'

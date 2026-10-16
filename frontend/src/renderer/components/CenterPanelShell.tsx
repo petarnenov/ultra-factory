@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/utils";
 import { useWindowFullScreen } from "../hooks/useWindowFullScreen";
-import { isLinuxPlatform, isMacPlatform } from "../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild } from "../lib/platform";
 import { sidebarOccupiesLayout, useUiStore } from "../stores/ui-store";
 
 /**
@@ -30,8 +30,8 @@ export function CenterPanelShell({
 }) {
 	const isSidebarOpen = useUiStore(sidebarOccupiesLayout);
 	const isFullScreen = useWindowFullScreen();
-	const isMac = isMacPlatform();
-	const isLinux = isLinuxPlatform();
+	const isMac = isMacPlatform() && !isWebBuild;
+	const isLinux = isLinuxPlatform() || isWebBuild;
 	const align = titlebarAlign && isMac;
 	const titlebarClearance = align && !isSidebarOpen;
 	const linuxTitlebarClearance = titlebarAlign && isLinux && !isSidebarOpen;

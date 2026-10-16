@@ -7,7 +7,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 ARGS ?=
-NPM_DIRS := . frontend packages/cloud-client packages/product-ui
+NPM_DIRS := . frontend packages/cloud-client packages/product-ui packages/hub-bff
 
 .PHONY: help setup doctor \
 	dev dev-cloud dev-web daemon ao \
@@ -15,7 +15,7 @@ NPM_DIRS := . frontend packages/cloud-client packages/product-ui
 	test test-backend test-race test-frontend test-e2e test-e2e-renderer \
 	lint vet typecheck check \
 	sqlc api api-spec api-ts \
-	cloud-check product-ui-check shared-check \
+	cloud-check product-ui-check hub-bff-check shared-check \
 	cloud-local cloud-local-down cloud-local-reset cloud-local-smoke \
 	ci-local
 
@@ -131,6 +131,9 @@ cloud-check: ## Generate, typecheck, test, and build the cloud client
 
 product-ui-check: ## Typecheck, test, and build product-ui
 	npm run product-ui:check
+
+hub-bff-check: ## Typecheck and test the hub web BFF
+	npm run hub-bff:check
 
 shared-check: ## Run cloud-check and product-ui-check
 	npm run shared:check

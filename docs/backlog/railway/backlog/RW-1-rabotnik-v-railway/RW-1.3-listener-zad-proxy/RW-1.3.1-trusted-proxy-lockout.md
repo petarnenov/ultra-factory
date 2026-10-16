@@ -1,26 +1,26 @@
-# RW-1.3.1 · Таск: Trusted-proxy режим за lockout
+# RW-1.3.1 · Task: Trusted-proxy mode for lockout
 
-**Тип:** backend Go, security. **Оценка:** 1 чд. **Стори:** RW-1.3. **Зависимости:** RW-1.1.1.
+**Type:** backend Go, security. **Estimate:** 1 pd. **Story:** RW-1.3. **Dependencies:** RW-1.1.1.
 
-## Цел
-При `AO_REMOTE_TRUSTED_PROXY=1` `authMiddleware` ползва клиентския IP от `X-Forwarded-For` (първия елемент) за ключа на lockout-а, вместо `RemoteAddr`.
+## Goal
+With `AO_REMOTE_TRUSTED_PROXY=1`, `authMiddleware` uses the client IP from `X-Forwarded-For` (the first element) as the lockout key instead of `RemoteAddr`.
 
-## Контекст
-- `backend/internal/httpd/auth.go:144` `sourceKey`; `auth.go:260-270` CF-Connecting-IP логика за loopback peer. Разшири същото място, не добавяй нов middleware.
-- Config: `backend/internal/config/config.go` `Load()` с валидация на env (виж `AO_ALLOWED_ORIGINS` парсинг :282-299 за стила). Тестове в `config_test.go` изброяват всички `AO_*` ключове (:14), добави новия.
-- Тестове за auth: `backend/internal/httpd/auth_test.go` (lockout табличните тестове).
+## Context
+- `backend/internal/httpd/auth.go:144` `sourceKey`; `auth.go:260-270` CF-Connecting-IP logic for a loopback peer. Extend the same place; do not add a new middleware.
+- Config: `backend/internal/config/config.go` `Load()` with env validation (see the `AO_ALLOWED_ORIGINS` parsing at :282-299 for the style). Tests in `config_test.go` list all `AO_*` keys (:14); add the new one.
+- Auth tests: `backend/internal/httpd/auth_test.go` (the lockout table tests).
 
-## Събтаскове
-- [ ] `config.go`: поле `RemoteTrustedProxy bool` от `AO_REMOTE_TRUSTED_PROXY` (приема `1/true/on`), default false. Добави в `config_test.go` env списъка.
-- [ ] Подай флага до `authMiddleware` (през `LANManager` или `Server` options, където днес се подава CF логиката).
-- [ ] В `authMiddleware`: ако флагът е включен и `X-Forwarded-For` има валиден IP, `src = първи IP`. Иначе fallback към текущото поведение. Не променяй логиката за `CF-Connecting-IP`.
-- [ ] Логвай предупреждение веднъж при старт: „trusted proxy mode on; only enable behind a reverse proxy“.
-- [ ] Таблични тестове: без флаг → RemoteAddr; с флаг + валиден XFF → XFF; с флаг + невалиден/липсващ XFF → RemoteAddr; с флаг два клиента зад един peer → независим lockout.
-- [ ] Документирай в `docs/self-hosted-remote.md` секция „Behind a reverse proxy“.
+## Subtasks
+- [ ] `config.go`: field `RemoteTrustedProxy bool` from `AO_REMOTE_TRUSTED_PROXY` (accepts `1/true/on`), default false. Add it to the env list in `config_test.go`.
+- [ ] Pass the flag to `authMiddleware` (via `LANManager` or the `Server` options, wherever the CF logic is passed today).
+- [ ] In `authMiddleware`: if the flag is on and `X-Forwarded-For` contains a valid IP, `src = first IP`. Otherwise fall back to the current behavior. Do not change the `CF-Connecting-IP` logic.
+- [ ] Log a warning once at startup: "trusted proxy mode on; only enable behind a reverse proxy".
+- [ ] Table tests: no flag → RemoteAddr; flag + valid XFF → XFF; flag + invalid/missing XFF → RemoteAddr; flag with two clients behind one peer → independent lockout.
+- [ ] Document it in `docs/self-hosted-remote.md`, section "Behind a reverse proxy".
 
-## Критерии за приемане
-- [ ] `go test ./internal/httpd/...` зелен, покритие на четирите случая.
-- [ ] `make lint` чист.
+## Acceptance criteria
+- [ ] `go test ./internal/httpd/...` green, covering all four cases.
+- [ ] `make lint` clean.
 
-## Проверка
+## Verification
 `cd backend && go test ./internal/httpd/ -run 'Auth|Lockout' -v`

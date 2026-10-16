@@ -1,9 +1,9 @@
-# RW-3.3.1 · Таск: Списък на работниците
+# RW-3.3.1 · Task: Worker list
 
-**Тип:** frontend React. **Оценка:** 0.5–1 чд. **Стори:** RW-3.3.
+**Type:** frontend React. **Estimate:** 0.5–1 pd. **Story:** RW-3.3.
 
-## Събтаскове
-- [ ] `components/settings/WorkersSettings.tsx`: таблица/карти с label, статус badge (provisioning с spinner, online, unreachable, auth_failed, removing, failed с tooltip `lastError`), брой активни сесии, created at, source (manual/railway), линк към `host/<id>`.
-- [ ] Orphans секция (от RW-3.2.2) с „Adopt“ и „Delete“.
-- [ ] Query hook `useHubHosts()` с адаптивен polling.
-- [ ] Vitest: рендер на всички статуси.
+## Subtasks
+- [ ] `components/settings/WorkersSettings.tsx`: table/cards with label, status badge (provisioning with a spinner, online, unreachable, auth_failed, removing, failed with a `lastError` tooltip), number of active sessions, created at, source (manual/railway), link to `host/<id>`.
+- [ ] Orphans section (from RW-3.2.2) with "Adopt" and "Delete".
+- [ ] Query hook `useHubHosts()` with adaptive polling.
+- [ ] Vitest: rendering of all statuses.

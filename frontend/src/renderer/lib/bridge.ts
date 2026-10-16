@@ -1,13 +1,14 @@
 import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
-import { coerceUiSettings, DEFAULT_UI_SETTINGS } from "../../shared/ui-locale";
 import { usesPreviewWorkspaceData } from "./preview-mode";
+import { createWebNotificationsBridge } from "./web-notifications";
+import { webKeybindings, webUiSettings } from "./web-settings";
+import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
 
-// Уеб билдът няма Electron супервизор. Daemon-ът (или proxy-то пред него)
-// отговаря на базовия URL на API-то, така че готовността идва от неговата
-// /readyz проба, а стартирането и спирането на daemon-а са работа на този, който
-// го пуска.
+// The web build has no Electron supervisor. The daemon (or the proxy in front
+// of it) answers on the API base URL, so readiness comes from its /readyz probe
+// and starting or stopping the daemon belongs to whoever runs it.
 const WEB_DAEMON_POLL_MS = 5_000;
 const WEB_DAEMON_READY_POLL_MS = 30_000;
 
@@ -15,9 +16,8 @@ function webDaemonBaseUrl(): string {
 	return (import.meta.env.VITE_AO_API_BASE_URL ?? "").replace(/\/+$/, "");
 }
 
-// Обвивката вярва само на ready статус, който носи порт. Proxy на порта по
-// подразбиране за схемата оставя порта в URL-а празен, затова се отчита
-// ефективният.
+// The shell only trusts a ready status that carries a port. A proxy on the
+// scheme's default port leaves the URL port empty, so report the effective one.
 function webDaemonPort(baseUrl: string): number {
 	const url = new URL(baseUrl || window.location.href, window.location.href);
 	if (url.port) return Number(url.port);
@@ -31,7 +31,7 @@ async function probeWebDaemon(): Promise<DaemonStatus> {
 		if (response.status !== 200) {
 			return { state: "error", message: `Daemon readiness check returned HTTP ${response.status}.` };
 		}
-		// SPA fallback-ът на статичен хост също отговаря с 200 и index.html.
+		// A static host's SPA fallback also answers 200, with index.html.
 		const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
 		if (body?.status !== "ready") {
 			return { state: "error", message: "Daemon readiness check did not return a ready daemon." };
@@ -47,6 +47,25 @@ async function probeWebDaemon(): Promise<DaemonStatus> {
 
 async function unsupportedWebDaemonControl(): Promise<DaemonStatus> {
 	return { ...(await probeWebDaemon()), supported: false };
+}
+
+// Browsers allow clipboard reads only in a secure context, after a user
+// gesture and with permission. Paste is a user action, so a denial is told to
+// the user in a toast and resolves to empty text instead of failing the caller.
+// ui-store imports this module, hence the lazy import.
+async function readWebClipboardText(): Promise<string> {
+	try {
+		if (!navigator.clipboard?.readText) throw new Error("Clipboard API is unavailable");
+		return await navigator.clipboard.readText();
+	} catch {
+		const { useUiStore } = await import("../stores/ui-store");
+		useUiStore.getState().showGlobalToast(
+			"Clipboard access is blocked",
+			"Allow clipboard access for this site, or paste with your browser's paste shortcut.",
+			{ tone: "info", dedupeKey: "web-clipboard-read-denied" },
+		);
+		return "";
+	}
 }
 
 const webDaemonBridge: AoBridge["daemon"] = {
@@ -93,18 +112,10 @@ export const aoBridge: AoBridge =
 		checkGitHubRepositoryAvailability: async () => ({ available: true }),
 			getPathForFile: () => "",
 			onOpenFolderPath: () => () => undefined,
-			onNewSessionShortcut: () => () => undefined,
-			onKeyboardShortcutsHelp: () => () => undefined,
-			onNewShellTerminalShortcut: () => () => undefined,
-			onCloseShellTerminalShortcut: () => () => undefined,
-			setCloseShellTerminalShortcutEnabled: () => undefined,
+			// With no main process, shortcuts come from the keydown handler in
+			// web-shortcuts.ts, which is installed only when isWebBuild.
+			...webShortcutListeners,
 			setChatDraftRisk: () => undefined,
-			onOpenSettingsShortcut: () => () => undefined,
-			onPreviousSessionShortcut: () => () => undefined,
-			onNextSessionShortcut: () => () => undefined,
-			onPreviousTabShortcut: () => () => undefined,
-			onNextTabShortcut: () => () => undefined,
-			onShortcut: () => () => undefined,
 		},
 		terminal: {
 			saveDroppedFile: async () => "",
@@ -135,9 +146,9 @@ export const aoBridge: AoBridge =
 					await navigator.clipboard.writeText(text);
 				}
 			},
-			readText: async () => (navigator.clipboard?.readText ? navigator.clipboard.readText() : ""),
+			readText: readWebClipboardText,
 		},
-		// Preview с mock данни (VITE_NO_ELECTRON) няма daemon за проба.
+		// Mock-data preview (VITE_NO_ELECTRON) has no daemon to probe.
 		daemon: usesPreviewWorkspaceData
 			? {
 				getStatus: async () => ({
@@ -328,14 +339,22 @@ export const aoBridge: AoBridge =
 			import: async () => ({ sourceName: "", entries: [] }),
 			onImportProgress: () => () => undefined,
 		},
-		notifications: {
-			show: async () => undefined,
-			setBadge: async () => undefined,
-			devBounce: async () => undefined,
-			onClick: () => () => undefined,
-			onPlaySound: () => () => undefined,
-			reportSoundFailure: () => undefined,
-		},
+		// Mock-data preview (VITE_NO_ELECTRON) stays without notifications; the web
+		// build uses Web Notifications, a document.title badge and the bundled sound.
+		notifications: usesPreviewWorkspaceData
+			? {
+				show: async () => undefined,
+				setBadge: async () => undefined,
+				devBounce: async () => undefined,
+				onClick: () => () => undefined,
+				onPlaySound: () => () => undefined,
+				reportSoundFailure: () => undefined,
+			}
+			: createWebNotificationsBridge({
+				// Dynamic import: the store imports aoBridge from this module.
+				soundEnabled: async () =>
+					(await import("../stores/sound-notifications-store")).useSoundNotificationsStore.getState().enabled,
+			}),
 		tray: {
 			setAttentionState: () => undefined,
 			onOpenSession: () => () => undefined,
@@ -355,14 +374,10 @@ export const aoBridge: AoBridge =
 			set: async () => undefined,
 			setMacDifferentialUpdates: async () => undefined,
 		},
-		uiSettings: {
-			get: async () => ({ ...DEFAULT_UI_SETTINGS }),
-			set: async (settings) => coerceUiSettings({ ...DEFAULT_UI_SETTINGS, ...settings }),
-		},
+		uiSettings: webUiSettings,
 		keybindings: {
-			get: async () => ({}),
-			set: async (overrides) => overrides,
-			setRecording: async () => undefined,
+			...webKeybindings,
+			setRecording: async (active) => setWebShortcutRecording(active),
 		},
 		updates: {
 			getStatus: async () => ({ state: "idle" }),

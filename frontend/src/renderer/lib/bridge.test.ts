@@ -3,8 +3,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaemonStatus } from "../../shared/daemon-status";
 
-// aoBridge избира window.ao или браузърния stub при зареждане на модула, затова
-// всеки тест премахва фалшивия preload от setup-а и импортира свежо копие.
+// aoBridge picks window.ao or the browser stub when the module loads, so each
+// test removes the setup's fake preload and imports a fresh copy.
 
 vi.mock("./event-transport", () => ({
 	createEventTransport: () => ({ connect: () => () => undefined }),
@@ -167,5 +167,51 @@ describe("web daemon bridge", () => {
 
 		await expect(aoBridge.daemon.getStatus()).resolves.toMatchObject({ state: "stopped" });
 		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});
+
+describe("web clipboard bridge", () => {
+	const savedClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
+	function stubClipboard(clipboard: Partial<Clipboard> | undefined) {
+		Object.defineProperty(navigator, "clipboard", { configurable: true, value: clipboard });
+	}
+
+	afterEach(() => {
+		if (savedClipboard) Object.defineProperty(navigator, "clipboard", savedClipboard);
+		else delete (navigator as { clipboard?: unknown }).clipboard;
+	});
+
+	async function globalToasts() {
+		const { useUiStore } = await import("../stores/ui-store");
+		return useUiStore.getState().globalToasts;
+	}
+
+	it("returns the clipboard text when the browser allows the read", async () => {
+		stubClipboard({ readText: vi.fn(async () => "hello") });
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.clipboard.readText()).resolves.toBe("hello");
+		expect(await globalToasts()).toEqual([]);
+	});
+
+	it("shows a toast and resolves empty when the read permission is denied", async () => {
+		stubClipboard({ readText: vi.fn(async () => { throw new DOMException("Read permission denied.", "NotAllowedError"); }) });
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.clipboard.readText()).resolves.toBe("");
+		await expect(aoBridge.clipboard.readText()).resolves.toBe("");
+
+		const toasts = await globalToasts();
+		expect(toasts).toHaveLength(1);
+		expect(toasts[0]).toMatchObject({ title: "Clipboard access is blocked", tone: "info" });
+	});
+
+	it("shows a toast when the page has no Clipboard API (plain HTTP)", async () => {
+		stubClipboard(undefined);
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.clipboard.readText()).resolves.toBe("");
+		expect(await globalToasts()).toHaveLength(1);
 	});
 });

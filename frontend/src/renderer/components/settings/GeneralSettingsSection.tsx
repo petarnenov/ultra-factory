@@ -14,6 +14,7 @@ import { SettingsOptionMenu, type SettingsOption } from "./SettingsOptionMenu";
 import { SettingsInputRow, SettingsRow } from "./SettingsRow";
 import { SettingsSection } from "./SettingsSection";
 import { ThemePaletteSwatch } from "./ThemePaletteSwatch";
+import { WebNotificationsRow } from "./WebNotificationsRow";
 import { Switch } from "../ui/switch";
 import { cn } from "../../lib/utils";
 import { useSettings, useUpdateCloudOffering, useUpdateSessionInterface } from "../../hooks/useSettings";
@@ -244,6 +245,7 @@ export function GeneralSettingsSection({
 						{t("settings.soundNotifications.saveFailed")}
 					</p>
 				) : null}
+				<WebNotificationsRow />
 			</SettingsSection>
 
 			<SettingsSection title={t("settings.privacy")} grouped>

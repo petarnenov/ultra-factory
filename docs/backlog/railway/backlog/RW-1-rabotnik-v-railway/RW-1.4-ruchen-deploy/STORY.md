@@ -1,14 +1,14 @@
-# RW-1.4 · Стори: Ръчен деплой на работник и връзка от desktop приложението
+# RW-1.4 · Story: Manual worker deploy and connection from the desktop app
 
-**Като** оператор **искам** да деплойна един работник в Railway по документирана процедура и да го ползвам от desktop приложението, **за да** потвърдим networking, image-а и агентската автентикация преди RW-2.
+**As** an operator **I want** to deploy a single worker to Railway following a documented procedure and use it from the desktop app, **so that** we confirm networking, the image, and agent authentication before RW-2.
 
-**Оценка:** 1 чд (+ време за изчакване на Railway). **Зависимости:** RW-1.2, RW-1.3. **Блокира:** RW-2.4, RW-3.
+**Estimate:** 1 pd (+ time waiting on Railway). **Dependencies:** RW-1.2, RW-1.3. **Blocks:** RW-2.4, RW-3.
 
-| Таск | Име | чд |
+| Task | Name | pd |
 |---|---|---|
-| RW-1.4.1 | Деплой в Railway и проверки на networking | 0.5 |
-| RW-1.4.2 | End-to-end сесия от desktop приложението и runbook | 0.5 |
+| RW-1.4.1 | Deploy to Railway and networking checks | 0.5 |
+| RW-1.4.2 | End-to-end session from the desktop app and runbook | 0.5 |
 
-**Критерии за приемане**
-- [ ] Записани резултати: достъпност на :3011 по публичен домейн и по `*.railway.internal` (IPv4/IPv6), поведение при redeploy, размер на image-а, време за старт.
-- [ ] `docs/self-hosted-remote.md` или нов `deploy/railway/README.md` описва процедурата стъпка по стъпка.
+**Acceptance criteria**
+- [ ] Recorded results: reachability of :3011 via the public domain and via `*.railway.internal` (IPv4/IPv6), behavior on redeploy, image size, startup time.
+- [ ] `docs/self-hosted-remote.md` or a new `deploy/railway/README.md` describes the procedure step by step.
