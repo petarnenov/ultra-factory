@@ -37,7 +37,7 @@ import { isDialogOrMenuOpenOutside } from "../lib/dom-selectors";
 import { TERMINAL_FONT_SIZE_DEFAULT } from "../lib/design-tokens";
 import { isWebLink, openLinkInSystemBrowser } from "../lib/external-link-policy";
 import { findSessionLinks } from "../lib/session-links";
-import { isMacPlatform } from "../lib/platform";
+import { isMacPlatform, isWebBuild } from "../lib/platform";
 import { applyDocumentTheme, applyDocumentThemeStyle } from "../lib/theme";
 import {
 	buildCursorColorSchemeNotification,
@@ -485,6 +485,7 @@ export function XtermTerminal(props: XtermTerminalProps) {
 	const [searchOpen, setSearchOpen] = useState(false);
 	const copiedToastTimerRef = useRef<number | undefined>(undefined);
 	const showCopiedToastRef = useRef<() => void>(() => undefined);
+	const translateRef = useRef(t);
 	// The web link currently under the cursor, tracked via the link providers'
 	// hover/leave callbacks so the right-click menu can offer "Open in system
 	// browser" for it.
@@ -554,6 +555,7 @@ export function XtermTerminal(props: XtermTerminalProps) {
 	}, [restoreTerminalFocus]);
 
 	callbacksRef.current = props;
+	translateRef.current = t;
 	showCopiedToastRef.current = () => {
 		// Hidden retained terminals keep parsing output but expose no UI overlays.
 		if (callbacksRef.current.isVisible === false) return;
@@ -1579,6 +1581,12 @@ export function XtermTerminal(props: XtermTerminalProps) {
 			const files = Array.from(event.dataTransfer?.files ?? []);
 			if (files.length === 0) return;
 			event.preventDefault();
+			if (isWebBuild) {
+				// Electron main writes the temp file; the web build has nowhere to upload
+				// it yet (the upload endpoint arrives with RW-4).
+				useUiStore.getState().showGlobalToast(translateRef.current("terminal.fileUploadUnavailable"));
+				return;
+			}
 			// Deliberately no stopPropagation: _shell.tsx's window-level listener
 			// still needs this drop to reset its drag-depth counter (bumped by the
 			// dragenter that already bubbled past this host, unseen by this

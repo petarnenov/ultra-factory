@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, type RefCallback, type RefObject } from "react";
-import { isMacPlatform } from "../lib/platform";
+import { isMacPlatform, isWebBuild } from "../lib/platform";
 
 export type SidebarChromeGeometry = { width: number; progress: number };
 
@@ -37,7 +37,7 @@ function collapseProgress(width: number, expandedWidth: number): number {
 /** Share the sidebar's actual animated layout with the fixed native chrome. */
 export function useSidebarChromeGeometry(ready: boolean, gapRef: RefObject<HTMLDivElement | null>, containerRef: RefObject<HTMLDivElement | null>): void {
 	useLayoutEffect(() => {
-		if (!ready || !isMacPlatform()) return;
+		if (!ready || !isMacPlatform() || isWebBuild) return;
 		const gap = gapRef.current;
 		const container = containerRef.current;
 		if (!gap || !container) return;
