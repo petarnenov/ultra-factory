@@ -1,4 +1,5 @@
 import { electronBridge } from "./electron-bridge";
+import { usesPreviewWorkspaceData } from "./preview-mode";
 
 type NavigatorWithUserAgentData = Navigator & { userAgentData?: { platform?: string } };
 
@@ -45,7 +46,8 @@ export function usesFramedAppTopbar(): boolean {
  * Win/Linux as the ShellTopbar path. Fixed in PR #3421.
  */
 export function hidesShellTopbar(): boolean {
-	return isMacPlatform();
+	// The web build has no macOS traffic lights and uses the Linux shell on every OS.
+	return isMacPlatform() && !isWebBuild;
 }
 
 /**
@@ -91,4 +93,7 @@ export function resolveCapabilities(options: { webBuild: boolean; electronBridge
 	});
 }
 
-export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge });
+// The mock preview (VITE_NO_ELECTRON) shows the desktop UI: the bridge.ts stubs
+// stand in for the preload, and the e2e suite drives desktop surfaces through it.
+// So it keeps the desktop capabilities; only the web build turns them off.
+export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge || usesPreviewWorkspaceData });

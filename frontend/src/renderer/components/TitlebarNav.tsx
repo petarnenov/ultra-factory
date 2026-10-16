@@ -2,13 +2,13 @@ import { useCanGoBack, useRouter } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, PanelLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isLinuxPlatform, isMacPlatform } from "../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild } from "../lib/platform";
 import { sidebarIsVisible, useUiStore } from "../stores/ui-store";
 import { AOMascot } from "./AOMascot";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-const isMac = isMacPlatform();
-const isLinux = isLinuxPlatform();
+const isMac = isMacPlatform() && !isWebBuild;
+const isLinux = isLinuxPlatform() || isWebBuild;
 const noDragStyle = isMac
   ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties)
   : undefined;

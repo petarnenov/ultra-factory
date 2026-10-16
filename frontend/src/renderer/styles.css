@@ -3420,6 +3420,10 @@ html.sidebar-reordering * {
 	margin-left: 0;
 }
 
+.session-pinned-actions-reserve[data-state="expanded"][data-controls="single"] {
+	width: var(--size-topbar-control);
+}
+
 /* Session switches restore the destination's topbar in its first frame; these
  * transitions are only for changes inside a session (useSessionSwitchSnap). */
 :root[data-session-switching] .session-pinned-actions-reserve,

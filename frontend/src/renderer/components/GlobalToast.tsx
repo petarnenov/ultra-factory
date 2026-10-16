@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { type GlobalToast as Toast, useUiStore } from "../stores/ui-store";
 
@@ -68,6 +68,17 @@ function GlobalToastItem({ toast }: { toast: Toast }) {
 			<div className="min-w-0 flex-1">
 				<p className={`wrap-break-word font-medium ${isError ? "text-destructive" : "text-(--color-text-import-title)"}`}>{toast.title}</p>
 				{toast.body ? <p className="mt-0.5 wrap-break-word text-pretty text-[var(--color-text-import-muted)]">{toast.body}</p> : null}
+				{toast.link ? (
+					<a
+						className="mt-1 inline-flex items-center gap-1 font-medium text-foreground underline-offset-2 hover:underline focus-visible:underline"
+						href={toast.link.href}
+						rel="noopener noreferrer"
+						target="_blank"
+					>
+						{toast.link.label}
+						<ExternalLink aria-hidden="true" className="size-3" />
+					</a>
+				) : null}
 			</div>
 			{toast.dismissible ? (
 				<button

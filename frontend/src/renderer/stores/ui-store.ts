@@ -96,10 +96,12 @@ export type GlobalToast = {
 	dismissible?: boolean;
 	durationMs?: number;
 	dedupeKey?: string;
+	/** A link the toast opens in a new browser tab. */
+	link?: { label: string; href: string };
 	nonce: number;
 };
 
-export type GlobalToastOptions = Pick<GlobalToast, "tone" | "placement" | "dismissible" | "durationMs" | "dedupeKey">;
+export type GlobalToastOptions = Pick<GlobalToast, "tone" | "placement" | "dismissible" | "durationMs" | "dedupeKey" | "link">;
 
 export type WorkspaceFileOpenRequest = {
 	sessionId: string;
