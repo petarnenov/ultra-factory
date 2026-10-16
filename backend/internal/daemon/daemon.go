@@ -613,6 +613,7 @@ func Run() error {
 		return fmt.Errorf("wire session service: %w", err)
 	}
 	sessionSvc.SetChatProviderPreserver(chatSvc.PreservesProviderOnRestart)
+	sessionSvc.SetRemoteSpawnedStore(store)
 	memoryReader := usagesvc.NewMemoryReader(usagesvc.MemoryReaderDeps{
 		Store: store, Runtime: runtimeAdapter, Reviewers: store, CacheTTL: 2 * time.Second,
 		ChatHostPID: func(id domain.SessionID) (int, bool) {

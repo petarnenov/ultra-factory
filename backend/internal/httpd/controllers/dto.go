@@ -522,6 +522,10 @@ type SpawnSessionRequest struct {
 	// its bytes as standard base64 (no data: URL prefix). The daemon writes them
 	// into the session worktree and appends path references to the prompt.
 	Attachments []AttachmentInput `json:"attachments,omitempty"`
+	// RemoteSpawn is set by `ao spawn --host`: another machine starts this worker
+	// and runs its orchestrator. While such a worker is active this daemon
+	// refuses to start an orchestrator. Workers only.
+	RemoteSpawn bool `json:"remoteSpawn,omitempty"`
 }
 
 // AttachmentInput is one file attached to a spawn, delegate, stage, or send
