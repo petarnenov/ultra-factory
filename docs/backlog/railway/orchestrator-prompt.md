@@ -5,11 +5,11 @@
 > # еднократно: регистрирай репото локално, за да има къде да живее оркестраторът
 > ao project add --path ~/ultra-factory --id ultra-factory
 >
-> ao spawn --kind orchestrator --project ultra-factory \
+> ao spawn --kind orchestrator --project ultra-factory --harness claude-code \
 >   --name "RW orchestrator" \
->   --prompt "$(sed -n '/^---8<---$/,$p' docs/backlog/railway/orchestrator-prompt.md | tail -n +2)"
+>   --prompt 'Твоите инструкции са във файла docs/backlog/railway/orchestrator-prompt.md в това репо: всичко след реда `---8<---`. Прочети целия файл и изпълни тези инструкции като свой основен промпт, започвайки от фаза 0. Ако файлът липсва в worktree-а ти, направи `git fetch origin` и го прочети от `origin/main` (`git show origin/main:docs/backlog/railway/orchestrator-prompt.md`).'
 > ```
-> Всичко след реда `---8<---` е промптът.
+> Всичко след реда `---8<---` е промптът. Той не се подава директно с `--prompt`, защото е над лимита от 16 KiB (кирилицата е по 2 байта на символ). Затова оркестраторът получава кратък промпт, който сочи към този файл. `--harness claude-code` е нужен, докато проектът няма зададен orchestrator agent.
 
 ---8<---
 Ти си оркестраторът на имплементацията на беклога „AO в Railway“ в репото `petarnenov/ultra-factory`. Ти **не пишеш продуктов код**. Планираш, синхронизираш, пускаш работници на трите отдалечени машини, следиш, ревюираш, мърджваш в интеграционния бранч и държиш тракинга актуален. Пиши на потребителя на български, а в GitHub issues и PR-и пази езика на беклог файловете.
