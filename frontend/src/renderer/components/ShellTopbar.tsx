@@ -33,14 +33,14 @@ import {
 import { inspectorIsOpen, sidebarOccupiesLayout, useUiStore } from "../stores/ui-store";
 import { OrchestratorIcon } from "./icons";
 import { getAgentActivityView } from "../lib/session-presentation";
-import { isLinuxPlatform, isMacPlatform, usesBoardActionsInPanel } from "../lib/platform";
+import { capabilities, isLinuxPlatform, isMacPlatform, isWebBuild, usesBoardActionsInPanel } from "../lib/platform";
 import { cn } from "../lib/utils";
 import { useWindowFullScreen } from "../hooks/useWindowFullScreen";
 import { StatusPill } from "./StatusPill";
 import { CoderWorkspaceTopbarButton } from "./CoderWorkspaceLinkButton";
 import { TopbarActionError, TopbarButton, topbarHeaderClass, topbarProjectLabelClass } from "./TopbarButton";
 import { SessionArchiveDialog, type SessionArchiveChoice } from "./SessionArchiveDialog";
-import { TopbarOpenEditorButton } from "./TopbarOpenEditorButton";
+import { TopbarCopyPathButton, TopbarOpenEditorButton } from "./TopbarOpenEditorButton";
 import { useSessionShortcut } from "../hooks/useAppShortcut";
 import {
 	agentSwitchStatusVisual,
@@ -82,8 +82,8 @@ const PADDING_CLEARANCE_LINUX = 114;
 export function useTopbarPaddingLeft(embedded = false) {
 	const isSidebarOpen = useUiStore(sidebarOccupiesLayout);
 	const isFullScreen = useWindowFullScreen();
-	const mac = isMacPlatform();
-	const linux = isLinuxPlatform();
+	const mac = isMacPlatform() && !isWebBuild;
+	const linux = isLinuxPlatform() || isWebBuild;
 	return !embedded && !isSidebarOpen && mac
 			? isFullScreen
 				? PADDING_CLEARANCE_FULLSCREEN
@@ -281,14 +281,18 @@ export function ShellTopbar({
 							// when switching sessions. The prefix keeps it distinct from the
 							// kill button's key: identical sibling keys make React duplicate
 							// the nodes.
-							<TopbarOpenEditorButton
-								key={`open-workspace-${session.id}`}
-								sessionId={session.id}
-								projectId={session.workspaceId}
-								sessionCreatedAt={session.createdAt}
-								sessionTerminated={session.isTerminated}
-								style={noDragStyle}
-							/>
+							capabilities.editorHandoff ? (
+								<TopbarOpenEditorButton
+									key={`open-workspace-${session.id}`}
+									sessionId={session.id}
+									projectId={session.workspaceId}
+									sessionCreatedAt={session.createdAt}
+									sessionTerminated={session.isTerminated}
+									style={noDragStyle}
+								/>
+							) : (
+								<TopbarCopyPathButton key={`copy-workspace-path-${session.id}`} sessionId={session.id} style={noDragStyle} />
+							)
 						) : null}
 						{/* A bring-your-own Coder session names the workspace it runs in, so
 						    the customer can find it in their own Coder. */}

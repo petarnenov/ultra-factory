@@ -40,6 +40,7 @@ import { useProviderConnections } from "../hooks/useProviderConnections";
 import { cloudProjectsQueryKey } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorCode, apiErrorMessage } from "../lib/api-client";
 import { cloudAgentInfos } from "../lib/cloud-agents";
+import { capabilities } from "../lib/platform";
 import { aoBridge } from "../lib/bridge";
 import { CloudCpError } from "../lib/cloud-cp";
 import { CODER_PROVIDER } from "../lib/cloud-offering";
@@ -1958,7 +1959,7 @@ function ImportSourcePicker({
 		onClose?.();
 		onCreateStandaloneAgent?.();
 	};
-	const localSources: Array<{ source: ProjectSource; icon: ReactNode; label: string; description: string }> = [
+	const allSources: Array<{ source: ProjectSource; icon: ReactNode; label: string; description: string }> = [
 		{
 			source: "clone",
 			icon: <GitFork className="size-5" aria-hidden="true" strokeWidth={1.8} />,
@@ -1978,6 +1979,9 @@ function ImportSourcePicker({
 			description: t("createProject.workspaceDesc"),
 		},
 	];
+	// Локална папка се избира с native dialog-а на Electron. Web build-ът може
+	// само да клонира по URL; отдалечен host си има собствен picker.
+	const localSources = hostId || capabilities.nativeDialogs ? allSources : allSources.filter(({ source }) => source === "clone");
 	return (
 		<div className={onboardingPanelClass}>
 			{dialog ? (

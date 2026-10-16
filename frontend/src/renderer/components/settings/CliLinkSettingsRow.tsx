@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CliLinkStatus, CliLinkView } from "../../../shared/cli-link";
 import { aoBridge } from "../../lib/bridge";
+import { capabilities } from "../../lib/platform";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Button } from "../ui/button";
 import { SettingsRow } from "./SettingsRow";
@@ -9,6 +10,8 @@ import { SettingsRow } from "./SettingsRow";
 export function CliLinkSettings({ enabled }: { enabled: boolean }) {
 	const [ready, setReady] = useState(false);
 	useEffect(() => {
+		// Глобалната команда `ao` се свързва от Electron main; web build-ът я няма.
+		if (!capabilities.cliLink) return;
 		let active = true;
 		setReady(false);
 		void aoBridge.cliLink.setEnabled(enabled).then(() => {
@@ -16,7 +19,7 @@ export function CliLinkSettings({ enabled }: { enabled: boolean }) {
 		});
 		return () => { active = false; };
 	}, [enabled]);
-	if (!enabled) return null;
+	if (!enabled || !capabilities.cliLink) return null;
 	return ready ? <CliLinkSettingsRow /> : null;
 }
 

@@ -90,6 +90,17 @@ vi.mock("../lib/telemetry", () => ({
 	captureRendererEvent: vi.fn(),
 	captureRendererException: vi.fn(),
 }));
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	const web = (await import("../test/web-build-platform")).webBuildPlatform(actual);
+	return {
+		...actual,
+		get capabilities() {
+			return webBuild.enabled ? web.capabilities : actual.capabilities;
+		},
+	};
+});
 vi.mock("./NewTaskDialog", () => ({ NewTaskDialog: () => null }));
 vi.mock("./NotificationCenter", () => ({
 	NotificationCenter: () => <button aria-label="Notifications" type="button" />,
@@ -718,6 +729,19 @@ describe("ShellTopbar open-in-editor control", () => {
 			expect(screen.queryByRole("button", { name: "Open in Cursor" })).not.toBeInTheDocument();
 			expect(screen.queryByRole("button", { name: "Choose editor" })).not.toBeInTheDocument();
 		});
+	});
+
+	it("keeps only Copy path for a local session in the web build", async () => {
+		webBuild.enabled = true;
+		try {
+			renderTopbarSessions([worker], "sess-1");
+
+			expect(await screen.findByRole("button", { name: "Copy path" })).toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "Open in Cursor" })).not.toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "Choose editor" })).not.toBeInTheDocument();
+		} finally {
+			webBuild.enabled = false;
+		}
 	});
 });
 

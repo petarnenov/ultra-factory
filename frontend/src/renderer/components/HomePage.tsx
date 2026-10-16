@@ -7,7 +7,7 @@ import { useCloudGate } from "../hooks/useCloudGate";
 import { useSystemRequirementsGate } from "../hooks/useSystemRequirementsGate";
 import { useWorkspaceQuery } from "../hooks/useWorkspaceQuery";
 import { aoBridge } from "../lib/bridge";
-import { isMacPlatform } from "../lib/platform";
+import { capabilities, isMacPlatform, isWebBuild } from "../lib/platform";
 import { getProjectLastOpenedAt } from "../lib/project-history";
 import { recordManualWorkerOpen } from "../lib/session-management-telemetry";
 import { usesPreviewWorkspaceData } from "../lib/preview-mode";
@@ -43,7 +43,7 @@ import { Badge } from "./ui/badge";
  *   project: it never appears in the recent rows or counts toward the
  *   heading — the grid's standalone action and the sidebar own it.
  */
-const isMac = isMacPlatform();
+const isMac = isMacPlatform() && !isWebBuild;
 const GITHUB_REPOSITORY_URL = "https://github.com/Untrivial-ai/agent-orchestrator";
 const RECENT_PROJECT_LIMIT = 3;
 const HOME_BUTTON_CLASS =
@@ -230,16 +230,21 @@ export function HomePage() {
 								label={t("createProject.cloneFromGit")}
 								onClick={() => requestSource("clone")}
 							/>
-							<HomeActionCard
-								icon={<FolderOpen strokeWidth={1.8} />}
-								label={t("createProject.openLocal")}
-								onClick={() => requestSource("local")}
-							/>
-							<HomeActionCard
-								icon={<Folders strokeWidth={1.8} />}
-								label={t("createProject.addWorkspace")}
-								onClick={() => requestSource("workspace")}
-							/>
+							{/* Локалните папки искат native dialog-а на Electron; в web остава само клонирането. */}
+							{capabilities.nativeDialogs ? (
+								<>
+									<HomeActionCard
+										icon={<FolderOpen strokeWidth={1.8} />}
+										label={t("createProject.openLocal")}
+										onClick={() => requestSource("local")}
+									/>
+									<HomeActionCard
+										icon={<Folders strokeWidth={1.8} />}
+										label={t("createProject.addWorkspace")}
+										onClick={() => requestSource("workspace")}
+									/>
+								</>
+							) : null}
 							{developerMode && cloudEnabled ? (
 								<HomeActionCard
 									icon={<Cloud strokeWidth={1.8} />}

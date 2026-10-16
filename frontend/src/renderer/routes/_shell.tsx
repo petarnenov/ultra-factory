@@ -58,6 +58,7 @@ import { cn } from "../lib/utils";
 import {
 	isLinuxPlatform,
 	isMacPlatform,
+	isWebBuild,
 	isWindowsPlatform,
 	usesFramedAppTopbar,
 	hidesShellTopbar,
@@ -213,9 +214,11 @@ export function createProjectConfig(input: CreateProjectConfigInput): components
 // banner instead of staying gated forever on a hung spawn.
 const PROVISIONING_TIMEOUT_MS = 120_000;
 
-const isMac = isMacPlatform();
-const isWindows = isWindowsPlatform();
-const isLinux = isLinuxPlatform();
+// Прозоречният chrome, не ОС-ът: разделът в браузъра няма светофар и
+// WindowTitlebar, затова web build-ът ползва Linux shell-а на всяка ОС.
+const isMac = isMacPlatform() && !isWebBuild;
+const isWindows = isWindowsPlatform() && !isWebBuild;
+const isLinux = isLinuxPlatform() || isWebBuild;
 const framedAppTopbar = usesFramedAppTopbar();
 const shellTopbarHiddenByPlatform = hidesShellTopbar();
 

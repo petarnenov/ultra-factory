@@ -25,6 +25,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("../lib/platform", () => ({
+	isWebBuild: false,
 	isLinuxPlatform: () => false,
 	isMacPlatform: () => true,
 }));

@@ -35,7 +35,7 @@ import { TopbarButton, topbarProjectLabelClass } from "./TopbarButton";
 import { restartProjectOrchestrator } from "../lib/restart-orchestrator";
 import { usesPreviewWorkspaceData } from "../lib/preview-mode";
 import { demoBoardSessions } from "../lib/demo-board-sessions";
-import { isLinuxPlatform, isMacPlatform, usesBoardActionsInPanel } from "../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild, usesBoardActionsInPanel } from "../lib/platform";
 import { cn } from "../lib/utils";
 import { useUiStore } from "../stores/ui-store";
 import { RestoreUnavailableDialog } from "./RestoreUnavailableDialog";
@@ -97,7 +97,7 @@ export function SessionsBoard({ projectId, hostId }: SessionsBoardProps) {
 	// Evaluated at render so platform mocks in tests can flip the in-panel chrome.
 	const boardActionsInPanel = usesBoardActionsInPanel();
 	/** Bell lives in the board action row when the shell topbar does not host it. */
-	const boardOwnsNotificationCenter = isLinuxPlatform() || boardActionsInPanel;
+	const boardOwnsNotificationCenter = isLinuxPlatform() || isWebBuild || boardActionsInPanel;
 	const all = localWorkspaceQuery.data ?? [];
 	const workspaces = hostId
 		? remoteProjectQuery.data ? [remoteProjectQuery.data] : []

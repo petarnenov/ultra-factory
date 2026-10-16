@@ -105,11 +105,17 @@ vi.mock("@tanstack/react-router", () => ({
 	},
 }));
 
+const webBuild = vi.hoisted(() => ({ enabled: false }));
 vi.mock("../lib/platform", () => ({
 	// Exercise the macOS shell layout without changing the existing Ctrl-based
 	// shortcut assertions in this suite.
 	hidesShellTopbar: () => true,
 	isMacPlatform: () => false,
+	isWebBuild: false,
+	get capabilities() {
+		const desktop = !webBuild.enabled;
+		return { browserPanel: desktop, editorHandoff: desktop, cliLink: desktop, autoUpdate: desktop, nativeDialogs: desktop, tray: desktop, windowChrome: desktop };
+	},
 	isLinuxPlatform: () => false,
 }));
 vi.mock("../hooks/useWindowFullScreen", () => ({
@@ -5006,6 +5012,20 @@ describe("SessionView", () => {
 		expect(useUiStore.getState().inspectorSessions["sess-orch"]?.view).toBe("browser");
 	});
 
+	it("drops the orchestrator's Browser-only inspector and its toggle in the web build", () => {
+		webBuild.enabled = true;
+		try {
+			render(<SessionView sessionId="sess-orch" />);
+
+			expect(screen.queryByRole("button", { name: "Open Browser" })).not.toBeInTheDocument();
+			expect(screen.queryByTestId("inspector-collapsed-rail")).not.toBeInTheDocument();
+			expect(screen.queryByRole("complementary", { name: "Session inspector" })).not.toBeInTheDocument();
+			expect(screen.getByTestId("session-pinned-actions")).toBeInTheDocument();
+		} finally {
+			webBuild.enabled = false;
+		}
+	});
+
 	it("opens an absolute chat path at the workspace-relative path the daemon returns", async () => {
 		const defaultGet = reviewGetMock.getMockImplementation()!;
 		reviewGetMock.mockImplementation(async (path: string, ...args: unknown[]) =>
@@ -5496,6 +5516,26 @@ describe("SessionView", () => {
 		expect(inspectorButton()).toHaveAttribute("data-view", "browser");
 		expect(browserUnseen("sess-1")).toBe(false);
 		expect(navigateMock).not.toHaveBeenCalled();
+	});
+
+	it("offers a new live preview as an open-in-new-tab link in the web build", () => {
+		webBuild.enabled = true;
+		try {
+			const worker = workerSession("sess-1");
+			act(() => useUiStore.getState().setInspectorOpen("sess-1", false));
+			const { rerender } = render(<SessionView sessionId="sess-1" />);
+
+			worker.previewUrl = "http://localhost:5173/";
+			worker.previewRevision = 1;
+			rerender(<SessionView sessionId="sess-1" />);
+
+			expect(inspectorOpen("sess-1")).toBe(false);
+			const toast = useUiStore.getState().globalToasts.find((entry) => entry.title === "Preview ready");
+			expect(toast?.link).toEqual({ label: "Open in new tab", href: "http://localhost:5173/" });
+		} finally {
+			webBuild.enabled = false;
+			useUiStore.getState().clearGlobalToast();
+		}
 	});
 
 	it("opens a collapsed inspector on Browser when a new live preview arrives", () => {

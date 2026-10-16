@@ -1,6 +1,7 @@
 import { Activity, BadgeCheck, Bot, CircleHelp, CreditCard, Globe2, Keyboard, RefreshCw, Server, Settings2, Smartphone, type LucideIcon } from "lucide-react";
 import { lazy, type ReactNode } from "react";
 import type { TFunction } from "i18next";
+import { capabilities } from "../../lib/platform";
 import type { GlobalSettingsSection } from "../../stores/ui-store";
 import { BillingSection } from "./BillingSection";
 import { BrowserDownloadsSection } from "./BrowserDownloadsSection";
@@ -89,6 +90,8 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "browserProfiles",
 		icon: Globe2,
 		label: (t) => t("settings.browserProfiles"),
+		// Профилите и изтеглянията са на вградения Electron браузър.
+		visible: () => capabilities.browserPanel,
 		render: (_t, titleHidden) => (
 			<>
 				<BrowserProfilesSection titleHidden={titleHidden} />
@@ -149,6 +152,8 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "updates",
 		icon: RefreshCw,
 		label: (t) => t("settings.updates"),
+		// Ъпдейтите и feature build-овете сменят Electron приложението.
+		visible: () => capabilities.autoUpdate,
 		render: (_t, titleHidden) => <UpdatesSection titleHidden={titleHidden} />,
 	},
 	{

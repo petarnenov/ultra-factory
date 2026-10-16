@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { aoBridge } from "../lib/bridge";
-import { isMacPlatform, isWindowsPlatform } from "../lib/platform";
+import { capabilities, isMacPlatform, isWindowsPlatform } from "../lib/platform";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -340,7 +340,7 @@ export default function CloneRepositoryDialog({
 											onChange={(event) => onChange({ ...value, destinationParent: event.target.value })}
 										/>
 									</div>
-									<button
+									{remote || capabilities.nativeDialogs ? <button
 										aria-label={t("createProject.cloneChooseDestination")}
 										className="flex h-full shrink-0 items-center border-l border-border/60 px-4 text-foreground outline-none transition-colors hover:bg-foreground/10 focus-visible:bg-foreground/10 disabled:pointer-events-none disabled:opacity-50"
 										disabled={disabled || choosingDestination}
@@ -348,7 +348,7 @@ export default function CloneRepositoryDialog({
 										onClick={() => void chooseDestination()}
 									>
 										{t("createProject.cloneChoose")}
-									</button>
+									</button> : null}
 								</div>
 								<p id="cloneDestinationHelp" className="text-pretty text-[12px] leading-5 text-[var(--color-text-import-muted)]">
 									{targetPath

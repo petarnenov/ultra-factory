@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { clientForSessionHost } from "../lib/host-clients";
 import { sessionUiKey } from "../lib/hosts";
+import { capabilities } from "../lib/platform";
 import { useUiStore } from "../stores/ui-store";
 import { workspaceQueryKeyForHost } from "./useWorkspaceQuery";
 
@@ -19,6 +20,11 @@ export function useOpenArtifactPreview(sessionId: string | undefined, hostId?: s
 	return useCallback(
 		(url: string) => {
 			if (!sessionId) return;
+			if (!capabilities.browserPanel) {
+				// Без Browser панел артефактът се отваря в нов раздел на браузъра.
+				window.open(url, "_blank", "noopener,noreferrer");
+				return;
+			}
 			const uiKey = sessionUiKey(sessionId, hostId);
 			setInspectorView(uiKey, "browser");
 			setInspectorOpen(uiKey, true);

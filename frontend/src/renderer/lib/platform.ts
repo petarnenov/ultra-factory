@@ -1,4 +1,5 @@
 import { electronBridge } from "./electron-bridge";
+import { usesPreviewWorkspaceData } from "./preview-mode";
 
 type NavigatorWithUserAgentData = Navigator & { userAgentData?: { platform?: string } };
 
@@ -45,7 +46,8 @@ export function usesFramedAppTopbar(): boolean {
  * Win/Linux as the ShellTopbar path. Fixed in PR #3421.
  */
 export function hidesShellTopbar(): boolean {
-	return isMacPlatform();
+	// Web build-ът няма светофар на macOS и ползва Linux shell-а на всяка ОС.
+	return isMacPlatform() && !isWebBuild;
 }
 
 /**
@@ -91,4 +93,7 @@ export function resolveCapabilities(options: { webBuild: boolean; electronBridge
 	});
 }
 
-export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge });
+// Mock preview-ът (VITE_NO_ELECTRON) показва desktop UI-я: stub-овете в bridge.ts
+// заместват preload-а, а e2e тестовете минават през desktop повърхностите в него.
+// Затова той запазва desktop capabilities; само web build-ът ги изключва.
+export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge || usesPreviewWorkspaceData });

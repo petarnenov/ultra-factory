@@ -74,6 +74,42 @@ describe("renderer platform behavior", () => {
 	});
 });
 
+describe("web build window chrome", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.resetModules();
+	});
+
+	it.each([
+		["MacIntel", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"],
+		["Win32", "Win32"],
+		["Linux x86_64", "Linux x86_64"],
+	])("shows the shell topbar and keeps board actions there on %s", async (platformName, userAgent) => {
+		spoofPlatform(platformName, userAgent);
+		vi.stubEnv("VITE_AO_WEB", "1");
+		vi.resetModules();
+		const platform = await import("./platform");
+
+		expect(platform.hidesShellTopbar()).toBe(false);
+		expect(platform.usesBoardActionsInPanel()).toBe(false);
+	});
+
+	it("keeps the desktop surfaces in the mock preview without a bridge", async () => {
+		vi.stubEnv("VITE_NO_ELECTRON", "1");
+		const original = window.ao;
+		window.ao = undefined;
+		try {
+			vi.resetModules();
+			const platform = await import("./platform");
+
+			expect(platform.hasElectronBridge).toBe(false);
+			expect(Object.values(platform.capabilities).every(Boolean)).toBe(true);
+		} finally {
+			window.ao = original;
+		}
+	});
+});
+
 describe("renderer capabilities", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();

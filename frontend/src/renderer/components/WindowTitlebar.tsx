@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { electronBridge } from "../lib/electron-bridge";
+import { isWebBuild } from "../lib/platform";
 import { sidebarIsVisible, useUiStore } from "../stores/ui-store";
 import { useCanGoForward } from "./TitlebarNav";
 import {
@@ -27,7 +28,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 // Windows-only: macOS keeps its system menu bar and inset traffic lights; Linux
 // keeps the existing minimal chrome. Only Windows loses the native title bar and
 // needs the app to paint its own (see the win32 branch in main.ts).
+// Web build-ът живее в раздел на браузъра и не рисува собствен titlebar.
 const isWindows =
+  !isWebBuild &&
   typeof navigator !== "undefined" &&
   /win/i.test(
     (navigator as Navigator & { userAgentData?: { platform?: string } })
