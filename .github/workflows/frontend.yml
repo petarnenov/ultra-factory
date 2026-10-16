@@ -10,11 +10,14 @@ on:
   pull_request:
     paths:
       - "frontend/**"
-      - ".github/workflows/**"
       - "contracts/cloud/**"
       - "packages/cloud-client/**"
       - "packages/product-ui/**"
       - ".github/workflows/frontend.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
