@@ -1,0 +1,58 @@
+package controllers
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/remoteworker"
+)
+
+// RemoteWorkerLinkService records remote workers whose reports this daemon pulls.
+type RemoteWorkerLinkService interface {
+	Register(context.Context, remoteworker.RegisterInput) (remoteworker.Registration, error)
+}
+
+// RemoteWorkerLinksController owns /remote-worker-links. The route makes this
+// daemon contact a saved host, so the LAN listener never serves it.
+type RemoteWorkerLinksController struct{ Svc RemoteWorkerLinkService }
+
+// Register mounts the remote worker link routes on r.
+func (c *RemoteWorkerLinksController) Register(r chi.Router) {
+	r.Post("/remote-worker-links", c.create)
+}
+
+func (c *RemoteWorkerLinksController) create(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/remote-worker-links")
+		return
+	}
+	var req CreateRemoteWorkerLinkRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	registration, err := c.Svc.Register(r.Context(), remoteworker.RegisterInput{
+		ParentSessionID: domain.SessionID(req.ParentSessionID), HostID: req.HostID,
+		RemoteSessionID: domain.SessionID(req.RemoteSessionID), RemoteProjectID: domain.ProjectID(req.RemoteProjectID),
+		DisplayName: req.DisplayName,
+	})
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	link := registration.Link
+	envelope.WriteJSON(w, http.StatusCreated, RemoteWorkerLinkResponse{
+		PullBlocked: registration.PullBlocked,
+		HostID:      link.HostID, HostLabel: link.HostLabel, RemoteSessionID: string(link.RemoteSessionID),
+		RemoteProjectID: string(link.RemoteProjectID), ProjectID: string(link.ProjectID),
+		DisplayName: link.DisplayName, CreatedAt: link.CreatedAt,
+	})
+}

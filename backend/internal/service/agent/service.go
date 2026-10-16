@@ -75,6 +75,7 @@ type Service struct {
 	modelDiscoveryDir string
 	projects          ProjectLookup
 	sessions          SessionUsageLookup
+	chatSupport       func(domain.AgentHarness) bool
 	resolverMu        map[string]*sync.Mutex
 	modelCallMu       sync.Mutex
 	modelCalls        map[string]*modelCatalogCall
@@ -98,6 +99,7 @@ type Deps struct {
 	ModelDiscoveryDir      string
 	Projects               ProjectLookup
 	Sessions               SessionUsageLookup
+	ChatSupport            func(domain.AgentHarness) bool
 	Context                context.Context
 	Logger                 *slog.Logger
 	CodexAccountRoot       string
@@ -163,6 +165,7 @@ func NewWithDeps(deps Deps) *Service {
 		)
 	}
 	svc.sessions = deps.Sessions
+	svc.chatSupport = deps.ChatSupport
 	if deps.Context != nil {
 		svc.ctx = deps.Context
 	}

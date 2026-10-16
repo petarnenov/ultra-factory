@@ -62,6 +62,14 @@ on every request and redirects disabled. Loopback-only routes (telemetry) always
 stay local, and local `AO_SESSION_ID` is never forwarded as a remote parent or
 sender. Design: `docs/superpowers/specs/2026-10-15-cli-remote-host-target-design.md`.
 
+`ao spawn --host` run inside an AO session also records a link on this
+machine's daemon (`POST /api/v1/remote-worker-links`, loopback only). The daemon
+then pulls the remote worker's `ao report` output from that host and delivers it
+to the parent's project orchestrator. Unattended pulling runs over https,
+loopback, or Tailscale; plain http needs `AO_REMOTE_REPORTS_ALLOW_HTTP=1` in the
+daemon's environment. If the link fails, or the host will not be polled, the
+spawn still succeeds and prints a warning. Design: `docs/adr/0005-daemon-pulls-remote-worker-reports.md`.
+
 ### Product commands
 
 | Command                             | Daemon route                                   |

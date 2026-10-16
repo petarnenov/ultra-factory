@@ -22,6 +22,16 @@ type reportProjectReader interface {
 	ListProject(context.Context, domain.ProjectID) ([]domain.ReportRecord, error)
 }
 
+// reportPuller serves a peer daemon that delivers this daemon's worker
+// reports to its own orchestrator.
+type reportPuller interface {
+	ListDuePending(context.Context, domain.SessionID) ([]domain.ReportRecord, bool, error)
+	AcknowledgePulled(context.Context, domain.SessionID, []string) ([]string, error)
+}
+
+// MaxCreateReportBytes bounds one report creation request.
+const MaxCreateReportBytes = 256 << 10
+
 // ReportsController owns the /reports routes.
 type ReportsController struct{ Svc ReportService }
 
@@ -29,6 +39,8 @@ type ReportsController struct{ Svc ReportService }
 func (c *ReportsController) Register(r chi.Router) {
 	r.Post("/reports", c.create)
 	r.Get("/reports", c.list)
+	r.Get("/reports/pending", c.pending)
+	r.Post("/reports/acknowledge", c.acknowledge)
 }
 
 func (c *ReportsController) list(w http.ResponseWriter, r *http.Request) {
@@ -51,6 +63,10 @@ func (c *ReportsController) list(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteError(w, r, err)
 		return
 	}
+	envelope.WriteJSON(w, http.StatusOK, listReportsResponse(records))
+}
+
+func listReportsResponse(records []domain.ReportRecord) ListReportsResponse {
 	response := ListReportsResponse{Reports: make([]ReportResponse, len(records))}
 	for i, record := range records {
 		outputs := make([]ReportOutputResponse, len(record.Outputs))
@@ -63,7 +79,47 @@ func (c *ReportsController) list(w http.ResponseWriter, r *http.Request) {
 			Outputs: outputs, CreatedAt: record.CreatedAt, RepeatCount: record.RepeatCount,
 		}
 	}
-	envelope.WriteJSON(w, http.StatusOK, response)
+	return response
+}
+
+func (c *ReportsController) pending(w http.ResponseWriter, r *http.Request) {
+	puller, ok := c.Svc.(reportPuller)
+	if c.Svc == nil || !ok {
+		apispec.NotImplemented(w, r, "GET", "/api/v1/reports/pending")
+		return
+	}
+	sessionID := domain.SessionID(r.URL.Query().Get("sessionId"))
+	if sessionID == "" {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "INVALID_REPORT_SESSION", "Worker session id is required", nil)
+		return
+	}
+	records, morePending, err := puller.ListDuePending(r.Context(), sessionID)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, ListPendingReportsResponse{Reports: listReportsResponse(records).Reports, MorePending: morePending})
+}
+
+func (c *ReportsController) acknowledge(w http.ResponseWriter, r *http.Request) {
+	puller, ok := c.Svc.(reportPuller)
+	if c.Svc == nil || !ok {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/reports/acknowledge")
+		return
+	}
+	var req AcknowledgeReportsRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	acknowledged, err := puller.AcknowledgePulled(r.Context(), domain.SessionID(req.SessionID), req.ReportIDs)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, AcknowledgeReportsResponse{Acknowledged: acknowledged})
 }
 
 func (c *ReportsController) create(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +128,9 @@ func (c *ReportsController) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req CreateReportRequest
-	dec := json.NewDecoder(r.Body)
+	// A report is a short claim plus references; the bound also keeps any one
+	// report far below what a peer daemon pulling it will read.
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, MaxCreateReportBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)

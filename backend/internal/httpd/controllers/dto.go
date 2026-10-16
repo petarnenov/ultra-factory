@@ -76,6 +76,57 @@ type ListReportsQuery struct {
 	ProjectID string `query:"projectId" required:"true" description:"Stable project identifier."`
 }
 
+// ListPendingReportsQuery selects one worker's due, still-pending reports.
+type ListPendingReportsQuery struct {
+	SessionID string `query:"sessionId" required:"true" description:"Worker session identifier on this daemon."`
+}
+
+// ListPendingReportsResponse is one worker's due, still-pending reports.
+// MorePending is true when other pending reports are not due yet (a done
+// report inside its settlement window), so a peer keeps polling the worker
+// even after its session ended.
+type ListPendingReportsResponse struct {
+	Reports     []ReportResponse `json:"reports"`
+	MorePending bool             `json:"morePending"`
+}
+
+// AcknowledgeReportsRequest settles reports a peer daemon pulled and delivered.
+type AcknowledgeReportsRequest struct {
+	SessionID string   `json:"sessionId"`
+	ReportIDs []string `json:"reportIds" minItems:"1" maxItems:"200"`
+}
+
+// AcknowledgeReportsResponse lists the report IDs that changed from pending to
+// acknowledged. IDs already settled, or held by this daemon's own delivery,
+// are absent.
+type AcknowledgeReportsResponse struct {
+	Acknowledged []string `json:"acknowledged"`
+}
+
+// CreateRemoteWorkerLinkRequest links a worker spawned on a saved remote host
+// to the project of the local session that spawned it.
+type CreateRemoteWorkerLinkRequest struct {
+	ParentSessionID string `json:"parentSessionId"`
+	HostID          string `json:"hostId"`
+	RemoteSessionID string `json:"remoteSessionId"`
+	RemoteProjectID string `json:"remoteProjectId"`
+	DisplayName     string `json:"displayName,omitempty" maxLength:"100"`
+}
+
+// RemoteWorkerLinkResponse is a stored remote worker link.
+type RemoteWorkerLinkResponse struct {
+	HostID          string    `json:"hostId"`
+	HostLabel       string    `json:"hostLabel"`
+	RemoteSessionID string    `json:"remoteSessionId"`
+	RemoteProjectID string    `json:"remoteProjectId"`
+	ProjectID       string    `json:"projectId"`
+	DisplayName     string    `json:"displayName,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	// PullBlocked explains why this daemon will not poll the host with no one
+	// acting (plain http without the opt-in). The link is stored either way.
+	PullBlocked string `json:"pullBlocked,omitempty"`
+}
+
 // HTTP response envelopes for the projects surface — the SINGLE definition of
 // each wire shape. The handlers encode these (envelope.WriteJSON), and
 // apispec.Build reflects these same types into openapi.yaml, so the served
@@ -500,7 +551,7 @@ type SpawnSessionResponse struct {
 
 // SwitchAgentRequest is the body of POST /api/v1/sessions/{sessionId}/switch-agent.
 type SwitchAgentRequest struct {
-	TargetHarness  domain.AgentHarness `json:"targetHarness" enum:"claude-code,codex,fx" description:"Agent harness to continue the logical AO session with."`
+	TargetHarness  domain.AgentHarness `json:"targetHarness" description:"Installed agent harness to continue the logical AO session with; the daemon validates continuation support."`
 	Model          string              `json:"model,omitempty" maxLength:"256" description:"Optional model override for the target agent launch or resume."`
 	IdempotencyKey string              `json:"idempotencyKey,omitempty" maxLength:"128" description:"Optional retry key. Reusing it with a different request is rejected."`
 }
