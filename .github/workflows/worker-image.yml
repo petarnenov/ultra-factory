@@ -1,14 +1,14 @@
 name: Worker image
 
-# Билдва образа на Railway worker-а (deploy/railway/worker/Dockerfile) за
-# linux/amd64 и linux/arm64 и го публикува като ghcr.io/<owner>/ao-worker.
-# Публикува само push в main или таг worker-v*, и то едва след зелен smoke
-# job. Pull request-ите и ръчното пускане билдват и минават smoke без push.
-# Таговете са описани в deploy/railway/worker/README.md.
+# Builds the Railway worker image (deploy/railway/worker/Dockerfile) for
+# linux/amd64 and linux/arm64 and publishes it as ghcr.io/<owner>/ao-worker.
+# Only a push to main or a worker-v* tag publishes, and only after the smoke
+# job is green. Pull requests and manual runs build and smoke-test without
+# pushing. Tags are documented in deploy/railway/worker/README.md.
 #
-# Пътищата са всички входове на образа: build context-ът, който пропуска
-# deploy/railway/worker/Dockerfile.dockerignore, плюс този файл. Path
-# филтрите не се прилагат при push на таг, затова всеки таг worker-v* билдва.
+# The paths are every input of the image: the build context allowed by
+# deploy/railway/worker/Dockerfile.dockerignore, plus this file. Path filters
+# are not evaluated for tag pushes, so every worker-v* tag builds.
 
 on:
   push:
@@ -38,20 +38,21 @@ concurrency:
   group: worker-image-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# local-ci (`make ci-local`) пуска всеки workflow като push и задава
-# LOCAL_CI_LOCAL в runner-а. Там няма cache услуга, която BuildKit да ползва,
-# а локален run никога не бива да публикува. Shell стъпка във всеки job чете
-# LOCAL_CI_LOCAL и само извън local-ci задава outputs, които включват GHA
-# cache-а и push-а; с празни outputs job-ът билдва без cache и не push-ва.
+# local-ci (`make ci-local`) runs every workflow as a push and sets
+# LOCAL_CI_LOCAL in the runner. It has no cache service BuildKit can use, and a
+# local run must never publish. A shell step in each job reads LOCAL_CI_LOCAL
+# and only outside local-ci sets the outputs that turn on the GHA cache and
+# the push; with the outputs empty, a job builds without cache and pushes
+# nothing.
 env:
-  # Двата job-а подават едни и същи build args, за да може publish build-ът
-  # да вземе linux/amd64 слоевете на smoke build-а от cache-а.
+  # Both jobs pass the same build args so the publish build reuses the smoke
+  # build's linux/amd64 layers from the cache.
   AO_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
   AO_COMMIT: ${{ github.sha }}
 
 jobs:
-  # Пуска образа както Railway (entrypoint, празен volume,
-  # AO_REMOTE_PASSWORD) и проверява remote-host listener-а на :3011.
+  # Start the image the way Railway does (entrypoint, empty volume,
+  # AO_REMOTE_PASSWORD) and check the remote-host listener on :3011.
   smoke:
     name: Smoke (linux/amd64)
     runs-on: ubuntu-latest
@@ -96,9 +97,9 @@ jobs:
             --volume ao-worker-smoke:/data \
             ao-worker:smoke
 
-      # curl върви във втори контейнер в мрежата на worker-а, така че
-      # проверките стигат до bind-а на 0.0.0.0:3011 отвън, както proxy-то на
-      # Railway, и не им трябва порт на хоста.
+      # curl runs in a second container on the worker's network, so the checks
+      # reach the 0.0.0.0:3011 bind from outside the worker, as Railway's proxy
+      # does, and need no host port.
       - name: Check the remote-host listener on :3011
         run: |
           url=http://ao-worker-smoke:3011
@@ -135,9 +136,8 @@ jobs:
           docker volume rm ao-worker-smoke || true
           docker network rm ao-worker-smoke || true
 
-  # linux/arm64 се билдва под QEMU. Двоичният файл ao и ACP адаптерът се
-  # билдват на runner-а (виж Dockerfile-а), затова се емулира само последният
-  # stage.
+  # linux/arm64 builds under QEMU. The ao binary and the ACP adapter are built
+  # on the runner (see the Dockerfile), so only the final stage is emulated.
   image:
     name: Build and publish (linux/amd64, linux/arm64)
     needs: smoke
@@ -155,11 +155,11 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      # sha-<short> при всеки build; worker-v<semver> само при таг worker-v*.
-      # Версиите на desktop release-ите не се ползват и няма подвижен таг.
-      # Публикува само при push в main или таг worker-v*, никога под local-ci.
-      # Имената на образите в GHCR трябва да са с малки букви. Owner-ът идва от
-      # GITHUB_REPOSITORY, защото local-ci не задава GITHUB_REPOSITORY_OWNER.
+      # sha-<short> on every build; worker-v<semver> only on worker-v* tags.
+      # Desktop release versions are never used, and no moving tag is pushed.
+      # Publish only on a push to main or a worker-v* tag, never under local-ci.
+      # GHCR image names must be lowercase. The owner comes from
+      # GITHUB_REPOSITORY because local-ci does not set GITHUB_REPOSITORY_OWNER.
       - name: Tags and publish settings
         id: mode
         run: |

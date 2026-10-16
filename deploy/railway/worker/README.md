@@ -40,47 +40,47 @@ Buildx builder от тип `docker-container` изпълнява arm64 стъп�
 `gh` идва от официалното apt хранилище на GitHub. То сервира само последното
 издание, така че версията на `gh` следва датата на билда.
 
-## Публикуван образ
+## Published image
 
-`.github/workflows/worker-image.yml` публикува образа за `linux/amd64` и
-`linux/arm64` в GitHub Container Registry:
+`.github/workflows/worker-image.yml` publishes the image for `linux/amd64` and
+`linux/arm64` to GitHub Container Registry:
 
 ```text
-ghcr.io/<owner>/ao-worker:<tag>          # за това repo: ghcr.io/petarnenov/ao-worker
+ghcr.io/<owner>/ao-worker:<tag>          # this repository: ghcr.io/petarnenov/ao-worker
 ```
 
-| Таг | Кога се push-ва | Мести ли се |
+| Tag | Pushed when | Moves |
 |---|---|---|
-| `sha-<short>` | при всяко публикуване, от първите 7 знака на commit SHA-то | не |
-| `worker-v<semver>` | при push на git таг `worker-v<semver>`, например `worker-v0.1.0` | не |
+| `sha-<short>` | every publish, from the 7-character commit SHA | no |
+| `worker-v<semver>` | a `worker-v<semver>` git tag is pushed, for example `worker-v0.1.0` | no |
 
-Образът на worker-а е отделен канал: никога не се тагва с версиите на
-desktop release-ите и няма `latest`. Насочи Railway service към таг
-`worker-v<semver>`, или към таг `sha-<short>`, за да пробваш commit, който
-още не е пуснат. `ao version` в тагнат образ показва името на тага; другите
-build-ове показват `dev` и commit-а.
+The worker image is its own channel: it is never tagged with desktop release
+versions, and there is no `latest`. Point a Railway service at a
+`worker-v<semver>` tag, or at a `sha-<short>` tag to try an unreleased commit.
+`ao version` in a tagged image prints the tag name; other builds print `dev`
+and the commit.
 
-Workflow-ът се пуска при push в `main`, който пипа входовете на образа
-(`backend/`, `deploy/railway/worker/`, `frontend/acp-runtime/`, ACP build
-скриптовете във `frontend/scripts/` или самия workflow), при всеки таг
-`worker-v*`, при pull request-и, които пипат същите пътища, и при ръчно
-пускане. Публикува само push в `main` или таг `worker-v*`; pull request-ите и
-ръчното пускане билдват двете платформи и минават smoke без push.
-Публикуването чака smoke job-а. Той пуска `linux/amd64` образа на празен
-volume със зададен `AO_REMOTE_PASSWORD` и проверява, че
-`GET :3011/api/v1/identity` връща 200 с `hostId` и че listener-ът приема тази
-парола. `make ci-local` пуска същите job-ове локално без cache-а на GitHub
-Actions и никога не прави login или push.
+The workflow runs on a push to `main` that touches the image's inputs
+(`backend/`, `deploy/railway/worker/`, `frontend/acp-runtime/`, the ACP build
+scripts in `frontend/scripts/`, or the workflow itself), on every `worker-v*`
+tag, on pull requests that touch the same paths, and on a manual run. Only a
+push to `main` or a `worker-v*` tag publishes; pull requests and manual runs
+build both platforms and smoke-test without pushing. Publishing waits for the
+smoke job, which starts the `linux/amd64` image on an empty volume with
+`AO_REMOTE_PASSWORD` set and checks that `GET :3011/api/v1/identity` returns
+200 with a `hostId` and that the listener accepts that password.
+`make ci-local` runs the same jobs locally without the GitHub Actions cache
+and never logs in or pushes.
 
-За release push-ни таг от commit в `main`:
+To cut a release, push a tag from a commit on `main`:
 
 ```bash
 git tag worker-v0.1.0 && git push origin worker-v0.1.0
 ```
 
-Първият push създава пакета `ao-worker` като private. За да може Railway да
-го тегли без credentials за registry-то, направи го public от настройките
-**Packages** на owner-а.
+The first push creates the `ao-worker` package as private. To let Railway pull
+it without registry credentials, make it public under the owner's
+**Packages** settings.
 
 ## Подредба и среда
 
