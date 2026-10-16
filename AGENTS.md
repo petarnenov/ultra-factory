@@ -39,6 +39,7 @@ Frontend-specific checks:
 cd frontend
 npm run typecheck
 npm run build
+npm run build:web       # standalone web renderer → dist-web/ (VITE_AO_WEB=1; dev:web:real runs it against a real daemon via AO_DEV_API_TARGET)
 ```
 
 When showing or demoing frontend changes, run `ao preview [url]` from inside the session so the change renders in the desktop browser panel (the inspector rail's Browser tab); do not just describe it.
