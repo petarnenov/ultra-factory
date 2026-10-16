@@ -10,9 +10,9 @@ import { Button } from "../ui/button";
 import { SettingsRow } from "./SettingsRow";
 
 /**
- * Разрешението за Web Notifications в браузъра. Prompt-ът тръгва само от този
- * бутон, никога при зареждане. В Electron toast-овете са на main процеса и
- * редът не се показва.
+ * Browser permission for Web Notifications. The prompt only ever starts from
+ * this button, never on load. In Electron, toasts belong to the main process
+ * and the row is not shown.
  */
 export function WebNotificationsRow({ webBuild = isWebBuild }: { webBuild?: boolean }) {
 	const { t } = useTranslation();

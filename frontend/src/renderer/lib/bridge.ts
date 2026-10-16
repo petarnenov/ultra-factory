@@ -329,8 +329,8 @@ export const aoBridge: AoBridge =
 			import: async () => ({ sourceName: "", entries: [] }),
 			onImportProgress: () => () => undefined,
 		},
-		// Mock-data preview (VITE_NO_ELECTRON) остава без нотификации; web build-ът
-		// ползва Web Notifications, badge в document.title и бъндълнатия звук.
+		// Mock-data preview (VITE_NO_ELECTRON) stays without notifications; the web
+		// build uses Web Notifications, a document.title badge and the bundled sound.
 		notifications: usesPreviewWorkspaceData
 			? {
 				show: async () => undefined,
@@ -341,7 +341,7 @@ export const aoBridge: AoBridge =
 				reportSoundFailure: () => undefined,
 			}
 			: createWebNotificationsBridge({
-				// Динамичен import: store-ът импортира aoBridge от този модул.
+				// Dynamic import: the store imports aoBridge from this module.
 				soundEnabled: async () =>
 					(await import("../stores/sound-notifications-store")).useSoundNotificationsStore.getState().enabled,
 			}),

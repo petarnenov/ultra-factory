@@ -1,11 +1,11 @@
 import type { AoBridge } from "../../preload";
 import { shouldSignalAttention } from "../../main/notification-signals";
 
-// Браузърният еквивалент на notifications групата, която в Electron държи
-// main процесът (main.ts, notifications:show/setBadge). Тук няма dock, tray и
-// системен beep: toast-ът е Web Notification, badge-ът е префикс в
-// document.title, а звукът минава през същите onPlaySound слушатели, които
-// main.tsx вече закача към бъндълнатия notification.mp3.
+// Browser counterpart of the notifications group that the Electron main process
+// owns (main.ts, notifications:show/setBadge). There is no dock, tray or system
+// beep here: the toast is a Web Notification, the badge is a document.title
+// prefix, and the sound goes through the same onPlaySound listeners that
+// main.tsx already wires to the bundled notification.mp3.
 
 export type WebNotificationPermission = NotificationPermission | "unsupported";
 
@@ -22,9 +22,9 @@ export function webNotificationPermission(): WebNotificationPermission {
 }
 
 /**
- * Пита браузъра за разрешение. Вика се само от потребителско действие (бутона в
- * Settings): браузърите блокират или игнорират заявка без user gesture, а
- * prompt при зареждане е натрапчив, затова show() никога не пита сам.
+ * Asks the browser for permission. Only call it from a user action (the
+ * Settings button): browsers block or ignore requests without a user gesture,
+ * and a prompt on load is intrusive, so show() never asks on its own.
  */
 export async function requestWebNotificationPermission(): Promise<WebNotificationPermission> {
 	const api = notificationApi();
@@ -33,7 +33,7 @@ export async function requestWebNotificationPermission(): Promise<WebNotificatio
 	return api.requestPermission();
 }
 
-/** Слага или маха префикса `(n) ` и запазва останалата част от заглавието. */
+/** Adds or removes the `(n) ` prefix and keeps the rest of the title. */
 export function badgedTitle(title: string, count: number): string {
 	const base = title.replace(BADGE_PREFIX, "");
 	const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
@@ -53,8 +53,8 @@ export function createWebNotificationsBridge(options: {
 	return {
 		show: async (notification: NotificationShowInput) => {
 			if (!notification.id) return;
-			// Както в main: „вече гледа“ = прозорецът е на фокус или промптът е на
-			// екрана (`watched`). Тогава няма визуален сигнал и звук.
+			// As in main: "already looking" = the window has focus or the prompt is
+			// on screen (`watched`). No visual signal or sound then.
 			const looking = (document.hasFocus() && document.visibilityState === "visible") || notification.watched === true;
 			if (looking) return;
 			if (shouldSignalAttention(notification.type)) {
@@ -66,7 +66,7 @@ export function createWebNotificationsBridge(options: {
 			try {
 				const toast = new api(notification.title, {
 					body: notification.body,
-					// Същото id заменя предишния toast вместо да трупа дубликати.
+					// The same id replaces the previous toast instead of stacking duplicates.
 					tag: notification.id,
 				});
 				toast.onclick = () => {
@@ -75,8 +75,8 @@ export function createWebNotificationsBridge(options: {
 					for (const listener of clickListeners) listener(notification.id);
 				};
 			} catch {
-				// Някои браузъри (Android Chrome) позволяват Notification само от
-				// service worker; липсващ toast не бива да чупи UI-а.
+				// Some browsers (Android Chrome) only allow Notification from a
+				// service worker; a missing toast must not break the UI.
 			}
 		},
 		setBadge: async (count: number) => {
@@ -98,7 +98,7 @@ export function createWebNotificationsBridge(options: {
 				soundListeners.delete(listener);
 			};
 		},
-		// Браузърът няма системен beep, към който да падне.
+		// The browser has no system beep to fall back to.
 		reportSoundFailure: () => undefined,
 	};
 }

@@ -10,8 +10,8 @@ type ToastInstance = { title: string; options?: NotificationOptions; onclick: ((
 
 const toasts: ToastInstance[] = [];
 
-// Mock на Web Notifications API: записва всяко new Notification(...) и
-// позволява на теста да задава permission и отговора на requestPermission.
+// Web Notifications API mock: records every new Notification(...) and lets the
+// test set the permission and the requestPermission answer.
 function installNotificationMock(permission: NotificationPermission, answer: NotificationPermission = "granted") {
 	const MockNotification = vi.fn(function (this: ToastInstance, title: string, options?: NotificationOptions) {
 		this.title = title;
