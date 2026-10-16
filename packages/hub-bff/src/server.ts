@@ -10,14 +10,13 @@ import { SESSION_ABSOLUTE_MS, SessionStore } from "./sessions.ts";
 export const SESSION_COOKIE = "ao_hub_session";
 export const LOGIN_ATTEMPTS_PER_MINUTE = 5;
 const MAX_LOGIN_BODY_BYTES = 4096;
-// Всяка проверка със scrypt заема ~128 MiB. Лимитът на login е на клиент, затова
-// много различни адреси наведнъж могат да изчерпят паметта на малък контейнер.
-// Над този брой едновременни проверки login отговаря с 503, без да вика scrypt.
+// Each scrypt check takes ~128 MiB. The login throttle is per client, so many
+// distinct addresses at once could exhaust a small container's memory. Above
+// this many concurrent checks, login answers 503 without calling scrypt.
 export const MAX_CONCURRENT_PASSWORD_CHECKS = 2;
 
-// Префикси на пътища, които принадлежат на proxy-то към daemon-а от RW-2.4.2.
-// Докато то не е готово, отговарят с 501 на автентикиран клиент, вместо да
-// стигнат до SPA-то.
+// Path prefixes owned by the daemon proxy of RW-2.4.2. Until it lands they
+// answer 501 to an authenticated caller instead of falling through to the SPA.
 const PROXY_PREFIXES = ["/api/", "/mux", "/hosts/", "/readyz"];
 
 const LOGIN_DIR = path.join(import.meta.dirname, "..", "login");
@@ -53,12 +52,12 @@ const CONTENT_TYPES: Record<string, string> = {
 export type BffOptions = {
 	spaDir: string;
 	passwordHash: string;
-	// Ако е зададен, заявките, които променят състояние, трябва да носят точно
-	// този Origin. Иначе Origin трябва да съвпада с Host на заявката.
+	// When set, state-changing requests must carry exactly this Origin.
+	// Otherwise the Origin must match the request's Host.
 	publicOrigin?: string;
 	log: Logger;
 	now?: () => number;
-	// Само за тестове: подменя проверката на паролата.
+	// Tests only: replaces the password check.
 	verify?: (candidate: string, hash: ParsedHash) => Promise<boolean>;
 };
 
@@ -78,11 +77,11 @@ export function createBff(options: BffOptions): Server {
 		const method = req.method ?? "GET";
 		const safe = method === "GET" || method === "HEAD";
 
-		// Health check: фиксирано тяло, без auth, не пипа daemon (ADR 0006).
+		// Health check: fixed body, no auth, touches no daemon (ADR 0006).
 		if (pathname === "/healthz" && safe) return sendJson(res, 200, { ok: true });
 
-		// CSRF: SameSite=Strict на cookie-то плюс проверка за same-origin при всяка
-		// заявка, която променя състояние, включително самия login.
+		// CSRF: SameSite=Strict on the cookie, plus a same-origin check on every
+		// state-changing request, including login itself.
 		if (!safe && !sameOrigin(req, options.publicOrigin)) {
 			log("warn", "cross-origin request refused", { method, path: pathname });
 			return sendJson(res, 403, { error: "cross_origin_request" });
@@ -109,7 +108,7 @@ export function createBff(options: BffOptions): Server {
 			return;
 		}
 
-		// Всичко по-долу изисква сесия, включително обвивката на SPA-то.
+		// Everything below requires a session, including the SPA shell.
 		if (!sessions.touch(readCookie(req, SESSION_COOKIE))) {
 			if (safe && isNavigation(req)) return redirect(res, "/login");
 			return sendJson(res, 401, { error: "unauthorized" });
@@ -174,7 +173,7 @@ export function createBff(options: BffOptions): Server {
 			info = await stat(file).catch(() => undefined);
 		}
 		if (!info?.isFile()) {
-			// Клиентските маршрути нямат разширение; липсващите assets имат.
+			// Client-side routes have no extension; missing assets do.
 			if (path.extname(pathname)) return sendJson(res, 404, { error: "not_found" });
 			file = path.join(spaDir, "index.html");
 			info = await stat(file);
@@ -183,7 +182,7 @@ export function createBff(options: BffOptions): Server {
 		res.writeHead(200, {
 			"Content-Type": CONTENT_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream",
 			"Content-Length": info.size,
-			// Vite слага content hash в имената под assets/; обвивката трябва да се ревалидира.
+			// Vite emits content-hashed names under assets/; the shell must revalidate.
 			"Cache-Control": !isIndex && pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
 		});
 		if (req.method === "HEAD") {
@@ -207,7 +206,7 @@ export function createBff(options: BffOptions): Server {
 		res.setHeader("Referrer-Policy", "no-referrer");
 		res.setHeader("X-Frame-Options", "DENY");
 		res.on("finish", () => {
-			// Логва се само декодираният път: никога query string, headers или тяло.
+			// Log the decoded path only: never the query string, headers, or body.
 			log("info", "request", { method: req.method, path: pathname, status: res.statusCode, ms: Date.now() - started });
 		});
 		if (!pathname || pathname.includes("\0")) {
@@ -222,8 +221,8 @@ export function createBff(options: BffOptions): Server {
 	});
 }
 
-// sameOrigin приема заявка, която променя състояние, само когато браузърът казва,
-// че е same-origin. Липсващ Origin се отказва: всеки браузър го праща при POST.
+// sameOrigin accepts a state-changing request only when the browser says it is
+// same-origin. A missing Origin is refused: every browser sends it on POST.
 function sameOrigin(req: IncomingMessage, publicOrigin: string | undefined): boolean {
 	const site = req.headers["sec-fetch-site"];
 	if (site !== undefined && site !== "same-origin") return false;
@@ -261,7 +260,7 @@ function readBody(req: IncomingMessage, limit: number): Promise<string> {
 		req.on("data", (chunk: Buffer) => {
 			size += chunk.length;
 			if (size > limit) {
-				// Изчети остатъка, за да може все пак да се върне 400.
+				// Drain the rest so a 400 can still be written.
 				req.removeAllListeners("data");
 				req.resume();
 				reject(new Error("body too large"));

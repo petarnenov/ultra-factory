@@ -1,4 +1,4 @@
-// Отпечатва стойност за AO_WEB_PASSWORD_HASH за паролата, прочетена от stdin:
+// Prints an AO_WEB_PASSWORD_HASH value for the password read from stdin:
 //   printf '%s' 'the password' | npm run --silent hash-password
 import { hashPassword } from "../src/password.ts";
 

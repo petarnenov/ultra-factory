@@ -10,7 +10,7 @@ import { hashPassword } from "../src/password.ts";
 import { LOGIN_ATTEMPTS_PER_MINUTE, MAX_CONCURRENT_PASSWORD_CHECKS, SESSION_COOKIE, createBff } from "../src/server.ts";
 import { SESSION_IDLE_MS } from "../src/sessions.ts";
 
-// Евтина цена на scrypt пази тестовете бързи; продукцията ползва DEFAULT_COST.
+// A cheap scrypt cost keeps the suite fast; production uses DEFAULT_COST.
 const TEST_COST = { ln: 10, r: 8, p: 1 };
 const HOST = "hub.test";
 const ORIGIN = `http://${HOST}`;
@@ -177,9 +177,9 @@ describe("hub bff", () => {
 			const limited = await login(h.server, { password }, xff);
 			expect(limited.status).toBe(429);
 			expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
-			// Друг клиент зад същия edge не е засегнат.
+			// Another client behind the same edge is unaffected.
 			expect((await login(h.server, { password }, { "X-Forwarded-For": "198.51.100.8" })).status).toBe(204);
-			// Прозорецът се нулира след минута.
+			// The window resets after a minute.
 			h.advance(60_000);
 			expect((await login(h.server, { password }, xff)).status).toBe(204);
 		});
@@ -204,7 +204,7 @@ describe("hub bff", () => {
 			const server = createBff({ spaDir, passwordHash, log: () => {}, verify });
 			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 			try {
-				// Различни клиенти, за да не се намесва лимитът на клиент.
+				// Distinct clients, so the per-client throttle stays out of the way.
 				const inFlight = Array.from({ length: MAX_CONCURRENT_PASSWORD_CHECKS }, (_, i) =>
 					login(server, { password }, { "X-Forwarded-For": `198.51.100.${20 + i}` }).then((r) => r),
 				);
@@ -214,7 +214,7 @@ describe("hub bff", () => {
 				expect(refused.body).toEqual({ error: "busy" });
 				expect(refused.headers["retry-after"]).toBe("1");
 				expect(calls).toBe(MAX_CONCURRENT_PASSWORD_CHECKS);
-				// Освободеният слот отново приема проверки.
+				// A freed slot accepts checks again.
 				for (const resolve of pending.splice(0)) resolve(true);
 				for (const res of await Promise.all(inFlight)) expect(res.status).toBe(204);
 				const next = login(server, { password }, { "X-Forwarded-For": "198.51.100.99" }).then((r) => r);

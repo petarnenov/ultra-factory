@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
-// Сесиите живеят само в паметта на BFF-а (ADR 0006): redeploy излогва всички.
-// Всяка сесия има плъзгащ се idle timeout и абсолютен живот.
+// Sessions live in BFF memory only (ADR 0006): a redeploy logs everyone out.
+// Each session has a sliding idle timeout and an absolute lifetime.
 export const SESSION_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SESSION_ABSOLUTE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -15,7 +15,7 @@ export class SessionStore {
 		this.now = now;
 	}
 
-	// Връща случаен 256-битов session id.
+	// Returns a random 256-bit session id.
 	create(): string {
 		this.sweep();
 		const id = randomBytes(32).toString("base64url");
@@ -24,7 +24,7 @@ export class SessionStore {
 		return id;
 	}
 
-	// Проверява id-то и ако сесията е жива, премества idle прозореца ѝ.
+	// Validates the id and, if it is live, slides its idle window.
 	touch(id: string | undefined): boolean {
 		if (!id) return false;
 		const session = this.sessions.get(id);

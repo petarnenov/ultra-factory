@@ -6,7 +6,7 @@ const log = jsonLogger();
 
 try {
 	const config = await loadConfig(process.env);
-	// Паролата в чист текст вече е хеширана; махни я от env-а на процеса.
+	// The plaintext password has been hashed; drop it from this process's env.
 	delete process.env.AO_WEB_PASSWORD;
 	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log });
 	server.listen(config.port, config.host, () => {

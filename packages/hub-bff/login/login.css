@@ -1,6 +1,5 @@
-/* Стойностите повтарят frontend/src/styles/tokens.css (тъмна и светла тема).
-   BFF-ът сервира тази страница преди login, затова тя не може да зареди
-   стиловете на SPA-то. */
+/* Values mirror frontend/src/styles/tokens.css (dark and light). This page is
+   served by the BFF before login, so it cannot load the SPA's stylesheet. */
 :root {
 	--background: oklch(0.21 0.002 250);
 	--foreground: oklch(0.97 0.002 250);

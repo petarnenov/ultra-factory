@@ -1,11 +1,11 @@
 import { isIP } from "node:net";
 import type { IncomingMessage } from "node:http";
 
-// clientKey определя клиента за ограничаването на login по правилото от ADR 0005:
-// най-десният запис в X-Forwarded-For във всички редове на header-а, т.е. този,
-// който е добавил edge-ът на Railway. Всичко вляво от него се контролира от
-// клиента. Ако най-десният запис не е валиден IP, се ползва TCP peer-ът, никога
-// по-ранен запис. Ключът служи само за ограничаване и за нищо друго.
+// clientKey identifies the caller for login throttling with the rule of
+// ADR 0005: the rightmost X-Forwarded-For entry across all header lines, which
+// is the one Railway's edge appended. Everything to its left is
+// client-controlled. An unparseable rightmost entry falls back to the TCP peer,
+// never to an earlier entry. The key is used for throttling and nothing else.
 export function clientKey(req: IncomingMessage): string {
 	const lines = req.headersDistinct["x-forwarded-for"];
 	if (lines && lines.length > 0) {
@@ -16,7 +16,7 @@ export function clientKey(req: IncomingMessage): string {
 	return req.socket.remoteAddress ?? "unknown";
 }
 
-// Брояч с фиксиран прозорец: най-много `limit` опита на ключ за прозорец.
+// A fixed-window counter: at most `limit` attempts per key per window.
 export class RateLimiter {
 	private readonly windows = new Map<string, { start: number; count: number }>();
 	private readonly limit: number;
@@ -29,8 +29,8 @@ export class RateLimiter {
 		this.now = now;
 	}
 
-	// Записва един опит. Връща 0, ако е позволен, иначе секундите, след които
-	// ключът може да опита отново.
+	// Records one attempt. Returns 0 if allowed, otherwise the seconds until the
+	// key may try again.
 	hit(key: string): number {
 		const now = this.now();
 		if (this.windows.size > 10_000) {

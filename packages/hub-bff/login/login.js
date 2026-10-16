@@ -1,5 +1,5 @@
-// Изпраща паролата на оператора като JSON към BFF-а. При успех BFF-ът вече е
-// сложил HttpOnly session cookie-то, така че страницата просто отива към SPA-то.
+// Posts the operator password as JSON to the BFF. On success the BFF has set
+// the HttpOnly session cookie, so the page just navigates to the SPA.
 const form = document.getElementById("login");
 const input = document.getElementById("password");
 const error = document.getElementById("error");

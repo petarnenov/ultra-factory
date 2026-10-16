@@ -1,21 +1,20 @@
 # hub-bff
 
-Уеб backend-for-frontend (BFF) за hub-а на AO в Railway, по решението от
-[ADR 0006](../../docs/adr/0006-web-bff-for-hub.md). Това е отделен Node процес,
-а не listener на daemon-а. Той е единствената публична повърхност на hub-а:
-сервира уеб build-а на renderer-а, държи login-а на единствения оператор и (от
-RW-2.4.2) проксира към daemon-ите през автентикираните им listener-и. Никога не
-се свързва с loopback listener-а на daemon-а на `127.0.0.1:3001`.
+The web backend-for-frontend for the AO hub on Railway, as decided in
+[ADR 0006](../../docs/adr/0006-web-bff-for-hub.md). It is a separate Node
+process, not a daemon listener. It is the hub's only public surface: it serves
+the web build of the renderer, owns the single-operator login, and (from
+RW-2.4.2) proxies to daemons through their authenticated listeners. It never
+connects to the daemon's loopback listener on `127.0.0.1:3001`.
 
-Този пакет е скелетът от RW-2.4.1: статично SPA, login, session cookie, CSRF и
-ограничаване на опитите за login. Префиксите `/api/*`, `/mux`, `/hosts/*` и
-`/readyz` са запазени за proxy-то и до RW-2.4.2 отговарят с `501` на влязъл
-потребител.
+This package is the RW-2.4.1 skeleton: static SPA, login, session cookie, CSRF,
+and login throttling. The `/api/*`, `/mux`, `/hosts/*`, and `/readyz` prefixes
+are reserved for the proxy and answer `501` to a signed-in caller until RW-2.4.2.
 
-## Пускане
+## Running
 
-Node 24 изпълнява TypeScript изходниците директно (type stripping), така че няма
-build стъпка.
+Node 24 runs the TypeScript sources directly (type stripping), so there is no
+build step.
 
 ```bash
 npm --prefix frontend run build:web                    # → frontend/dist-web
@@ -26,93 +25,92 @@ npm --prefix packages/hub-bff test                     # vitest + supertest
 npm --prefix packages/hub-bff run typecheck
 ```
 
-| Променлива | Задължителна | Значение |
+| Variable | Required | Meaning |
 |---|---|---|
-| `AO_HUB_SPA_DIR` | да | Директорията на уеб build-а (`frontend/dist-web`); трябва да съдържа `index.html`. |
-| `AO_WEB_PASSWORD_HASH` | една от двете | Хеш на паролата на оператора от `npm run hash-password`. Предпочитан вариант. |
-| `AO_WEB_PASSWORD` | една от двете | Паролата на оператора в чист текст. Хешира се при старт, маха се от env-а на процеса и никога не се логва. |
-| `PORT` | не | Порт за слушане. Railway го задава. По подразбиране `8080`. |
-| `AO_HUB_BFF_HOST` | не | Адрес за слушане. По подразбиране `::` (всички интерфейси, dual-stack), което Railway изисква. |
-| `AO_WEB_ORIGIN` | не | Публичният origin, например `https://hub.example.com`. Ако е зададен, заявките, които променят състояние, трябва да носят точно този `Origin`; иначе `Origin` трябва да съвпада с `Host` на заявката. |
+| `AO_HUB_SPA_DIR` | yes | Directory of the web build (`frontend/dist-web`), must contain `index.html`. |
+| `AO_WEB_PASSWORD_HASH` | one of | Operator password hash from `npm run hash-password`. Preferred. |
+| `AO_WEB_PASSWORD` | one of | Plaintext operator password. Hashed at start-up, removed from the process env, never logged. |
+| `PORT` | no | Listen port. Railway sets it. Default `8080`. |
+| `AO_HUB_BFF_HOST` | no | Listen address. Default `::` (all interfaces, dual-stack), which Railway needs. |
+| `AO_WEB_ORIGIN` | no | Public origin such as `https://hub.example.com`. When set, state-changing requests must carry exactly this `Origin`; otherwise `Origin` must match the request's `Host`. |
 
-Смяната на паролата е смяна на променливата и redeploy. Сесиите са в паметта,
-затова redeploy излогва и всички потребители.
+Rotating the password is changing the variable and redeploying. Sessions live in
+memory, so a redeploy also signs everyone out.
 
-## Маршрути
+## Routes
 
-| Маршрут | Auth | Поведение |
+| Route | Auth | Behavior |
 |---|---|---|
-| `GET /healthz` | няма | `200 {"ok":true}`. Фиксирано тяло, не пипа daemon. |
-| `GET /login`, `GET /_bff/login.{css,js}` | няма | Минимална login страница, която BFF-ът сервира сам, със строг CSP. Пренасочва към `/`, ако потребителят вече е влязъл. |
-| `POST /login` | няма | JSON `{"password": "..."}`. `204` + session cookie, `401` при грешна парола, `429` + `Retry-After` при надвишен лимит, `503` + `Retry-After`, когато вече вървят 2 проверки на паролата. |
-| `POST /logout` | няма | Прекратява сесията и изчиства cookie-то. `204`. |
-| всичко останало | сесия | SPA-то от `AO_HUB_SPA_DIR`, с `index.html` като резервен отговор за клиентски маршрути без разширение. Без сесия: `302 /login` при навигация на страница, иначе `401 {"error":"unauthorized"}`. |
+| `GET /healthz` | none | `200 {"ok":true}`. Fixed body, touches no daemon. |
+| `GET /login`, `GET /_bff/login.{css,js}` | none | Minimal login page served by the BFF itself, with a strict CSP. Redirects to `/` when already signed in. |
+| `POST /login` | none | JSON `{"password": "..."}`. `204` + session cookie, `401` on a wrong password, `429` + `Retry-After` when throttled, `503` + `Retry-After` when 2 password checks are already running. |
+| `POST /logout` | none | Ends the session and clears the cookie. `204`. |
+| everything else | session | The SPA from `AO_HUB_SPA_DIR`, with `index.html` as the fallback for extensionless client-side routes. Without a session: `302 /login` for a page navigation, `401 {"error":"unauthorized"}` otherwise. |
 
-Login страницата е на BFF-а, а не маршрут в SPA-то: по ADR 0006 самата обвивка на
-SPA-то е зад сесията, така че SPA-то не може да покаже login форма преди вход.
-SPA-то трябва само да третира `401` от BFF-а като „отиди на `/login`“.
+The login page is the BFF's own, not a route in the SPA: ADR 0006 puts the SPA
+shell itself behind the session, so the SPA cannot render a login form before
+sign-in. The SPA only needs to treat a `401` from the BFF as "go to `/login`".
 
-## Модел на сигурност
+## Security model
 
-- **Session cookie** `ao_hub_session`: случаен 256-битов id, `HttpOnly; Secure;
-  SameSite=Strict; Path=/`. Сесиите се пазят в паметта с плъзгащ се idle timeout
-  от 7 дни и абсолютен живот от 30 дни (`Max-Age` на cookie-то). Няма секрет за
-  подписване: id-то е непрозрачно и има смисъл само за този процес.
-- **CSRF**: освен `SameSite=Strict`, всяка заявка, различна от `GET`/`HEAD`,
-  включително `POST /login`, трябва да носи `Origin`, който съвпада с host-а (или
-  с `AO_WEB_ORIGIN`), а `Sec-Fetch-Site`, ако е изпратен, трябва да е
-  `same-origin`. Иначе `403`. `POST /login` изисква и
-  `Content-Type: application/json`, който cross-site форма не може да изпрати.
-- **Ограничаване на login**: 5 опита на минута на клиент. Клиентът е
-  най-десният валиден запис в `X-Forwarded-For`, същото правило като в
-  [ADR 0005](../../docs/adr/0005-trusted-proxy-remote-host.md), защото BFF-ът
-  стои зад edge-а на Railway. Ако най-десният запис не е валиден IP, се ползва
-  TCP peer-ът, никога по-ранен запис. Ключът служи само за ограничаване.
-  Пускай BFF-а само зад един доверен proxy: клиент, който достига порта
-  директно, може сам да избере ключа си.
-- **Памет при login**: една проверка със scrypt заема ~128 MiB, а лимитът по-горе
-  е на клиент. Затова най-много 2 проверки на паролата вървят едновременно
-  (`MAX_CONCURRENT_PASSWORD_CHECKS`). Над това `POST /login` връща
-  `503 {"error":"busy"}` + `Retry-After: 1`, без да вика scrypt.
-- **Логове**: по един JSON обект на ред в stdout. Редовете за заявки съдържат
-  метода, пътя без query string, статуса и продължителността. Редовете за login
-  съдържат ключа на клиента. Пароли, хешове, cookies и headers никога не се
-  логват.
+- **Session cookie** `ao_hub_session`: a random 256-bit id, `HttpOnly; Secure;
+  SameSite=Strict; Path=/`. Sessions are kept in memory with a 7-day sliding
+  idle timeout and a 30-day absolute lifetime (the cookie's `Max-Age`). There is
+  no signing secret: the id is opaque and only meaningful to this process.
+- **CSRF**: besides `SameSite=Strict`, every request other than `GET`/`HEAD`,
+  including `POST /login`, must carry an `Origin` that matches the host (or
+  `AO_WEB_ORIGIN`), and a `Sec-Fetch-Site`, if sent, must be `same-origin`.
+  Otherwise `403`. `POST /login` also requires `Content-Type: application/json`,
+  which a cross-site form cannot send.
+- **Login throttling**: 5 attempts per minute per client. The client is the
+  rightmost valid `X-Forwarded-For` entry, the same rule as
+  [ADR 0005](../../docs/adr/0005-trusted-proxy-remote-host.md), because the BFF
+  sits behind Railway's edge. An unparseable rightmost entry falls back to the
+  TCP peer, never to an earlier entry. The key is used for throttling only.
+  Run the BFF only behind a single trusted proxy: a client that reaches the port
+  directly can choose its own key.
+- **Login memory**: one scrypt check takes ~128 MiB, and the throttle above is
+  per client. So at most 2 password checks run at once
+  (`MAX_CONCURRENT_PASSWORD_CHECKS`). Beyond that, `POST /login` returns
+  `503 {"error":"busy"}` + `Retry-After: 1` without calling scrypt.
+- **Logs**: one JSON object per line on stdout. Request lines carry the method,
+  the path without the query string, the status, and the duration. Login lines
+  carry the client key. Passwords, hashes, cookies, and headers are never logged.
 
-## Решения
+## Decisions
 
-### Без framework (`node:http`)
+### No framework (`node:http`)
 
-BFF-ът е върху `node:http` без runtime зависимости, вместо `fastify` +
-`@fastify/http-proxy`:
+The BFF is built on `node:http` with no runtime dependencies, rather than
+`fastify` + `@fastify/http-proxy`:
 
-- Той е единствената публична повърхност на hub-а, така че всяка зависимост е
-  повърхност за атака и supply chain риск в процеса, който пази shell на всеки
-  хост. Без runtime зависимости това се свежда до самия Node.
-- Наборът маршрути е малък (health, login, logout, статични файлове и
-  префиксите на proxy-то), така че router дава малко.
-- Proxy-то от RW-2.4.2 има работещ прецедент в репото върху `node:http`:
-  `frontend/src/main/remote-proxy.ts` вече препраща REST, стриймва SSE и
-  свързва WebSocket upgrade-а на `/mux` с инжектиран bearer. Пренасянето на тази
-  логика е по-малък риск от нагаждането на обработката на headers в
-  `@fastify/http-proxy` към правилата на ADR 0006 за махане и инжектиране.
+- It is the hub's only public surface, so every dependency is attack surface and
+  supply chain on the one process that guards a shell on every host. Zero
+  runtime dependencies keeps that at Node itself.
+- The route set is tiny (health, login, logout, static files, and the proxy
+  prefixes), so a router buys little.
+- The proxy of RW-2.4.2 has a working in-repo precedent on `node:http`:
+  `frontend/src/main/remote-proxy.ts` already forwards REST, streams SSE, and
+  pipes the `/mux` WebSocket upgrade with an injected bearer. Porting that logic
+  is less risk than adapting `@fastify/http-proxy`'s header handling to the
+  strip-and-inject rules of ADR 0006.
 
-Зависимостите само за разработка (`typescript`, `vitest`, `supertest`,
-`@types/*`) са пинати на точни версии.
+Dev-only dependencies (`typescript`, `vitest`, `supertest`, `@types/*`) are
+pinned to exact versions.
 
-### Хеширане на паролата: scrypt от `node:crypto`
+### Password hashing: `node:crypto` scrypt
 
-ADR 0006 допуска „salted scrypt или argon2id хеш“. Сравнени варианти:
+ADR 0006 allows "a salted scrypt or argon2id hash". The options compared:
 
-| Вариант | Решение |
+| Option | Verdict |
 |---|---|
-| `argon2` (npm) | Native addon (node-gyp или prebuilt binaries). Добавя native build в Railway image-а и supply chain зависимост за единствената проверка на секрет. Отхвърлен. |
-| `bcryptjs` | Чист JS, но bcrypt реже паролите на 72 байта, не е memory-hard и не е от двете схеми в ADR-а. Отхвърлен. |
-| `argon2` от `node:crypto` | Има го в последните версии на Node 24, но още е експериментален. Не разчитаме на него. |
-| `scrypt` от `node:crypto` | Вграден, memory-hard, без зависимост. **Избран.** |
+| `argon2` (npm) | Native addon (node-gyp or prebuilt binaries). Adds a native build to the Railway image and a supply-chain dependency for the one secret check. Rejected. |
+| `bcryptjs` | Pure JS, but bcrypt truncates passwords at 72 bytes, is not memory-hard, and is not one of the ADR's two named schemes. Rejected. |
+| `node:crypto` `argon2` | Present in recent Node 24 releases but still experimental. Not relied on. |
+| `node:crypto` `scrypt` | Built in, memory-hard, no dependency. **Chosen.** |
 
-Параметрите са базовите на OWASP за scrypt, `N=2^17, r=8, p=1` (128 MiB и малко
-под секунда на проверка на машина за разработка, което забавя и налучкването).
-Хешът се пази като `$scrypt$ln=17,r=8,p=1$<salt>$<hash>` (base64url без
-padding), така че цената може да се вдигне по-късно, без да се чупят старите
-хешове. Сравнението е с `timingSafeEqual`.
+Parameters are OWASP's scrypt baseline, `N=2^17, r=8, p=1` (128 MiB and just under a
+second per check on a developer machine, which also slows guessing). The
+hash is stored as `$scrypt$ln=17,r=8,p=1$<salt>$<hash>` (unpadded base64url),
+so the cost can be raised later without breaking existing hashes. Comparison
+uses `timingSafeEqual`.

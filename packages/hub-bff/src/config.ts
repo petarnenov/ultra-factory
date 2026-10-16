@@ -11,8 +11,8 @@ export type Config = {
 	plaintextPassword: boolean;
 };
 
-// loadConfig чете env-а на BFF-а. Ако конфигурацията е неизползваема, хвърля
-// грешка със съобщение за оператора (никога със секрет в него).
+// loadConfig reads the BFF's environment. It throws with an operator-facing
+// message (never containing a secret) when the configuration is unusable.
 export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	const port = Number(env.PORT ?? "8080");
 	if (!Number.isInteger(port) || port <= 0 || port > 65535) throw new Error("PORT must be a TCP port number");
