@@ -13,7 +13,7 @@
 #     --build-arg AO_WORKER_IMAGE=ghcr.io/<owner>/ao-worker:<tag> -t ao-hub:dev .
 #
 # Runtime configuration is set on the service, never baked in. The operator
-# sets AO_HUB_OPERATOR_PASSWORD_HASH (from `npm run hash-password`); see
+# sets AO_WEB_PASSWORD_HASH (from `npm run hash-password`); see
 # packages/hub-bff/README.md for the rest. The hub's own daemon password is
 # generated on first start and stays in the volume.
 

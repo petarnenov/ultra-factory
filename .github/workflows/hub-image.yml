@@ -133,7 +133,7 @@ jobs:
           docker run --detach --name ao-hub-smoke \
             --network ao-hub-smoke \
             --env PORT=8080 \
-            --env AO_HUB_OPERATOR_PASSWORD_HASH="$hash" \
+            --env AO_WEB_PASSWORD_HASH="$hash" \
             --volume ao-hub-smoke:/data \
             ao-hub:smoke
 

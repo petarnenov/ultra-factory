@@ -48,8 +48,6 @@ describe("loadConfig", () => {
 		await withSpa(async (dir) => {
 			const fromHash = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash, PORT: "9000" });
 			expect(fromHash).toMatchObject({ port: 9000, passwordHash: hash, plaintextPassword: false });
-			const fromHubName = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_HUB_OPERATOR_PASSWORD_HASH: hash });
-			expect(fromHubName).toMatchObject({ passwordHash: hash, plaintextPassword: false });
 			const plaintext = randomBytes(12).toString("base64url");
 			const fromPlain = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD: plaintext });
 			expect(fromPlain.passwordHash).not.toContain(plaintext);

@@ -33,8 +33,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 		throw new Error("AO_HUB_SPA_DIR must point at the web build (frontend/dist-web) containing index.html");
 	}
 
-	// AO_HUB_OPERATOR_PASSWORD_HASH is the hub image's name for the same hash.
-	const hash = (env.AO_WEB_PASSWORD_HASH ?? env.AO_HUB_OPERATOR_PASSWORD_HASH)?.trim();
+	const hash = env.AO_WEB_PASSWORD_HASH?.trim();
 	const plaintext = env.AO_WEB_PASSWORD;
 	if (hash && plaintext) throw new Error("set only one of AO_WEB_PASSWORD_HASH and AO_WEB_PASSWORD");
 	let passwordHash: string;
@@ -44,7 +43,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	} else if (plaintext) {
 		passwordHash = await hashPassword(plaintext);
 	} else {
-		throw new Error("AO_WEB_PASSWORD_HASH (or AO_HUB_OPERATOR_PASSWORD_HASH, or AO_WEB_PASSWORD) is required");
+		throw new Error("AO_WEB_PASSWORD_HASH (or AO_WEB_PASSWORD) is required");
 	}
 
 	let publicOrigin: string | undefined;
