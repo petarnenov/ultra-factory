@@ -156,11 +156,12 @@ jobs:
           echo "GET /hub/hosts without a session -> $code"
           test "$code" = 401
 
-          # The login response carries the session cookie in its headers.
-          resp=$(client --include --output /dev/null \
+          # Headers go to stdout (--dump-header -), not to the discarded body:
+          # with --include and --output /dev/null curl drops them.
+          resp=$(client --dump-header - --output /dev/null --write-out '\nHTTP_CODE=%{http_code}\n' \
             --header 'Content-Type: application/json' --header "Origin: $base" \
             --data "{\"password\":\"$HUB_PASSWORD\"}" "$base/login" || true)
-          code=$(printf '%s' "$resp" | head -n 1 | awk '{print $2}')
+          code=$(printf '%s' "$resp" | sed -n 's/^HTTP_CODE=//p')
           echo "POST /login with the operator password -> $code"
           test "$code" = 204
           cookie=$(printf '%s' "$resp" | tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\).*/\1/p' | head -n 1)
