@@ -8,6 +8,12 @@
 # compact summary with `ao send`. While work is in flight and nothing changed, it
 # re-nudges at most every RENUDGE_MINUTES. It never interrupts an active turn.
 #
+# It also checks invariants the orchestrator must keep true (integration branch
+# contains main, no green PR left unmerged, no merged PR with open task issues,
+# no worker idle without a PR). Each violation is sent first as a
+# "НАРУШЕНИЕ: ..." line, logged as VIOLATION, and re-sent every
+# VIOLATION_RENUDGE_MINUTES while it persists.
+#
 # Usage:
 #   orchestrator-tick.sh run         one tick (what launchd calls)
 #   orchestrator-tick.sh snapshot    print the state a tick would send, send nothing
@@ -22,6 +28,12 @@ REPO="${RW_TICK_REPO:-petarnenov/ultra-factory}"
 BASE="${RW_TICK_BASE:-feat/railway-hosting}"
 INTERVAL_SECONDS="${RW_TICK_INTERVAL:-300}"
 RENUDGE_MINUTES="${RW_TICK_RENUDGE_MINUTES:-30}"
+# While an invariant is violated and nothing changed, re-nudge this often.
+VIOLATION_RENUDGE_MINUTES="${RW_TICK_VIOLATION_RENUDGE_MINUTES:-10}"
+# Invariant thresholds.
+GREEN_PR_MAX_MINUTES="${RW_TICK_GREEN_PR_MAX_MINUTES:-10}"
+IDLE_WORKER_MAX_MINUTES="${RW_TICK_IDLE_WORKER_MAX_MINUTES:-30}"
+REPO_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 STATE_DIR="${AO_DATA_DIR:-$HOME/.ao}/rw-tick"
 LABEL="dev.aoagents.rw-orchestrator-tick"
@@ -44,10 +56,107 @@ snapshot() {
 	gh pr list -R "$REPO" --base "$BASE" --state open \
 		--json number,headRefName,mergeable,statusCheckRollup \
 		--jq '.[] | "  #\(.number) \(.headRefName) mergeable=\(.mergeable) checks=\([.statusCheckRollup[] | (.conclusion // .status)] | if length == 0 then "none" elif all(. == "SUCCESS" or . == "SKIPPED" or . == "NEUTRAL") then "green" elif any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT") then "red" else "pending" end)"' 2>&1 || true
+	printf '[invariants]\n'
+	invariants || printf 'НАРУШЕНИЕ: проверката на инвариантите се провали; виж %s\n' "$STATE_DIR/tick.log"
 }
 
-in_flight() { # any worker branch or open PR in the snapshot
-	grep -q -E 'rw/|^  #[0-9]+' "$1"
+# invariants prints one "НАРУШЕНИЕ: ..." line per violated rule, nothing when all
+# hold. Rules the orchestrator must keep true at all times are checked here, in
+# code, because "remember to do X after Y" instructions get skipped.
+invariants() {
+	# 1. The integration branch contains origin/main.
+	if git -C "$REPO_DIR" fetch -q origin main "$BASE" 2>/dev/null; then
+		local behind shas
+		behind="$(git -C "$REPO_DIR" rev-list --count "origin/$BASE..origin/main" 2>/dev/null || echo 0)"
+		if ((behind > 0)); then
+			shas="$(git -C "$REPO_DIR" log --format=%h -n 5 "origin/$BASE..origin/main" | paste -sd, -)"
+			printf 'НАРУШЕНИЕ: %s изостава от main с %s commit(s) (%s) → git merge origin/main в %s и push\n' "$BASE" "$behind" "$shas" "$BASE"
+		fi
+	else
+		printf 'НАРУШЕНИЕ: git fetch на origin се провали; провери мрежата и достъпа до репото\n'
+	fi
+
+	# 2-4 need GitHub and AO state; evaluated together in Python.
+	local open_prs merged_prs open_issues sessions h
+	open_prs="$(gh pr list -R "$REPO" --base "$BASE" --state open --json number,headRefName,mergeable,statusCheckRollup 2>/dev/null || echo '[]')"
+	merged_prs="$(gh pr list -R "$REPO" --base "$BASE" --state merged --limit 50 --json number,body,mergedAt 2>/dev/null || echo '[]')"
+	open_issues="$(gh issue list -R "$REPO" --label rw --state open --limit 200 --json number,title 2>/dev/null || echo '[]')"
+	sessions="{"
+	for h in $HOSTS; do
+		sessions+="\"$h\": $(ao session ls --host "$h" --json 2>/dev/null || echo '{}'),"
+	done
+	sessions="${sessions%,}}"
+	OPEN_PRS="$open_prs" MERGED_PRS="$merged_prs" OPEN_ISSUES="$open_issues" SESSIONS="$sessions" \
+		GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" python3 - <<'PY'
+import json, os, re
+from datetime import datetime, timezone
+
+now = datetime.now(timezone.utc)
+
+def parse_time(value):
+    if not value or value.startswith("0001-"):
+        return None
+    value = re.sub(r"\.\d+", "", value).replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+def minutes_since(t):
+    return int((now - t).total_seconds() // 60)
+
+def load(name, default):
+    try:
+        return json.loads(os.environ.get(name) or "")
+    except ValueError:
+        return default
+
+green_max = int(os.environ["GREEN_MAX"])
+idle_max = int(os.environ["IDLE_MAX"])
+
+# 2. A green, mergeable PR does not sit unmerged.
+for pr in load("OPEN_PRS", []):
+    checks = pr.get("statusCheckRollup") or []
+    results = [(c.get("conclusion") or c.get("state") or c.get("status") or "").upper() for c in checks]
+    if pr.get("mergeable") != "MERGEABLE" or not checks:
+        continue
+    if not all(r in ("SUCCESS", "SKIPPED", "NEUTRAL") for r in results):
+        continue
+    done = [parse_time(c.get("completedAt")) for c in checks]
+    done = [d for d in done if d]
+    if not done:
+        continue
+    age = minutes_since(max(done))
+    if age >= green_max:
+        print(f"НАРУШЕНИЕ: #{pr['number']} ({pr['headRefName']}) е зелен и мърджабилен от {age} мин → провери по „Ревю и мърдж“ и мърджни")
+
+# 3. A merged PR leaves none of its referenced task issues open.
+open_issues = {i["number"]: i["title"] for i in load("OPEN_ISSUES", [])}
+close_re = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
+for pr in load("MERGED_PRS", []):
+    refs = sorted({int(n) for n in close_re.findall(pr.get("body") or "")})
+    still_open = [n for n in refs if n in open_issues]
+    if still_open:
+        listed = ", ".join(f"#{n}" for n in still_open)
+        print(f"НАРУШЕНИЕ: #{pr['number']} е мърджнат, но {listed} е още отворено → gh issue close по стъпка 5 на „Ревю и мърдж“")
+
+# 4. A worker does not sit idle without a PR.
+for host, payload in load("SESSIONS", {}).items():
+    items = payload.get("data", []) if isinstance(payload, dict) else payload
+    for s in items or []:
+        branch = s.get("branch") or ""
+        if not branch.startswith("rw/") or s.get("isTerminated"):
+            continue
+        if s.get("activity") != "idle" or s.get("prs"):
+            continue
+        last = parse_time(s.get("lastActivityAt"))
+        if last and minutes_since(last) >= idle_max:
+            print(f"НАРУШЕНИЕ: {s.get('id')} ({branch}) на {host} е idle {minutes_since(last)} мин без PR → ao send --host {host} да докладва какво го блокира")
+PY
+}
+
+in_flight() { # any worker branch, open PR or violated invariant in the snapshot
+	grep -q -E 'rw/|^  #[0-9]+|^НАРУШЕНИЕ:' "$1"
 }
 
 run_tick() {
@@ -76,6 +185,14 @@ run_tick() {
 		return 0
 	fi
 
+	local violations renudge_after
+	violations="$(grep '^НАРУШЕНИЕ:' "$snap" || true)"
+	renudge_after="$RENUDGE_MINUTES"
+	if [[ -n "$violations" ]]; then
+		renudge_after="$VIOLATION_RENUDGE_MINUTES"
+		while IFS= read -r v; do log "VIOLATION ${v#НАРУШЕНИЕ: }"; done <<<"$violations"
+	fi
+
 	local reason=""
 	if [[ ! -f "$last" ]] || ! cmp -s "$snap" "$last"; then
 		reason="state changed"
@@ -84,8 +201,12 @@ run_tick() {
 		now="$(date +%s)"
 		sent="$(cat "$stamp" 2>/dev/null || echo 0)"
 		age=$(((now - sent) / 60))
-		if ((age >= RENUDGE_MINUTES)); then
-			reason="no change for ${age}m while work is in flight"
+		if ((age >= renudge_after)); then
+			if [[ -n "$violations" ]]; then
+				reason="invariant still violated after ${age}m"
+			else
+				reason="no change for ${age}m while work is in flight"
+			fi
 		fi
 	fi
 	if [[ -z "$reason" ]]; then
@@ -93,8 +214,15 @@ run_tick() {
 		return 0
 	fi
 
-	local msg
+	local msg first=""
+	if [[ -n "$violations" ]]; then
+		first="
+ПЪРВО оправи тези нарушения, преди всичко друго в цикъла:
+$violations
+"
+	fi
 	msg="TICK (автоматичен будилник от orchestrator-tick.sh, не е съобщение от потребителя; причина: $reason).
+$first
 Докладите на работниците от другите машини не стигат до теб (issue #63), затова ето текущото състояние:
 $(cat "$snap")
 Направи пълен цикъл по раздел „Будилник и цикъл на съгласуване“ от инструкциите си: мърджни всеки зелен PR, който отговаря на критериите, побутни застоялите работници, пусни всеки таск с мърджнати зависимости, обнови #59. Не чакай ao report от отдалечени работници."
