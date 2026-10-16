@@ -8,10 +8,12 @@ export type WorkerSpec = {
 };
 
 export type WorkerStatus = "provisioning" | "running" | "failed" | "stopped";
+export type RailwayService = { id: string; name: string };
 
 export interface WorkerProvider {
 	create(spec: WorkerSpec): Promise<{ serviceId: string; volumeId: string; environmentId: string; url: string }>;
 	getStatus(serviceId: string): Promise<WorkerStatus>;
+	list(): Promise<RailwayService[]>;
 	setVariables(serviceId: string, variables: Record<string, string>): Promise<void>;
 	redeploy(serviceId: string): Promise<void>;
 	delete(serviceId: string, volumeId: string): Promise<void>;
@@ -51,6 +53,7 @@ export const railwayQueries = {
 	createDomain: `mutation($input: ServiceDomainCreateInput!) { serviceDomainCreate(input: $input) { id domain } }`,
 	upsertVariable: `mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }`,
 	status: `query($serviceId: String!, $environmentId: String!) { serviceInstance(serviceId: $serviceId, environmentId: $environmentId) { serviceName latestDeployment { id status createdAt } } }`,
+	listServices: `query($projectId: String!) { project(id: $projectId) { services { edges { node { id name } } } } }`,
 	redeploy: `mutation($serviceId: String!, $environmentId: String!) { serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId) }`,
 	updateServiceInstance: `mutation($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }`,
 	deleteService: `mutation($id: String!) { serviceDelete(id: $id) }`,
@@ -160,6 +163,14 @@ export class RailwayClient implements WorkerProvider {
 			case "STOPPED": return "stopped";
 			default: return "provisioning";
 		}
+	}
+
+	async list(): Promise<RailwayService[]> {
+		const result = await this.request<{
+			project: { services: { edges: Array<{ node: RailwayService }> } } | null;
+		}>(railwayQueries.listServices, { projectId: this.options.projectId });
+		if (!result.project?.services || !Array.isArray(result.project.services.edges)) throw new RailwayApiError();
+		return result.project.services.edges.map(({ node }) => node);
 	}
 
 	async redeploy(serviceId: string): Promise<void> {

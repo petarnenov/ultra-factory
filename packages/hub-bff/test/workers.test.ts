@@ -28,6 +28,7 @@ function fakeProvider(overrides: Partial<WorkerProvider> = {}): WorkerProvider &
 		specs,
 		create: vi.fn(async (spec: WorkerSpec) => { specs.push(spec); return { serviceId: "service-1", volumeId: "volume-1", environmentId: "environment-1", url: "https://worker.up.railway.app" }; }),
 		getStatus: vi.fn(async () => "running" as const),
+		list: vi.fn(async () => []),
 		setVariables: vi.fn(async () => {}),
 		redeploy: vi.fn(async () => {}),
 		delete: vi.fn(async () => {}),
@@ -46,7 +47,7 @@ async function setup(provider: WorkerProvider, extras: Partial<Parameters<typeof
 	servers.push(server);
 	const login = await request(server).post("/login").set("Host", "hub.test").set("Origin", origin).send({ password: operatorPassword });
 	const cookie = (login.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
-	return { server, store, cookie };
+	return { server, store, cookie, workersApi };
 }
 
 function createWorker(server: ReturnType<typeof createBff>, cookie: string, body = { label: "worker-a", env: { GH_TOKEN: "gh-secret", AO_GIT_USER_NAME: "Agent", AO_GIT_USER_EMAIL: "agent@example.com" } }) {
@@ -101,6 +102,67 @@ describe("Railway worker lifecycle", () => {
 		await vi.waitFor(() => expect(h.store.getPublic(id)?.status).toBe("failed"));
 		expect(h.store.get(id)?.lastError).toContain("10 minutes");
 		expect(h.store.get(id)?.railway?.serviceId).toBe("service-1");
+	});
+
+	it("returns orphan services from the periodic registry comparison and never deletes them", async () => {
+		const provider = fakeProvider({ list: vi.fn(async () => [
+			{ id: "orphan-service", name: "ao-worker-orphan" },
+			{ id: "unrelated-service", name: "api" },
+		]) });
+		const h = await setup(provider);
+		h.workersApi.start();
+		await vi.waitFor(async () => {
+			const result = await request(h.server).get("/hub/workers").set("Cookie", h.cookie);
+			expect(result.body.orphans).toEqual([{ id: "orphan-service", name: "ao-worker-orphan" }]);
+		});
+		expect(provider.delete).not.toHaveBeenCalled();
+		h.workersApi.stop();
+	});
+
+	it("resumes a persisted provisioning record after reopening the registry", async () => {
+		const provider = fakeProvider();
+		const h = await setup(provider);
+		await h.store.createWorker({ id: "persisted-worker", label: "persisted", password: "worker-password" });
+		await h.store.updateWorker("persisted-worker", {
+			url: "https://worker.up.railway.app",
+			railway: { serviceId: "service-1", volumeId: "volume-1", environmentId: "environment-1" },
+		});
+		const reopened = await HostsStore.open(path.join(dir, "data"));
+		const resumedApi = createWorkersApi({ store: reopened, provider, image: "example/worker:latest", log: () => {}, probe: async () => ({ ok: true, identity: { hostId: "resumed-host" } }) });
+		resumedApi.start();
+		await vi.waitFor(() => expect(reopened.getPublic("persisted-worker")?.status).toBe("online"));
+		expect(provider.getStatus).toHaveBeenCalledWith("service-1");
+		resumedApi.stop();
+	});
+
+	it("resumes a persisted removal once and retains failed deletes for manual cleanup", async () => {
+		const provider = fakeProvider({ delete: vi.fn(async () => { throw new Error("denied"); }) });
+		const h = await setup(provider);
+		await h.store.createWorker({ id: "removing-worker", label: "removing", password: "worker-password" });
+		await h.store.updateWorker("removing-worker", {
+			url: "https://worker.up.railway.app",
+			railway: { serviceId: "service-1", volumeId: "volume-1", environmentId: "environment-1" },
+			status: "removing",
+			desired: "removed",
+		});
+		const reopened = await HostsStore.open(path.join(dir, "data"));
+		const resumedApi = createWorkersApi({ store: reopened, provider, log: () => {} });
+		resumedApi.start();
+		await vi.waitFor(() => expect(reopened.getPublic("removing-worker")).toMatchObject({ status: "failed", desired: "removed" }));
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(provider.delete).toHaveBeenCalledTimes(1);
+		expect(reopened.getPublic("removing-worker")).toBeDefined();
+		resumedApi.stop();
+	});
+
+	it("enforces the worker limit atomically and returns the count and limit", async () => {
+		const provider = fakeProvider();
+		const h = await setup(provider, { maxWorkers: 1 });
+		expect((await createWorker(h.server, h.cookie)).status).toBe(202);
+		const limited = await createWorker(h.server, h.cookie, { label: "worker-b", env: { GH_TOKEN: "gh-secret", AO_GIT_USER_NAME: "Agent", AO_GIT_USER_EMAIL: "agent@example.com" } });
+		expect(limited.status).toBe(429);
+		expect(limited.body).toMatchObject({ error: "worker_limit_reached", count: 1, limit: 1 });
+		expect(provider.create).toHaveBeenCalledTimes(1);
 	});
 
 	it("deletes when the session list is empty", async () => {

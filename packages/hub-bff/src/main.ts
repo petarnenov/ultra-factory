@@ -20,7 +20,7 @@ try {
 	const provider = config.railwayToken && config.railwayProjectId && config.railwayEnvironmentId
 		? new RailwayClient({ token: config.railwayToken, projectId: config.railwayProjectId, environmentId: config.railwayEnvironmentId })
 		: undefined;
-	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, log });
+	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log });
 	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi, workersApi });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {
@@ -31,11 +31,13 @@ try {
 			hostsFile: store.file,
 		});
 		monitor.start();
+		workersApi.start();
 	});
 	for (const signal of ["SIGTERM", "SIGINT"] as const) {
 		process.once(signal, () => {
 			log("info", "hub bff shutting down", { signal });
 			monitor.stop();
+			workersApi.stop();
 			server.close(() => process.exit(0));
 			server.closeAllConnections();
 		});
