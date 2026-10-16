@@ -39,6 +39,7 @@ Frontend-specific checks:
 cd frontend
 npm run typecheck
 npm run build
+npm run build:web       # standalone web renderer → dist-web/ (VITE_AO_WEB=1; dev:web:real runs it against a real daemon via AO_DEV_API_TARGET)
 ```
 
 When showing or demoing frontend changes, run `ao preview [url]` from inside the session so the change renders in the desktop browser panel (the inspector rail's Browser tab); do not just describe it.
@@ -105,6 +106,7 @@ For code entry points:
 
 - The daemon's **primary (loopback) listener** stays bound to `127.0.0.1` and unauthenticated. Do not change its bind host or add auth to it.
 - The daemon MAY run a **second, opt-in LAN listener** (the "Connect Mobile" feature) that binds `0.0.0.0` **only while explicitly enabled**, **only** behind the bearer-password `authMiddleware`, serving the app API but never the loopback-gated control routes (`/shutdown`, telemetry, mobile control). **Exactly one route is exempt from `authMiddleware`: `GET /api/v1/identity`**, which returns an opaque host id and the mobile contract version so a phone can confirm which machine answered before presenting a credential. See `docs/adr/0003-unauthenticated-identity-probe.md`. The exemption is an exact path, `GET` only, and checked ahead of the lockout; any further unauthenticated route needs its own ADR. The direct LAN listener is plaintext for trusted home networks. See `docs/adr/0001-lan-listener-for-mobile.md` and `CONTEXT.md` for the original decision. Current managed cloudflared and Tailscale TLS endpoints wrap this authenticated mobile path; they do not authorize exposing the primary listener or adding an unauthenticated route. See `frontend/src/docs/content/configuration/remote-access.mdx` for current pairing behavior. Do not add any other network-facing bind.
+- Extensions for hosting AO on Railway: `docs/adr/0005-trusted-proxy-remote-host.md` lets the LAN listener key its lockout on the rightmost `X-Forwarded-For` entry, only behind the opt-in `AO_REMOTE_TRUSTED_PROXY=1`, never by default and never for authorization. `docs/adr/0006-web-bff-for-hub.md` puts a web BFF in front of the hub daemon: the BFF is a separate process, talks only to the authenticated listener (loopback-only on the hub) with a bearer, and never proxies the primary `127.0.0.1` listener. `docs/adr/0007-dual-stack-remote-host-listener.md` records that the `0.0.0.0` LAN bind is already dual-stack in Go and must not be narrowed to `tcp4`.
 - The CLI is a thin client. Do not port old in-process TypeScript CLI behavior that bypasses daemon HTTP routes.
 - Do not store derived/display session status. Status is derived from durable facts (`activity_state`, `is_terminated`, PR/check/comment facts) at service read time.
 - Do not treat failed/unknown runtime probes as proof a session is dead.
