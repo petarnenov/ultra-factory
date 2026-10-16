@@ -412,7 +412,7 @@ export function useIndependentSideChats(
 		loadingOlderRef.current = false;
 	}
 	useEffect(() => setLoadingOlder(false), [sessionId, activeId, enabled]);
-	// null, докато daemon не е доверен; "" е валидна same-origin база (уеб билд).
+	// null until a daemon is trusted; "" is a valid same-origin base (web build).
 	const baseUrl = useSyncExternalStore(subscribeApiBaseUrl, trustedApiBaseUrl, trustedApiBaseUrl);
 	const sessionRef = useRef(sessionId);
 	sessionRef.current = enabled ? sessionId : "";

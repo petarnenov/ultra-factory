@@ -479,8 +479,8 @@ func TestIdentityProbeDoesNotCountTowardLockout(t *testing.T) {
 	}
 }
 
-// reqForwarded създава заявка от peer с подадените редове на X-Forwarded-For
-// header-а, както би я доставил reverse proxy.
+// reqForwarded builds a request from peer carrying the given X-Forwarded-For
+// header lines, as a reverse proxy would deliver it.
 func reqForwarded(peer, auth string, xff ...string) *http.Request {
 	r := reqFrom(peer, auth)
 	for _, line := range xff {
@@ -489,10 +489,9 @@ func reqForwarded(peer, auth string, xff ...string) *http.Request {
 	return r
 }
 
-// Trusted-proxy режимът (docs/adr/0005) променя само срещу кой ключ се брои
-// неуспехът. Най-десният запис в X-Forwarded-For е този, който е добавил
-// най-близкият proxy; всичко вляво от него се контролира от клиента и никога не
-// трябва да се използва.
+// Trusted-proxy mode (docs/adr/0005) changes only which key a failure counts
+// against. The rightmost X-Forwarded-For entry is the one the nearest proxy
+// appended; anything to its left is client-controlled and must never be used.
 func TestAuthTrustedProxyLockoutKey(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -529,10 +528,10 @@ func TestAuthTrustedProxyLockoutKey(t *testing.T) {
 	}
 }
 
-// Зад един proxy всички заявки делят peer адреса на proxy-то. Без trusted-proxy
-// режим един нападател заключва всички клиенти; с него всеки клиент има свой
-// lockout, смяната на подправимия най-ляв запис не дава нищо на нападателя, а
-// identity пробата остава изключена преди lockout-а.
+// Behind a single proxy every request shares the proxy's peer address. Without
+// trusted-proxy mode one attacker locks out every client; with it, each client
+// keeps its own lockout, rotating the spoofable leftmost entry buys the attacker
+// nothing, and the identity probe stays exempt ahead of the lockout.
 func TestAuthTrustedProxyLockoutIsPerForwardedClient(t *testing.T) {
 	const edge = "10.0.0.1:443"
 	for _, tc := range []struct {
@@ -578,9 +577,9 @@ func TestAuthTrustedProxyLockoutIsPerForwardedClient(t *testing.T) {
 	}
 }
 
-// Преходът към lockout се логва веднъж с изведения ключ, TCP peer-а и
-// източника на ключа. Останалата част от препратената верига и представеният
-// credential никога не стигат до лога.
+// The transition into lockout is logged once with the derived key, the TCP
+// peer, and where the key came from. The rest of the forwarded chain and the
+// presented credential never reach the log.
 func TestAuthLockoutLogsTransitionOnce(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
@@ -614,9 +613,9 @@ func TestAuthLockoutLogsTransitionOnce(t *testing.T) {
 	}
 }
 
-// Флагът стига до LAN стека през конструктора, който daemon-ът използва, а
-// стартирането на listener в този режим предупреждава, така че грешно
-// конфигуриран десктоп да се вижда в логовете.
+// The flag reaches the LAN stack through the daemon-facing constructor, and
+// starting a listener in that mode warns so a misconfigured desktop shows up
+// in the logs.
 func TestAuthTrustedProxyThroughLANManager(t *testing.T) {
 	for _, trustedProxy := range []bool{false, true} {
 		t.Run(fmt.Sprintf("trustedProxy=%t", trustedProxy), func(t *testing.T) {
