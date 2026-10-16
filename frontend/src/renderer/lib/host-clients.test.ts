@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const remotes = vi.hoisted(() => ({ connect: vi.fn(), disconnect: vi.fn(async () => undefined) }));
 vi.mock("./bridge", () => ({ aoBridge: { remotes } }));
 
-import { clientForHost, connectHost, connectedHosts, disconnectHost, isQuickTunnelHost, subscribeConnectedHosts } from "./host-clients";
+import { baseUrlForHost, clientForHost, connectHost, connectedHosts, disconnectHost, isQuickTunnelHost, subscribeConnectedHosts } from "./host-clients";
 
 afterEach(async () => {
 	for (const hostId of connectedHosts()) await disconnectHost(hostId);
@@ -45,4 +45,19 @@ it("publishes an endpoint change even when its loopback proxy keeps the same bas
 	expect(changed).toHaveBeenCalledOnce();
 	expect(isQuickTunnelHost("h_box")).toBe(true);
 	stop();
+});
+
+it("keeps a web host's same-origin prefix as its base and resolves it for REST requests", async () => {
+	const fetchMock = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ projects: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+	vi.stubGlobal("fetch", fetchMock);
+	try {
+		remotes.connect.mockResolvedValue({ hostId: "h_web", label: "Worker", url: "http://worker:3011", base: "/hosts/h_web" });
+		await connectHost("http://worker:3011", "h_web");
+		expect(baseUrlForHost("h_web")).toBe("/hosts/h_web");
+		await clientForHost("h_web").GET("/api/v1/projects");
+		const request = fetchMock.mock.calls[0][0] as Request;
+		expect(request.url).toBe(`${window.location.origin}/hosts/h_web/api/v1/projects`);
+	} finally {
+		vi.unstubAllGlobals();
+	}
 });

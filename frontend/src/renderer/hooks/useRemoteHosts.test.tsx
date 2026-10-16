@@ -13,6 +13,8 @@ const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" |
 vi.mock("../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, session: account.status === "authenticated" ? { user: { id: "user-a" } } : null }) }));
 vi.mock("./useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
+const platform = vi.hoisted(() => ({ web: false }));
+vi.mock("../lib/platform", () => ({ get isWebBuild() { return platform.web; } }));
 
 import { baseUrlForHost, connectedHosts } from "../lib/host-clients";
 import { useConnectedHosts } from "./useHostConnection";
@@ -36,6 +38,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.useRealTimers();
+	platform.web = false;
 	useUiStore.setState({ developerMode: false, remoteHosts: false });
 });
 
@@ -273,4 +276,14 @@ it("does not replace a newer proxy when an old offline retry finishes late", asy
 	expect(baseUrlForHost("box-a")).toBe("http://127.0.0.1:4001");
 	expect(remotes.disconnect).toHaveBeenCalledWith(oldUrl);
 	expect(remotes.disconnect).not.toHaveBeenCalledWith(newUrl);
+});
+
+it("connects the hub's hosts in the web build without AO Cloud sign-in", async () => {
+	platform.web = true;
+	account.status = "unauthenticated";
+	remotes.connect.mockImplementation(async (url: string) => ({ hostId: url.includes("box-a") ? "box-a" : "box-b", label: "Box", url, base: url.includes("box-a") ? "/hosts/box-a" : "/hosts/box-b" }));
+	useUiStore.setState({ remoteHosts: true });
+	const { result } = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(result.current.hosts.map((host) => host.status)).toEqual(["connected", "connected"]));
+	expect(baseUrlForHost("box-a")).toBe("/hosts/box-a");
 });
