@@ -34,8 +34,12 @@ on:
 permissions:
   contents: read
 
+# One group per ref and commit. A push to main and a worker-v* tag on the same
+# commit must not share a group: a third run there would cancel the pending
+# tag run, and the release would silently not publish. Pull requests cancel
+# their older runs.
 concurrency:
-  group: worker-image-${{ github.event.pull_request.number || github.sha }}
+  group: worker-image-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # local-ci (`make ci-local`) runs every workflow as a push and sets
