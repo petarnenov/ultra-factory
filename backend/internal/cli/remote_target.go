@@ -2,39 +2,24 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 )
 
 // remoteIdentityTimeout bounds the unauthenticated identity probe that must
 // succeed before a saved host credential is sent anywhere.
-const remoteIdentityTimeout = 5 * time.Second
+const remoteIdentityTimeout = remotehost.IdentityTimeout
 
-// remoteAPIVersion is the identity contract version this CLI speaks. It matches
-// the desktop's readRemoteIdentity check.
-const remoteAPIVersion = 1
-
-// remoteEntry mirrors one saved connection in the desktop's remotes.json
-// (frontend/src/main/remotes-store.ts). The CLI only reads this file.
-type remoteEntry struct {
-	Label         string `json:"label"`
-	URL           string `json:"url"`
-	Password      string `json:"password"`
-	HostID        string `json:"hostId,omitempty"`
-	AccountUserID string `json:"accountUserId,omitempty"`
-}
+// remoteEntry is one saved connection in the desktop's remotes.json.
+type remoteEntry = remotehost.Entry
 
 // remoteTarget is a saved host whose identity has been verified for this
 // invocation. Requests to it carry the saved credential and expected host ID.
@@ -68,62 +53,11 @@ func (c *commandContext) localContext() *commandContext {
 	return &commandContext{deps: c.deps}
 }
 
-// remotesFilePath resolves the desktop's saved-host file, which the desktop
-// writes to $AO_DATA_DIR (when its own environment sets one) or ~/.ao. The
-// desktop hands its daemon, and so every agent, AO_DATA_DIR=~/.ao/data (or
-// ~/.ao/dev/data in dev) even when its own environment set none; those default
-// daemon directories map back to ~/.ao. Any other AO_DATA_DIR is an isolated
-// install and never falls back to the user's real saved hosts.
-func remotesFilePath() (string, error) {
-	if p := strings.TrimSpace(os.Getenv("AO_REMOTES_FILE")); p != "" {
-		return filepath.Abs(p)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve remotes file: %w", err)
-	}
-	stateDir := filepath.Join(home, ".ao")
-	dir := strings.TrimSpace(os.Getenv("AO_DATA_DIR"))
-	if dir == "" {
-		return filepath.Join(stateDir, "remotes.json"), nil
-	}
-	dir, err = filepath.Abs(dir)
-	if err != nil {
-		return "", err
-	}
-	for _, daemonDefault := range []string{filepath.Join(stateDir, "data"), filepath.Join(stateDir, "dev", "data")} {
-		if filepath.Clean(dir) == daemonDefault {
-			return filepath.Join(stateDir, "remotes.json"), nil
-		}
-	}
-	return filepath.Join(dir, "remotes.json"), nil
-}
+// remotesFilePath resolves the desktop's saved-host file.
+func remotesFilePath() (string, error) { return remotehost.FilePath() }
 
-// readRemoteEntries loads saved hosts. A missing file is an empty list; a file
-// readable by group or others is refused like the desktop refuses it.
-func readRemoteEntries(path string) ([]remoteEntry, error) {
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
-		return nil, fmt.Errorf("%s holds connection passwords and is readable by others (mode %04o) — run: chmod 600 %s", path, info.Mode().Perm(), path)
-	}
-	raw, err := os.ReadFile(path) // #nosec G304 -- fixed AO-owned credential file resolved above.
-	if err != nil {
-		return nil, err
-	}
-	var parsed struct {
-		Remotes []remoteEntry `json:"remotes"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	return parsed.Remotes, nil
-}
+// readRemoteEntries loads saved hosts, refusing a file readable by others.
+func readRemoteEntries(path string) ([]remoteEntry, error) { return remotehost.ReadEntries(path) }
 
 // selectRemoteEntry matches a selector against host ID, then label
 // (case-insensitive), then URL. It never guesses between several matches.
@@ -163,47 +97,15 @@ func remoteLabels(entries []remoteEntry) string {
 	return strings.Join(labels, ", ")
 }
 
-func normalizeRemoteURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw != "" && !strings.Contains(raw, "://") {
-		raw = "http://" + raw
-	}
-	return strings.ToLower(strings.TrimRight(raw, "/"))
-}
+func normalizeRemoteURL(raw string) string { return remotehost.NormalizeURL(raw) }
 
-// remoteBaseURL validates a saved address the same way the desktop does before
-// any request: HTTP(S) only, no embedded credentials, no path.
-func remoteBaseURL(raw string) (string, error) {
-	u, err := url.Parse(normalizeRemoteURL(raw))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		return "", fmt.Errorf("remote host must use an HTTP(S) URL without embedded credentials")
-	}
-	return u.Scheme + "://" + u.Host, nil
-}
+// remoteBaseURL validates a saved address before any request.
+func remoteBaseURL(raw string) (string, error) { return remotehost.BaseURL(raw) }
 
-// remoteHTTPClient returns the injected client with redirects disabled, so a
-// bearer credential can never be replayed to whatever a 3xx points at, and
-// with environment proxies disabled, so it never crosses an HTTP(S)_PROXY
-// (agent sandboxes set one) that could answer the identity probe and read the
-// plaintext bearer. The desktop's Node fetch connects directly as well.
+// remoteHTTPClient returns the injected client with redirects and environment
+// proxies disabled; see remotehost.DirectClient.
 func (c *commandContext) remoteHTTPClient(timeout time.Duration) http.Client {
-	client := *c.deps.HTTPClient
-	client.Timeout = timeout
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	switch transport := client.Transport.(type) {
-	case nil:
-		direct := &http.Transport{}
-		if base, ok := http.DefaultTransport.(*http.Transport); ok {
-			direct = base.Clone()
-		}
-		direct.Proxy = nil
-		client.Transport = direct
-	case *http.Transport:
-		direct := transport.Clone()
-		direct.Proxy = nil
-		client.Transport = direct
-	}
-	return client
+	return remotehost.DirectClient(c.deps.HTTPClient, timeout)
 }
 
 // resolveRemoteTarget loads, selects, and identity-checks the --host target
@@ -248,32 +150,7 @@ func (c *commandContext) resolveRemoteTarget(ctx context.Context) (*remoteTarget
 
 // readRemoteIdentity is the only unauthenticated request made to a remote host.
 func (c *commandContext) readRemoteIdentity(ctx context.Context, base string) (string, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, remoteIdentityTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, base+"/api/v1/identity", http.NoBody)
-	if err != nil {
-		return "", err
-	}
-	client := c.remoteHTTPClient(remoteIdentityTimeout)
-	resp, err := client.Do(req) // #nosec G704 -- saved, user-paired remote host; identity probe carries no credential.
-	if err != nil {
-		return "", fmt.Errorf("unreachable: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("identity probe returned HTTP %d", resp.StatusCode)
-	}
-	var identity remoteIdentity
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&identity); err != nil {
-		return "", fmt.Errorf("identity probe did not return an AO identity: %w", err)
-	}
-	if identity.HostID == "" || identity.HostID == "local" {
-		return "", errors.New("identity probe returned no usable host ID")
-	}
-	if identity.APIVersion != remoteAPIVersion {
-		return "", errors.New("AO versions are incompatible; update AO on this computer and the remote host")
-	}
-	return identity.HostID, nil
+	return remotehost.ReadIdentity(ctx, c.remoteHTTPClient(remoteIdentityTimeout), base)
 }
 
 // readLocalIdentity reads this machine's host ID from the loopback daemon.

@@ -549,6 +549,23 @@ type Project struct {
 	Kind          string
 }
 
+type RemoteWorkerLink struct {
+	HostID          string
+	RemoteSessionID string
+	RemoteProjectID string
+	ProjectID       string
+	HostLabel       string
+	DisplayName     string
+	CreatedAt       time.Time
+}
+
+type RemoteWorkerReportDelivery struct {
+	HostID          string
+	RemoteSessionID string
+	ReportID        string
+	DeliveredAt     time.Time
+}
+
 type Report struct {
 	ID                 string
 	SessionID          string

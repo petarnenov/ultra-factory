@@ -185,6 +185,32 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 	return err
 }
 
+// ErrNoActiveOrchestrator reports a project with no orchestrator to deliver to.
+var ErrNoActiveOrchestrator = errors.New("project has no active orchestrator")
+
+// DeliverExternal submits reports pulled from a peer daemon's worker to the
+// project's active orchestrator in one turn. The reports are not stored here;
+// the caller records them as delivered only after this returns nil.
+func (c *Coordinator) DeliverExternal(ctx context.Context, projectID domain.ProjectID, reports []domain.ReportRecord) error {
+	if c == nil || c.store == nil || c.delivery == nil {
+		return errors.New("report coordinator dependencies are required")
+	}
+	if len(reports) == 0 {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	target, ok, err := c.activeOrchestrator(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNoActiveOrchestrator, projectID)
+	}
+	batch := PreparedBatch{ProjectID: projectID, Reports: reports}
+	return c.delivery.Submit(ctx, target.ID, batch.Render(), batch.IdempotencyKey())
+}
+
 func (c *Coordinator) activeOrchestrator(ctx context.Context, projectID domain.ProjectID) (domain.SessionRecord, bool, error) {
 	recs, err := c.store.ListSessions(ctx, projectID)
 	if err != nil {
@@ -334,6 +360,12 @@ func reportDisplayNameOrID(r domain.ReportRecord) string {
 // reportSessionLink is the markdown attribution a standalone report shows.
 // Piggybacked copies stay inside the hidden user-message envelope.
 func reportSessionLink(r domain.ReportRecord) string {
+	if r.HostLabel != "" {
+		// The worker lives on another daemon: an ao:// link would name a local
+		// session that does not exist. Say where to reach it instead.
+		oneLine := strings.NewReplacer("\n", " ", "\r", " ")
+		return fmt.Sprintf("%s (session %s on host %s)", oneLine.Replace(reportDisplayNameOrID(r)), oneLine.Replace(string(r.SessionID)), oneLine.Replace(r.HostLabel))
+	}
 	label := strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "\n", " ").Replace(reportDisplayNameOrID(r))
 	href := "ao://sessions/" + url.PathEscape(string(r.ProjectID)) + "/" + url.PathEscape(string(r.SessionID))
 	return "[" + label + "](" + href + ")"
@@ -379,7 +411,7 @@ func coalesceReports(in []domain.ReportRecord) []domain.ReportRecord {
 
 func reportKey(report domain.ReportRecord) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s\x00%s\x00%s\x00%s", report.SessionID, report.State, report.Note, report.Message)
+	fmt.Fprintf(&b, "%s\x00%s\x00%s\x00%s\x00%s", report.HostLabel, report.SessionID, report.State, report.Note, report.Message)
 	for _, output := range report.Outputs {
 		fmt.Fprintf(&b, "\x00%s\x00%s\x00%s", output.Kind, output.Reference, output.Label)
 	}

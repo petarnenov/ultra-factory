@@ -1,0 +1,167 @@
+// Package remoteworker records which workers on saved remote AO hosts report
+// to a project on this daemon. The remotereports observer polls those links.
+package remoteworker
+
+import (
+	"context"
+	"errors"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
+)
+
+// Store is the link persistence and parent-session boundary.
+type Store interface {
+	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
+	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
+	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
+}
+
+// MaxLinks bounds how many remote workers this daemon polls; every link costs
+// authenticated requests to its host on each pass.
+const MaxLinks = 200
+
+// remoteIDPattern is the shape of AO session and project IDs. Remote IDs are
+// rendered into the orchestrator's prompt, so nothing else is accepted.
+var remoteIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// Registration is a stored link and, when this daemon will not poll its host
+// unattended, why.
+type Registration struct {
+	Link        domain.RemoteWorkerLink
+	PullBlocked string
+}
+
+// RegisterInput is what `ao spawn --host` reports after a remote spawn.
+type RegisterInput struct {
+	// ParentSessionID is the local session that ran the spawn; its project
+	// receives the remote worker's reports.
+	ParentSessionID domain.SessionID
+	HostID          string
+	RemoteSessionID domain.SessionID
+	RemoteProjectID domain.ProjectID
+	DisplayName     string
+}
+
+// Deps configures a Service. Lookup defaults to the saved-host file; OnLinked
+// is optional and runs after a link is stored.
+type Deps struct {
+	Store      Store
+	SelfHostID string
+	Lookup     func(hostID string) (remotehost.Entry, bool, error)
+	Now        func() time.Time
+	OnLinked   func()
+}
+
+// Service validates and stores remote worker links.
+type Service struct {
+	store      Store
+	selfHostID string
+	lookup     func(string) (remotehost.Entry, bool, error)
+	now        func() time.Time
+	onLinked   func()
+	// mu makes the link-limit check and the insert one step.
+	mu sync.Mutex
+}
+
+// New constructs a Service.
+func New(d Deps) *Service {
+	if d.Lookup == nil {
+		d.Lookup = remotehost.Find
+	}
+	if d.Now == nil {
+		d.Now = time.Now
+	}
+	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked}
+}
+
+// MaxDisplayNameLength matches the spawn display-name limit.
+const MaxDisplayNameLength = 100
+
+// Register links a remote worker to the parent session's project. The host
+// must be a saved, paired host other than this machine; its label comes from
+// the saved entry, never from the caller.
+func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration, error) {
+	if s == nil || s.store == nil {
+		return Registration{}, errors.New("remoteworker: store is required")
+	}
+	in.HostID = strings.TrimSpace(in.HostID)
+	in.DisplayName = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, in.DisplayName))
+	if in.ParentSessionID == "" || in.HostID == "" || !remoteIDPattern.MatchString(string(in.RemoteSessionID)) ||
+		!remoteIDPattern.MatchString(string(in.RemoteProjectID)) || len([]rune(in.DisplayName)) > MaxDisplayNameLength {
+		return Registration{}, apierr.Invalid("INVALID_REMOTE_WORKER_LINK",
+			"parentSessionId and hostId are required; remoteSessionId and remoteProjectId must be AO ids; displayName is at most 100 characters", nil)
+	}
+	if s.selfHostID != "" && in.HostID == s.selfHostID {
+		return Registration{}, apierr.Invalid("REMOTE_HOST_IS_LOCAL", "The host is this machine; local workers need no link", nil)
+	}
+	parent, ok, err := s.store.GetSession(ctx, in.ParentSessionID)
+	if err != nil {
+		return Registration{}, err
+	}
+	if !ok {
+		return Registration{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	if parent.IsTerminated {
+		return Registration{}, apierr.Conflict("PARENT_SESSION_TERMINATED", "The parent session is terminated", nil)
+	}
+	if parent.ProjectID == "" {
+		return Registration{}, apierr.Invalid("PARENT_PROJECT_REQUIRED", "The parent session has no project", nil)
+	}
+	entry, found, err := s.lookup(in.HostID)
+	if err != nil {
+		return Registration{}, err
+	}
+	if !found {
+		return Registration{}, apierr.Invalid("REMOTE_HOST_UNKNOWN", "No saved remote host has this host id", nil)
+	}
+	link := domain.RemoteWorkerLink{
+		HostID: in.HostID, HostLabel: strings.TrimSpace(entry.Label),
+		RemoteSessionID: in.RemoteSessionID, RemoteProjectID: in.RemoteProjectID,
+		ProjectID: parent.ProjectID, DisplayName: in.DisplayName, CreatedAt: s.now().UTC(),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, err := s.store.ListRemoteWorkerLinks(ctx)
+	if err != nil {
+		return Registration{}, err
+	}
+	if len(existing) >= MaxLinks && !hasLink(existing, link) {
+		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
+	}
+	if err := s.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
+		return Registration{}, err
+	}
+	if s.onLinked != nil {
+		s.onLinked()
+	}
+	registration := Registration{Link: link}
+	base, err := remotehost.BaseURL(entry.URL)
+	if err == nil {
+		err = remotehost.UnattendedTransportAllowed(base)
+	}
+	if err != nil {
+		registration.PullBlocked = err.Error()
+	}
+	return registration, nil
+}
+
+func hasLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) bool {
+	for _, existing := range links {
+		if existing.HostID == link.HostID && existing.RemoteSessionID == link.RemoteSessionID {
+			return true
+		}
+	}
+	return false
+}

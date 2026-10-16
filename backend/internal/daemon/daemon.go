@@ -469,15 +469,44 @@ func Run() error {
 				agentSvc.InvalidateCodexAccountAuthentication()
 			}
 		},
-		OnCodexCapacityChanged: func(sessionID domain.SessionID, generation string, observation ports.CodexCapacityObservation) {
+		OnCodexCapacityChanged: func(sessionID domain.SessionID, generation string, observation ports.CodexCapacityObservation) error {
 			if agentSvc == nil || agentSvc.CodexAccountSwitchInProgress() {
-				return
+				return nil
 			}
 			rec, ok, readErr := store.GetSession(ctx, sessionID)
 			if readErr != nil || !ok || rec.Harness != domain.HarnessCodex || rec.Metadata.ControllerGeneration != generation {
-				return
+				return readErr
 			}
 			agentSvc.ObserveActiveCodexAccountCapacity(observation)
+			if quotaRecorder, ok := sessMgr.(interface {
+				ObserveQuotaAndSnapshot(context.Context, domain.SessionID, sessionmanager.QuotaSnapshotSource, float64, time.Time) error
+			}); ok {
+				if remaining, known := sessionmanager.CodexQuotaRemaining(observation); known {
+					if err := quotaRecorder.ObserveQuotaAndSnapshot(ctx, sessionID, sessionmanager.QuotaSnapshotSource{
+						Harness: domain.HarnessCodex, Generation: generation, Controller: true,
+					}, remaining, observation.ObservedAt); err != nil {
+						log.Warn("persist low Codex quota context snapshot failed", "sessionID", sessionID, "error", err)
+						return err
+					}
+				}
+			}
+			return nil
+		},
+		OnQuotaObserved: func(sessionID domain.SessionID, generation string, harness domain.AgentHarness, remaining float64, observedAt time.Time) error {
+			if harness != domain.HarnessClaudeCode || sessMgr == nil {
+				return nil
+			}
+			if quotaRecorder, ok := sessMgr.(interface {
+				ObserveQuotaAndSnapshot(context.Context, domain.SessionID, sessionmanager.QuotaSnapshotSource, float64, time.Time) error
+			}); ok {
+				if err := quotaRecorder.ObserveQuotaAndSnapshot(ctx, sessionID, sessionmanager.QuotaSnapshotSource{
+					Harness: harness, Generation: generation, Controller: true,
+				}, remaining, observedAt); err != nil {
+					log.Warn("persist low Claude quota context snapshot failed", "sessionID", sessionID, "error", err)
+					return err
+				}
+			}
+			return nil
 		},
 		// Sync ChatUI's model choice, including clearing its override, before a
 		// later TUI rebuild reads the session metadata.
@@ -557,6 +586,7 @@ func Run() error {
 	codexOperationGate := codexops.NewGate()
 	agentDeps := agentsvc.Deps{
 		Cache: store, Discoverer: modelDiscoverer, Projects: store, Sessions: store, Context: ctx, Logger: log,
+		ChatSupport:            chatDrivers.SupportsChat,
 		ModelDiscoveryDir:      filepath.Join(cfg.DataDir, "model-discovery"),
 		CodexAccountRoot:       filepath.Join(cfg.StateDir, "harnesses", "codex", "accounts"),
 		CodexPendingRoot:       filepath.Join(cfg.StateDir, "harnesses", "codex", "pending-accounts"),
@@ -932,6 +962,12 @@ func Run() error {
 	if mobilebridge.KeepAwakeSupported() {
 		bs.KeepAwake = mobilebridge.NewKeepAwake(os.Getpid())
 	}
+	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, log)
+	remoteReportsDone := remoteReports.Start(ctx)
+	defer func() {
+		stop()
+		<-remoteReportsDone
+	}()
 	var nativeSessions ports.AgentNativeSessionResolver
 	if codewhaleAgent, ok := agents.Agent(domain.HarnessCodewhale); ok {
 		nativeSessions, _ = codewhaleAgent.(ports.AgentNativeSessionResolver)
@@ -952,6 +988,7 @@ func Run() error {
 		Reviews:            reviewSvc,
 		Notifications:      notifier,
 		Reports:            reportSvc,
+		RemoteWorkerLinks:  remoteWorkerSvc,
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,
