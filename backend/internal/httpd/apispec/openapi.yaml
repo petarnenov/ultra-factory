@@ -11486,6 +11486,12 @@ components:
           type:
           - "null"
           - string
+        switchModes:
+          description: Session interfaces this harness can receive a durable context
+            handoff in.
+          items:
+            type: string
+          type: array
         usageCount:
           type: integer
       required:
@@ -18032,11 +18038,8 @@ components:
           maxLength: 256
           type: string
         targetHarness:
-          description: Agent harness to continue the logical AO session with.
-          enum:
-          - claude-code
-          - codex
-          - fx
+          description: Installed agent harness to continue the logical AO session
+            with; the daemon validates continuation support.
           type: string
       required:
       - targetHarness

@@ -3844,6 +3844,8 @@ export interface components {
             label: string;
             /** Format: date-time */
             lastUsedAt?: null | string;
+            /** @description Session interfaces this harness can receive a durable context handoff in. */
+            switchModes?: string[];
             usageCount: number;
         };
         AgentSwitch: {
@@ -6332,11 +6334,8 @@ export interface components {
             idempotencyKey?: string;
             /** @description Optional model override for the target agent launch or resume. */
             model?: string;
-            /**
-             * @description Agent harness to continue the logical AO session with.
-             * @enum {string}
-             */
-            targetHarness: "claude-code" | "codex" | "fx";
+            /** @description Installed agent harness to continue the logical AO session with; the daemon validates continuation support. */
+            targetHarness: string;
         };
         SystemMemoryResponse: {
             /** @description What the kernel would hand out without swapping (MemAvailable). */

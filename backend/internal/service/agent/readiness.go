@@ -127,6 +127,16 @@ func (s *Service) RecheckAgent(agentID string) {
 func (s *Service) WarmReadiness() <-chan struct{} { return s.readiness.Warm() }
 
 func (s *Service) withReadinessUsage(ctx context.Context, snapshots []domain.AgentReadinessSnapshot) (Readiness, error) {
+	for i := range snapshots {
+		item, ok := s.agent(snapshots[i].ID)
+		if !ok || !agentCanReceiveSwitch(item.Agent) {
+			continue
+		}
+		snapshots[i].SwitchModes = []domain.SessionMode{domain.SessionModeTUI}
+		if s.chatSupport != nil && s.chatSupport(domain.AgentHarness(snapshots[i].ID)) {
+			snapshots[i].SwitchModes = append(snapshots[i].SwitchModes, domain.SessionModeChat)
+		}
+	}
 	if s.sessions == nil {
 		return Readiness{Agents: snapshots}, nil
 	}
@@ -155,6 +165,23 @@ func (s *Service) withReadinessUsage(ctx context.Context, snapshots []domain.Age
 		}
 	}
 	return Readiness{Agents: snapshots}, nil
+}
+
+func agentCanReceiveSwitch(agent ports.Agent) bool {
+	provider, ok := agent.(ports.AgentContinuationCapabilityProvider)
+	if !ok {
+		return false
+	}
+	caps := provider.ContinuationCapabilities()
+	if caps.FreshNativeSessionID != ports.FreshNativeSessionIDProviderAssigned &&
+		caps.FreshNativeSessionID != ports.FreshNativeSessionIDCallerAssigned {
+		return false
+	}
+	if caps.FreshNativeSessionID == ports.FreshNativeSessionIDCallerAssigned {
+		_, ok := agent.(ports.AgentFreshNativeSessionIDProvider)
+		return ok
+	}
+	return true
 }
 
 // List is the legacy projection of the cached readiness snapshot. It never

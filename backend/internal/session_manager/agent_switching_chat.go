@@ -314,6 +314,25 @@ func (m *Manager) executeChatAgentSwitch(
 		PullRequests:          m.capturePRFacts(ctx, id),
 		CapturedAt:            m.clock(),
 	}
+	if quota, ok := m.readQuotaSnapshot(ctx, id, stoppedSession.Harness, stoppedSession.Metadata.ControllerGeneration); ok {
+		if strings.TrimSpace(finalContext.OriginalTask) == "" {
+			finalContext.OriginalTask = quota.OriginalTask
+		}
+		if strings.TrimSpace(finalContext.LatestUserPrompt) == "" {
+			finalContext.LatestUserPrompt = quota.LatestUserPrompt
+		}
+		if strings.TrimSpace(finalContext.LatestAssistantUpdate) == "" {
+			finalContext.LatestAssistantUpdate = quota.AssistantUpdate
+		}
+		if len(finalContext.Workspaces) == 0 {
+			for _, fact := range quota.Workspaces {
+				finalContext.Workspaces = append(finalContext.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
+			}
+		}
+		if len(finalContext.PullRequests) == 0 {
+			finalContext.PullRequests = quota.PullRequests
+		}
+	}
 	if observedTranscript != nil {
 		finalContext.SourceTranscriptPath = observedTranscript.Path
 	}

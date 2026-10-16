@@ -2256,7 +2256,7 @@ func TestCollectOptionalAgentHandoffRechecksActiveTurnSafetyAtWriteBoundary(t *t
 	}
 }
 
-func TestSwitchAgentRejectsCursorAndKimiBeforeMutation(t *testing.T) {
+func TestSwitchAgentRejectsUnregisteredCursorAndKimiBeforeMutation(t *testing.T) {
 	tests := []struct {
 		name   string
 		source domain.AgentHarness
@@ -2278,8 +2278,8 @@ func TestSwitchAgentRejectsCursorAndKimiBeforeMutation(t *testing.T) {
 			_, err := switchAgentSynchronously(context.Background(), manager, rec.ID, SwitchAgentConfig{
 				TargetHarness: tt.target, IdempotencyKey: "unsupported-harness",
 			})
-			if !errors.Is(err, ErrUnsupportedSwitchHarness) {
-				t.Fatalf("SwitchAgent error = %v, want ErrUnsupportedSwitchHarness", err)
+			if !errors.Is(err, ErrUnknownHarness) {
+				t.Fatalf("SwitchAgent error = %v, want ErrUnknownHarness", err)
 			}
 			if runtime.created != 0 || runtime.destroyed != 0 || len(store.switches) != 0 {
 				t.Fatalf("unsupported switch mutated runtime/saga: created=%d destroyed=%d switches=%d", runtime.created, runtime.destroyed, len(store.switches))
