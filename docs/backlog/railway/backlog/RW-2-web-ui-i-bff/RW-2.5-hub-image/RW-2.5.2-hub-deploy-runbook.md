@@ -1,13 +1,13 @@
-# RW-2.5.2 · Таск: Деплой на hub в Railway и runbook
+# RW-2.5.2 · Task: Hub deployment on Railway and runbook
 
-**Тип:** операции + документация. **Оценка:** 0.5–1 чд. **Стори:** RW-2.5.
+**Type:** operations + documentation. **Estimate:** 0.5–1 pd. **Story:** RW-2.5.
 
-## Събтаскове
-- [ ] Service `hub` от image, volume на `/data`, variables от RW-2.5.1, публичен домейн, target port = `$PORT`.
-- [ ] Генерирай operator password hash локално (`node scripts/hash-password.mjs`) и го сложи като variable; никога plaintext.
-- [ ] Добави работника от RW-1.4 през UI (Settings → Remote hosts) с `http://worker-1.railway.internal:3011` (ако IPv6 private networking работи) или публичния му URL.
-- [ ] Runbook `deploy/railway/README.md`: раздел „Hub“: деплой, ротация на operator password и session secret, backup на `/data`, ъпдейт на image (когда hub-ът няма активни сесии), логове.
-- [ ] Валидационен лог: време за зареждане на SPA, SSE латентност, терминал.
+## Subtasks
+- [ ] Service `hub` from the image, volume at `/data`, variables from RW-2.5.1, public domain, target port = `$PORT`.
+- [ ] Generate the operator password hash locally (`node scripts/hash-password.mjs`) and set it as a variable; never plaintext.
+- [ ] Add the worker from RW-1.4 through the UI (Settings → Remote hosts) with `http://worker-1.railway.internal:3011` (if IPv6 private networking works) or its public URL.
+- [ ] Runbook `deploy/railway/README.md`: a "Hub" section: deployment, rotation of the operator password and session secret, backup of `/data`, image update (when the hub has no active sessions), logs.
+- [ ] Validation log: SPA load time, SSE latency, terminal.
 
-## Критерии за приемане
-- [ ] Епик RW-2 критериите са проверени и записани.
+## Acceptance criteria
+- [ ] The RW-2 epic criteria are verified and recorded.

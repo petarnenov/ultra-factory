@@ -1,8 +1,8 @@
-# RW-4.2.2 · Таск: Лимити и наблюдение на разходите
+# RW-4.2.2 · Task: Limits and cost monitoring
 
-**Тип:** операции + Node TS. **Оценка:** 0.5 чд. **Стори:** RW-4.2.
+**Type:** operations + Node TS. **Estimate:** 0.5 pd. **Story:** RW-4.2.
 
-## Събтаскове
-- [ ] `AO_HUB_MAX_WORKERS` вече е в RW-3.2.2; добави `AO_HUB_MAX_VOLUME_GB` за spec валидация.
-- [ ] Idle работник: ако 0 сесии > N часа (`AO_HUB_IDLE_STOP_HOURS`, default off) → UI предупреждение; автоматично спиране само ако provider-ът поддържа stop/start без загуба на volume (провери в RW-3.1.1).
-- [ ] Runbook: как се чете Railway usage за project-а; препоръчителни размери.
+## Subtasks
+- [ ] `AO_HUB_MAX_WORKERS` is already in RW-3.2.2; add `AO_HUB_MAX_VOLUME_GB` for spec validation.
+- [ ] Idle worker: if 0 sessions for > N hours (`AO_HUB_IDLE_STOP_HOURS`, default off) → UI warning; automatic stop only if the provider supports stop/start without losing the volume (check in RW-3.1.1).
+- [ ] Runbook: how to read Railway usage for the project; recommended sizes.

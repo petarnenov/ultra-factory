@@ -1,24 +1,24 @@
-# RW-1.1.2 · Таск: ADR за BFF пред daemon оркестратора в hub-а
+# RW-1.1.2 · Task: ADR for a BFF in front of the daemon orchestrator in the hub
 
-**Тип:** ADR. **Оценка:** 0.5–1 чд. **Стори:** RW-1.1.
+**Type:** ADR. **Estimate:** 0.5–1 pd. **Story:** RW-1.1.
 
-## Цел
-Решение как уеб UI-ят в Railway достига daemon-а на hub-а, без да нарушава „primary listener stays loopback and unauthenticated“.
+## Goal
+Decide how the web UI on Railway reaches the hub's daemon without violating "primary listener stays loopback and unauthenticated".
 
-## Контекст
-- `AGENTS.md` hard rules: „Do not add any other network-facing bind.“
-- Два варианта:
-  - **B1:** BFF (Node, в същия контейнер) proxy-ва към `127.0.0.1:3001`. Daemon-ът не се пипа. Публичната повърхност е BFF-ът с собствен login. Loopback-gated маршрутите стават достъпни за логнат потребител.
-  - **B2:** hub daemon-ът също включва remote-host listener-а и BFF-ът говори с него на :3011 с Bearer, като с всеки друг работник. Губят се блокираните маршрути (`lan_listener.go:67-78`): system install, codex accounts, side-chat launch, desktop, browser.
-- `remote-proxy.ts` в Electron main е прецедент за „доверен процес на същата машина, който инжектира credential“.
+## Context
+- `AGENTS.md` hard rules: "Do not add any other network-facing bind."
+- Two options:
+  - **B1:** A BFF (Node, in the same container) proxies to `127.0.0.1:3001`. The daemon is not touched. The public surface is the BFF with its own login. Loopback-gated routes become available to a logged-in user.
+  - **B2:** The hub daemon also enables the remote-host listener, and the BFF talks to it on :3011 with Bearer, like with any other worker. The blocked routes are lost (`lan_listener.go:67-78`): system install, codex accounts, side-chat launch, desktop, browser.
+- `remote-proxy.ts` in the Electron main process is a precedent for "a trusted process on the same machine that injects a credential".
 
-## Събтаскове
-- [ ] Опиши двата варианта с таблица на достъпните маршрути.
-- [ ] Вземи решение. Препоръка: **B2 по подразбиране** (еднакъв път за hub и работници, нулева промяна в daemon-а), с изричен списък на изгубените функции; B1 само ако списъкът е неприемлив.
-- [ ] Определи модела на login на BFF-а: един оператор с парола + session cookie (MVP) и OIDC като опция.
-- [ ] Определи къде живее credential-ът за всеки хост: `hosts.json` на volume на hub-а, 0600, формат съвместим с `remotes.json` (`label`, `url`, `password`, `hostId`).
-- [ ] Напиши `docs/adr/000N-web-bff-for-hub.md`.
+## Subtasks
+- [ ] Describe both options with a table of the available routes.
+- [ ] Make the decision. Recommendation: **B2 by default** (same path for the hub and the workers, zero change in the daemon), with an explicit list of the lost features; B1 only if that list is unacceptable.
+- [ ] Define the BFF login model: a single operator with a password + session cookie (MVP), with OIDC as an option.
+- [ ] Define where the credential for each host lives: `hosts.json` on the hub's volume, 0600, in a format compatible with `remotes.json` (`label`, `url`, `password`, `hostId`).
+- [ ] Write `docs/adr/000N-web-bff-for-hub.md`.
 
-## Критерии за приемане
-- [ ] ADR-ът фиксира варианта, auth модела и списъка на функциите, които не са налични в уеб.
-- [ ] RW-2.4 може да се имплементира без нови решения.
+## Acceptance criteria
+- [ ] The ADR fixes the option, the auth model, and the list of features not available on the web.
+- [ ] RW-2.4 can be implemented without new decisions.
