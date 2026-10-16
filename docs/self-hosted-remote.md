@@ -128,6 +128,40 @@ Options:
 The archive does not install a service or tmux. The bundled Linux Node needs
 glibc 2.28 or newer.
 
+## Behind a reverse proxy
+
+The remote endpoint locks a source out for a minute after five wrong
+passwords. It keys that lockout on the TCP peer. Behind a TLS-terminating HTTP
+proxy, such as a Railway public domain, every request arrives from the proxy,
+so one client guessing wrong passwords locks out every other client.
+
+For that deployment only, start the daemon with:
+
+```bash
+AO_REMOTE_TRUSTED_PROXY=1 ao daemon
+```
+
+The listener then keys the lockout on the **rightmost** `X-Forwarded-For`
+entry, the one the nearest proxy appended. Earlier entries are
+client-controlled and are ignored. If the rightmost entry is not a valid IP,
+the TCP peer is used. The loopback `CF-Connecting-IP` rule for the managed
+Cloudflare tunnel is unchanged and still applies first. The forwarded address
+never authorizes anything: every request except `GET /api/v1/identity` still
+needs the password or account credential.
+
+Set it only when the proxy is the sole public path to the listener and exactly
+one proxy sits in front of it. Never set it on a desktop or a LAN, Tailscale,
+or quick-tunnel host: any client that reaches the port directly can then choose
+its own lockout key and guess without limit. Services that reach the worker
+over private networking without the proxy can do the same, so keep that
+network to your own services. The decision and the full safe/dangerous table
+are in [ADR 0005](adr/0005-trusted-proxy-remote-host.md).
+
+With the flag on, the daemon logs one warning each time the listener starts.
+In any mode, a source that becomes locked out logs one warning with the
+derived key, the TCP peer, and whether the key came from `X-Forwarded-For`,
+`CF-Connecting-IP`, or the peer.
+
 ## Security and limits
 
 - AO's unauthenticated listener stays on `127.0.0.1`. The opt-in remote
