@@ -2,8 +2,9 @@
 
 This runbook supports RW-1.4.2 ([issue #17](https://github.com/petarnenov/ultra-factory/issues/17)).
 The log below corrects uncorroborated Railway claims previously added on this
-PR branch. Railway deployment/network checks are **unverified / pending**; no
-verifiable RW-1.4.1 report or accessible direct verification has been provided.
+PR branch. Independent public probes are recorded below with their limited scope. Railway
+configuration and private-network checks are **unverified / pending**; no
+readable sanitized RW-1.4.1 Railway report has been provided.
 Desktop and CLI end-to-end checks also remain outstanding.
 
 ## Prerequisites and handoff
@@ -44,17 +45,27 @@ The user confirmed that the Z600 RW-1.4.2 session owns this branch; the separate
 iMac RW-1.4.1 session is issue #16 on `ao/ultra-factory-14/root`. AO's listing of
 PR #83 under that iMac session does not establish provenance for Railway checks.
 Issue #16 has no handoff comment, and the requested iMac read-only verification
-has not returned a verifiable result. No secret values are needed as evidence.
+has not returned a readable sanitized Railway report. No secret values are
+needed as evidence.
+
+The user supplied independent read-only public probe results dated
+2026-10-16 22:18 UTC, with no credentials used or exposed. HTTPS
+`GET https://ultra-factory-production.up.railway.app/api/v1/identity` returned
+HTTP 200 with TLS verification success. Direct HTTP and HTTPS probes to that
+hostname on port `3001` both timed out from the probe client. These establish
+public endpoint response and observed port unreachability from that client,
+not Railway routing configuration or universal port isolation. The host ID
+comparison against worker-local identity remains pending.
 
 | Check | Status | Required evidence from RW-1.4.1 |
 | --- | --- | --- |
 | Railway target | Unverified / pending | Confirm project, environment and service identifiers against the actual target. |
 | Source/build | Unverified / pending | Deployed source revision, repository/branch, root build context and worker Dockerfile. |
 | Volume | Unverified / pending | Actual `/data` mount and volume readiness; restart persistence is a separate check. |
-| HTTPS route/TLS | Unverified / pending | Actual public hostname, TLS result and authenticated-listener target port. |
-| Public identity | Unverified / pending | Dated HTTP result and host ID comparison against worker-local identity. |
+| Public HTTPS/TLS | Confirmed by independent public probe | At 2026-10-16 22:18 UTC, the supplied public hostname responded over HTTPS with successful TLS verification. Configured target port `3011` remains unverified. |
+| Public identity | HTTP 200 confirmed by independent public probe | At 2026-10-16 22:18 UTC, the public identity endpoint returned 200 without credentials. Worker-local host ID comparison remains pending. |
 | API authentication | Unverified / pending | Sanitized unauthenticated rejection and authenticated success results; no credentials or response payloads. |
-| Public port `3001` | Unverified / pending | Public routing configuration and probe results; a timeout alone does not prove the port is inaccessible. |
+| Public port `3001` | HTTP and HTTPS probes timed out from probe client | Independent probes at 2026-10-16 22:18 UTC establish only observed unreachability from that client. Railway routing configuration and general port isolation remain unverified. |
 | Private IPv4/IPv6 | Unverified / pending | Separate DNS and HTTP connectivity results for each address family, with probe origin. |
 | Deployment | Unverified / pending | Actual deployment ID/state, source revision/image digest, readiness timing and image size. |
 | Desktop pairing and remote flow | Pending | Verified worker, private pairing access and an approved test repository. |
@@ -196,13 +207,16 @@ No Railway CLI version or service selection is assumed by these instructions.
 
 ## Outstanding evidence and RW-2 / RW-4 handoff
 
-Railway checks remain unverified pending corroborating RW-1.4.1 evidence.
+Independent public probe results have the limited scope recorded above. Railway
+configuration/private-network checks await corroborating RW-1.4.1 evidence.
 RW-1.4.2 desktop and CLI behavior also remains untested. Static limitations are
 distinguished from live checks:
 
 | Check / limitation | Current evidence | Follow-up |
 | --- | --- | --- |
-| Public HTTPS identity/auth; private IPv4/IPv6; hidden primary listener | Unverified / pending; no corroborated RW-1.4.1 result | RW-1.4.1, RW-4 networking/security |
+| Public HTTPS identity/TLS | Independent probe confirmed HTTP 200 and TLS verification at 2026-10-16 22:18 UTC; host identity comparison pending | RW-1.4.1, RW-4 networking/security |
+| Public port `3001` | HTTP/HTTPS probes timed out from the probe client; configured isolation remains unverified | RW-1.4.1, RW-4 networking/security |
+| Target port `3011`, protected API auth and private IPv4/IPv6 | Unverified / pending; no corroborated RW-1.4.1 report | RW-1.4.1, RW-4 networking/security |
 | Desktop pairing and host-scoped clone/session/terminal/message/PR | Pending; verified worker, approved test repository and private pairing access are needed | RW-1.4.2, RW-4 end-to-end |
 | CLI spawn/list/get/send | Not tested; depends on pairing and an approved test repository | RW-1.4.2, RW-4 end-to-end |
 | Static preview/artifacts/app assets/WebSockets | Desktop proxy implements forwarding; Railway path not tested | RW-2 proxy work, RW-4 end-to-end |
