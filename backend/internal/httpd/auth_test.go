@@ -1,9 +1,13 @@
 package httpd
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +20,7 @@ func newAuthUnderTest(pw string, now func() time.Time) (http.Handler, *lockout) 
 	st.setHash(h)
 	lock := newLockout(now)
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	return authMiddleware(st, lock, nil)(ok), lock
+	return authMiddleware(st, lock, nil, false, nil)(ok), lock
 }
 
 func req(auth string) *http.Request {
@@ -41,7 +45,7 @@ func TestAccountTokenAuthenticatesWithoutReplacingPairingPassword(t *testing.T) 
 	state := &authState{}
 	state.setHash(mobilebridge.HashPassword("password"))
 	state.setAccountHash(mobilebridge.HashPassword("scoped-token"))
-	h := authMiddleware(state, newLockout(time.Now), nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	h := authMiddleware(state, newLockout(time.Now), nil, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	for _, token := range []string{"password", "scoped-token"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req("Bearer "+token))
@@ -186,7 +190,7 @@ func TestRotatedPasswordCanRecoverFromStaleClientLockout(t *testing.T) {
 	state := &authState{}
 	state.setHash(mobilebridge.HashPassword("oldpass1"))
 	lock := newLockout(time.Now)
-	h := authMiddleware(state, lock, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(state, lock, nil, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -215,7 +219,7 @@ func TestRetiredPasswordDoesNotResetLockout(t *testing.T) {
 	state.setHash(mobilebridge.HashPassword("oldpass1"))
 	state.setHash(mobilebridge.HashPassword("newpass1"))
 	lock := newLockout(time.Now)
-	h := authMiddleware(state, lock, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(state, lock, nil, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	for range 5 {
@@ -472,5 +476,178 @@ func TestIdentityProbeDoesNotCountTowardLockout(t *testing.T) {
 	h.ServeHTTP(w, req("Bearer secret12"))
 	if w.Code != http.StatusOK {
 		t.Fatalf("authenticated request after probes got %d, want 200", w.Code)
+	}
+}
+
+// reqForwarded builds a request from peer carrying the given X-Forwarded-For
+// header lines, as a reverse proxy would deliver it.
+func reqForwarded(peer, auth string, xff ...string) *http.Request {
+	r := reqFrom(peer, auth)
+	for _, line := range xff {
+		r.Header.Add("X-Forwarded-For", line)
+	}
+	return r
+}
+
+// Trusted-proxy mode (docs/adr/0005) changes only which key a failure counts
+// against. The rightmost X-Forwarded-For entry is the one the nearest proxy
+// appended; anything to its left is client-controlled and must never be used.
+func TestAuthTrustedProxyLockoutKey(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		trustedProxy bool
+		peer         string
+		xff          []string
+		cf           string
+		wantKey      string
+		wantFrom     string
+	}{
+		{"flag off ignores X-Forwarded-For", false, "10.0.0.1:1", []string{"203.0.113.7"}, "", "10.0.0.1", lockoutKeyFromPeer},
+		{"flag on uses the forwarded client", true, "10.0.0.1:1", []string{"203.0.113.7"}, "", "203.0.113.7", lockoutKeyFromForwardedFor},
+		{"spoofed leftmost entry is ignored", true, "10.0.0.1:1", []string{"6.6.6.6, 203.0.113.7"}, "", "203.0.113.7", lockoutKeyFromForwardedFor},
+		{"rightmost across several header lines", true, "10.0.0.1:1", []string{"6.6.6.6, 198.51.100.9", "203.0.113.7"}, "", "203.0.113.7", lockoutKeyFromForwardedFor},
+		{"IPv6 forwarded client", true, "10.0.0.1:1", []string{"2001:db8::7"}, "", "2001:db8::7", lockoutKeyFromForwardedFor},
+		{"invalid rightmost falls back to the peer, not to an earlier entry", true, "10.0.0.1:1", []string{"203.0.113.7, garbage"}, "", "10.0.0.1", lockoutKeyFromPeer},
+		{"rightmost with a port is not an IP", true, "10.0.0.1:1", []string{"203.0.113.7:4444"}, "", "10.0.0.1", lockoutKeyFromPeer},
+		{"empty header falls back to the peer", true, "10.0.0.1:1", []string{""}, "", "10.0.0.1", lockoutKeyFromPeer},
+		{"missing header falls back to the peer", true, "10.0.0.1:1", nil, "", "10.0.0.1", lockoutKeyFromPeer},
+		{"loopback CF-Connecting-IP still wins", true, "127.0.0.1:1", []string{"203.0.113.7"}, "198.51.100.1", "198.51.100.1", lockoutKeyFromCFConnectingIP},
+		{"CF-Connecting-IP from a LAN peer stays ignored", true, "192.168.1.50:1", nil, "198.51.100.1", "192.168.1.50", lockoutKeyFromPeer},
+		{"loopback peer without CF-Connecting-IP uses X-Forwarded-For", true, "127.0.0.1:1", []string{"203.0.113.7"}, "", "203.0.113.7", lockoutKeyFromForwardedFor},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := reqForwarded(tc.peer, "", tc.xff...)
+			if tc.cf != "" {
+				r.Header.Set("CF-Connecting-IP", tc.cf)
+			}
+			key, from := lockoutKey(r, sourceKey(r), tc.trustedProxy)
+			if key != tc.wantKey || from != tc.wantFrom {
+				t.Fatalf("lockoutKey = (%q, %q), want (%q, %q)", key, from, tc.wantKey, tc.wantFrom)
+			}
+		})
+	}
+}
+
+// Behind a single proxy every request shares the proxy's peer address. Without
+// trusted-proxy mode one attacker locks out every client; with it, each client
+// keeps its own lockout, rotating the spoofable leftmost entry buys the attacker
+// nothing, and the identity probe stays exempt ahead of the lockout.
+func TestAuthTrustedProxyLockoutIsPerForwardedClient(t *testing.T) {
+	const edge = "10.0.0.1:443"
+	for _, tc := range []struct {
+		name         string
+		trustedProxy bool
+		wantVictim   int
+	}{
+		{"flag off shares the proxy's key", false, http.StatusTooManyRequests},
+		{"flag on keys each forwarded client", true, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &authState{}
+			st.setHash(mobilebridge.HashPassword("secret12"))
+			h := authMiddleware(st, newLockout(time.Now), nil, tc.trustedProxy, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			for i := range 5 {
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, reqForwarded(edge, "Bearer wrong", fmt.Sprintf("203.0.113.%d, 198.51.100.1", i+1)))
+				if w.Code != http.StatusUnauthorized {
+					t.Fatalf("attacker attempt %d: got %d want 401", i, w.Code)
+				}
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, reqForwarded(edge, "Bearer secret12", "203.0.113.99, 198.51.100.1"))
+			if w.Code != http.StatusTooManyRequests {
+				t.Fatalf("attacker after five failures: got %d want 429", w.Code)
+			}
+			w = httptest.NewRecorder()
+			h.ServeHTTP(w, reqForwarded(edge, "Bearer secret12", "198.51.100.2"))
+			if w.Code != tc.wantVictim {
+				t.Fatalf("victim behind the same proxy: got %d want %d", w.Code, tc.wantVictim)
+			}
+			probe := httptest.NewRequest(http.MethodGet, identityProbePath, nil)
+			probe.RemoteAddr = edge
+			probe.Header.Set("X-Forwarded-For", "198.51.100.1")
+			w = httptest.NewRecorder()
+			h.ServeHTTP(w, probe)
+			if w.Code != http.StatusOK {
+				t.Fatalf("identity probe from a locked-out client: got %d want 200", w.Code)
+			}
+		})
+	}
+}
+
+// The transition into lockout is logged once with the derived key, the TCP
+// peer, and where the key came from. The rest of the forwarded chain and the
+// presented credential never reach the log.
+func TestAuthLockoutLogsTransitionOnce(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	st := &authState{}
+	st.setHash(mobilebridge.HashPassword("secret12"))
+	h := authMiddleware(st, newLockout(time.Now), nil, true, log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for range 4 {
+		h.ServeHTTP(httptest.NewRecorder(), reqForwarded("10.0.0.1:443", "Bearer wrong-guess", "6.6.6.6, 198.51.100.1"))
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("logged before lockout: %s", buf.String())
+	}
+	for range 3 {
+		h.ServeHTTP(httptest.NewRecorder(), reqForwarded("10.0.0.1:443", "Bearer wrong-guess", "6.6.6.6, 198.51.100.1"))
+	}
+	out := buf.String()
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Fatalf("lockout logged %d lines, want 1:\n%s", n, out)
+	}
+	for _, want := range []string{"level=WARN", "key=198.51.100.1", "peer=10.0.0.1", "key_from=" + lockoutKeyFromForwardedFor} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lockout log missing %q: %s", want, out)
+		}
+	}
+	for _, secret := range []string{"6.6.6.6", "wrong-guess", "secret12"} {
+		if strings.Contains(out, secret) {
+			t.Errorf("lockout log leaked %q: %s", secret, out)
+		}
+	}
+}
+
+// The flag reaches the LAN stack through the daemon-facing constructor, and
+// starting a listener in that mode warns so a misconfigured desktop shows up
+// in the logs.
+func TestAuthTrustedProxyThroughLANManager(t *testing.T) {
+	for _, trustedProxy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("trustedProxy=%t", trustedProxy), func(t *testing.T) {
+			var buf bytes.Buffer
+			m := NewMobileLAN(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}), "", 0, slog.New(slog.NewTextHandler(&buf, nil)), nil, WithTrustedProxy(trustedProxy))
+			m.SetPasswordHash(mobilebridge.HashPassword("secret12"))
+			if _, err := m.StartLoopback(0); err != nil {
+				t.Fatalf("start: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := m.Stop(ctx); err != nil {
+				t.Fatalf("stop: %v", err)
+			}
+			if warned := strings.Contains(buf.String(), "trusted proxy mode on"); warned != trustedProxy {
+				t.Fatalf("start-up warning logged = %t, want %t:\n%s", warned, trustedProxy, buf.String())
+			}
+
+			for range 5 {
+				m.handler.ServeHTTP(httptest.NewRecorder(), reqForwarded("10.0.0.1:443", "Bearer wrong", "198.51.100.1"))
+			}
+			w := httptest.NewRecorder()
+			m.handler.ServeHTTP(w, reqForwarded("10.0.0.1:443", "Bearer secret12", "198.51.100.2"))
+			want := http.StatusTooManyRequests
+			if trustedProxy {
+				want = http.StatusOK
+			}
+			if w.Code != want {
+				t.Fatalf("second client behind the proxy: got %d want %d", w.Code, want)
+			}
+		})
 	}
 }
