@@ -101,6 +101,52 @@ func TestLANManagerAuthGatesSharedHandler(t *testing.T) {
 	}
 }
 
+// TestLANManagerStartAcceptsIPv6Loopback pins the dual-stack behavior of the
+// 0.0.0.0 bind (ADR 0007): switching Start to "tcp4" or an IPv4-only address
+// would silently break IPv6-only private networks such as Railway's.
+func TestLANManagerStartAcceptsIPv6Loopback(t *testing.T) {
+	probe, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback on this host: %v", err)
+	}
+	probe.Close()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	})
+	st := &authState{}
+	st.setHash(mobilebridge.HashPassword("secret12"))
+	m := NewLANManager(inner, st, 0, slog.Default(), nil)
+	port, err := m.Start(0)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer m.Stop(context.Background())
+
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		url := fmt.Sprintf("http://%s/anything", net.JoinHostPort(host, fmt.Sprint(port)))
+		resp, err := http.Get(url)
+		if err != nil {
+			t.Fatalf("%s no-auth: %v", host, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s no-auth: got %d want 401", host, resp.StatusCode)
+		}
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("Authorization", "Bearer secret12")
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s auth: %v", host, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+			t.Fatalf("%s auth: got %d %q want 200 ok", host, resp.StatusCode, body)
+		}
+	}
+}
+
 func TestLANManagerTunnelOnlyBindsLoopback(t *testing.T) {
 	m := NewMobileLAN(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), "h_test", 0, nil, nil)
 	m.SetPasswordHash(mobilebridge.HashPassword("secret12"))
