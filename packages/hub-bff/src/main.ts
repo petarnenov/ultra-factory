@@ -1,4 +1,7 @@
 import { loadConfig } from "./config.ts";
+import { createHostsApi } from "./hosts-api.ts";
+import { createHostsMonitor } from "./hosts-probe.ts";
+import { HostsStore } from "./hosts-store.ts";
 import { jsonLogger } from "./log.ts";
 import { createBff } from "./server.ts";
 
@@ -8,18 +11,25 @@ try {
 	const config = await loadConfig(process.env);
 	// The plaintext password has been hashed; drop it from this process's env.
 	delete process.env.AO_WEB_PASSWORD;
-	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log });
+	const store = await HostsStore.open(config.hubDataDir);
+	const monitor = createHostsMonitor({ store, hubConfigPath: config.hubConfigPath, log });
+	await monitor.syncHub();
+	const hostsApi = createHostsApi({ store, monitor, log });
+	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {
 			host: config.host,
 			port: config.port,
 			spaDir: config.spaDir,
 			passwordSource: config.plaintextPassword ? "AO_WEB_PASSWORD" : "AO_WEB_PASSWORD_HASH",
+			hostsFile: store.file,
 		});
+		monitor.start();
 	});
 	for (const signal of ["SIGTERM", "SIGINT"] as const) {
 		process.once(signal, () => {
 			log("info", "hub bff shutting down", { signal });
+			monitor.stop();
 			server.close(() => process.exit(0));
 			server.closeAllConnections();
 		});

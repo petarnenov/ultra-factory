@@ -2,6 +2,7 @@ import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import path from "node:path";
+import type { HostsApi } from "./hosts-api.ts";
 import { createProxy, hasSafeRequestPath, rejectUpgrade, type ProxyHosts } from "./proxy.ts";
 import type { Logger } from "./log.ts";
 import { parsePasswordHash, verifyPassword, type ParsedHash } from "./password.ts";
@@ -18,6 +19,7 @@ export const MAX_CONCURRENT_PASSWORD_CHECKS = 2;
 
 // Reserve daemon paths so unknown hosts and routes never fall through to the SPA.
 const PROXY_PREFIXES = ["/api/", "/mux", "/hosts/", "/readyz"];
+const HOSTS_API_PREFIX = "/hub/hosts";
 
 const LOGIN_DIR = path.join(import.meta.dirname, "..", "login");
 const LOGIN_ASSETS: Record<string, { file: string; type: string }> = {
@@ -57,6 +59,8 @@ export type BffOptions = {
 	// Otherwise the Origin must match the request's Host.
 	publicOrigin?: string;
 	log: Logger;
+	// The host registry routes under /hub/hosts (RW-2.4.3).
+	hostsApi?: HostsApi;
 	now?: () => number;
 	// Tests only: replaces the password check.
 	verify?: (candidate: string, hash: ParsedHash) => Promise<boolean>;
@@ -116,6 +120,9 @@ export function createBff(options: BffOptions): Server {
 			return sendJson(res, 401, { error: "unauthorized" });
 		}
 
+		if (options.hostsApi && (pathname === HOSTS_API_PREFIX || pathname.startsWith(`${HOSTS_API_PREFIX}/`))) {
+			return options.hostsApi(req, res, pathname);
+		}
 		if (PROXY_PREFIXES.some((p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p))) {
 			return proxy.http(req, res);
 		}
@@ -263,7 +270,7 @@ function readCookie(req: IncomingMessage, name: string): string | undefined {
 	return undefined;
 }
 
-function readBody(req: IncomingMessage, limit: number): Promise<string> {
+export function readBody(req: IncomingMessage, limit: number): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const chunks: Buffer[] = [];
 		let size = 0;
@@ -283,7 +290,7 @@ function readBody(req: IncomingMessage, limit: number): Promise<string> {
 	});
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+export function sendJson(res: ServerResponse, status: number, body: unknown): void {
 	const payload = JSON.stringify(body);
 	res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": Buffer.byteLength(payload), "Cache-Control": "no-store" });
 	res.end(payload);
