@@ -215,3 +215,22 @@ describe("web clipboard bridge", () => {
 		expect(await globalToasts()).toHaveLength(1);
 	});
 });
+
+describe("web remotes bridge selection", () => {
+	it("reads the hub BFF's host registry in the web build", async () => {
+		vi.stubEnv("VITE_AO_WEB", "1");
+		fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ hosts: [{ id: "h_worker", label: "Worker", url: "http://worker:3011", source: "manual", status: "online" }] }), { status: 200 }));
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.remotes.list()).resolves.toEqual([{ hostId: "h_worker", label: "Worker", url: "http://worker:3011" }]);
+		expect(fetchMock).toHaveBeenCalledWith("/hub/hosts", expect.anything());
+	});
+
+	it("keeps the mock-data preview without remote hosts", async () => {
+		vi.stubEnv("VITE_NO_ELECTRON", "1");
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.remotes.list()).resolves.toEqual([]);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+});

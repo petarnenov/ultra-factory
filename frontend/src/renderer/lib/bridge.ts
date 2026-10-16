@@ -1,7 +1,9 @@
 import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
+import { isWebBuild } from "./platform";
 import { usesPreviewWorkspaceData } from "./preview-mode";
 import { createWebNotificationsBridge } from "./web-notifications";
+import { createWebRemotesBridge } from "./web-remotes";
 import { webKeybindings, webUiSettings } from "./web-settings";
 import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
@@ -394,10 +396,10 @@ export const aoBridge: AoBridge =
 			list: async () => [],
 			getActive: async () => null,
 		},
-		// The daemon-served web build has no Electron bridge and so no access to
-		// ~/.ao/remotes.json. Reporting no hosts leaves the UI showing local only,
-		// which is the truth there.
-		remotes: {
+		// The web build reads the hub BFF's host registry. The mock preview has no
+		// BFF and no access to ~/.ao/remotes.json, so it reports no hosts and the UI
+		// shows local only.
+		remotes: isWebBuild ? createWebRemotesBridge(webDaemonBaseUrl) : {
 			list: async () => [],
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,
