@@ -530,9 +530,9 @@ func TestLoadTrackerIntakeRejectsGarbage(t *testing.T) {
 	}
 }
 
-// AO_REMOTE_TRUSTED_PROXY trusts X-Forwarded-For for lockout keys, so it is
-// never on unless set explicitly, and a typo fails boot instead of silently
-// picking either mode.
+// AO_REMOTE_TRUSTED_PROXY се доверява на X-Forwarded-For за lockout ключовете,
+// затова никога не е включен, освен ако не е зададен изрично, а печатна грешка
+// проваля стартирането, вместо тихо да избере някой от режимите.
 func TestLoadRemoteTrustedProxy(t *testing.T) {
 	for _, tc := range []struct {
 		raw  string
