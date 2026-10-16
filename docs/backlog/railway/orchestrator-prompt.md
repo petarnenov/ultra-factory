@@ -29,6 +29,7 @@ Read the report, `backlog/README.md`, and all `EPIC.md` and `STORY.md` files bef
 | PR base | always `feat/railway-hosting`, never `main` |
 | Worker machines | `Linux`, `IMac`, `Z600` (labels from `ao host ls`), project `ultra-factory` on each |
 | Parallelism | up to 2 active workers per machine (up to 6 total) |
+| Agents | `claude-code` and `codex`, mixed: on each machine one slot runs `claude-code` and the other runs `codex` |
 | Tracking | GitHub issues in `petarnenov/ultra-factory` + the "RW tracker" issue |
 
 ## Hard rules
@@ -109,9 +110,17 @@ The waves are a guide. The "Waits for" column decides: a task whose dependencies
 - Documentation and ADRs: any free machine.
 - Balance the load: no more than 2 active workers per machine, and do not leave a machine idle if there is a ready task that can run on it.
 
+**Agent mix (Claude Code and Codex):**
+- **Always pass `--harness` explicitly.** The project default is `claude-code`, which is why every worker so far was Claude Code. Never rely on the default.
+- **On each machine, one slot runs `claude-code` and the other runs `codex`.** When a slot frees up, the next task on that machine uses the same agent as the slot that freed. Across the initiative, aim for roughly half of the tasks on each agent and record the agent in #59 (Session column, for example `ultra-factory-8 (codex)`).
+- **Fit only breaks ties.** Prefer `codex` for well-specified, self-contained tasks (CI workflows, shell and Docker, Go tests, small adapters, mechanical edits). Prefer `claude-code` for cross-cutting renderer/UI work and design-heavy tasks. The 1+1 mix per machine wins over fit.
+- **Readiness:** `ao agent ls --host <H>` shows `codex` installed on all three machines. It is logged in on `Linux` and `IMac` (verified 2026-10-16). `Z600` shows `auth unknown`: start one `codex` task there; if it fails on authentication, add a `needs-human` note in #59 for the user to run `codex login` on Z600, and use `claude-code` on Z600 until then.
+- The worker prompt is the same for both agents. Codex reads `AGENTS.md` natively.
+
 ## Starting a worker
 ```
 ao spawn --host <H> --project ultra-factory \
+  --harness <claude-code|codex> \
   --branch rw/<TASK_ID> \
   --issue <ISSUE_NUMBER> \
   --name "<TASK_ID> <short name>" \
@@ -147,7 +156,7 @@ After starting: issue → `status:in-progress` + `host:<h>`, a row in the tracke
   1. Sessions per machine: who is working, who is idle, who is terminated.
   2. Every open PR against `feat/railway-hosting` with green CI and `mergeable`: check it per "Review and merge" below and merge it immediately if it is clean. ADR and `needs-human` only with user approval.
   3. A worker idle without a PR for over 30 min: `ao send` asking what is blocking it.
-  4. Every task whose dependencies are already merged and for which a machine has a free slot: start it.
+  4. Every task whose dependencies are already merged and for which a machine has a free slot: start it with the agent that keeps that machine at one `claude-code` + one `codex` (see "Agent mix").
   5. Update tracker #59 and the labels.
 - **Do not end a turn** while there is a green, mergeable PR that can be merged without a human, or a task that can start.
 

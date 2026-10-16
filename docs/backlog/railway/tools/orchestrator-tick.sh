@@ -14,6 +14,12 @@
 # "VIOLATION: ..." line, logged as VIOLATION, and re-sent every
 # VIOLATION_RENUDGE_MINUTES while it persists.
 #
+# The orchestrator is the single live orchestrator session of RW_TICK_PROJECT,
+# found on every tick, so a respawned orchestrator is picked up without
+# reinstalling. RW_TICK_SESSION pins a session id instead. When the local daemon
+# does not answer, or no single live orchestrator exists, nobody can be woken:
+# the tick logs a VIOLATION to tick.log and sends nothing.
+#
 # Usage:
 #   orchestrator-tick.sh run         one tick (what launchd calls)
 #   orchestrator-tick.sh snapshot    print the state a tick would send, send nothing
@@ -22,7 +28,9 @@
 #   orchestrator-tick.sh status      show the agent and the last tick
 set -euo pipefail
 
-SESSION="${RW_TICK_SESSION:-ultra-factory-1}"
+PROJECT="${RW_TICK_PROJECT:-ultra-factory}"
+# Empty: find the project's orchestrator on every tick.
+SESSION_OVERRIDE="${RW_TICK_SESSION:-}"
 HOSTS="${RW_TICK_HOSTS:-Linux IMac Z600}"
 REPO="${RW_TICK_REPO:-petarnenov/ultra-factory}"
 BASE="${RW_TICK_BASE:-feat/railway-hosting}"
@@ -33,6 +41,8 @@ VIOLATION_RENUDGE_MINUTES="${RW_TICK_VIOLATION_RENUDGE_MINUTES:-10}"
 # Invariant thresholds.
 GREEN_PR_MAX_MINUTES="${RW_TICK_GREEN_PR_MAX_MINUTES:-10}"
 IDLE_WORKER_MAX_MINUTES="${RW_TICK_IDLE_WORKER_MAX_MINUTES:-30}"
+# Workers created after this instant must follow the claude-code + codex mix.
+AGENT_MIX_SINCE="${RW_TICK_AGENT_MIX_SINCE:-2026-10-16T15:45:00Z}"
 REPO_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 STATE_DIR="${AO_DATA_DIR:-$HOME/.ao}/rw-tick"
@@ -87,7 +97,7 @@ invariants() {
 	done
 	sessions="${sessions%,}}"
 	OPEN_PRS="$open_prs" MERGED_PRS="$merged_prs" OPEN_ISSUES="$open_issues" SESSIONS="$sessions" \
-		GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" python3 - <<'PY'
+		GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" MIX_SINCE="$AGENT_MIX_SINCE" python3 - <<'PY'
 import json, os, re
 from datetime import datetime, timezone
 
@@ -152,6 +162,27 @@ for host, payload in load("SESSIONS", {}).items():
         last = parse_time(s.get("lastActivityAt"))
         if last and minutes_since(last) >= idle_max:
             print(f"VIOLATION: {s.get('id')} ({branch}) on {host} has been idle for {minutes_since(last)} min without a PR → ao send --host {host} asking what blocks it")
+
+# 5. Workers started after the agent-mix rule use both agents: never two live
+#    workers with the same agent on one machine, and never only claude-code.
+mix_since = parse_time(os.environ.get("MIX_SINCE", ""))
+new_workers = []
+for host, payload in load("SESSIONS", {}).items():
+    items = payload.get("data", []) if isinstance(payload, dict) else payload
+    for s in items or []:
+        created = parse_time(s.get("createdAt"))
+        if not (s.get("branch") or "").startswith("rw/") or not created or not mix_since or created < mix_since:
+            continue
+        new_workers.append((host, s))
+for host in sorted({h for h, _ in new_workers}):
+    live = [s for h, s in new_workers if h == host and not s.get("isTerminated")]
+    harnesses = [s.get("harness") for s in live]
+    for harness in sorted(set(harnesses)):
+        if harnesses.count(harness) > 1:
+            ids = ", ".join(s.get("id") for s in live if s.get("harness") == harness)
+            print(f"VIOLATION: {host} runs {harnesses.count(harness)} live {harness} workers ({ids}) → the next task on {host} must use the other agent (--harness)")
+if len(new_workers) >= 2 and not any(s.get("harness") == "codex" for _, s in new_workers):
+    print(f"VIOLATION: none of the {len(new_workers)} workers started since {os.environ['MIX_SINCE']} uses codex → start the next ready task with --harness codex")
 PY
 }
 
@@ -159,16 +190,84 @@ in_flight() { # any worker branch, open PR or violated invariant in the snapshot
 	grep -q -E 'rw/|^  #[0-9]+|^VIOLATION:' "$1"
 }
 
+# daemon_problem prints why the local AO daemon cannot serve a tick, nothing
+# when it is ready.
+daemon_problem() {
+	local out
+	if ! out="$(ao status --json 2>&1)"; then
+		printf 'ao status failed: %s' "$out"
+		return 0
+	fi
+	STATUS="$out" python3 - <<'PY'
+import json, os
+try:
+    d = json.loads(os.environ["STATUS"])
+except ValueError:
+    print("ao status returned unreadable output", end="")
+else:
+    state, health = d.get("state"), d.get("health")
+    if state != "ready" or health != "ok":
+        print(f"state={state} health={health}", end="")
+PY
+}
+
+# resolve_orchestrator prints the id of the orchestrator to wake. On failure it
+# prints the reason and returns 1.
+resolve_orchestrator() {
+	local out
+	if [[ -n "$SESSION_OVERRIDE" ]]; then
+		if ! out="$(ao session get "$SESSION_OVERRIDE" 2>&1)"; then
+			printf 'orchestrator %s (RW_TICK_SESSION) does not exist: %s' "$SESSION_OVERRIDE" "$out"
+			return 1
+		fi
+		if [[ "$(field terminated <<<"$out")" == true ]]; then
+			printf 'orchestrator %s (RW_TICK_SESSION) is terminated' "$SESSION_OVERRIDE"
+			return 1
+		fi
+		printf '%s' "$SESSION_OVERRIDE"
+		return 0
+	fi
+	if ! out="$(ao orchestrator ls --json 2>&1)"; then
+		printf 'ao orchestrator ls failed: %s' "$out"
+		return 1
+	fi
+	ORCHS="$out" PROJECT="$PROJECT" python3 - <<'PY'
+import json, os, sys
+project = os.environ["PROJECT"]
+try:
+    items = json.loads(os.environ["ORCHS"]).get("data") or []
+except ValueError:
+    print("ao orchestrator ls returned unreadable output", end="")
+    sys.exit(1)
+live = [s["id"] for s in items if s.get("projectId") == project and not s.get("isTerminated")]
+if len(live) == 1:
+    print(live[0], end="")
+elif not live:
+    print(f"no live orchestrator session in project {project}", end="")
+    sys.exit(1)
+else:
+    print(f"{len(live)} live orchestrators in project {project} ({', '.join(live)}); set RW_TICK_SESSION to the RW one", end="")
+    sys.exit(1)
+PY
+}
+
 run_tick() {
 	mkdir -p "$STATE_DIR"
 	chmod 700 "$STATE_DIR"
-	local info status activity
-	if ! info="$(ao session get "$SESSION" 2>&1)"; then
-		log "orchestrator $SESSION not reachable: $info"
+	local problem
+	problem="$(daemon_problem)"
+	if [[ -n "$problem" ]]; then
+		log "VIOLATION the local AO daemon is not responding ($problem); nobody can be woken → start the AO app or run ao start"
 		return 0
 	fi
-	if [[ "$(field terminated <<<"$info")" == true ]]; then
-		log "orchestrator $SESSION is terminated; nothing to wake"
+	local SESSION
+	if ! SESSION="$(resolve_orchestrator)"; then
+		log "VIOLATION $SESSION; nobody can be woken → spawn the RW orchestrator, or set RW_TICK_SESSION and reinstall"
+		return 0
+	fi
+	local info status activity
+	if ! info="$(ao session get "$SESSION" 2>&1)"; then
+		log "VIOLATION orchestrator $SESSION not reachable: $info"
 		return 0
 	fi
 	status="$(field status <<<"$info")"
