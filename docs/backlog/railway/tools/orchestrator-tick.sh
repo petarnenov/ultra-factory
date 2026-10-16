@@ -41,6 +41,8 @@ VIOLATION_RENUDGE_MINUTES="${RW_TICK_VIOLATION_RENUDGE_MINUTES:-10}"
 # Invariant thresholds.
 GREEN_PR_MAX_MINUTES="${RW_TICK_GREEN_PR_MAX_MINUTES:-10}"
 IDLE_WORKER_MAX_MINUTES="${RW_TICK_IDLE_WORKER_MAX_MINUTES:-30}"
+# Workers created after this instant must follow the claude-code + codex mix.
+AGENT_MIX_SINCE="${RW_TICK_AGENT_MIX_SINCE:-2026-10-16T15:45:00Z}"
 REPO_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 
 STATE_DIR="${AO_DATA_DIR:-$HOME/.ao}/rw-tick"
@@ -95,7 +97,7 @@ invariants() {
 	done
 	sessions="${sessions%,}}"
 	OPEN_PRS="$open_prs" MERGED_PRS="$merged_prs" OPEN_ISSUES="$open_issues" SESSIONS="$sessions" \
-		GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" python3 - <<'PY'
+		GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" MIX_SINCE="$AGENT_MIX_SINCE" python3 - <<'PY'
 import json, os, re
 from datetime import datetime, timezone
 
@@ -160,6 +162,27 @@ for host, payload in load("SESSIONS", {}).items():
         last = parse_time(s.get("lastActivityAt"))
         if last and minutes_since(last) >= idle_max:
             print(f"VIOLATION: {s.get('id')} ({branch}) on {host} has been idle for {minutes_since(last)} min without a PR → ao send --host {host} asking what blocks it")
+
+# 5. Workers started after the agent-mix rule use both agents: never two live
+#    workers with the same agent on one machine, and never only claude-code.
+mix_since = parse_time(os.environ.get("MIX_SINCE", ""))
+new_workers = []
+for host, payload in load("SESSIONS", {}).items():
+    items = payload.get("data", []) if isinstance(payload, dict) else payload
+    for s in items or []:
+        created = parse_time(s.get("createdAt"))
+        if not (s.get("branch") or "").startswith("rw/") or not created or not mix_since or created < mix_since:
+            continue
+        new_workers.append((host, s))
+for host in sorted({h for h, _ in new_workers}):
+    live = [s for h, s in new_workers if h == host and not s.get("isTerminated")]
+    harnesses = [s.get("harness") for s in live]
+    for harness in sorted(set(harnesses)):
+        if harnesses.count(harness) > 1:
+            ids = ", ".join(s.get("id") for s in live if s.get("harness") == harness)
+            print(f"VIOLATION: {host} runs {harnesses.count(harness)} live {harness} workers ({ids}) → the next task on {host} must use the other agent (--harness)")
+if len(new_workers) >= 2 and not any(s.get("harness") == "codex" for _, s in new_workers):
+    print(f"VIOLATION: none of the {len(new_workers)} workers started since {os.environ['MIX_SINCE']} uses codex → start the next ready task with --harness codex")
 PY
 }
 
