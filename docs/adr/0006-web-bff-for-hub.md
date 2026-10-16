@@ -72,17 +72,11 @@ through the authenticated listener with a bearer credential.
   `<AO_DATA_DIR>/mobile/config.json`, so no managed tunnel is started).
   The hub therefore adds **no network bind in the daemon**: the authenticated
   socket is `127.0.0.1:3011`, and only the BFF in the same container uses it.
-- `LANManager.start` silently falls back to an ephemeral port when the requested
-  port is busy. The BFF must therefore not trust a hard-coded `3011`: before
-  sending the hub bearer it reads the actually bound port from the hub daemon's
-  status (the persisted `lastPort` in `mobile/config.json`, or `ao remote-host
-  status`) and confirms the hub's `hostId` with `GET /api/v1/identity` on that
-  port. If either check fails, it fails closed and sends no credential.
   The exact pre-seeded file is specified in RW-2.4, which reuses the worker
   entrypoint approach of RW-1.2.
 - The BFF never connects to `127.0.0.1:3001`. A test in RW-2.4 must pin this,
-  for example by asserting that the resolved hub upstream is the authenticated
-  listener and never `3001`.
+  for example by asserting that the configured hub upstream port is the
+  authenticated one.
 - The daemon code is unchanged by this ADR.
 
 The table above is the list of features **not available in the web UI** under
@@ -140,12 +134,9 @@ MVP: **one operator, one password, one session cookie.**
   everyone out.
 - State-changing requests require a matching `Origin` header in addition to the
   `SameSite=Strict` cookie.
-- Login attempts are throttled per client address. The BFF uses the
-  rightmost-`X-Forwarded-For` rule of [0005](0005-trusted-proxy-remote-host.md)
-  only under the same opt-in, `AO_REMOTE_TRUSTED_PROXY=1`, which the Railway hub
-  sets because the BFF sits behind the edge. Without the flag, for example in
-  local development, it keys on the TCP peer, so a client cannot pick its own
-  key through a header.
+- Login attempts are throttled per client address using the same
+  rightmost-`X-Forwarded-For` rule as [0005](0005-trusted-proxy-remote-host.md),
+  since the BFF sits behind the same Railway edge.
 
 **OIDC is an option for later**, not part of the MVP: an operator who sets
 `AO_WEB_OIDC_ISSUER`, client id, and secret, plus an allow-list of subjects or
