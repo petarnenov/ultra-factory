@@ -41,7 +41,7 @@ export const hubHostsQueryKey = ["hub", "workers"] as const;
 
 // Same base as the web bridge (bridge.ts webDaemonBaseUrl): the BFF serves the
 // SPA, /hub/* and /hosts/<id>/* on one origin.
-function hubBaseUrl(): string {
+export function hubBaseUrl(): string {
 	return (import.meta.env.VITE_AO_API_BASE_URL ?? "").replace(/\/+$/, "");
 }
 
