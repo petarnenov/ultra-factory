@@ -4,9 +4,10 @@
 
 This section covers the hub image from [hub/Dockerfile](hub/Dockerfile), which
 runs the AO daemon, hub BFF, and web SPA in one Railway service. Railway setup,
-deployment, and all browser checks below are operator procedures; none have been
-performed as part of this runbook. Keep every live result marked pending until
-an operator records sanitized evidence.
+deployment, and the browser checks below are operator procedures. The first
+live deployment and its sanitized results are recorded under
+[Logs and validation record](#logs-and-validation-record) (RW-2.5.3, issue
+#104); keep any check not listed there as passed marked pending.
 
 ### Create the service
 
@@ -349,20 +350,21 @@ request logs to stdout and excludes passwords, hashes, cookies, and headers.
 Do not share unredacted `mobile/config.json`, environment dumps, or logs that
 could reveal credentials.
 
-Record these checks after deployment. All values are **pending human validation**
-until an operator supplies the dated result, image revision, and sanitized
-evidence. No Railway deployment or live browser test was performed for this
-runbook.
+Record these checks after deployment with the date, image revision, and
+sanitized evidence. The results below are from the first live deployment on
+2026-10-17 (RW-2.5.3, [issue #104](https://github.com/petarnenov/ultra-factory/issues/104)),
+with domains, IDs, and digests masked as in RW-1.4.1. Rows still marked pending
+were not verified and must not be reported as passed.
 
-| Check | Result | Evidence to record |
+| Check | Result | Evidence |
 | --- | --- | --- |
-| Public domain and TLS | Pending human validation | Domain, HTTP→HTTPS behavior, certificate result, and target port `$PORT`. |
-| Login and SPA board | Pending human validation | Browser/client and measured SPA load time; confirm login and hub board render. |
-| Hub and worker hosts | Pending human validation | `/hub/hosts` shows the hub entry and `worker-1`; record online/offline state and whether the private or public worker URL was used. |
-| SSE | Pending human validation | Measure event delivery latency from an approved board update; include method and client location. |
-| Terminal | Pending human validation | Open an approved worker session, send input, and confirm streamed output; live PTY/terminal is not expected to survive restart. |
-| Persistence and restart | Pending human validation | Verify `/data` contents and host registry after restart; separately record what live processes stopped. |
-| Image update and rollback | Pending human validation | Record old/new image revisions, no-active-session check, volume attachment, rollback procedure, and outcome. |
+| Public domain and TLS | Pass (2026-10-17) | New Railway-generated domain `<hub-domain>`: `/healthz` 200 over HTTPS with a valid certificate, HTTP → HTTPS 301, HSTS set. The domain reaches the BFF on `$PORT` (`8080`); the daemon's `3001`/`3011` listen on loopback only. |
+| Login and SPA board | Pass; load time pending | Operator login (hash set on the service) and the board render in a browser after the startup-gate fix (#122). Login page assets: TTFB 0.25–0.31 s from a client to `us-west2`. A DevTools load measurement of the board was not taken. |
+| Hub and worker hosts | Pass (2026-10-17) | The registry holds the `hub` entry and `worker-1`, both online. `worker-1` was added from the UI with the **private** URL `http://<service>.railway.internal:3011`, verified over IPv4 and IPv6 from the hub container. |
+| SSE | Streams open; latency pending | Long-lived BFF → daemon and BFF → `worker-1` connections while the board is open. Delivery latency was not measured. |
+| Terminal | Pass; typing latency pending | After #127, a `worker-1` session terminal streams command output in the browser (user-verified). Typing latency was not measured. |
+| Persistence and restart | Pass, limited | The host registry, GitHub and Claude sign-ins under `/data`, and the agent CLIs in `/data/home/.npm-global` were kept across several image updates. Database contents were not compared. |
+| Image update and rollback | Update: pass; rollback pending | Updates are published and deployed by `hub-image.yml` (see [Automated image publish and deploy](#automated-image-publish-and-deploy)), with a 60 s post-`SUCCESS` re-check added after a crash loop (#128). A rollback was not exercised. |
 | Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
 | Orchestrator credentials (RW-5.4.1) | Pending human validation | `ao agent ls` shows the chosen harness `authorized`; a hub orchestrator answers a prompt and runs `gh issue view` against this repository. No credential output. |
 
