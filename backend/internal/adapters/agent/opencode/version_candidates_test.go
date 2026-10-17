@@ -92,14 +92,16 @@ func TestCandidateSupplierErrorsAndEmptyResult(t *testing.T) {
 
 func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
 	// A short parent deadline alone cannot detect resetting the internal
-	// timeout from that same parent. Keep the real default-budget case too.
+	// timeout from that same parent. Exercise an independent internal budget too.
 	for _, tc := range []struct {
 		name           string
 		parentBudget   time.Duration
+		internalBudget time.Duration
 		discoveryDelay time.Duration
+		probeSleep     string
 	}{
-		{"parent deadline", time.Second, 500 * time.Millisecond},
-		{"default shared budget", 0, versionProbeTimeout - 2*time.Second},
+		{"parent deadline", 500 * time.Millisecond, 2 * time.Second, 100 * time.Millisecond, "1"},
+		{"shared internal budget", 0, 300 * time.Millisecond, 150 * time.Millisecond, "0.2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "probe-pid")
@@ -107,7 +109,7 @@ func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
 			// exec leaves no descendant holding output after cancellation. The
 			// marker proves resolution reached the real executable, rather than
 			// returning solely because discovery consumed the whole deadline.
-			binary := candidateExecutable(t, "printf '%s' \"$$\" > \"$AO_TEST_PROBE_MARKER\"\nexec /bin/sleep 3\n")
+			binary := candidateExecutable(t, "printf '%s' \"$$\" > \"$AO_TEST_PROBE_MARKER\"\nexec /bin/sleep "+tc.probeSleep+"\n")
 			parent := context.Background()
 			if tc.parentBudget != 0 {
 				var cancel context.CancelFunc
@@ -115,7 +117,7 @@ func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
 				defer cancel()
 			}
 			var discoveryContext context.Context
-			got, err := ResolveBinaryForMajorWithCandidates(parent, 2, func(ctx context.Context) ([]string, error) {
+			got, err := resolveBinaryForMajorWithCandidates(parent, 2, func(ctx context.Context) ([]string, error) {
 				discoveryContext = ctx
 				deadline, ok := ctx.Deadline()
 				if !ok {
@@ -132,7 +134,7 @@ func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
 				case <-ctx.Done():
 					return nil, ctx.Err()
 				}
-			})
+			}, tc.internalBudget)
 			if got != "" || !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("resolve = (%q, %v), want shared deadline exhaustion", got, err)
 			}

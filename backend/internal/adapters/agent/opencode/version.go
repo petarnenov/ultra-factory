@@ -45,10 +45,14 @@ func ResolveBinaryForMajor(ctx context.Context, major int) (string, error) {
 // same version policy and shared deadline as ResolveBinaryForMajor. A nil
 // supplier uses the normal BinaryCandidates discovery path.
 func ResolveBinaryForMajorWithCandidates(ctx context.Context, major int, discover func(context.Context) ([]string, error)) (string, error) {
+	return resolveBinaryForMajorWithCandidates(ctx, major, discover, versionProbeTimeout)
+}
+
+func resolveBinaryForMajorWithCandidates(ctx context.Context, major int, discover func(context.Context) ([]string, error), timeout time.Duration) (string, error) {
 	if discover == nil {
 		discover = BinaryCandidates
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	candidates, err := discover(probeCtx)
 	if err != nil {
