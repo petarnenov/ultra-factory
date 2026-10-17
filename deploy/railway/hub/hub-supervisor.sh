@@ -213,7 +213,8 @@ bff_pid=
 tick_pid=
 tailscale_pid=
 
-# Each service gets the tailnet dial gate only after tailscale up succeeds. In
+# Each service, and the tick loop that runs `ao session ls --host` against the
+# remote hosts, gets the tailnet dial gate only after tailscale up succeeds. In
 # disabled mode, inherited copies of both configuration variables are removed.
 run_child() {
 	if [[ $tailscale_enabled == 1 ]]; then
@@ -267,7 +268,7 @@ start_tick() {
 			sleep "$1" &
 			wait $!
 		fi
-		exec env -u TS_AUTHKEY -u AO_REMOTE_TAILNET_SOCKS "${tick_command[@]}"
+		run_child "${tick_command[@]}"
 	) &
 	tick_pid=$!
 }
