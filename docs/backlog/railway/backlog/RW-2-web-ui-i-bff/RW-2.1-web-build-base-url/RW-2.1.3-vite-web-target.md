@@ -1,4 +1,5 @@
 # RW-2.1.3 · Task: Vite web build target
+**Status:** ✅ done (#64)
 
 **Type:** build. **Estimate:** 0.5–1 pd. **Story:** RW-2.1.
 

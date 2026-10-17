@@ -1,4 +1,5 @@
 # RW-2.5.1 · Task: Hub Dockerfile and supervisor
+**Status:** ✅ done (#91)
 
 **Type:** infrastructure. **Estimate:** 1 pd. **Story:** RW-2.5.
 

@@ -1,4 +1,5 @@
 # RW-2.3.2 · Task: Web Notifications and badge
+**Status:** ✅ done (#76)
 
 **Type:** frontend TS. **Estimate:** 0.5 pd. **Story:** RW-2.3.
 

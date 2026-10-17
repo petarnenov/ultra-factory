@@ -1,4 +1,5 @@
 # RW-1.2.3 · Task: CI build and publish of the worker image
+**Status:** ✅ done (#82)
 
 **Type:** CI. **Estimate:** 0.5–1 pd. **Story:** RW-1.2.
 

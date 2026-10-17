@@ -1,4 +1,5 @@
 # RW-3.2.1 · Task: State machine and persisted jobs
+**Status:** ✅ done (#87)
 
 **Type:** Node TS. **Estimate:** 1–1.5 pd. **Story:** RW-3.2.
 

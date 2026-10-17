@@ -1,4 +1,5 @@
 # RW-2.1 · Story: Web build of the renderer with a configurable base URL
+**Status:** ✅ done
 
 **As** a browser user **I want** the UI to talk to the daemon same-origin (`/api`, `/mux`) and to pass the readiness gate without Electron, **so that** the real board loads, not mock data.
 

@@ -1,4 +1,5 @@
 # RW-2.4 · Story: BFF for the hub (login, proxy, host registry)
+**Status:** ✅ done
 
 **As** an operator **I want** a single public HTTPS endpoint with login that serves the SPA and proxies REST/SSE/WebSocket to the hub's daemon and to every registered worker with an injected Bearer, **so that** the web UI works without exposing the daemon API.
 

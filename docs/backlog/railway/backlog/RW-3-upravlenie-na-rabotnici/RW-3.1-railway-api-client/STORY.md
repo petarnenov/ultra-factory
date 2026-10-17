@@ -1,4 +1,5 @@
 # RW-3.1 · Story: Railway API client in the BFF
+**Status:** ✅ done
 
 **As** a developer **I want** a thin, tested client for the Railway GraphQL API covering the create/delete service, volume, variables and deploy status operations, **so that** the lifecycle in RW-3.2 does not need to know about GraphQL.
 

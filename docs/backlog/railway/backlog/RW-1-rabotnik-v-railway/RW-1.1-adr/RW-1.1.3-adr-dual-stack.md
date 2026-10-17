@@ -1,4 +1,5 @@
 # RW-1.1.3 · Task: ADR for a dual-stack bind of the remote-host listener
+**Status:** ✅ done (#60)
 
 **Type:** ADR. **Estimate:** 0.5 pd. **Story:** RW-1.1.
 

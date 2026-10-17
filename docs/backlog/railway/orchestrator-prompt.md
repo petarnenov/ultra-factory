@@ -157,7 +157,7 @@ After starting: issue → `status:in-progress` + `host:<h>`, a row in the tracke
   2. Every open PR against `feat/railway-hosting` with green CI and `mergeable`: check it per "Review and merge" below and merge it immediately if it is clean. ADR and `needs-human` only with user approval.
   3. A worker idle without a PR for over 30 min: `ao send` asking what is blocking it.
   4. Every task whose dependencies are already merged and for which a machine has a free slot: start it with the agent that keeps that machine at one `claude-code` + one `codex` (see "Agent mix").
-  5. Update tracker #59 and the labels.
+  5. Run `docs/backlog/railway/tools/backlog-status.sh`, commit its generated backlog status lines and README section, then update tracker #59 and the labels.
 - **Do not end a turn** while there is a green, mergeable PR that can be merged without a human, or a task that can start.
 
 ## Review and merge into `feat/railway-hosting`
