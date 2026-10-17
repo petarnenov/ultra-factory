@@ -3,15 +3,17 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// null is "no trusted daemon URL"; "" is the web build's same-origin base.
 const apiBaseUrlState = vi.hoisted(() => ({
-	url: "",
+	url: null as string | null,
 	listeners: new Set<() => void>(),
 }));
 
 vi.mock("../lib/api-client", () => ({
 	apiClient: { GET: vi.fn(), POST: vi.fn() },
 	apiErrorMessage: (error: unknown) => String(error),
-	getApiBaseUrl: () => apiBaseUrlState.url,
+	getApiBaseUrl: () => apiBaseUrlState.url ?? "",
+	hasTrustedApiBaseUrl: () => apiBaseUrlState.url !== null,
 	subscribeApiBaseUrl: (listener: () => void) => {
 		apiBaseUrlState.listeners.add(listener);
 		return () => apiBaseUrlState.listeners.delete(listener);
@@ -37,7 +39,7 @@ function wrapper(queryClient: QueryClient) {
 	};
 }
 
-function setBaseUrl(url: string) {
+function setBaseUrl(url: string | null) {
 	act(() => {
 		apiBaseUrlState.url = url;
 		apiBaseUrlState.listeners.forEach((listener) => listener());
@@ -46,7 +48,7 @@ function setBaseUrl(url: string) {
 
 afterEach(() => {
 	vi.useRealTimers();
-	apiBaseUrlState.url = "";
+	apiBaseUrlState.url = null;
 	apiBaseUrlState.listeners.clear();
 	vi.mocked(apiClient.GET).mockReset();
 });
@@ -70,7 +72,7 @@ describe("useSystemRequirementsGate", () => {
 		await waitFor(() => expect(result.current.ready).toBe(true));
 		expect(getMock).toHaveBeenCalledTimes(1);
 
-		setBaseUrl("");
+		setBaseUrl(null);
 		setBaseUrl("http://127.0.0.1:4555");
 		await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
 		expect(result.current.checking).toBe(true);
@@ -81,12 +83,28 @@ describe("useSystemRequirementsGate", () => {
 
 		// The supervisor invalidates this cache on a daemon identity change,
 		// including a restart that binds the same port again.
-		setBaseUrl("");
+		setBaseUrl(null);
 		act(() => queryClient.removeQueries({ queryKey: systemRequirementsQueryKey }));
 		getMock.mockResolvedValueOnce({ data: { requirements: [] }, error: undefined } as never);
 		setBaseUrl("http://127.0.0.1:4555");
 		await waitFor(() => expect(getMock).toHaveBeenCalledTimes(3));
 		await waitFor(() => expect(result.current.ready).toBe(true));
+	});
+
+	it("checks requirements once the web build trusts its same-origin base", async () => {
+		const getMock = vi.mocked(apiClient.GET);
+		getMock.mockResolvedValueOnce({ data: { requirements: [] }, error: undefined } as never);
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const { result } = renderHook(() => useSystemRequirementsGate(), { wrapper: wrapper(queryClient) });
+
+		await act(async () => Promise.resolve());
+		expect(getMock).not.toHaveBeenCalled();
+		expect(result.current.blocked).toBe(true);
+
+		setBaseUrl("");
+		await waitFor(() => expect(result.current.ready).toBe(true));
+		expect(getMock).toHaveBeenCalledTimes(1);
+		expect(result.current.blocked).toBe(false);
 	});
 });
 
