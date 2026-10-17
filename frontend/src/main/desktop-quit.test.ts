@@ -32,6 +32,8 @@ describe("desktop quit", () => {
 		expect(options.hideDock).not.toHaveBeenCalled();
 		controller.windowClosed();
 		expect(options.hideDock).toHaveBeenCalledOnce();
+		controller.windowClosed();
+		expect(options.hideDock).toHaveBeenCalledOnce();
 	});
 
 	it("keeps the Dock icon when the draft guard cancels the close", () => {
