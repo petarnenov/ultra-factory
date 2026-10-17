@@ -74,7 +74,7 @@ import { useCloudSession } from "../lib/cloud-session";
 import { useCloudAccountSwitchReset } from "../hooks/useCloudAccountSwitchReset";
 import { openRemoteOrchestrator } from "../lib/remote-orchestrator";
 import { projectNavigateTarget, sessionNavigateTarget } from "../lib/navigate-to-session";
-import { sessionUiKey } from "../lib/hosts";
+import { sessionUiKey, shouldLeaveHostRoute } from "../lib/hosts";
 import { buildSidebarSessionOrder, sessionWantsAttention, stepSessionNav, type SidebarNavSession } from "../lib/sidebar-order";
 import { useSidebarOrderStore } from "../stores/sidebar-order-store";
 import { useAppShortcut } from "../hooks/useAppShortcut";
@@ -401,7 +401,7 @@ function ShellLayout() {
 	const remoteHostsEnabled = useUiStore((state) => state.developerMode && state.remoteHosts);
 	const { status: accountStatus, session: cloudAccount } = useCloudSession();
 	useEffect(() => {
-		if ((!remoteHostsEnabled || accountStatus === "unauthenticated") && routeParams.hostId) void navigate({ to: "/", replace: true });
+		if (routeParams.hostId && shouldLeaveHostRoute({ remoteHostsEnabled, accountStatus, webBuild: isWebBuild })) void navigate({ to: "/", replace: true });
 	}, [accountStatus, navigate, remoteHostsEnabled, routeParams.hostId]);
 	useCloudAccountSwitchReset({
 		userId: cloudAccount?.user.id ?? null,

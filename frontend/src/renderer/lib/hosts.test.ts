@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isLocal, LOCAL_HOST, parseRefKey, refKey, sessionUiKey, type Ref } from "./hosts";
+import { isLocal, LOCAL_HOST, parseRefKey, refKey, sessionUiKey, shouldLeaveHostRoute, type Ref } from "./hosts";
 
 describe("refKey", () => {
 	it("round-trips a local ref", () => {
@@ -39,4 +39,20 @@ it("keeps the same raw session ID separate in local, Box A, and Box B UI state",
 	const boxB = sessionUiKey("session-1", "box-b");
 	expect(local).toBe("session-1");
 	expect(new Set([local, boxA, boxB]).size).toBe(3);
+});
+
+describe("shouldLeaveHostRoute", () => {
+	it("leaves host routes when remote hosts are disabled", () => {
+		expect(shouldLeaveHostRoute({ remoteHostsEnabled: false, accountStatus: "authenticated", webBuild: false })).toBe(true);
+		expect(shouldLeaveHostRoute({ remoteHostsEnabled: false, accountStatus: "unauthenticated", webBuild: true })).toBe(true);
+	});
+
+	it("requires an AO Cloud account on the desktop", () => {
+		expect(shouldLeaveHostRoute({ remoteHostsEnabled: true, accountStatus: "unauthenticated", webBuild: false })).toBe(true);
+		expect(shouldLeaveHostRoute({ remoteHostsEnabled: true, accountStatus: "authenticated", webBuild: false })).toBe(false);
+	});
+
+	it("keeps host routes in the web build without an AO Cloud account", () => {
+		expect(shouldLeaveHostRoute({ remoteHostsEnabled: true, accountStatus: "unauthenticated", webBuild: true })).toBe(false);
+	});
 });

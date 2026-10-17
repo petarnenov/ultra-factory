@@ -33,3 +33,19 @@ export function parseRefKey(key: string): Ref {
 		id: decodeURIComponent(key.slice(separator + 1)),
 	};
 }
+
+/** Whether a host-scoped route must fall back to the home page. The desktop
+ * reaches remote hosts through an AO Cloud account; the web build reaches them
+ * through the hub BFF behind its own sign-in, so the cloud account does not
+ * apply there. */
+export function shouldLeaveHostRoute({
+	remoteHostsEnabled,
+	accountStatus,
+	webBuild,
+}: {
+	remoteHostsEnabled: boolean;
+	accountStatus: string;
+	webBuild: boolean;
+}): boolean {
+	return !remoteHostsEnabled || (!webBuild && accountStatus === "unauthenticated");
+}
