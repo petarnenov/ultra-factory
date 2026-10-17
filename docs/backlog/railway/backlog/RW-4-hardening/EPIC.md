@@ -1,5 +1,5 @@
 # RW-4 · Epic: Hardening, tests, documentation
-**Status:** ⬜ todo
+**Status:** 👀 in review
 
 **Goal.** The system is safe for a public URL, costs are capped, there is an e2e test and operator documentation.
 
