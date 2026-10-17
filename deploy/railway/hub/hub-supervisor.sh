@@ -48,6 +48,12 @@ readonly tailscale_socket=$tailscale_dir/tailscaled.sock
 readonly tailscale_state=$tailscale_dir/tailscaled.state
 readonly tailscale_socks=127.0.0.1:1055
 readonly tailscale_authkey=${TS_AUTHKEY:-}
+# Railway's container interface (railnet0) has MTU 1316. With Tailscale's
+# default tunnel MTU of 1280, a full-size WireGuard packet is 1340 bytes
+# (IPv4), so large TCP segments from some peers never reach the hub while small
+# replies do. 1232 keeps the outer packet at or below 1316 for IPv4 and IPv6
+# underlays; the userspace netstack advertises the matching smaller TCP MSS.
+readonly tailscale_mtu=${TS_DEBUG_MTU:-1232}
 readonly tailscale_enabled=$([[ -n $tailscale_authkey ]] && printf 1 || printf 0)
 # The key belongs only to this supervisor shell. Descendants receive a clean
 # environment, and tailscale up reads the value through an anonymous pipe.
@@ -237,7 +243,7 @@ start_tailnet() {
 	mkdir -p "$tailscale_dir" || die "cannot create $tailscale_dir"
 	chmod 0700 "$tailscale_dir" || die "cannot protect $tailscale_dir"
 	rm -f "$tailscale_socket"
-	"${AO_HUB_TAILSCALED:-/usr/local/bin/tailscaled}" \
+	TS_DEBUG_MTU="$tailscale_mtu" "${AO_HUB_TAILSCALED:-/usr/local/bin/tailscaled}" \
 		--tun=userspace-networking \
 		--socks5-server="$tailscale_socks" \
 		--state="$tailscale_state" \

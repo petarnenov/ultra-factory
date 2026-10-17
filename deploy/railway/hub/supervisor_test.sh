@@ -171,6 +171,7 @@ test_tailnet_passes_gate_to_daemon_bff_and_tick() {
 const net = require('node:net');
 const socketPath = process.argv.find((arg) => arg.startsWith('--socket='))?.slice('--socket='.length);
 if (!socketPath || process.env.TS_AUTHKEY) process.exit(41);
+require('node:fs').writeFileSync(process.env.AO_HUB_TEST_DIR + '/tailscaled.mtu', String(process.env.TS_DEBUG_MTU));
 const server = net.createServer();
 server.listen(socketPath);
 const stop = () => server.close(() => process.exit(0));
@@ -232,6 +233,7 @@ EOF
 		grep -q '^AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055$' "$work/daemon.env" && \
 		grep -q '^AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055$' "$work/bff.env" && \
 		grep -q '^AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055$' "$work/tick.env" && \
+		[[ $(cat "$work/tailscaled.mtu") == 1232 ]] && \
 		! grep -q '^TS_AUTHKEY=' "$work/daemon.env" "$work/bff.env" "$work/tick.env" && \
 		[[ $(stat -c %a "$work/data/tailscale") == 700 ]] && \
 		! grep -R -F -q "$authkey" "$work/data" "$work/tailnet-supervisor.log" "$work/tailscale-up.log"
