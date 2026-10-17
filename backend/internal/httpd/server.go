@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/daemonmeta"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	"github.com/aoagents/agent-orchestrator/backend/internal/terminal"
 )
@@ -104,6 +105,7 @@ func (s *Server) RunWithReady(ctx context.Context, onReady func()) error {
 func (s *Server) run(ctx context.Context, onReady func()) error {
 	info := runfile.Info{
 		PID:                   os.Getpid(),
+		InstanceID:            daemonmeta.InstanceID(),
 		Port:                  s.boundPort(),
 		StartedAt:             time.Now().UTC(),
 		Owner:                 os.Getenv("AO_OWNER"),

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/daemonmeta"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 )
 
@@ -66,9 +67,13 @@ func TestHealthProbesIncludeDaemonIdentity(t *testing.T) {
 			ExecutablePath          string `json:"executablePath"`
 			WorkingDirectory        string `json:"workingDirectory"`
 			StartupWorkingDirectory string `json:"startupWorkingDirectory"`
+			InstanceID              string `json:"instanceId"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 			t.Fatalf("decode %s: %v", path, err)
+		}
+		if body.InstanceID == "" || body.InstanceID != daemonmeta.InstanceID() {
+			t.Errorf("GET %s instanceId = %q, want %q", path, body.InstanceID, daemonmeta.InstanceID())
 		}
 		if body.ExecutablePath != wantExe {
 			t.Errorf("GET %s executablePath = %q, want %q", path, body.ExecutablePath, wantExe)
@@ -168,6 +173,9 @@ func TestServerLifecycle(t *testing.T) {
 	}
 	if info.Port == 0 {
 		t.Error("run-file recorded port 0; want the actual bound port")
+	}
+	if info.InstanceID != daemonmeta.InstanceID() {
+		t.Errorf("run-file instanceId = %q, want the daemon's %q", info.InstanceID, daemonmeta.InstanceID())
 	}
 
 	cancel()

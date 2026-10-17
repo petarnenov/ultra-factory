@@ -112,6 +112,13 @@ func (c *commandContext) waitForStopped(ctx context.Context, pid int, runFilePat
 			return daemonStatus{}, err
 		}
 		alive := c.deps.ProcessAlive(pid)
+		if !alive && info != nil && info.PID == pid {
+			// Inside a private PID namespace the daemon's PID is invisible.
+			// While its run-file is still in place, its port is the truth.
+			if _, answered, err := c.probeRunFileOwner(ctx, *info); answered && err == nil {
+				alive = true
+			}
+		}
 		if !alive {
 			// Only remove the run-file if it still belongs to the process we
 			// stopped. A concurrent `ao start` may have already written a new

@@ -149,6 +149,28 @@ func (c *commandContext) doJSONPathWithHeaders(
 	return c.doJSONPathWithHeadersAndTimeout(ctx, method, path, body, out, headers, commandTimeout)
 }
 
+// ensureLocalDaemon decides whether the daemon recorded in the run-file is up
+// before a request is sent to its port. A visible live PID is enough. A PID
+// that looks dead is not: agents run commands in sandboxes with a private PID
+// namespace (Codex uses bwrap on Linux) where the daemon's PID is invisible,
+// and treating that as "stopped" lost their reports and hook events. Then the
+// daemon's own answer on its loopback port, which the sandbox shares, decides;
+// the result is cached for the rest of the invocation.
+func (c *commandContext) ensureLocalDaemon(ctx context.Context, runFilePath string, info runfile.Info) error {
+	if c.deps.ProcessAlive(info.PID) {
+		return nil
+	}
+	key := fmt.Sprintf("%d/%d/%s", info.PID, info.Port, info.InstanceID)
+	if c.verifiedDaemon == key {
+		return nil
+	}
+	if _, answered, err := c.probeRunFileOwner(ctx, info); answered && err == nil {
+		c.verifiedDaemon = key
+		return nil
+	}
+	return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", runFilePath), cause: errDaemonNotRunning}
+}
+
 func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	ctx context.Context,
 	method, path string,
@@ -177,8 +199,8 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 		if info == nil {
 			return daemonUnavailableError{message: "AO daemon is not running — start it with `ao start`", cause: errDaemonNotRunning}
 		}
-		if !c.deps.ProcessAlive(info.PID) {
-			return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", cfg.RunFilePath), cause: errDaemonNotRunning}
+		if err := c.ensureLocalDaemon(ctx, cfg.RunFilePath, *info); err != nil {
+			return err
 		}
 		url = fmt.Sprintf("http://%s:%d%s", config.LoopbackHost, info.Port, path)
 	}
