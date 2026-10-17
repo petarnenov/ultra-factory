@@ -107,14 +107,7 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 		if rec.Activity.State == domain.ActivityActive {
 			return nil
 		}
-		done, err := m.sessionComplete(ctx, id)
-		if err != nil {
-			return err
-		}
-		if done {
-			return m.terminateCompletedSession(ctx, id)
-		}
-		return nil
+		return m.terminateSessionIfComplete(ctx, id)
 	}
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil || !ok {
@@ -299,6 +292,32 @@ func (m *Manager) terminateCompletedSession(ctx context.Context, id domain.Sessi
 	}
 	if _, err := terminator.Kill(ctx, id); err != nil {
 		return fmt.Errorf("terminate completed session %s: %w", id, err)
+	}
+	return nil
+}
+
+// RetryCompletedSessionTermination rechecks only the opted-in session's
+// completion state and terminates it if complete and no longer active. It is
+// safe to call for an unchanged terminal PR observation: it does not replay
+// notification or agent-nudge reactions.
+func (m *Manager) RetryCompletedSessionTermination(ctx context.Context, id domain.SessionID) error {
+	rec, ok, err := m.store.GetSession(ctx, id)
+	if err != nil || !ok {
+		return err
+	}
+	if rec.IsTerminated || !rec.TerminateOnPRMerge || rec.Activity.State == domain.ActivityActive {
+		return nil
+	}
+	return m.terminateSessionIfComplete(ctx, id)
+}
+
+func (m *Manager) terminateSessionIfComplete(ctx context.Context, id domain.SessionID) error {
+	done, err := m.sessionComplete(ctx, id)
+	if err != nil {
+		return err
+	}
+	if done {
+		return m.terminateCompletedSession(ctx, id)
 	}
 	return nil
 }

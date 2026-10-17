@@ -50,6 +50,21 @@ type scmCapturedNudge struct {
 	body    string
 }
 
+type scmNotificationSpy struct {
+	intents     []ports.NotificationIntent
+	resolutions []ports.NotificationResolution
+}
+
+func (s *scmNotificationSpy) Notify(_ context.Context, intent ports.NotificationIntent) error {
+	s.intents = append(s.intents, intent)
+	return nil
+}
+
+func (s *scmNotificationSpy) Resolve(_ context.Context, resolution ports.NotificationResolution) error {
+	s.resolutions = append(s.resolutions, resolution)
+	return nil
+}
+
 func (s *scmMessengerSpy) Send(_ context.Context, id domain.SessionID, msg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -156,13 +171,14 @@ func (p *cannedSCMProvider) SCMCredentialsAvailable(context.Context) (bool, erro
 // needs. Every test case constructs its own fixture against a fresh tmpdir DB
 // so writes/lifecycle/messenger state never leak between cases.
 type scmFixture struct {
-	store    *sqlite.Store
-	lcm      *lifecycle.Manager
-	spy      *scmMessengerSpy
-	provider *cannedSCMProvider
-	observer *scmobserve.Observer
-	session  domain.SessionRecord
-	now      time.Time
+	store         *sqlite.Store
+	lcm           *lifecycle.Manager
+	spy           *scmMessengerSpy
+	notifications *scmNotificationSpy
+	provider      *cannedSCMProvider
+	observer      *scmobserve.Observer
+	session       domain.SessionRecord
+	now           time.Time
 }
 
 type lifecycleMarkTerminator struct {
@@ -183,6 +199,16 @@ func (t *failOnceTerminator) Kill(ctx context.Context, id domain.SessionID) (boo
 	if t.calls == 1 {
 		return false, errors.New("transient runtime teardown failure")
 	}
+	return true, t.lcm.MarkTerminated(ctx, id)
+}
+
+type countingTerminator struct {
+	lcm   *lifecycle.Manager
+	calls int
+}
+
+func (t *countingTerminator) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
+	t.calls++
 	return true, t.lcm.MarkTerminated(ctx, id)
 }
 
@@ -219,7 +245,8 @@ func newSCMFixture(t *testing.T, branch string) *scmFixture {
 	}
 
 	spy := &scmMessengerSpy{}
-	lcm := lifecycle.New(store, spy)
+	notifications := &scmNotificationSpy{}
+	lcm := lifecycle.New(store, spy, lifecycle.WithNotificationSink(notifications))
 	lcm.SetCompletionTerminator(lifecycleMarkTerminator{lcm: lcm})
 	provider := newCannedSCMProvider()
 	multi := scmmulti.New(scmmulti.NamedProvider{Key: "github", Provider: provider})
@@ -230,13 +257,14 @@ func newSCMFixture(t *testing.T, branch string) *scmFixture {
 		ScopedIdentityResolver: multi,
 	})
 	return &scmFixture{
-		store:    store,
-		lcm:      lcm,
-		spy:      spy,
-		provider: provider,
-		observer: observer,
-		session:  sess,
-		now:      now,
+		store:         store,
+		lcm:           lcm,
+		spy:           spy,
+		notifications: notifications,
+		provider:      provider,
+		observer:      observer,
+		session:       sess,
+		now:           now,
 	}
 }
 
@@ -539,6 +567,67 @@ func TestSCMObserverEndToEnd(t *testing.T) {
 		}
 		if !rec.IsTerminated {
 			t.Fatal("enabling terminate-on-merge after merge left the completed session live")
+		}
+	})
+
+	t.Run("Repeated active merged polls do not repeat lifecycle notifications", func(t *testing.T) {
+		ctx := context.Background()
+		f := newSCMFixture(t, "feat/x")
+		f.enableTerminateOnPRMerge(t)
+		setSCMFixtureActivity(t, f, domain.ActivityActive)
+		terminator := &countingTerminator{lcm: f.lcm}
+		f.lcm.SetCompletionTerminator(terminator)
+		const prURL = "https://github.com/octocat/hello/pull/81"
+		f.provider.detected["feat/x"] = ports.SCMPRObservation{
+			URL: prURL, Number: 81, SourceBranch: "feat/x", HeadRepo: scmTestRepo.Repo, TargetBranch: "main", HeadSHA: "feed", Author: "octocat", Merged: true,
+		}
+		f.provider.observations[81] = mergedSCMObservation(prURL, 81, "feed")
+
+		for i := 0; i < 4; i++ {
+			if err := f.observer.Poll(ctx); err != nil {
+				t.Fatalf("active Poll %d: %v", i, err)
+			}
+		}
+		if got := len(f.notifications.intents); got != 1 {
+			t.Fatalf("merged notifications after repeated active polls = %d, want 1", got)
+		}
+		if got := len(f.notifications.resolutions); got != 1 {
+			t.Fatalf("notification resolutions after repeated active polls = %d, want 1", got)
+		}
+		if got := f.spy.count(); got != 0 {
+			t.Fatalf("repeated active polls re-delivered %d nudges: %+v", got, f.spy.snapshot())
+		}
+		if terminator.calls != 0 {
+			t.Fatalf("active agent teardown calls = %d, want 0", terminator.calls)
+		}
+		if rec, _, err := f.store.GetSession(ctx, f.session.ID); err != nil || rec.IsTerminated {
+			t.Fatalf("active agent session was terminated: rec=%+v err=%v", rec, err)
+		}
+
+		setSCMFixtureActivity(t, f, domain.ActivityIdle)
+		for i := 0; i < 3; i++ {
+			if err := f.observer.Poll(ctx); err != nil {
+				t.Fatalf("quiescent Poll %d: %v", i, err)
+			}
+		}
+		if terminator.calls != 1 {
+			t.Fatalf("quiescent teardown calls = %d, want exactly 1", terminator.calls)
+		}
+		if got := len(f.notifications.intents); got != 1 {
+			t.Fatalf("merged notifications after quiescence = %d, want 1", got)
+		}
+		if got := len(f.notifications.resolutions); got != 1 {
+			t.Fatalf("notification resolutions after quiescence = %d, want 1", got)
+		}
+		if got := f.spy.count(); got != 0 {
+			t.Fatalf("quiescent polls re-delivered %d nudges: %+v", got, f.spy.snapshot())
+		}
+		rec, _, err := f.store.GetSession(ctx, f.session.ID)
+		if err != nil {
+			t.Fatalf("GetSession: %v", err)
+		}
+		if !rec.IsTerminated {
+			t.Fatalf("session stayed live after quiescing: activity=%s", rec.Activity.State)
 		}
 	})
 
