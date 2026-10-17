@@ -65,6 +65,16 @@ describe("loadConfig", () => {
 		});
 	});
 
+	it("validates AO_REMOTE_TAILNET_SOCKS and leaves it off when unset", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect((await loadConfig(base)).tailnetSocks).toBeUndefined();
+			expect((await loadConfig({ ...base, AO_REMOTE_TAILNET_SOCKS: "127.0.0.1:1055" })).tailnetSocks).toEqual({ host: "127.0.0.1", port: 1055 });
+			await expect(loadConfig({ ...base, AO_REMOTE_TAILNET_SOCKS: "localhost:1055" })).rejects.toThrow(/AO_REMOTE_TAILNET_SOCKS/);
+		});
+	});
+
 	it("defaults the worker limit to five and validates overrides", async () => {
 		const hash = await hashPassword("pw", TEST_COST);
 		await withSpa(async (dir) => {
