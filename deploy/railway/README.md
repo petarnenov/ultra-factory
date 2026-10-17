@@ -239,7 +239,17 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `CLAUDE_CODE_OAUTH_TOKEN` | Optional alternative to `ANTHROPIC_API_KEY` for Claude Code. Set at most one of the two. |
 | `OPENAI_API_KEY` | Optional. Codex API key; used only for the one-time `codex login --with-api-key` below, not read by AO's readiness probe. |
 | `AO_HUB_ORCHESTRATOR_TICK` | Optional. `1` starts the orchestrator wake-up loop under the supervisor; default off. See [Orchestrator wake-up loop](#orchestrator-wake-up-loop). The tick also reads the `RW_TICK_*` variables documented in its script header. |
+| `TS_AUTHKEY` | Optional. A pre-approved, non-reusable, non-ephemeral auth key tagged `tag:ao-hub`. When present, the supervisor joins the tailnet in userspace mode and passes `AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055` only to the daemon and BFF after `tailscale up` succeeds. The key is read from the supervisor environment, sent to `tailscale up` over stdin, and is not logged, passed in a child environment or argv, or written to `/data`. |
+| `TS_HOSTNAME` | Optional Tailscale node name; defaults to `ao-hub`. |
 | `GH_TOKEN` | Required for an orchestrator in the hub. Fine-grained token limited to this repository; read by `gh` and, through `gh auth token`, by the daemon's GitHub adapters. |
+
+**Tailnet key rotation.** Create a new pre-approved key with the same `tag:ao-hub`,
+non-reusable and non-ephemeral settings. Replace `TS_AUTHKEY` in Railway and
+redeploy; the node state under `/data/tailscale` keeps the existing node identity.
+Confirm the hub is online in the tailnet with `tag:ao-hub`, then revoke the old
+key in the Tailscale admin console. If the volume or node state is lost, remove
+the old node entry after the replacement joins. Never put an auth key in a shell
+command, support log, issue, or screenshot.
 
 `AO_HUB_OPERATOR_PASSWORD_HASH`, `AO_HUB_SESSION_SECRET`, and
 `AO_HUB_DAEMON_URL` from the earlier task text are not read by the current
@@ -259,6 +269,7 @@ The hub image places durable state under the mounted volume:
 | `/data/hub/hosts.json` | Host registry, including worker connection credentials; stored with restrictive permissions. |
 | `/data/hub/audit.jsonl` | Append-only security events; mode `0600`, no secrets. |
 | `/data/home` | Hub home directory, including any interactive agent logins (`.claude/.credentials.json`, `.codex/auth.json`) and the agent CLI prefix `.npm-global`. |
+| `/data/tailscale` | Tailscale node state when `TS_AUTHKEY` is set; directory mode `0700`, owned by uid `10001`. It contains the durable node identity, never the auth key. |
 
 ### Add a worker by address
 

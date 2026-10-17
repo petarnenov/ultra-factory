@@ -28,8 +28,9 @@ legitimate session safer than a shell.
 | Agent credentials | Each host's `~/.ao` and harness config (API keys, Codex accounts) | Used by agents running on that host. |
 | Hub orchestrator provider credential (RW-5.4.1) | Railway variable `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` on the `hub` service, or an interactive login under `/data/home` (`.claude/.credentials.json`, `.codex/auth.json`) | A leaked key spends the provider account and can run the model outside AO. In the environment it is readable by every agent process in the hub. |
 | Hub orchestrator GitHub token (RW-5.4.1) | Railway variable `GH_TOKEN` on the `hub` service | Fine-grained, this repository only: issues, pull requests, contents. A leaked token can comment, open and merge PRs, and push branches in this repository until it expires or is revoked. |
+| Tailscale hub node state (RW-5.2.1) | `/data/tailscale/tailscaled.state` on the hub volume when `TS_AUTHKEY` is set | Contains the hub's durable node identity/private key. A leak can impersonate the tagged hub within the tailnet ACL until the node is revoked. The auth key itself is not stored here. |
 | Code in worktrees | Each host's `AO_DATA_DIR` worktrees and volumes | Source code, unpushed work, and whatever the agents wrote. |
-| Volume backups | Railway volume snapshots | Contain every bearer above in plaintext. Protect them like `~/.ao`. |
+| Volume backups | Railway volume snapshots | Contain every bearer above and the Tailscale node state in plaintext. Protect them like `~/.ao`. |
 | Daemon control surface | Loopback `127.0.0.1:3001` (unauthenticated) and `127.0.0.1:3011` (bearer) | `/shutdown`, telemetry, host installers, and the app API. |
 
 ## Attackers

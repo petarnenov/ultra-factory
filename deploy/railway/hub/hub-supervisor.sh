@@ -1,16 +1,21 @@
 #!/usr/bin/env bash
-# Supervisor of the AO hub image. It runs under tini and starts two processes:
+# Supervisor of the AO hub image. It runs under tini and starts two required
+# processes plus the optional Tailscale daemon and orchestrator tick:
 #
 #   - `ao daemon`, the orchestrator. Its remote-host listener is enabled and
 #     bound to 127.0.0.1:3011 (loopbackOnly), reachable only by the BFF in this
 #     container. The loopback API on 3001 stays internal.
 #   - the hub BFF (packages/hub-bff), the only public listener, on $PORT.
+#   - optionally, when TS_AUTHKEY is set, tailscaled in userspace mode with a
+#     loopback-only SOCKS5 listener. Its auth key is piped to `tailscale up` and
+#     is not passed to any child environment or command line.
 #   - optionally, with AO_HUB_ORCHESTRATOR_TICK=1, the orchestrator wake-up
 #     loop (`ao-orchestrator-tick.sh loop`, RW-5.4.2). It sends the hub
 #     orchestrator a TICK with PR and CI state every 5 minutes.
 #
-# If the daemon or the BFF exits, the other is stopped and this script exits
-# with the first one's status, so Railway restarts the whole container. The
+# If the daemon, the BFF, or an enabled tailscaled exits, the other processes
+# are stopped and this script exits with the first one's status, so Railway
+# restarts the whole container. The
 # tick loop starts after AO_HUB_TICK_START_DELAY seconds and is not critical:
 # when it exits it is logged and restarted after
 # AO_HUB_TICK_RESTART_DELAY seconds, and the hub keeps running. SIGTERM or
@@ -37,6 +42,15 @@ readonly volume_root=/data
 readonly data_dir=${AO_DATA_DIR:-/data/ao}
 readonly hub_dir=${AO_HUB_DATA_DIR:-/data/hub}
 readonly home_dir=${HOME:-/data/home}
+readonly tailscale_dir=${AO_HUB_TAILSCALE_DIR:-/data/tailscale}
+readonly tailscale_socket=$tailscale_dir/tailscaled.sock
+readonly tailscale_state=$tailscale_dir/tailscaled.state
+readonly tailscale_socks=127.0.0.1:1055
+readonly tailscale_authkey=${TS_AUTHKEY:-}
+readonly tailscale_enabled=$([[ -n $tailscale_authkey ]] && printf 1 || printf 0)
+# The key belongs only to this supervisor shell. Descendants receive a clean
+# environment, and tailscale up reads the value through an anonymous pipe.
+unset AO_REMOTE_TAILNET_SOCKS
 readonly config=$data_dir/mobile/config.json
 # The BFF's hub entry targets this port (packages/hub-bff, "The hub entry"):
 # AO_HUB_DAEMON_URL is http://127.0.0.1:3011.
@@ -60,15 +74,20 @@ die() {
 # starts as root, chowns the volume once, and drops to uid 10001 for everything
 # else, both processes included.
 if [[ $(id -u) == 0 && $dry_run != 1 ]]; then
-	for dir in "$volume_root" "$data_dir" "$home_dir" "$hub_dir"; do
+	root_dirs=("$volume_root" "$data_dir" "$home_dir" "$hub_dir")
+	[[ $tailscale_enabled == 0 ]] || root_dirs+=("$tailscale_dir")
+	for dir in "${root_dirs[@]}"; do
 		if [[ -d $dir && $(stat -c %u "$dir") != "$ao_uid" ]]; then
 			log "handing $dir to uid $ao_uid"
 			chown -R "$ao_uid:$ao_gid" "$dir"
 		fi
 	done
 	install -d -m 0700 -o "$ao_uid" -g "$ao_gid" "$data_dir" "$home_dir" "$hub_dir"
+	[[ $tailscale_enabled == 0 ]] || install -d -m 0700 -o "$ao_uid" -g "$ao_gid" "$tailscale_dir"
 	exec setpriv --reuid="$ao_uid" --regid="$ao_gid" --init-groups -- "$0" "$@"
 fi
+
+unset TS_AUTHKEY
 
 prepare_dirs() {
 	local dir
@@ -189,12 +208,51 @@ stopping=0
 daemon_pid=
 bff_pid=
 tick_pid=
+tailscale_pid=
+
+# Each service gets the tailnet dial gate only after tailscale up succeeds. In
+# disabled mode, inherited copies of both configuration variables are removed.
+run_child() {
+	if [[ $tailscale_enabled == 1 ]]; then
+		exec env -u TS_AUTHKEY AO_REMOTE_TAILNET_SOCKS="$tailscale_socks" "$@"
+	else
+		exec env -u TS_AUTHKEY -u AO_REMOTE_TAILNET_SOCKS "$@"
+	fi
+}
 
 stop_children() {
 	stopping=1
 	[[ -n $daemon_pid ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
 	[[ -n $bff_pid ]] && kill -TERM "$bff_pid" 2>/dev/null || true
 	[[ -n $tick_pid ]] && kill -TERM "$tick_pid" 2>/dev/null || true
+	[[ -n $tailscale_pid ]] && kill -TERM "$tailscale_pid" 2>/dev/null || true
+}
+
+start_tailnet() {
+	[[ $tailscale_enabled == 1 ]] || return 0
+	mkdir -p "$tailscale_dir" || die "cannot create $tailscale_dir"
+	chmod 0700 "$tailscale_dir" || die "cannot protect $tailscale_dir"
+	rm -f "$tailscale_socket"
+	"${AO_HUB_TAILSCALED:-/usr/local/bin/tailscaled}" \
+		--tun=userspace-networking \
+		--socks5-server="$tailscale_socks" \
+		--state="$tailscale_state" \
+		--socket="$tailscale_socket" &
+	tailscale_pid=$!
+	local attempt
+	for attempt in {1..100}; do
+		kill -0 "$tailscale_pid" 2>/dev/null || die "tailscaled exited before its socket became ready"
+		[[ -S $tailscale_socket ]] && break
+		sleep 0.1
+	done
+	[[ -S $tailscale_socket ]] || die "tailscaled socket did not become ready"
+	local hostname=${TS_HOSTNAME:-ao-hub}
+	if ! { printf '%s' "$tailscale_authkey" | \
+		"${AO_HUB_TAILSCALE:-/usr/local/bin/tailscale}" --socket="$tailscale_socket" \
+		up --auth-key=file:/dev/stdin --hostname="$hostname" --advertise-tags=tag:ao-hub; } >/dev/null 2>&1; then
+		die "Tailscale authentication failed"
+	fi
+	log "tailnet is up; loopback SOCKS5 proxy ready"
 }
 
 # start_tick starts the tick loop after $1 seconds. The delay runs in the same
@@ -206,7 +264,7 @@ start_tick() {
 			sleep "$1" &
 			wait $!
 		fi
-		exec "${tick_command[@]}"
+		exec env -u TS_AUTHKEY -u AO_REMOTE_TAILNET_SOCKS "${tick_command[@]}"
 	) &
 	tick_pid=$!
 }
@@ -214,9 +272,10 @@ start_tick() {
 supervise() {
 	local status=0 exited
 	trap stop_children TERM INT
-	"${daemon_command[@]}" &
+	start_tailnet
+	run_child "${daemon_command[@]}" &
 	daemon_pid=$!
-	node "$bff_main" &
+	run_child node "$bff_main" &
 	bff_pid=$!
 	log "started ao daemon (pid $daemon_pid) and the hub BFF (pid $bff_pid)"
 	if [[ $tick_enabled == 1 ]]; then
@@ -231,7 +290,13 @@ supervise() {
 		status=0
 		exited=
 		wait -n -p exited || status=$?
-		if ((stopping)) || [[ -z $tick_pid || $exited != "$tick_pid" ]]; then
+		if ((stopping)) || { [[ -z $tick_pid || $exited != "$tick_pid" ]] && [[ -z $tailscale_pid || $exited != "$tailscale_pid" ]]; }; then
+			break
+		fi
+		if [[ -n $tailscale_pid && $exited == "$tailscale_pid" ]]; then
+			local tailscale_status=$status
+			((status != 0)) || status=1
+			log "tailscaled exited with status $tailscale_status; stopping the hub"
 			break
 		fi
 		log "orchestrator tick loop exited with status $status; restarting in ${tick_restart_delay}s"
@@ -240,13 +305,16 @@ supervise() {
 	if ((stopping)); then
 		status=0
 	else
-		if kill -0 "$daemon_pid" 2>/dev/null; then exited="hub BFF"; else exited="ao daemon"; fi
-		log "$exited exited with status $status; stopping the other process"
+		if [[ -n $tailscale_pid ]] && ! kill -0 "$tailscale_pid" 2>/dev/null; then
+			exited="tailscaled"
+		elif kill -0 "$daemon_pid" 2>/dev/null; then exited="hub BFF"; else exited="ao daemon"; fi
+		log "$exited exited with status $status; stopping the other processes"
 	fi
 	stop_children
 	wait "$daemon_pid" 2>/dev/null || true
 	wait "$bff_pid" 2>/dev/null || true
 	[[ -n $tick_pid ]] && wait "$tick_pid" 2>/dev/null || true
+	[[ -n $tailscale_pid ]] && wait "$tailscale_pid" 2>/dev/null || true
 	exit "$status"
 }
 
@@ -256,6 +324,7 @@ sync_agent_prefix
 
 if [[ $dry_run == 1 ]]; then
 	log "dry run; would start: ${daemon_command[*]} and node $bff_main"
+	[[ $tailscale_enabled == 0 ]] || log "dry run; would start Tailscale userspace SOCKS5 on $tailscale_socks"
 	[[ $tick_enabled == 1 ]] && log "dry run; would start the tick loop: ${tick_command[*]}"
 	exit 0
 fi
