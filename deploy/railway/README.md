@@ -1,19 +1,18 @@
 # Railway worker: operator runbook
 
 This runbook supports RW-1.4.2 ([issue #17](https://github.com/petarnenov/ultra-factory/issues/17)).
-The log below corrects uncorroborated Railway claims previously added on this
-PR branch. Independent public probes are recorded below with their limited scope. Railway
-configuration and private-network checks are **unverified / pending**; no
-readable sanitized RW-1.4.1 Railway report has been provided.
-Desktop and CLI end-to-end checks also remain outstanding.
+The verification log below records sanitized, read-only Railway checks supplied
+by RW-1.4.1 on 2026-10-17. Database continuity across a deliberate redeploy,
+lockout isolation, operational metrics, and the RW-1.4.2 desktop/CLI end-to-end
+flows remain unverified.
 
 ## Prerequisites and handoff
 
 - Obtain the worker's verified Railway project, environment, service, source
   revision/image digest, host ID, public HTTPS domain targeting authenticated
-  port `3011`, and evidence of a persistent volume at `/data` from RW-1.4.1.
-  Previously recorded target/configuration values are unverified claims, not
-  confirmation of the current deployment.
+  port `3011`, and evidence of a persistent volume at `/data` from the
+  RW-1.4.1 verification log below. Recheck the deployment before pairing because
+  service state can change.
 - Use the image built from [worker/Dockerfile](worker/Dockerfile). Build context,
   pinned tools, local image checks, and entrypoint details are documented in
   [worker/README.md](worker/README.md). Leave the service start command empty so
@@ -35,43 +34,36 @@ ID with the worker's locally reported identity. Record private IPv4 and IPv6
 connectivity separately. Repository implementation and configuration claims do
 not prove Railway reachability. Do not expose the loopback listener to fix it.
 
-## Evidence status correction 2026-10-17
+## Railway verification log 2026-10-17
 
-The handoff text was added on PR #83's `rw/RW-1.4.2` branch, whose head was
-`79fbf301aa8ba98572b62c7da65c5085366a596b` before this correction. Its Railway
-pass statements are not corroborated by a verifiable RW-1.4.1 report or an
-accessible direct Railway verification. They must not be treated as test results.
-The user confirmed that the Z600 RW-1.4.2 session owns this branch; the separate
-iMac RW-1.4.1 session is issue #16 on `ao/ultra-factory-14/root`. AO's listing of
-PR #83 under that iMac session does not establish provenance for Railway checks.
-Issue #16 has no handoff comment, and the requested iMac read-only verification
-has not returned a readable sanitized Railway report. No secret values are
-needed as evidence.
+Checks were performed read-only against project `giving-success`, environment
+`production`, service `ultra-factory`. No Railway resources were created,
+deleted, restarted, redeployed, or reconfigured. The Railway CLI credential
+remained local. The service's configured bearer credential was supplied only to
+authenticated HTTPS probes to this service. Neither value was printed or
+recorded.
 
-The user supplied independent read-only public probe results dated
-2026-10-16 22:18 UTC from the orchestrator client, with no credentials used or
-exposed. HTTPS
-`GET https://ultra-factory-production.up.railway.app/api/v1/identity` returned
-HTTP 200 with TLS verification result `0`. Direct HTTP and HTTPS probes to that
-hostname on port `3001` both timed out (curl status `000`) from that client.
-These establish
-public endpoint response and observed port unreachability from that client,
-not Railway routing configuration or universal port isolation. The host ID
-comparison against worker-local identity remains pending.
-
-| Check | Status | Required evidence from RW-1.4.1 |
+| Check | Status | Sanitized evidence |
 | --- | --- | --- |
-| Railway target | Unverified / pending | Confirm project, environment and service identifiers against the actual target. |
-| Source/build | Unverified / pending | Deployed source revision, repository/branch, root build context and worker Dockerfile. |
-| Volume | Unverified / pending | Actual `/data` mount and volume readiness; restart persistence is a separate check. |
-| Public HTTPS/TLS | Confirmed by independent public probe | At 2026-10-16 22:18 UTC, the supplied public hostname responded over HTTPS with successful TLS verification. Configured target port `3011` remains unverified. |
-| Public identity | HTTP 200 confirmed by independent public probe | At 2026-10-16 22:18 UTC, the public identity endpoint returned 200 without credentials. Worker-local host ID comparison remains pending. |
-| API authentication | Unverified / pending | Sanitized unauthenticated rejection and authenticated success results; no credentials or response payloads. |
-| Public port `3001` | HTTP and HTTPS probes timed out from probe client | Independent probes at 2026-10-16 22:18 UTC establish only observed unreachability from that client. Railway routing configuration and general port isolation remain unverified. |
-| Private IPv4/IPv6 | Unverified / pending | Separate DNS and HTTP connectivity results for each address family, with probe origin. |
-| Deployment | Unverified / pending | Actual deployment ID/state, source revision/image digest, readiness timing and image size. |
-| Desktop pairing and remote flow | Pending | Verified worker, private pairing access and an approved test repository. |
-| CLI remote flow | Pending | Pairing and an approved test repository. |
+| Railway target | Pass | Project `<project-name>` (`<project-id>`), environment `<environment-name>` (`<environment-id>`), service `<service-name>` (`<service-id>`). |
+| Active deployment | Pass | Deployment `<deployment-id>` is `SUCCESS`/`RUNNING`, created `2026-10-17`, commit `<commit>` on `feat/railway-hosting`, image digest `<image-digest>`. |
+| Source/build | Pass | Repository `petarnenov/ultra-factory`, Dockerfile `deploy/railway/worker/Dockerfile`, root build context (`rootDirectory=null`). |
+| Volume | Pass, persistence configured | `ultra-factory-volume` is `READY`, 50 GB, mounted at `/data`. Read-only metadata showed `/data/ao/ao.db` present (2,154,496 bytes); database contents were not read. |
+| Public HTTPS and identity | Pass | `https://<worker-domain>/api/v1/identity` returned HTTP 200 with TLS verification result 0, API version 1, and host ID `<host-id>`. |
+| Readiness and authenticated route | Pass | On HTTPS, `/readyz` and `/api/v1/sessions` returned 401 without authentication and 200 with the local bearer credential. No credential value was output. |
+| Public routing | Pass | Domain `<worker-domain>` is `ACTIVE` and targets port `3011`. |
+| Main listener port `3001` | Pass, loopback-only | Read-only `/proc/net/tcp` and `/proc/net/tcp6` inspection showed `127.0.0.1:3001` and no wildcard listener on that port at inspection time. |
+| Remote listener port `3011` | Pass, dual-stack | `/proc/net/tcp6` showed a wildcard listener on 3011 and `bindv6only=0`; the configured `AO_REMOTE_BIND` is `dual` and `AO_REMOTE_TRUSTED_PROXY` is `1`. |
+| Private-network reachability | Pass, self-route | From the service container, `<service>.railway.internal` resolved to IPv4 and IPv6. Requests to `http://<service>.railway.internal:3011/api/v1/identity` returned 200 over both families. A separate peer service was not created, so peer-to-peer reachability remains unverified. |
+| Host identity across observed deployments | Pass, limited | Current host ID matches the prior observation before the latest deployment. This does not independently establish database continuity. |
+| Database preservation across redeploy | Unverified | No redeploy or pre/post database marker/checksum comparison was performed. A deliberate redeploy and sanitized state comparison are needed. |
+| Five-failure lockout and client isolation | Unverified | No wrong-password sequence was sent, to avoid locking out a client. Requires an isolated test source and a second source IP or equivalent sanitized logs. |
+| Readiness timing, image size, idle memory | Unverified | No timed deployment or idle measurement was performed; image size was not available from these read-only checks. |
+
+An earlier independent client probe on 2026-10-16 observed public identity HTTP
+200 and timed out when probing public port 3001. The current in-container socket
+inspection independently confirms that the main listener binds only to
+loopback. No secret or password values are recorded here.
 
 ## Environment contract
 
@@ -209,29 +201,31 @@ No Railway CLI version or service selection is assumed by these instructions.
 
 ## Outstanding evidence and RW-2 / RW-4 handoff
 
-Independent public probe results have the limited scope recorded above. Railway
-configuration/private-network checks await corroborating RW-1.4.1 evidence.
-RW-1.4.2 desktop and CLI behavior also remains untested. Static limitations are
-distinguished from live checks:
+The RW-1.4.1 log above records the live Railway configuration and route checks.
+Peer-service connectivity and database continuity across a redeploy remain
+unverified. RW-1.4.2 desktop and CLI behavior also remains untested. Static
+limitations are distinguished from live checks:
 
 | Check / limitation | Current evidence | Follow-up |
 | --- | --- | --- |
-| Public HTTPS identity/TLS | Independent probe confirmed HTTP 200 and TLS verification at 2026-10-16 22:18 UTC; host identity comparison pending | RW-1.4.1, RW-4 networking/security |
-| Public port `3001` | HTTP/HTTPS probes timed out from the probe client; configured isolation remains unverified | RW-1.4.1, RW-4 networking/security |
-| Target port `3011`, protected API auth and private IPv4/IPv6 | Unverified / pending; no corroborated RW-1.4.1 report | RW-1.4.1, RW-4 networking/security |
+| Public HTTPS identity/TLS | HTTP 200, TLS verification, API version and host ID verified on 2026-10-17 | RW-1.4.2 host-scoped desktop flow |
+| Main listener port `3001` | `/proc/net/tcp` shows loopback-only listener at inspection time; earlier public probes also timed out | Keep the loopback API unpublished |
+| Target port `3011`, protected API auth | Active domain target and unauthenticated/authenticated route responses verified on 2026-10-17 | RW-1.4.2 desktop pairing and host-scoped flows |
+| Private IPv4/IPv6 | DNS and self-route HTTP 200 verified over both address families; separate peer service not tested | RW-1.4.2 peer connectivity if needed |
 | Desktop pairing and host-scoped clone/session/terminal/message/PR | Pending; verified worker, approved test repository and private pairing access are needed | RW-1.4.2, RW-4 end-to-end |
 | CLI spawn/list/get/send | Not tested; depends on pairing and an approved test repository | RW-1.4.2, RW-4 end-to-end |
 | Static preview/artifacts/app assets/WebSockets | Desktop proxy implements forwarding; Railway path not tested | RW-2 proxy work, RW-4 end-to-end |
 | Remote browser/desktop controls, system install, Codex accounts, preview-server control | Intentionally blocked by `lan_listener.go`; not a measured Railway failure | RW-2 capability handling; RW-4 limitations documentation |
 | Password/account-token rotation and restart | Behavior inspected in source; operational checks not run | RW-4 secrets/recovery |
-| Volume persistence, process loss, startup time and image digest/size | Unverified / pending; no corroborated measurements | RW-1.4.1 follow-up and RW-4 backup/recovery |
+| Volume contents and host identity | `/data` is mounted and contains the DB; host ID matched an earlier observation. No pre/post database comparison was made | RW-1.4.1 redeploy persistence check |
+| Process loss, startup time, idle memory and image size | Not measured in this read-only verification | RW-1.4.1 follow-up and RW-4 backup/recovery |
 
-For each live check, the operator must record date, deployed revision/digest,
-client version, host/project/session IDs, expected and actual outcome, pass/fail
-or partial status, and sanitized evidence (including the test PR URL). Carry
-each failed or partial result into RW-2/RW-4 tracking before acceptance. The
-table above is a handoff checklist, not evidence that those backlog items were
-updated. A second person must follow this runbook and record any missing steps.
+For each remaining live check, record the date, deployed revision/digest, client
+version, host/project/session IDs, expected and actual outcome, pass/fail or
+partial status, and sanitized evidence (including the test PR URL). Carry each
+failed or partial result into RW-2/RW-4 tracking before acceptance. The
+verification log above is Railway-side evidence; it does not establish the
+desktop/CLI end-to-end behavior or redeploy database continuity.
 
 Repository sources for these instructions: the linked worker files,
 `backend/internal/cli/remote_host.go`, `backend/internal/cli/remote_target.go`,
