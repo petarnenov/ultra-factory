@@ -214,9 +214,9 @@ tailscale_pid=
 # disabled mode, inherited copies of both configuration variables are removed.
 run_child() {
 	if [[ $tailscale_enabled == 1 ]]; then
-		env -u TS_AUTHKEY AO_REMOTE_TAILNET_SOCKS="$tailscale_socks" "$@"
+		exec env -u TS_AUTHKEY AO_REMOTE_TAILNET_SOCKS="$tailscale_socks" "$@"
 	else
-		env -u TS_AUTHKEY -u AO_REMOTE_TAILNET_SOCKS "$@"
+		exec env -u TS_AUTHKEY -u AO_REMOTE_TAILNET_SOCKS "$@"
 	fi
 }
 

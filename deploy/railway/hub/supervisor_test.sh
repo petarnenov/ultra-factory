@@ -150,16 +150,21 @@ test_tailnet_dry_run_is_opt_in() {
 
 test_tailnet_passes_gate_only_to_daemon_and_bff() {
 	local authkey="fixture-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \\n')" pid status=0
+	cat >"$work/fake-tailscaled.js" <<'EOF'
+const net = require('node:net');
+const socketPath = process.argv.find((arg) => arg.startsWith('--socket='))?.slice('--socket='.length);
+if (!socketPath || process.env.TS_AUTHKEY) process.exit(41);
+const server = net.createServer();
+server.listen(socketPath);
+const stop = () => server.close(() => process.exit(0));
+process.on('SIGTERM', stop);
+process.on('SIGINT', stop);
+EOF
 	cat >"$work/fake-tailscaled" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 ! env | grep -q '^TS_AUTHKEY='
-socket_path=
-for arg in "$@"; do [[ $arg == --socket=* ]] && socket_path=${arg#--socket=} ; done
-python3 -c 'import socket,sys,time; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(60)' "$socket_path" &
-socket_pid=$!
-trap 'kill "$socket_pid" 2>/dev/null || true; wait "$socket_pid" 2>/dev/null || true' TERM INT
-wait "$socket_pid"
+exec node "$AO_HUB_TEST_DIR/fake-tailscaled.js" "$@"
 EOF
 	cat >"$work/fake-tailscale" <<'EOF'
 #!/usr/bin/env bash
@@ -209,12 +214,17 @@ EOF
 }
 
 test_tailscaled_exit_stops_hub() {
+	cat >"$work/failing-tailscaled.js" <<'EOF'
+const net = require('node:net');
+const socketPath = process.argv.find((arg) => arg.startsWith('--socket='))?.slice('--socket='.length);
+if (!socketPath) process.exit(41);
+const server = net.createServer();
+server.listen(socketPath, () => setTimeout(() => process.exit(7), 800));
+EOF
 	cat >"$work/failing-tailscaled" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-socket_path=
-for arg in "$@"; do [[ $arg == --socket=* ]] && socket_path=${arg#--socket=} ; done
-python3 -c 'import socket,sys,time; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(.8); sys.exit(7)' "$socket_path"
+exec node "$AO_HUB_TEST_DIR/failing-tailscaled.js" "$@"
 EOF
 	chmod +x "$work/failing-tailscaled"
 	local status=0
