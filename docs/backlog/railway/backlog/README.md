@@ -20,6 +20,7 @@ backlog/
 | RW-2 | Web UI + BFF on Railway | 11–18 | MVP-2 |
 | RW-3 | Adding and removing workers from the UI | 5–8 | Full goal |
 | RW-4 | Hardening, tests, documentation | 3–5 | Full goal |
+| RW-5 | Hub orchestrator managing machines outside Railway (tailnet) | 6–9 | After the full goal |
 
 Critical path: RW-1.1 → RW-1.2 → RW-1.3 → RW-1.4 (validates Railway) → RW-2.4 (BFF) → RW-3.
 

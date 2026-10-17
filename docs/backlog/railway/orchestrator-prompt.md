@@ -77,7 +77,7 @@ Fill in `<SHA_MAIN>` and `<SHA_INT>` with the real SHAs from step 4 above. Wait 
 2. Labels (create if missing; `gh label create ... --force` is allowed only for these):
    - `rw` (all),
    - `rw:epic`, `rw:story`, `rw:task`,
-   - `wave:1` … `wave:6`,
+   - `wave:1` … `wave:7`,
    - `host:linux`, `host:imac`, `host:z600`,
    - `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `needs-human`.
 3. Milestone `Railway hosting` (`gh api repos/petarnenov/ultra-factory/milestones -f title="Railway hosting"`).
@@ -100,6 +100,7 @@ Dependencies come from the backlog. A task enters a wave when all its dependenci
 | 4 | RW-2.4.4, RW-2.5.1, RW-3.1.2; **human:** RW-2.5.2 | RW-2.4.4 ← RW-2.4.3 + RW-2.2.1; RW-2.5.1 ← RW-1.2 + RW-2.1.3 + RW-2.4; RW-3.1.2 ← RW-3.1.1; RW-2.5.2 ← RW-2.5.1 |
 | 5 | RW-3.2.1, RW-3.2.2, then RW-3.3.1, RW-3.3.2, RW-3.3.3 | RW-3.2.x ← RW-3.1 + RW-2.4.3; RW-3.3.x ← RW-3.2 + RW-2.4.4 |
 | 6 | RW-4.1.1, RW-4.1.2, RW-4.2.1, RW-4.2.2, RW-4.3.1, RW-4.3.2 | all of RW-2 and RW-3 |
+| 7 | RW-5.1.1 (ADR, merged only after user approval), then RW-5.2.1, RW-5.2.2, RW-5.2.3, RW-5.3.1; **human:** RW-5.4.1, RW-5.4.3; RW-5.4.2 | RW-5.1.1 ← RW-4.1.1; RW-5.2.x and RW-5.3.1 ← approved ADR RW-5.1.1; RW-5.4.1 ← RW-4.1.1; RW-5.4.2 ← RW-5.4.1; RW-5.4.3 ← RW-5.2 + RW-5.3.1 + RW-5.4.2 + fix of #106 |
 
 The waves are a guide. The "Waits for" column decides: a task whose dependencies are merged may start immediately, without waiting for its whole wave. "Human" means a worker prepares what it can (runbook, scripts, checklist) and stops with `needs-human`.
 
