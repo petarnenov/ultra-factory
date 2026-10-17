@@ -82,7 +82,7 @@ describe("Railway worker lifecycle", () => {
 		await h.store.recordProbe(id, { status: "online" });
 		const reopened = await HostsStore.open(path.join(dir, "data"));
 		expect(reopened.getPublic(id)?.status).toBe("draining");
-		for (const route of ["sessions", "orchestrators", "orchestrators/delegate", "projects/example/tasks/prepare", "sessions/example/restore", "sessions/example/resume-agent", "%73essions"]) {
+		for (const route of ["sessions", "orchestrators", "orchestrators/delegate", "projects/example/tasks/prepare", "sessions/example/restore", "sessions/example/resume-agent", "sessions/example/reviews/restore", "%73essions"]) {
 			const blocked = await request(h.server).post(`/hosts/${id}/api/v1/${route}`).set("Host", "hub.test").set("Origin", origin).set("Cookie", h.cookie).send({});
 			expect(blocked.status).toBe(409);
 			expect(blocked.body.error).toBe("worker_draining");

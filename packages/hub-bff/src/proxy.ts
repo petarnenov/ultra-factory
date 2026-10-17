@@ -80,7 +80,7 @@ export function createProxy(hosts?: ProxyHosts) {
 			if (dest.draining && req.method === "POST" && (
 				["/api/v1/sessions", "/api/v1/orchestrators", "/api/v1/orchestrators/delegate"].includes(pathname) ||
 				/^\/api\/v1\/projects\/[^/]+\/tasks\/prepare$/.test(pathname) ||
-				/^\/api\/v1\/sessions\/[^/]+\/(restore|resume-agent)$/.test(pathname)
+				/^\/api\/v1\/sessions\/[^/]+\/(restore|resume-agent|reviews\/restore)$/.test(pathname)
 			)) { proxyError(res, 409, "worker_draining"); return; }
 			const upstream = (dest.url.protocol === "https:" ? httpsRequest : httpRequest)(dest.url, { method: req.method, path: dest.path, headers: dest.headers }, (reply) => {
 				if (reply.statusCode === 401) { reply.resume(); proxyError(res, 502, "host credential rejected"); return; }
