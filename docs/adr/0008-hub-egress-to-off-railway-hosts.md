@@ -47,7 +47,7 @@ Constraints found in the code and platform:
 | Bearer and TLS | WireGuard between peers. Tailscale's coordination service does not hold the keys. | TLS ends at Cloudflare, which sees the bearer and the traffic (ADR 0004). | TLS ends at Tailscale's edge, so the bearer is visible there. Verify before relying on it. |
 | Failure: tailnet or tunnel down | Hub cannot reach any host. Pulls fail and reports stay `pending` on the host (ADR 0005). Nothing is lost. | Cloudflare or the per-host tunnel is down, so that host is unreachable. | Funnel or its edge is down, or disabled by tailnet policy, so that host is unreachable. |
 | Failure: key or credential expiry | Auth key expired before first join: no enrolment. Node key expiry: the node drops off the tailnet until re-enrolled. | Tunnel credential revoked: that host is unreachable. | Funnel disabled by policy: that host is unreachable. |
-| Same-connection rule (#93) | Holds. The SOCKS dial is the transport's `DialContext`. Probe and bearer share one `http.Client` and keep-alive connection, as today. | Holds at the client level. The edge may close idle connections, and a reconnect re-probes. | Same as T2. |
+| Same-connection rule (#93) | Not enforced today; best effort. RW-5.2.2 adds an `httptrace` `GotConn` check that fails the pass and re-probes on an unprobed connection (Decision 1). The SOCKS hop adds one more place where idle connections can close. | Not enforced today. The edge can close idle connections, so the same `GotConn` check is needed. | Same as T2. |
 | SSE and `/mux` | Direct TCP through SOCKS. No buffering layer. | Response bodies are buffered by the tunnel, so SSE does not stream (ADR 0004). `/mux` is unaffected. | Not measured. Verify before relying on it. |
 
 **Decision: T1.** It is the only option that adds no public surface and keeps the
@@ -94,10 +94,24 @@ tailnet address through the hub.
    only toward loopback, tailnet addresses, or with `AO_REMOTE_REPORTS_ALLOW_HTTP=1`,
    as `UnattendedTransportAllowed` already enforces for the daemon. The BFF's scheme
    handling is not changed by this ADR (see open questions).
-8. **Same connection.** The SOCKS dialer is the `DialContext` of the one transport that
-   `DirectClient` already returns. The identity probe, the pulls and the
-   acknowledgements share that transport, as ADR 0005 requires. A re-dial always runs
-   the probe first, so the bearer never goes to a connection that did not answer it.
+8. **Same connection (new requirement for RW-5.2.2).** The SOCKS dialer is the
+   `DialContext` of the one transport that `DirectClient` already returns. The identity
+   probe, the pulls and the acknowledgements share that transport, as ADR 0005 requires.
+   Today this is best effort only. `observer.go` probes once with `ReadIdentity` and
+   then reuses the `http.Client`. Nothing checks the connection: if the keep-alive
+   connection closes between the probe and a later request, `net/http` re-dials and
+   sends the bearer on a new connection that never answered the probe. A SOCKS hop adds
+   another place where idle connections can close, so the gap widens with this change.
+   RW-5.2.2 must close it with this mechanism:
+   - Attach an `httptrace.ClientTrace` with `GotConn` to every request that carries the
+     bearer. The request fails if `GotConn` reports `Reused == false` on any request
+     after the probe, unless the probe itself opened that connection in the same pass.
+   - On such a failure, the pass stops for that host and the next pass re-probes from
+     scratch. No bearer is sent on the unprobed connection. Pulls and acknowledgements
+     are retried by the next pass, and the delivery record keeps them from being
+     delivered twice (ADR 0005).
+   - A test in `observe/remotereports` forces a closed keep-alive connection between the
+     probe and a pull, and asserts that the bearer is not sent on the new connection.
 
 ### 2. Secret handling
 
