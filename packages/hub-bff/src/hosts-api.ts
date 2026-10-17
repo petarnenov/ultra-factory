@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Logger } from "./log.ts";
+import type { AuditLog } from "./audit.ts";
 import { checkAuth, probeIdentity, type HostsMonitor } from "./hosts-probe.ts";
 import { HostsValidationError, normalizeHostUrl, type HostsStore } from "./hosts-store.ts";
 import { readBody, sendJson } from "./server.ts";
@@ -10,6 +11,7 @@ export type HostsApiOptions = {
 	store: HostsStore;
 	monitor: HostsMonitor;
 	log: Logger;
+	audit?: AuditLog;
 	// Tests only: lets fake hosts on 127.0.0.1 be added.
 	allowLoopback?: boolean;
 };
@@ -27,7 +29,7 @@ const HOSTS_API_PREFIX = "/hub/hosts";
 //	DELETE /hub/hosts/:id        remove the record (nothing in Railway is deleted)
 //	POST   /hub/hosts/:id/probe  probe now and return the host
 export function createHostsApi(options: HostsApiOptions): HostsApi {
-	const { store, monitor, log } = options;
+	const { store, monitor, log, audit } = options;
 
 	async function add(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		if (!/^application\/json\b/i.test(req.headers["content-type"] ?? "")) return sendJson(res, 415, { error: "expected_json" });
@@ -66,6 +68,7 @@ export function createHostsApi(options: HostsApiOptions): HostsApi {
 		}
 
 		try {
+			await audit?.record("host.add", hostId);
 			const host = await store.add({ label: body.label, url, password: body.password, hostId, status });
 			log("info", "host added", { label: host.label, hostId, url });
 			return sendJson(res, 201, { host });
@@ -94,6 +97,8 @@ export function createHostsApi(options: HostsApiOptions): HostsApi {
 		}
 		if (method !== "DELETE") return sendJson(res, 405, { error: "method_not_allowed" });
 		try {
+			if (!store.get(id)) return sendJson(res, 404, { error: "not_found" });
+			await audit?.record("host.remove", id);
 			if (!(await store.remove(id))) return sendJson(res, 404, { error: "not_found" });
 		} catch (err) {
 			if (err instanceof HostsValidationError) return sendJson(res, 409, { error: err.code, message: err.message });

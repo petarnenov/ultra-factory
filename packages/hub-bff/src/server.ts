@@ -6,6 +6,7 @@ import type { HostsApi } from "./hosts-api.ts";
 import type { WorkersApi } from "./workers-api.ts";
 import { createProxy, hasSafeRequestPath, rejectUpgrade, type ProxyHosts } from "./proxy.ts";
 import type { Logger } from "./log.ts";
+import type { AuditLog } from "./audit.ts";
 import { parsePasswordHash, verifyPassword, type ParsedHash } from "./password.ts";
 import { clientKey, RateLimiter } from "./rate-limit.ts";
 import { SESSION_ABSOLUTE_MS, SessionStore } from "./sessions.ts";
@@ -23,6 +24,8 @@ const PROXY_PREFIXES = ["/api/", "/mux", "/hosts/", "/readyz"];
 const HOSTS_API_PREFIX = "/hub/hosts";
 const WORKERS_API_PREFIX = "/hub/workers";
 const SESSIONS_PATH = "/hub/sessions";
+const AUDIT_PATH = "/hub/audit";
+const AUDIT_LIMIT = 1000;
 
 const LOGIN_DIR = path.join(import.meta.dirname, "..", "login");
 const LOGIN_ASSETS: Record<string, { file: string; type: string }> = {
@@ -86,6 +89,7 @@ export type BffOptions = {
 	// The host registry routes under /hub/hosts (RW-2.4.3).
 	hostsApi?: HostsApi;
 	workersApi?: WorkersApi;
+	audit?: AuditLog;
 	now?: () => number;
 	// Tests only: replaces the password check.
 	verify?: (candidate: string, hash: ParsedHash) => Promise<boolean>;
@@ -158,6 +162,14 @@ export function createBff(options: BffOptions): Server {
 			}
 			return sendJson(res, 405, { error: "method_not_allowed" });
 		}
+		if (pathname === AUDIT_PATH) {
+			if (method !== "GET" && method !== "HEAD") return sendJson(res, 405, { error: "method_not_allowed" });
+			if (!options.audit) return sendJson(res, 503, { error: "audit_unavailable" });
+			const rawLimit = new URL(req.url ?? "/", "http://bff.invalid").searchParams.get("limit");
+			const limit = rawLimit === null ? 100 : Number(rawLimit);
+			if (!Number.isSafeInteger(limit) || limit < 1 || limit > AUDIT_LIMIT) return sendJson(res, 400, { error: "invalid_limit", maximum: AUDIT_LIMIT });
+			return sendJson(res, 200, { entries: await options.audit.list(limit) });
+		}
 
 		if (options.hostsApi && (pathname === HOSTS_API_PREFIX || pathname.startsWith(`${HOSTS_API_PREFIX}/`))) {
 			return options.hostsApi(req, res, pathname);
@@ -191,6 +203,7 @@ export function createBff(options: BffOptions): Server {
 		}
 		if (typeof candidate !== "string" || candidate.length === 0) {
 			log("warn", "login failed", { client });
+			await options.audit?.record("login.failure");
 			return sendJson(res, 401, { error: "invalid_credentials" });
 		}
 		if (passwordChecksInFlight >= MAX_CONCURRENT_PASSWORD_CHECKS) {
@@ -207,8 +220,10 @@ export function createBff(options: BffOptions): Server {
 		}
 		if (!ok) {
 			log("warn", "login failed", { client });
+			await options.audit?.record("login.failure");
 			return sendJson(res, 401, { error: "invalid_credentials" });
 		}
+		await options.audit?.record("login.success");
 		const id = sessions.create();
 		log("info", "login succeeded", { client });
 		res.setHeader("Set-Cookie", sessionCookie(id, Math.floor(SESSION_ABSOLUTE_MS / 1000)));

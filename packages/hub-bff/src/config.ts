@@ -61,6 +61,8 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	if (workerUrlMode !== "public" && workerUrlMode !== "private") throw new Error("AO_HUB_WORKER_URL_MODE must be public or private");
 	const maxWorkers = Number(env.AO_HUB_MAX_WORKERS ?? "5");
 	if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1) throw new Error("AO_HUB_MAX_WORKERS must be a positive integer");
+	const railwaySettings = [env.RAILWAY_API_TOKEN, env.RAILWAY_PROJECT_ID, env.RAILWAY_ENVIRONMENT_ID];
+	if (railwaySettings.some(Boolean) && !railwaySettings.every(Boolean)) throw new Error("RAILWAY_API_TOKEN, RAILWAY_PROJECT_ID, and RAILWAY_ENVIRONMENT_ID must be set together");
 
 	return {
 		host: env.AO_HUB_BFF_HOST ?? "::", port, spaDir, passwordHash, publicOrigin, plaintextPassword: !hash, hubDataDir, hubConfigPath,

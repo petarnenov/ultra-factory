@@ -6,6 +6,8 @@ import { jsonLogger } from "./log.ts";
 import { createBff } from "./server.ts";
 import { RailwayClient } from "./railway-client.ts";
 import { createWorkersApi } from "./workers-api.ts";
+import { openAuditLog } from "./audit.ts";
+import path from "node:path";
 
 const log = jsonLogger();
 
@@ -14,14 +16,16 @@ try {
 	// The plaintext password has been hashed; drop it from this process's env.
 	delete process.env.AO_WEB_PASSWORD;
 	const store = await HostsStore.open(config.hubDataDir);
+	const audit = await openAuditLog(path.join(config.hubDataDir, "audit.jsonl"));
 	const monitor = createHostsMonitor({ store, hubConfigPath: config.hubConfigPath, log });
 	await monitor.syncHub();
-	const hostsApi = createHostsApi({ store, monitor, log });
+	const hostsApi = createHostsApi({ store, monitor, log, audit });
 	const provider = config.railwayToken && config.railwayProjectId && config.railwayEnvironmentId
 		? new RailwayClient({ token: config.railwayToken, projectId: config.railwayProjectId, environmentId: config.railwayEnvironmentId })
 		: undefined;
-	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log });
-	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi, workersApi });
+	if (provider) await provider.assertProjectScope();
+	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log, audit });
+	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi, workersApi, audit });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {
 			host: config.host,

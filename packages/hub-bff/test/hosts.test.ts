@@ -9,6 +9,7 @@ import { createHostsApi } from "../src/hosts-api.ts";
 import { createHostsMonitor, type HostsMonitor } from "../src/hosts-probe.ts";
 import { HostsFilePermissionError, HostsStore, normalizeHostUrl, readHubEntry } from "../src/hosts-store.ts";
 import type { LogFields } from "../src/log.ts";
+import type { AuditEntry, AuditEvent, AuditLog } from "../src/audit.ts";
 import { hashPassword } from "../src/password.ts";
 import { createBff } from "../src/server.ts";
 
@@ -78,10 +79,15 @@ function writeHubConfig(config: object): void {
 	writeFileSync(hubConfigPath, JSON.stringify(config), { mode: 0o600 });
 }
 
-type Harness = { server: Server; store: HostsStore; monitor: HostsMonitor; logs: string[]; cookie: string };
+type Harness = { server: Server; store: HostsStore; monitor: HostsMonitor; logs: string[]; auditEntries: AuditEntry[]; cookie: string };
 
 async function harness(): Promise<Harness> {
 	const logs: string[] = [];
+	const auditEntries: AuditEntry[] = [];
+	const audit: AuditLog = {
+		async record(event: AuditEvent, subjectId?: string) { auditEntries.push({ ts: new Date().toISOString(), event, ...(subjectId ? { subjectId } : {}) }); },
+		async list(limit: number) { return auditEntries.slice(-limit); },
+	};
 	const log = (level: string, msg: string, fields?: LogFields) => logs.push(JSON.stringify({ level, msg, ...fields }));
 	const store = await HostsStore.open(path.join(dir, "hub"), { allowLoopback: true });
 	const monitor = createHostsMonitor({ store, hubConfigPath, log });
@@ -91,13 +97,14 @@ async function harness(): Promise<Harness> {
 		passwordHash,
 		log,
 		hosts: store,
-		hostsApi: createHostsApi({ store, monitor, log, allowLoopback: true }),
+		hostsApi: createHostsApi({ store, monitor, log, audit, allowLoopback: true }),
+		audit,
 		verify: async (candidate) => candidate === OPERATOR_PASSWORD,
 	});
 	const res = await request(server).post("/login").set("Host", HOST).set("Origin", ORIGIN).send({ password: OPERATOR_PASSWORD });
 	expect(res.status).toBe(204);
 	const cookie = (res.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
-	return { server, store, monitor, logs, cookie };
+	return { server, store, monitor, logs, auditEntries, cookie };
 }
 
 function post(h: Harness, url: string, body?: object) {
@@ -285,6 +292,7 @@ describe("/hub/hosts API", () => {
 		const sameHost = await post(h, "/hub/hosts", { label: "worker-again", url: worker.url, password: "worker-secret" });
 		expect(sameHost.status).toBe(409);
 		expect(sameHost.body.error).toBe("host_exists");
+		expect(h.auditEntries).toContainEqual(expect.objectContaining({ event: "host.add", subjectId: "h_worker" }));
 	});
 
 	it("removes a host from the registry only", async () => {
@@ -292,6 +300,7 @@ describe("/hub/hosts API", () => {
 		const h = await harness();
 		await post(h, "/hub/hosts", { label: "worker-1", url: worker.url, password: "worker-secret" });
 		expect((await del(h, "/hub/hosts/h_worker")).status).toBe(204);
+		expect(h.auditEntries).toContainEqual(expect.objectContaining({ event: "host.remove", subjectId: "h_worker" }));
 		expect((await list(h)).body.hosts).toEqual([]);
 		expect(JSON.parse(readFileSync(path.join(dir, "hub", "hosts.json"), "utf8"))).toEqual([]);
 		expect((await del(h, "/hub/hosts/h_worker")).status).toBe(404);
