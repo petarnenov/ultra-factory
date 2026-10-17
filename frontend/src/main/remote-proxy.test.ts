@@ -552,6 +552,32 @@ describe("startRemoteProxy", () => {
 		expect((await fetch(`${proxy.base}/healthz`)).status).toBe(200);
 		expect(proxy.listeningAddress).toBe("127.0.0.1");
 	});
+
+	it("continues serving session list requests after the remote daemon restarts", async () => {
+		const first = await startUpstream(() => ({ status: 200, body: '{"sessions":[{"id":"before-restart"}]}' }));
+		const port = first.port;
+		proxy = await startRemoteProxy({ label: "workbox", url: `http://127.0.0.1:${port}`, password: "pw" });
+
+		const listSessions = () => fetch(`${proxy!.base}/api/v1/sessions`).then(async (response) => ({
+			status: response.status,
+			body: await response.json(),
+		}));
+		expect(await listSessions()).toEqual({ status: 200, body: { sessions: [{ id: "before-restart" }] } });
+
+		const oldDaemon = upstream!;
+		oldDaemon.closeAllConnections();
+		await new Promise<void>((resolve) => oldDaemon.close(() => resolve()));
+		upstream = createServer((_req, res) => {
+			res.writeHead(200, { "content-type": "application/json" });
+			res.end('{"sessions":[{"id":"after-restart"}]}');
+		});
+		await new Promise<void>((resolve, reject) => {
+			upstream!.once("error", reject);
+			upstream!.listen(port, "127.0.0.1", resolve);
+		});
+
+		expect(await listSessions()).toEqual({ status: 200, body: { sessions: [{ id: "after-restart" }] } });
+	});
 });
 
 describe("startRemoteProxy streams", () => {

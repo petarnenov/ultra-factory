@@ -224,6 +224,10 @@ export async function startRemoteProxy(entry: RemoteEntry, rendererOrigin = REND
 			{
 				host: hostname,
 				port: upstreamPort,
+				// A remote daemon can restart while this proxy stays alive. Do not
+				// let Node's process-wide keep-alive agent hand the next list poll a
+				// socket that the old daemon closed during shutdown.
+				agent: false,
 				method: req.method,
 				path,
 				headers: forwardHeaders(req.headers, preview?.kind),
