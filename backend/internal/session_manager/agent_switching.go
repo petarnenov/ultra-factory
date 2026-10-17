@@ -720,23 +720,7 @@ func (m *Manager) executeAgentSwitch(ctx context.Context, admitted *admittedAgen
 		CapturedAt:            m.clock(),
 	}
 	if quota, ok := m.readQuotaSnapshot(ctx, id, stoppedSession.Harness, stoppedSession.Metadata.RuntimeLaunchID); ok {
-		if strings.TrimSpace(finalContext.OriginalTask) == "" {
-			finalContext.OriginalTask = quota.OriginalTask
-		}
-		if strings.TrimSpace(finalContext.LatestUserPrompt) == "" {
-			finalContext.LatestUserPrompt = quota.LatestUserPrompt
-		}
-		if strings.TrimSpace(finalContext.LatestAssistantUpdate) == "" {
-			finalContext.LatestAssistantUpdate = quota.AssistantUpdate
-		}
-		if len(finalContext.Workspaces) == 0 {
-			for _, fact := range quota.Workspaces {
-				finalContext.Workspaces = append(finalContext.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
-			}
-		}
-		if len(finalContext.PullRequests) == 0 {
-			finalContext.PullRequests = quota.PullRequests
-		}
+		finalContext.fillFromQuotaSnapshot(quota)
 	}
 	if observedTranscript != nil {
 		finalContext.SourceTranscriptPath = observedTranscript.Path
@@ -1516,7 +1500,7 @@ func (m *Manager) systemPromptForNativeRestore(ctx context.Context, rec domain.S
 		return base, nil
 	}
 	if _, err := validateContinuationAgent(agent); err != nil {
-		return base, nil
+		return base, nil //nolint:nilerr // an agent without continuation support has no handoff to replay
 	}
 	store, ok := m.store.(ports.AgentSwitchStore)
 	if !ok {
