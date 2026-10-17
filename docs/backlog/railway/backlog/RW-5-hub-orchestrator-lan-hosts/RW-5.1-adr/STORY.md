@@ -1,5 +1,5 @@
 # RW-5.1 · Story: ADR for the network path from the hub to machines outside Railway
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human
 
 **As** a maintainer **I want** a recorded decision on how the Railway hub reaches machines on a private network, and how a saved bearer may cross that path, **so that** RW-5.2 and RW-5.3 can be reviewed against a clear policy.
 

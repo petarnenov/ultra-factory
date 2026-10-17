@@ -1,5 +1,5 @@
 # RW-5.4 · Story: Orchestrator in the hub
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human
 
 **As** an operator **I want** the orchestrator to run in the hub, with its own credentials and wake-up loop, **so that** my Mac no longer has to stay on to coordinate the workers.
 

@@ -95,5 +95,18 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | RW-4.3.2 Task: Documentation | [#58](https://github.com/petarnenov/ultra-factory/issues/58) | ⬜ todo | — |
 | **RW-4.3 Story: E2E test and documentation** | [#56](https://github.com/petarnenov/ultra-factory/issues/56) | **⬜ todo** | — |
 | **RW-4 Epic: Hardening, tests, documentation** | [#49](https://github.com/petarnenov/ultra-factory/issues/49) | **⬜ todo** | — |
+| RW-5.1.1 Task: ADR for hub egress to off-Railway hosts | [#114](https://github.com/petarnenov/ultra-factory/issues/114) | ⛔ needs-human | — |
+| **RW-5.1 Story: ADR for the network path from the hub to machines outside Railway** | [#110](https://github.com/petarnenov/ultra-factory/issues/110) | **⛔ needs-human** | — |
+| RW-5.2.1 Task: Tailscale userspace in the hub image and supervisor | [#115](https://github.com/petarnenov/ultra-factory/issues/115) | ⬜ todo | — |
+| RW-5.2.2 Task: Daemon tailnet dialer for remote hosts | [#116](https://github.com/petarnenov/ultra-factory/issues/116) | ⬜ todo | — |
+| RW-5.2.3 Task: BFF tailnet dialer for probe, workers API and proxy | [#117](https://github.com/petarnenov/ultra-factory/issues/117) | ⬜ todo | — |
+| **RW-5.2 Story: Tailnet egress from the hub** | [#111](https://github.com/petarnenov/ultra-factory/issues/111) | **⬜ todo** | — |
+| RW-5.3.1 Task: Mirror the hub host registry into the daemon's `remotes.json` | [#118](https://github.com/petarnenov/ultra-factory/issues/118) | ⬜ todo | — |
+| **RW-5.3 Story: One host list for the hub UI and `ao spawn --host`** | [#112](https://github.com/petarnenov/ultra-factory/issues/112) | **⬜ todo** | — |
+| RW-5.4.1 Task: Agent credentials for orchestrators in the hub | [#119](https://github.com/petarnenov/ultra-factory/issues/119) | ⛔ needs-human | — |
+| RW-5.4.2 Task: Wake-up and reconcile loop inside the hub | [#120](https://github.com/petarnenov/ultra-factory/issues/120) | ⬜ todo | — |
+| RW-5.4.3 Task: Cutover from the Mac orchestrator and end-to-end check | [#121](https://github.com/petarnenov/ultra-factory/issues/121) | ⛔ needs-human | — |
+| **RW-5.4 Story: Orchestrator in the hub** | [#113](https://github.com/petarnenov/ultra-factory/issues/113) | **⛔ needs-human** | — |
+| **RW-5 Epic: Hub orchestrator managing machines outside Railway** | [#109](https://github.com/petarnenov/ultra-factory/issues/109) | **⛔ needs-human** | — |
 
 <!-- status:end -->

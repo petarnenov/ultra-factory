@@ -1,5 +1,5 @@
 # RW-5.4.1 · Task: Agent credentials for orchestrators in the hub
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human
 
 **Type:** operations + documentation. **Estimate:** 0.5 pd. **Story:** RW-5.4.
 

@@ -1,5 +1,5 @@
 # RW-5.4.3 · Task: Cutover from the Mac orchestrator and end-to-end check
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human
 
 **Type:** operations + validation. **Estimate:** 0.5–1 pd. **Story:** RW-5.4.
 

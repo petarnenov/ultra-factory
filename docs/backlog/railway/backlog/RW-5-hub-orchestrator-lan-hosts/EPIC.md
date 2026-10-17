@@ -1,5 +1,5 @@
 # RW-5 · Epic: Hub orchestrator managing machines outside Railway
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human
 
 **Goal.** The orchestrator runs in the Railway hub and delegates workers to the operator's own machines (for example IMac, Linux, Z600 on a home LAN), not only to Railway workers. The hub reaches those machines over an encrypted private path, without opening inbound ports at home, and the desktop orchestrator on the Mac is no longer required.
 
