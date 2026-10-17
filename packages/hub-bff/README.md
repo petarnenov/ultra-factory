@@ -59,7 +59,9 @@ memory, so a redeploy also signs everyone out.
 | `GET /healthz` | none | `200 {"ok":true}`. Fixed body, touches no daemon. |
 | `GET /login`, `GET /_bff/login.{css,js}` | none | Minimal login page served by the BFF itself, with a strict CSP. Redirects to `/` when already signed in. |
 | `POST /login` | none | JSON `{"password": "..."}`. `204` + session cookie, `401` on a wrong password, `429` + `Retry-After` when throttled, `503` + `Retry-After` when 2 password checks are already running. |
-| `POST /logout` | none | Ends the session and clears the cookie. `204`. |
+| `POST /logout` | none | Ends the current session and clears the cookie. `204`. |
+| `GET /hub/sessions` | session | `{"sessions":[{"createdAt","lastSeenAt","current"}]}`: live sessions, with `current` marking the caller's. Session ids are never returned. |
+| `DELETE /hub/sessions` | session | Logout everywhere: ends every session, the caller's included, and clears the cookie. `204`. Same-origin check applies. |
 | `GET /hub/hosts` | session | `{"hosts":[...]}`: every registered host with its last `status`. Never includes a password or token. |
 | `POST /hub/hosts` | session | JSON `{"label","url","password"}`. Probes `GET <url>/api/v1/identity`, then checks the bearer with `GET <url>/api/v1/projects`, then saves. `201 {"host":...}`; `400` invalid input; `409` duplicate label or host; `422 host_credential_rejected`; `502 host_unreachable` or `unsupported_api_version`. |
 | `DELETE /hub/hosts/:id` | session | Removes the registry record only (nothing in Railway is deleted). `204`; `404`; `409 hub_not_removable` for the hub entry. |
@@ -68,6 +70,17 @@ memory, so a redeploy also signs everyone out.
 | `POST /hub/workers` | session | Creates a Railway worker asynchronously. Returns `202`; returns `429 {"error":"worker_limit_reached","count","limit"}` at the configured limit. |
 | `DELETE /hub/workers/:id` | session | Requests deletion of a registered Railway worker; failed deletion remains recorded for manual cleanup. |
 | everything else | session | The SPA from `AO_HUB_SPA_DIR`, with `index.html` as the fallback for extensionless client-side routes. Without a session: `302 /login` for a page navigation, `401 {"error":"unauthorized"}` otherwise. |
+
+Every response carries `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, and a `Permissions-Policy` that
+denies the camera, microphone, geolocation, and other powerful features. The SPA shell
+and its assets also carry a `Content-Security-Policy` that matches the web build's CSP
+meta tag, plus `frame-ancestors 'none'` and `form-action 'self'`. The threat model is in
+[`docs/railway/threat-model.md`](../../docs/railway/threat-model.md).
+
+A `401` from the BFF never names a host. An unauthenticated caller gets only
+`{"error":"unauthorized"}`, including for `/hosts/<id>/...` paths, and a host that rejects its
+bearer surfaces as `502 host credential rejected` without the upstream body or URL.
 
 The login page is the BFF's own, not a route in the SPA: ADR 0006 puts the SPA
 shell itself behind the session, so the SPA cannot render a login form before

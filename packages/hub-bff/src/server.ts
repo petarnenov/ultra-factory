@@ -22,6 +22,7 @@ export const MAX_CONCURRENT_PASSWORD_CHECKS = 2;
 const PROXY_PREFIXES = ["/api/", "/mux", "/hosts/", "/readyz"];
 const HOSTS_API_PREFIX = "/hub/hosts";
 const WORKERS_API_PREFIX = "/hub/workers";
+const SESSIONS_PATH = "/hub/sessions";
 
 const LOGIN_DIR = path.join(import.meta.dirname, "..", "login");
 const LOGIN_ASSETS: Record<string, { file: string; type: string }> = {
@@ -31,6 +32,27 @@ const LOGIN_ASSETS: Record<string, { file: string; type: string }> = {
 };
 const LOGIN_CSP =
 	"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+
+// The SPA's policy. It mirrors the web build's CSP meta tag
+// (frontend/vite.renderer.csp.ts, webContentSecurityPolicy "build"), which
+// a test pins. The header-only directives cannot be set from a meta tag.
+export const SPA_CSP = [
+	"default-src 'self'",
+	"script-src 'self'",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data: https:",
+	"font-src 'self' data:",
+	"connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com wss://staging-api.aoagents.dev wss://api.aoagents.dev",
+	"object-src 'none'",
+	"base-uri 'self'",
+	"frame-src 'self'",
+	"form-action 'self'",
+	"frame-ancestors 'none'",
+].join("; ");
+// Nothing on the hub needs a powerful browser feature. Denying them all keeps
+// a compromised page from prompting for the camera, microphone, or location.
+const PERMISSIONS_POLICY = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()";
+const HSTS = "max-age=31536000; includeSubDomains";
 
 const CONTENT_TYPES: Record<string, string> = {
 	".html": "text/html; charset=utf-8",
@@ -118,9 +140,23 @@ export function createBff(options: BffOptions): Server {
 		}
 
 		// Everything below requires a session, including the SPA shell.
-		if (!sessions.touch(readCookie(req, SESSION_COOKIE))) {
+		const sessionId = readCookie(req, SESSION_COOKIE);
+		if (!sessions.touch(sessionId)) {
 			if (safe && isNavigation(req)) return redirect(res, "/login");
 			return sendJson(res, 401, { error: "unauthorized" });
+		}
+
+		// GET lists the operator's sessions; DELETE ends all of them ("logout everywhere").
+		if (pathname === SESSIONS_PATH) {
+			if (method === "GET" || method === "HEAD") return sendJson(res, 200, { sessions: sessions.list(sessionId) });
+			if (method === "DELETE") {
+				sessions.revokeAll();
+				log("info", "all sessions revoked", {});
+				res.setHeader("Set-Cookie", sessionCookie("", 0));
+				res.writeHead(204).end();
+				return;
+			}
+			return sendJson(res, 405, { error: "method_not_allowed" });
 		}
 
 		if (options.hostsApi && (pathname === HOSTS_API_PREFIX || pathname.startsWith(`${HOSTS_API_PREFIX}/`))) {
@@ -199,6 +235,7 @@ export function createBff(options: BffOptions): Server {
 			"Content-Length": info.size,
 			// Vite emits content-hashed names under assets/; the shell must revalidate.
 			"Cache-Control": !isIndex && pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+			"Content-Security-Policy": SPA_CSP,
 		});
 		if (req.method === "HEAD") {
 			res.end();
@@ -219,8 +256,10 @@ export function createBff(options: BffOptions): Server {
 		} catch {
 			pathname = "";
 		}
+		res.setHeader("Strict-Transport-Security", HSTS);
 		res.setHeader("X-Content-Type-Options", "nosniff");
 		res.setHeader("Referrer-Policy", "no-referrer");
+		res.setHeader("Permissions-Policy", PERMISSIONS_POLICY);
 		res.setHeader("X-Frame-Options", "DENY");
 		res.on("finish", () => {
 			// Log the decoded path only: never the query string, headers, or body.
