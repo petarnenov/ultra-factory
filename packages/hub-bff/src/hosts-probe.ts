@@ -1,4 +1,5 @@
 import type { Logger } from "./log.ts";
+import { fetchViaTailnet } from "./tailnet.ts";
 import { HUB_ID, readHubEntry, type HostEntry, type HostsStore, type HostStatus, type PublicHost } from "./hosts-store.ts";
 
 // The identity contract version the BFF speaks, as the CLI and desktop do.
@@ -11,9 +12,10 @@ export type IdentityResult = { ok: true; identity: Identity } | { ok: false; rea
 export type ProbeResult = { status: HostStatus; hostId?: string };
 
 // Redirects are never followed: a redirect must not carry the bearer to
-// another address.
+// another address. Tailnet destinations go through the ADR 0008 SOCKS5 path.
 async function get(url: string, headers: Record<string, string> = {}): Promise<Response> {
-	return fetch(url, { headers: { Accept: "application/json", ...headers }, redirect: "manual", signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+	const init = { headers: { Accept: "application/json", ...headers }, redirect: "manual", signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) } as const;
+	return fetchViaTailnet(url, init) ?? fetch(url, init);
 }
 
 // probeIdentity calls the host's unauthenticated GET /api/v1/identity.

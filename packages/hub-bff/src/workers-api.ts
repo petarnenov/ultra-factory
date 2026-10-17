@@ -6,6 +6,7 @@ import { probeIdentity } from "./hosts-probe.ts";
 import { HostsValidationError, type HostsStore } from "./hosts-store.ts";
 import type { RailwayService, WorkerProvider, WorkerSpec } from "./railway-client.ts";
 import { readBody, sendJson } from "./server.ts";
+import { fetchViaTailnet } from "./tailnet.ts";
 
 const PREFIX = "/hub/workers";
 const MAX_BODY_BYTES = 16 * 1024;
@@ -336,12 +337,13 @@ function safeProviderError(message: string): string {
 	return "Railway operation failed";
 }
 
-async function getSessionList(url: string, password: string, hostId: string): Promise<unknown[]> {
-	const response = await fetch(`${url}/api/v1/sessions?active=true`, {
+export async function getSessionList(url: string, password: string, hostId: string): Promise<unknown[]> {
+	const init = {
 		headers: { Authorization: `Bearer ${password}`, "X-AO-Expected-Host-ID": hostId, Accept: "application/json" },
 		redirect: "manual",
 		signal: AbortSignal.timeout(5_000),
-	});
+	} as const;
+	const response = await (fetchViaTailnet(`${url}/api/v1/sessions?active=true`, init) ?? fetch(`${url}/api/v1/sessions?active=true`, init));
 	if (!response.ok) throw new Error("Unable to inspect worker sessions");
 	const body = await response.json() as { sessions?: unknown };
 	if (!Array.isArray(body.sessions)) throw new Error("Worker returned an invalid session list");

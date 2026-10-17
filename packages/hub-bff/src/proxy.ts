@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { request as httpRequest, validateHeaderValue, type IncomingHttpHeaders, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
 import type { Duplex } from "node:stream";
+import { tailnetAgent } from "./tailnet.ts";
 
 export type ProxyHost = { url: string; hostId: string; bearer: string; draining?: boolean };
 // RW-2.4.3 supplies paired registry entries, including the authenticated hub.
@@ -35,6 +36,12 @@ function clean(headers: IncomingHttpHeaders): IncomingHttpHeaders {
 	const nominated = (headers.connection ?? "").split(",").map((s) => s.trim().toLowerCase());
 	for (const key of [...nominated, "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "set-cookie"]) delete result[key];
 	return result;
+}
+
+// Only tailnet destinations get an agent; the rest keep the default one.
+function agentFor(url: URL): { agent?: ReturnType<typeof tailnetAgent> } {
+	const agent = tailnetAgent(url);
+	return agent ? { agent } : {};
 }
 
 export function proxyError(res: ServerResponse, status: number, error: string): void {
@@ -82,7 +89,7 @@ export function createProxy(hosts?: ProxyHosts) {
 				/^\/api\/v1\/projects\/[^/]+\/tasks\/prepare$/.test(pathname) ||
 				/^\/api\/v1\/sessions\/[^/]+\/(restore|resume-agent|reviews\/restore)$/.test(pathname)
 			)) { proxyError(res, 409, "worker_draining"); return; }
-			const upstream = (dest.url.protocol === "https:" ? httpsRequest : httpRequest)(dest.url, { method: req.method, path: dest.path, headers: dest.headers }, (reply) => {
+			const upstream = (dest.url.protocol === "https:" ? httpsRequest : httpRequest)(dest.url, { method: req.method, path: dest.path, headers: dest.headers, ...agentFor(dest.url) }, (reply) => {
 				if (reply.statusCode === 401) { reply.resume(); proxyError(res, 502, "host credential rejected"); return; }
 				const headers = clean(reply.headers);
 				if (String(headers["content-type"]).toLowerCase().startsWith("text/event-stream")) {
@@ -110,7 +117,7 @@ export function createProxy(hosts?: ProxyHosts) {
 			if (req.method !== "GET" || req.headers.upgrade?.toLowerCase() !== "websocket") { rejectUpgrade(socket, 400, "invalid upgrade"); return; }
 			dest.headers.connection = "Upgrade";
 			dest.headers.upgrade = "websocket";
-			const upstream = (dest.url.protocol === "https:" ? httpsRequest : httpRequest)(dest.url, { path: dest.path, headers: dest.headers });
+			const upstream = (dest.url.protocol === "https:" ? httpsRequest : httpRequest)(dest.url, { path: dest.path, headers: dest.headers, ...agentFor(dest.url) });
 			upstream.on("error", () => { if (!socket.destroyed) rejectUpgrade(socket, 502, "host unreachable"); });
 			upstream.on("response", (reply) => {
 				reply.resume();

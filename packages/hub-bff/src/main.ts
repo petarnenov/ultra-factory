@@ -9,6 +9,7 @@ import { FakeRailwayProvider } from "./fake-provider.ts";
 import { createWorkersApi } from "./workers-api.ts";
 import { openAuditLog } from "./audit.ts";
 import path from "node:path";
+import { setTailnetSocks } from "./tailnet.ts";
 
 const log = jsonLogger();
 
@@ -16,6 +17,8 @@ try {
 	const config = await loadConfig(process.env);
 	// The plaintext password has been hashed; drop it from this process's env.
 	delete process.env.AO_WEB_PASSWORD;
+	setTailnetSocks(config.tailnetSocks);
+	if (config.tailnetSocks) log("info", "tailnet egress enabled", { socks: `${config.tailnetSocks.host}:${config.tailnetSocks.port}` });
 	const store = await HostsStore.open(config.hubDataDir);
 	const audit = await openAuditLog(path.join(config.hubDataDir, "audit.jsonl"));
 	const monitor = createHostsMonitor({ store, hubConfigPath: config.hubConfigPath, log });

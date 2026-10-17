@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { hashPassword, parsePasswordHash } from "./password.ts";
+import { parseTailnetSocks, type TailnetSocks } from "./tailnet.ts";
 
 export type Config = {
 	host: string;
@@ -27,6 +28,8 @@ export type Config = {
 	maxVolumeGb?: number;
 	// Hours with no active session before a worker is flagged idle; unset is off.
 	idleStopHours?: number;
+	// ADR 0008 loopback SOCKS5 for tailnet destinations; unset dials directly.
+	tailnetSocks?: TailnetSocks;
 };
 
 // loadConfig reads the BFF's environment. It throws with an operator-facing
@@ -79,10 +82,13 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	// a token without both IDs is a misconfiguration.
 	if (env.RAILWAY_API_TOKEN && !(env.RAILWAY_PROJECT_ID && env.RAILWAY_ENVIRONMENT_ID)) throw new Error("RAILWAY_API_TOKEN needs RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID");
 
+	const tailnetSocks = parseTailnetSocks(env.AO_REMOTE_TAILNET_SOCKS);
+
 	return {
 		host: env.AO_HUB_BFF_HOST ?? "::", port, spaDir, passwordHash, publicOrigin, plaintextPassword: !hash, hubDataDir, hubConfigPath,
 		railwayToken: env.RAILWAY_API_TOKEN, railwayProjectId: env.RAILWAY_PROJECT_ID, railwayEnvironmentId: env.RAILWAY_ENVIRONMENT_ID,
 		workerImage: env.AO_HUB_WORKER_IMAGE, workerUrlMode, maxWorkers, maxVolumeGb, idleStopHours,
+		...(tailnetSocks ? { tailnetSocks } : {}),
 		...(providerMode === "fake" ? { providerMode, fakeWorkerUrl: env.AO_HUB_FAKE_WORKER_URL, fakeWorkerPassword: env.AO_HUB_FAKE_WORKER_PASSWORD } : {}),
 	};
 }

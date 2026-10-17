@@ -58,6 +58,7 @@ npm --prefix packages/hub-bff run typecheck
 | `AO_HUB_MAX_WORKERS` | no | Maximum registered Railway workers. Default `5`; must be a positive integer. |
 | `AO_HUB_MAX_VOLUME_GB` | no | Largest worker volume, in GB, a `POST /hub/workers` `size` may request. Unset means no limit; must be a positive number. Railway's `volumeCreate` takes no size, so a valid size is still rejected as `unsupported_size`. |
 | `AO_HUB_IDLE_STOP_HOURS` | no | Flags an online Railway worker as idle after it has had no active session for this many hours. Unset (the default) turns the check off; must be a positive number. Warning only: workers are never stopped automatically. |
+| `AO_REMOTE_TAILNET_SOCKS` | no | Loopback SOCKS5 `host:port` of the hub's userspace `tailscaled` (ADR 0008), for example `127.0.0.1:1055`. Only a `127.0.0.0/8` or `[::1]` IP literal is accepted; anything else stops startup. When set, the probe, the workers API and the proxy dial tailnet destinations (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`, `*.ts.net`) through it, with no fallback to a direct dial. Other hosts, and every host when unset, dial directly as before. `HTTP(S)_PROXY`/`ALL_PROXY` are never used for this path. The BFF has no same-connection dial gate: ADR 0008 item 8 limits that gate to the daemon. Here, the `X-AO-Expected-Host-ID` guard and, on the tailnet path, WireGuard's binding of the address to the peer's node key decide which host gets the bearer. |
 
 Rotating the password is changing the variable and redeploying. Sessions live in
 memory, so a redeploy also signs everyone out.
