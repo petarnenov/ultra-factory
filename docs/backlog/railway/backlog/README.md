@@ -103,7 +103,7 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | **RW-5.2 Story: Tailnet egress from the hub** | [#111](https://github.com/petarnenov/ultra-factory/issues/111) | **✅ done** | — |
 | RW-5.3.1 Task: Mirror the hub host registry into the daemon's `remotes.json` | [#118](https://github.com/petarnenov/ultra-factory/issues/118) | ✅ done | [#152](https://github.com/petarnenov/ultra-factory/pull/152) |
 | **RW-5.3 Story: One host list for the hub UI and `ao spawn --host`** | [#112](https://github.com/petarnenov/ultra-factory/issues/112) | **✅ done** | — |
-| RW-5.4.1 Task: Agent credentials for orchestrators in the hub | [#119](https://github.com/petarnenov/ultra-factory/issues/119) | ✅ done | [#132](https://github.com/petarnenov/ultra-factory/pull/132) |
+| RW-5.4.1 Task: Agent credentials for orchestrators in the hub | [#119](https://github.com/petarnenov/ultra-factory/issues/119); live check [#134](https://github.com/petarnenov/ultra-factory/issues/134) (2026-10-17) | ✅ done | [#132](https://github.com/petarnenov/ultra-factory/pull/132) |
 | RW-5.4.2 Task: Wake-up and reconcile loop inside the hub | [#120](https://github.com/petarnenov/ultra-factory/issues/120) | ✅ done | [#136](https://github.com/petarnenov/ultra-factory/pull/136) |
 | RW-5.4.3 Task: Cutover from the Mac orchestrator and end-to-end check | [#121](https://github.com/petarnenov/ultra-factory/issues/121) | ⛔ needs-human | — |
 | **RW-5.4 Story: Orchestrator in the hub** | [#113](https://github.com/petarnenov/ultra-factory/issues/113) | **⛔ needs-human** | — |

@@ -1,5 +1,5 @@
 # RW-5.4.1 · Task: Agent credentials for orchestrators in the hub
-**Status:** ✅ done (#132)
+**Status:** ✅ done (#132); live check passed ([#134](https://github.com/petarnenov/ultra-factory/issues/134), 2026-10-17)
 
 **Type:** operations + documentation. **Estimate:** 0.5 pd. **Story:** RW-5.4.
 
@@ -20,6 +20,9 @@ An orchestrator started in the hub (claude-code or codex) is authenticated witho
 
 ## Acceptance criteria
 - [ ] An orchestrator in the hub answers a prompt and can run `gh issue view` against this repository.
+
+## Live check
+Passed on 2026-10-17 ([#134](https://github.com/petarnenov/ultra-factory/issues/134)): `ao agent ls` in the hub listed `claude-code` and `codex` as authorized; the hub orchestrator answered prompts and ran `gh issue view 119` successfully; and, with `AO_HUB_ORCHESTRATOR_TICK=1`, the hub tick loop delivered TICKs to the hub orchestrator with nothing running on the Mac.
 
 ## Dependencies
 RW-4.1.1. `needs-human`: the operator sets the secrets.
