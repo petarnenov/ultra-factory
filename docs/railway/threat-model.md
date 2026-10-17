@@ -1,7 +1,7 @@
 # Railway hub threat model
 
-Status: current for RW-4.1.1. Scope: the hub container (daemon + web BFF,
-`packages/hub-bff`, `deploy/railway/hub`) and the Railway worker services it
+Status: current for RW-4.1.1, updated for RW-5.4.1. Scope: the hub container
+(daemon + web BFF, `packages/hub-bff`, `deploy/railway/hub`) and the Railway worker services it
 manages (`deploy/railway/worker`). It covers what exists on this branch. Decisions
 that shape it: [ADR 0005](../adr/0005-trusted-proxy-remote-host.md) (trusted proxy),
 [ADR 0006](../adr/0006-web-bff-for-hub.md) (web BFF in front of the hub daemon),
@@ -26,6 +26,8 @@ legitimate session safer than a shell.
 | Host bearers | `<AO_HUB_DATA_DIR>/hosts.json` (0600) on the hub volume; `mobile/config.json` for the hub's own bearer | Authenticate the BFF to the hub and every worker. |
 | Worker bearers | Worker `mobile/config.json` on each worker volume; mirrored in `hosts.json` | Same as above, from the worker side. |
 | Agent credentials | Each host's `~/.ao` and harness config (API keys, Codex accounts) | Used by agents running on that host. |
+| Hub orchestrator provider credential (RW-5.4.1) | Railway variable `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` on the `hub` service, or an interactive login under `/data/home` (`.claude/.credentials.json`, `.codex/auth.json`) | A leaked key spends the provider account and can run the model outside AO. In the environment it is readable by every agent process in the hub. |
+| Hub orchestrator GitHub token (RW-5.4.1) | Railway variable `GH_TOKEN` on the `hub` service | Fine-grained, this repository only: issues, pull requests, contents. A leaked token can comment, open and merge PRs, and push branches in this repository until it expires or is revoked. |
 | Code in worktrees | Each host's `AO_DATA_DIR` worktrees and volumes | Source code, unpushed work, and whatever the agents wrote. |
 | Volume backups | Railway volume snapshots | Contain every bearer above in plaintext. Protect them like `~/.ao`. |
 | Daemon control surface | Loopback `127.0.0.1:3001` (unauthenticated) and `127.0.0.1:3011` (bearer) | `/shutdown`, telemetry, host installers, and the app API. |
@@ -98,10 +100,11 @@ legitimate session safer than a shell.
 | Agent runs untrusted repository code | Worktrees are per session. Agents run as an unprivileged user (uid 10001) in the container. | `deploy/railway/hub/hub-supervisor.sh`, `deploy/railway/worker/ao-worker-entrypoint.sh` | An agent with a shell can read its host's `~/.ao` and bearer. Containment is per host, not per agent. |
 | Prompt injection through issues, PRs, or docs | Agents act with the permissions of their harness. The app does not grant extra authority to agent output. | Harness configuration | Prompt injection is not solved. Treat agent output as untrusted input to the next step. |
 | Cross-host spread | The hub holds each worker's bearer. A worker holds only its own. | ADR 0006 | A compromised hub is a compromise of every worker it reaches. |
+| Agent in the hub exfiltrates the orchestrator's credentials | Credentials come from Railway variables or the CLI's own login file, never from the repository, the image, or a log. `GH_TOKEN` is a fine-grained token for this repository only, without admin or account permissions, with an expiry; it cannot bypass branch protection. `gh auth login` is not used, so the token is not copied to `hosts.yml`. Rotation and revocation: `deploy/railway/README.md`, "Orchestrator agent credentials". | Railway variables, `deploy/railway/README.md` | Any agent in the hub, including one acting on a prompt injection, can read the environment and `/data/home`. Containment is the token's scope and the provider's spend limits, not the app. |
 
 ## Residual risk
 
-These items remain after RW-4.1.1. Each needs its own task or decision.
+These items remain after RW-4.1.1 and RW-5.4.1. Each needs its own task or decision.
 
 1. **Access to the UI is a shell on every worker** (see the headline). The web UI is
    as powerful as the desktop app for the hosts it reaches. Reducing this needs a
@@ -122,6 +125,11 @@ These items remain after RW-4.1.1. Each needs its own task or decision.
 9. **Volume snapshots contain every bearer.** Backup handling is an operator
    procedure (RW-4.2.1 covers backup and redeploy).
 10. **Agent prompt injection** is not mitigated by the app.
+11. **Orchestrator credentials in the hub (RW-5.4.1).** The provider key and
+    `GH_TOKEN` are shared by every agent process in the hub, and an interactive
+    login file is in every volume snapshot. A leak is limited by the
+    fine-grained token's scope and expiry and by the provider's spend limits;
+    detection is the provider's and GitHub's audit logs.
 
 ## Verification
 
