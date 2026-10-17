@@ -1,0 +1,54 @@
+services:
+  worker-1:
+    image: ao-worker:e2e-fake
+    build:
+      context: ../..
+      dockerfile: deploy/railway/Dockerfile.worker-e2e
+      args:
+        AO_WORKER_IMAGE: ao-worker:rw-e2e
+    environment:
+      AO_REMOTE_PASSWORD: e2e-worker-password
+      AO_GIT_USER_NAME: AO E2E
+      AO_GIT_USER_EMAIL: e2e@example.invalid
+      AO_DATA_DIR: /data/ao
+      AO_RUN_FILE: /data/ao/running.json
+      AO_HARNESS_UPDATE_CHECKS: "off"
+    volumes:
+      - worker-data:/data
+      - ./e2e-fixture.git:/fixtures/e2e-fixture.git:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3001/readyz"]
+      interval: 3s
+      timeout: 2s
+      retries: 40
+
+  hub:
+    image: ao-hub:e2e
+    build:
+      context: ../..
+      dockerfile: deploy/railway/hub/Dockerfile
+      additional_contexts:
+        ao-worker: service:worker-1
+      args:
+        AO_WORKER_IMAGE: ao-worker
+    depends_on:
+      worker-1:
+        condition: service_healthy
+    environment:
+      AO_WEB_PASSWORD_HASH: ${AO_WEB_PASSWORD_HASH:?Run compose.e2e.sh to generate the test password hash}
+      AO_HUB_PROVIDER: fake
+      AO_HUB_FAKE_WORKER_URL: http://worker-1:3011
+      AO_HUB_FAKE_WORKER_PASSWORD: e2e-worker-password
+      AO_HUB_WORKER_IMAGE: ao-worker:e2e-fake
+      AO_DATA_DIR: /data/ao
+      AO_RUN_FILE: /data/ao/running.json
+      AO_HARNESS_UPDATE_CHECKS: "off"
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - hub-data:/data
+
+volumes:
+  hub-data:
+  worker-data:

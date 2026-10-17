@@ -27,6 +27,7 @@ export type WorkersApiOptions = {
 	probe?: (url: string) => Promise<{ ok: true; identity: { hostId: string } } | { ok: false }>;
 	activeSessions?: (url: string, password: string, hostId: string) => Promise<unknown[]>;
 	maxWorkers?: number;
+	workerPassword?: () => string;
 };
 
 export type WorkersApi = ((req: IncomingMessage, res: ServerResponse, pathname: string) => Promise<void>) & { start(): void; stop(): void };
@@ -67,7 +68,7 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 			variables[key] = env[key] as string;
 		}
 		const id = randomUUID();
-		const password = randomBytes(24).toString("base64url");
+		const password = options.workerPassword?.() ?? randomBytes(24).toString("base64url");
 		try {
 			await options.store.createWorker({ id, label: body.label, password, maxWorkers });
 		} catch (err) {
