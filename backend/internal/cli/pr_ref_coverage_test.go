@@ -139,26 +139,30 @@ func TestCLI_PRRefCoverageResolveURL(t *testing.T) {
 
 func TestCLI_PRRefCoverageParsePRURL(t *testing.T) {
 	cases := []struct {
-		name string
-		raw  string
-		bad  bool
+		name    string
+		raw     string
+		wantErr string
 	}{
-		{"user info", "https://user:pass@github.com/owner/repo/pull/1", true},
-		{"empty host", "https:///owner/repo/pull/1", true},
-		{"gitlab bad number", "https://gitlab.com/owner/repo/-/merge_requests/abc", true},
-		{"gitlab too shallow repo path", "https://gitlab.com/-/merge_requests/1", true},
-		{"gitlab missing parts", "https://gitlab.com/owner/-/merge_requests/1", true},
-		{"not pr url", "https://gitlab.com/owner/repo/issues/1", true},
-		{"github extra parts", "https://github.com/owner/repo/pull/1/extra", true},
-		{"github wrong marker", "https://github.com/owner/repo/merge_requests/1", true},
+		{"user info", "https://user:pass@github.com/owner/repo/pull/1", "not https"},
+		{"empty host", "https:///owner/repo/pull/1", "not https"},
+		{"http scheme", "http://github.com/owner/repo/pull/1", "not https"},
+		{"gitlab bad number", "https://gitlab.com/owner/repo/-/merge_requests/abc", "bad number"},
+		{"gitlab path too short", "https://gitlab.com/-/merge_requests/1", "not a PR/MR URL"},
+		{"not pr url", "https://gitlab.com/owner/repo/issues/1", "not a PR/MR URL"},
+		{"github extra parts", "https://github.com/owner/repo/pull/1/extra", "not a PR/MR URL"},
+		{"github wrong marker", "https://github.com/owner/repo/merge_requests/1", "not a PR/MR URL"},
+		{"valid github", "https://github.com/owner/repo/pull/1", ""},
 	}
 	for _, tc := range cases {
 		_, _, _, _, err := cliParsePRURL(tc.raw)
-		if tc.bad && err == nil {
-			t.Fatalf("%s: expected error", tc.name)
+		if tc.wantErr == "" {
+			if err != nil {
+				t.Fatalf("%s: unexpected error: %v", tc.name, err)
+			}
+			continue
 		}
-		if !tc.bad && err != nil {
-			t.Fatalf("%s: unexpected error: %v", tc.name, err)
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+			t.Fatalf("%s: err = %v, want %q", tc.name, err, tc.wantErr)
 		}
 	}
 }
