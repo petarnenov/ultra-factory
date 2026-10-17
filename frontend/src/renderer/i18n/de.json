@@ -3108,6 +3108,8 @@
 	"settings.workers.providerUnavailable": "Railway worker management is not configured.",
 	"settings.workers.status.unknown": "Unbekannt",
 	"settings.workers.status.provisioning": "Wird bereitgestellt",
+	"settings.workers.status.draining": "Draining",
+	"settings.workers.drainingNotice": "This worker is draining. New sessions are paused.",
 	"settings.workers.status.online": "Online",
 	"settings.workers.status.unreachable": "Nicht erreichbar",
 	"settings.workers.status.auth_failed": "Authentifizierung fehlgeschlagen",
