@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -89,28 +91,75 @@ func TestCandidateSupplierErrorsAndEmptyResult(t *testing.T) {
 }
 
 func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
-	oldTimeout := versionProbeTimeout
-	versionProbeTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { versionProbeTimeout = oldTimeout })
-	binary := candidateExecutable(t, "/bin/sleep 0.1\nprintf '2.0.0\\n'\n")
-	got, err := ResolveBinaryForMajorWithCandidates(context.Background(), 2, func(ctx context.Context) ([]string, error) {
-		deadline, ok := ctx.Deadline()
-		if !ok || time.Until(deadline) > versionProbeTimeout {
-			t.Fatal("discovery did not receive the bounded probe context")
-		}
-		// Spend the discovery budget before probing a real executable. Giving
-		// the probe a new deadline would incorrectly let this binary succeed.
-		timer := time.NewTimer(time.Until(deadline) - 50*time.Millisecond)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-			return []string{binary}, nil
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	})
-	if got != "" || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("resolve = (%q, %v), want shared deadline exhaustion", got, err)
+	// A short parent deadline alone cannot detect resetting the internal
+	// timeout from that same parent. Keep the real default-budget case too.
+	for _, tc := range []struct {
+		name           string
+		parentBudget   time.Duration
+		discoveryDelay time.Duration
+	}{
+		{"parent deadline", time.Second, 500 * time.Millisecond},
+		{"default shared budget", 0, versionProbeTimeout - 2*time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "probe-pid")
+			t.Setenv("AO_TEST_PROBE_MARKER", marker)
+			// exec leaves no descendant holding output after cancellation. The
+			// marker proves resolution reached the real executable, rather than
+			// returning solely because discovery consumed the whole deadline.
+			binary := candidateExecutable(t, "printf '%s' \"$$\" > \"$AO_TEST_PROBE_MARKER\"\nexec /bin/sleep 3\n")
+			parent := context.Background()
+			if tc.parentBudget != 0 {
+				var cancel context.CancelFunc
+				parent, cancel = context.WithTimeout(parent, tc.parentBudget)
+				defer cancel()
+			}
+			var discoveryContext context.Context
+			got, err := ResolveBinaryForMajorWithCandidates(parent, 2, func(ctx context.Context) ([]string, error) {
+				discoveryContext = ctx
+				deadline, ok := ctx.Deadline()
+				if !ok {
+					t.Fatal("discovery has no deadline")
+				}
+				if parentDeadline, ok := parent.Deadline(); ok && !deadline.Equal(parentDeadline) {
+					t.Fatalf("discovery deadline %v does not inherit parent deadline %v", deadline, parentDeadline)
+				}
+				timer := time.NewTimer(tc.discoveryDelay)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+					return []string{binary}, nil
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			})
+			if got != "" || !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("resolve = (%q, %v), want shared deadline exhaustion", got, err)
+			}
+			if discoveryContext == nil || !errors.Is(discoveryContext.Err(), context.DeadlineExceeded) {
+				t.Fatal("probe did not finish with discovery's deadline exhausted")
+			}
+			if tc.parentBudget != 0 && !errors.Is(parent.Err(), context.DeadlineExceeded) {
+				t.Fatal("resolution did not preserve parent deadline cancellation")
+			}
+			data, err := os.ReadFile(marker)
+			if err != nil {
+				t.Fatalf("real version probe was not reached: %v", err)
+			}
+			pid, err := strconv.Atoi(string(data))
+			if err != nil {
+				t.Fatalf("invalid fixture pid: %v", err)
+			}
+			process, err := os.FindProcess(pid)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer process.Release()
+			if err := process.Signal(syscall.Signal(0)); err == nil {
+				_ = process.Kill()
+				t.Fatal("real probe survived resolution's deadline cancellation")
+			}
+		})
 	}
 }
 
