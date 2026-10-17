@@ -115,7 +115,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Log in to GHCR
         if: needs.plan.outputs.publish == 'true'
@@ -223,7 +223,7 @@ jobs:
     outputs:
       image: ${{ steps.tags.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: docker/setup-qemu-action@v4
         if: contains(needs.plan.outputs.platforms, 'arm64')
