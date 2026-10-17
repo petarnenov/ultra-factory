@@ -112,7 +112,9 @@ tailnet address through the hub.
    connection closes between the probe and a later request, `net/http` re-dials and
    sends the bearer on a new connection that never answered the probe. A SOCKS hop adds
    another place where idle connections can close, so the gap widens with this change.
-   RW-5.2.2 must close it by gating the dial, not by inspecting the request:
+   RW-5.2.2 must close it by gating the dial, not by inspecting the request. The gate is
+   **always on**, for tailnet and direct dials on every daemon. Closing the gap for direct
+   dials is a second change that applies to every daemon, not only to hub installs:
    - Each host's pass gets its own transport whose `DialContext` (the SOCKS or direct
      dialer) is armed for exactly one probe. `ReadIdentity` runs over that transport.
      When the probe returns, the gate closes.
@@ -196,9 +198,14 @@ recommended, but that is an operations step outside this ADR.
   (ADR 0005).
 - **Code scope.** RW-5.2.2 and RW-5.2.3 implement this exception, with tests for
   routing, validation, environment-proxy avoidance and same-connection behavior. The
-  dialer and the same-connection gate are active only when `AO_REMOTE_TAILNET_SOCKS` is
-  set. The one change that applies to every daemon is the scheme widening in Decision
-  item 7 (IPv6 tailnet range and trailing-dot names), which is WireGuard encrypted.
+  SOCKS dialer is active only when `AO_REMOTE_TAILNET_SOCKS` is set. Two changes apply
+  to every daemon, with or without it:
+  - the same-connection dial gate (item 8), for direct dials too. Its cost is that a
+    pass fails and re-probes when a keep-alive connection closes mid-pass. Pulls and
+    acknowledgements are retried on the next pass, so no reports are lost, but passes
+    may take longer under churn;
+  - the scheme widening in Decision item 7 (IPv6 tailnet range and trailing-dot names),
+    which is WireGuard encrypted.
 - **AGENTS.md.** The hard rule about network-facing binds and the proxy rule are
   extended by this ADR. The reference is added to the AGENTS.md hard rules, marked
   Proposed, and takes effect only when this ADR is Accepted.
