@@ -406,8 +406,10 @@ function editorSnapshot(): ComposerEditorSnapshot {
 }
 
 function focusEditor(editor: LexicalEditor): void {
-	editor.focus();
 	const root = editor.getRootElement();
+	// Native caret movement can precede Lexical's selectionchange update.
+	if (root && document.activeElement === root) return;
+	editor.focus();
 	if (root && document.activeElement !== root) root.focus({ preventScroll: true });
 }
 

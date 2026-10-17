@@ -136,6 +136,23 @@ test("clicking chat whitespace and composer padding keeps the draft caret positi
 	await expect(composer).toHaveText("abcdYXef");
 });
 
+test("composer padding preserves a native caret before selectionchange is delivered @T0", async ({ page }) => {
+	const composer = await openChatWithDraft(page, "abcdef");
+	await composer.evaluate((element) => {
+		// Hold back the asynchronous browser event to reproduce the focus race.
+		document.addEventListener("selectionchange", (event) => event.stopImmediatePropagation(), { capture: true });
+		const text = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode();
+		if (!text) throw new Error("composer text node not found");
+		window.getSelection()?.collapse(text, 4);
+	});
+	await composer.locator("xpath=ancestor::form").click({ position: { x: 20, y: 6 } });
+	await expect(composer).toBeFocused();
+	await expect.poll(() => composer.evaluate((element) => {
+		const selection = window.getSelection();
+		return selection?.anchorNode && element.contains(selection.anchorNode) ? selection.anchorOffset : -1;
+	})).toBe(4);
+});
+
 test("typed chat composer text is visibly selected with a pointer drag @T0", async ({ page }) => {
 	const composer = await openChatWithDraft(page);
 
