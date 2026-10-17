@@ -74,7 +74,9 @@ export function createProxy(hosts?: ProxyHosts) {
 			let dest;
 			try { dest = target(req); } catch { proxyError(res, 502, "invalid host configuration"); return; }
 			if (!dest) { proxyError(res, 404, "host or route not found"); return; }
-			const pathname = decodeURIComponent(dest.path.split("?")[0]).replace(/\/$/, "");
+			let pathname: string;
+			try { pathname = decodeURIComponent(dest.path.split("?")[0]).replace(/\/$/, ""); }
+			catch { proxyError(res, 400, "invalid request path"); return; }
 			if (dest.draining && req.method === "POST" && (
 				["/api/v1/sessions", "/api/v1/orchestrators", "/api/v1/orchestrators/delegate"].includes(pathname) ||
 				/^\/api\/v1\/projects\/[^/]+\/tasks\/prepare$/.test(pathname) ||
