@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+
+	"github.com/spf13/cobra"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,7 +115,10 @@ func TestCLI_RemoteTargetCoverageResolveInvalidBaseURL(t *testing.T) {
 }
 
 func TestCLI_RemoteTargetCoverageResolveIdentityError(t *testing.T) {
-	writeRemotesFile(t, remoteEntry{Label: "build", URL: "http://127.0.0.1:1", HostID: "host-build", Password: "pw"})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	urlStr := srv.URL
+	srv.Close()
+	writeRemotesFile(t, remoteEntry{Label: "build", URL: urlStr, HostID: "host-build", Password: "pw"})
 	c := &commandContext{hostSelector: "build", deps: Deps{HTTPClient: &http.Client{}}}
 	if _, err := c.resolveRemoteTarget(context.Background()); err == nil || !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("resolveRemoteTarget() err = %v, want identity probe error", err)
@@ -127,11 +133,14 @@ func TestCLI_RemoteTargetCoverageRemoteSenderLabel(t *testing.T) {
 }
 
 func TestCLI_RemoteTargetCoverageAddHostFlag(t *testing.T) {
-	cmd := newBrowserCommand(&commandContext{})
-	addHostFlag(cmd, &commandContext{})
-	f := cmd.Flags().Lookup("host")
-	if f == nil {
-		t.Fatal("addHostFlag did not register host")
+	ctx := &commandContext{}
+	cmd := &cobra.Command{Use: "x"}
+	addHostFlag(cmd, ctx)
+	if err := cmd.Flags().Parse([]string{"--host", "build"}); err != nil {
+		t.Fatalf("parse host flag: %v", err)
+	}
+	if ctx.hostSelector != "build" {
+		t.Fatalf("hostSelector = %q, want build", ctx.hostSelector)
 	}
 }
 
