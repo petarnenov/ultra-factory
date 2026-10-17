@@ -90,7 +90,7 @@ func (m *Manager) ObserveQuotaAndSnapshot(ctx context.Context, id domain.Session
 	if remaining < 0 || remaining > quotaSnapshotThresholdPercent || observedAt.IsZero() || observedAt.After(now.Add(time.Minute)) || now.Sub(observedAt) > quotaObservationMaxAge {
 		return nil
 	}
-	if (source.Harness != domain.HarnessCodex && !(source.Controller && source.Harness == domain.HarnessClaudeCode)) || strings.TrimSpace(source.Generation) == "" {
+	if (source.Harness != domain.HarnessCodex && (!source.Controller || source.Harness != domain.HarnessClaudeCode)) || strings.TrimSpace(source.Generation) == "" {
 		return nil
 	}
 	rec, found, err := m.store.GetSession(ctx, id)
@@ -280,4 +280,24 @@ func boundedQuotaText(value string) string {
 		value = value[len(value)-limit:]
 	}
 	return normalizeHistoricalContext([]byte(value))
+}
+
+func (quota quotaSnapshot) fillMissingSwitchContext(finalContext *deterministicSwitchContext) {
+	if strings.TrimSpace(finalContext.OriginalTask) == "" {
+		finalContext.OriginalTask = quota.OriginalTask
+	}
+	if strings.TrimSpace(finalContext.LatestUserPrompt) == "" {
+		finalContext.LatestUserPrompt = quota.LatestUserPrompt
+	}
+	if strings.TrimSpace(finalContext.LatestAssistantUpdate) == "" {
+		finalContext.LatestAssistantUpdate = quota.AssistantUpdate
+	}
+	if len(finalContext.Workspaces) == 0 {
+		for _, fact := range quota.Workspaces {
+			finalContext.Workspaces = append(finalContext.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
+		}
+	}
+	if len(finalContext.PullRequests) == 0 {
+		finalContext.PullRequests = quota.PullRequests
+	}
 }
