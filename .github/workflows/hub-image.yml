@@ -7,14 +7,22 @@ name: Hub image
 # the job's local Docker store (ao-worker:ci, never pushed), build the hub on
 # top of it, and smoke-test the result. Nothing is published.
 #
-# A push to main or a hub-v* tag publishes ghcr.io/<owner>/ao-hub, on top of
-# the published worker image named by the AO_WORKER_TAG repository variable
-# (sha-<short> or worker-v<semver>). That path fails early if the variable is
-# unset, because no worker tag can be assumed.
+# A push to main, feat/railway-hosting, or a hub-v* tag publishes
+# ghcr.io/<owner>/ao-hub, on top of the published worker image named by the
+# AO_WORKER_TAG repository variable (sha-<short> or worker-v<semver>). That
+# path fails early if the variable is unset, because no worker tag can be
+# assumed. main and hub-v* publish linux/amd64 and linux/arm64;
+# feat/railway-hosting publishes linux/amd64 only, the platform Railway runs.
+#
+# After a feat/railway-hosting publish, the deploy job points the Railway hub
+# service at the new sha-<short> tag and waits for the deployment. It runs in
+# the railway-hub environment and needs its secrets RAILWAY_TOKEN (a project
+# token for the hub's project and environment) and RAILWAY_HUB_SERVICE_ID;
+# without them it is skipped with a notice. See deploy/railway/README.md.
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/railway-hosting]
     tags: ["hub-v*"]
     paths:
       - "backend/**"
@@ -36,6 +44,7 @@ permissions:
 
 # Pull requests cancel their older runs. A push to main and a hub-v* tag on the
 # same commit must not share a group, or the tag run could be cancelled.
+# Deploys have their own group (see the deploy job), so they never overlap.
 concurrency:
   group: hub-image-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -55,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.plan.outputs.publish }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+      deploy: ${{ steps.plan.outputs.deploy }}
       worker-image: ${{ steps.plan.outputs.worker-image }}
     steps:
       - name: Choose mode and worker image
@@ -68,6 +79,15 @@ jobs:
             publish=true
           fi
           echo "publish=$publish" >>"$GITHUB_OUTPUT"
+          # The integration branch feeds the Railway hub: amd64 only, then
+          # deploy. main and release tags stay multi-arch and never deploy.
+          if [ "$publish" = true ] && [ "$GITHUB_REF" = refs/heads/feat/railway-hosting ]; then
+            echo "platforms=linux/amd64" >>"$GITHUB_OUTPUT"
+            echo "deploy=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64,linux/arm64" >>"$GITHUB_OUTPUT"
+            echo "deploy=false" >>"$GITHUB_OUTPUT"
+          fi
           if [ "$publish" = true ]; then
             if [ -z "$WORKER_TAG" ]; then
               echo "::error::Publishing the hub image needs the AO_WORKER_TAG repository variable set to a published ao-worker tag (sha-<short> or worker-v<semver>)."
@@ -182,11 +202,11 @@ jobs:
           docker volume rm ao-hub-smoke || true
           docker network rm ao-hub-smoke || true
 
-  # Publish only: multi-arch build on top of the published worker tag, pushed
-  # to GHCR. linux/arm64 builds under QEMU; only the final stage is emulated
-  # because the web build runs on the build host.
+  # Publish only: build on top of the published worker tag, pushed to GHCR.
+  # linux/arm64 (main and hub-v*) builds under QEMU; only the final stage is
+  # emulated because the web build runs on the build host.
   publish:
-    name: Build and publish (linux/amd64, linux/arm64)
+    name: Build and publish
     needs: [plan, smoke]
     if: needs.plan.outputs.publish == 'true'
     runs-on: ubuntu-latest
@@ -194,10 +214,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image: ${{ steps.tags.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-qemu-action@v4
+        if: contains(needs.plan.outputs.platforms, 'arm64')
         with:
           platforms: arm64
 
@@ -210,6 +233,7 @@ jobs:
         run: |
           owner=${GITHUB_REPOSITORY%%/*}
           image=ghcr.io/${owner,,}/ao-hub
+          echo "image=$image:sha-${GITHUB_SHA::7}" >>"$GITHUB_OUTPUT"
           {
             echo "tags<<EOF"
             echo "$image:sha-${GITHUB_SHA::7}"
@@ -232,7 +256,7 @@ jobs:
         with:
           context: .
           file: deploy/railway/hub/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ needs.plan.outputs.platforms }}
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           labels: |
@@ -242,3 +266,70 @@ jobs:
             AO_WORKER_IMAGE=${{ needs.plan.outputs.worker-image }}
           cache-from: type=gha,scope=hub-image
           cache-to: type=gha,mode=max,scope=hub-image
+
+  # feat/railway-hosting only: point the Railway hub service at the image just
+  # published and wait for the deployment. The ao-hub package must be pullable
+  # by Railway (public, or registry credentials on the service). Restarting
+  # the hub stops its live agent processes and terminals and signs browsers
+  # out; /data persists. Required reviewers on the railway-hub environment
+  # turn each deploy into a one-click approval instead.
+  deploy:
+    name: Deploy to Railway
+    needs: [plan, publish]
+    if: needs.plan.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: railway-hub
+    concurrency:
+      group: railway-hub-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Update the hub image and deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE_ID: ${{ secrets.RAILWAY_HUB_SERVICE_ID }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$SERVICE_ID" ]; then
+            echo "::notice::Railway deploy skipped: set RAILWAY_TOKEN and RAILWAY_HUB_SERVICE_ID in the railway-hub environment."
+            exit 0
+          fi
+          # A project token authenticates with Project-Access-Token, never
+          # Authorization: Bearer (packages/hub-bff/docs/railway-api-notes.md).
+          gql() {
+            jq -n --arg query "$1" --argjson variables "$2" '{query: $query, variables: $variables}' |
+              curl --silent --show-error --fail-with-body \
+                --header "Project-Access-Token: $RAILWAY_TOKEN" \
+                --header 'Content-Type: application/json' \
+                --data @- https://backboard.railway.com/graphql/v2 >response.json
+            if jq --exit-status '.errors | length > 0' response.json >/dev/null; then
+              jq -r '.errors[].message' response.json | sed 's/^/::error::Railway: /'
+              exit 1
+            fi
+          }
+
+          gql 'query { projectToken { environmentId } }' '{}'
+          env_id=$(jq -r '.data.projectToken.environmentId' response.json)
+          echo "::add-mask::$env_id"
+          vars=$(jq -n --arg s "$SERVICE_ID" --arg e "$env_id" --arg i "$IMAGE" \
+            '{serviceId: $s, environmentId: $e, input: {source: {image: $i}}}')
+          gql 'mutation($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }' "$vars"
+          echo "Hub service image set to $IMAGE"
+
+          vars=$(jq -n --arg s "$SERVICE_ID" --arg e "$env_id" '{serviceId: $s, environmentId: $e}')
+          gql 'mutation($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' "$vars"
+          deployment=$(jq -r '.data.serviceInstanceDeployV2' response.json)
+          echo "::add-mask::$deployment"
+
+          vars=$(jq -n --arg id "$deployment" '{id: $id}')
+          status=UNKNOWN
+          for _ in $(seq 90); do
+            gql 'query($id: String!) { deployment(id: $id) { status } }' "$vars"
+            status=$(jq -r '.data.deployment.status' response.json)
+            case $status in
+              SUCCESS|FAILED|CRASHED|REMOVED|SKIPPED) break ;;
+            esac
+            sleep 10
+          done
+          echo "Hub deployment status: $status"
+          test "$status" = SUCCESS
