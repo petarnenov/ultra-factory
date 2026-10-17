@@ -433,6 +433,31 @@ in `/data/ao/rw-tick/tick.log` and a `TICK` message in the orchestrator within
 10 minutes. Run only one tick per orchestrator: the Mac and the hub must not
 both nudge.
 
+### Cutover to the hub orchestrator
+
+1. Enrol each worker machine in the tailnet as `tag:ao-host`, with the
+   least-privilege ACL from [ADR 0008](../../docs/adr/0008-hub-egress-to-off-railway-hosts.md),
+   and verify its authenticated listener from the hub without opening a home
+   router or firewall port.
+2. Add each host to the hub by its tailnet IPv4, IPv6, or MagicDNS address and
+   confirm it is online with `ao host ls` in the hub.
+3. Stop the Mac orchestrator from creating workers. Wait for its existing
+   remote workers to finish and for every remote report link to be removed.
+4. Stop the Mac orchestrator and unload its launchd tick with
+   `orchestrator-tick.sh uninstall`.
+5. Start the hub orchestrator, set `AO_HUB_ORCHESTRATOR_TICK=1`, and verify that
+   only the hub orchestrator and tick are active. Before every planned hub
+   redeploy, pause the tick as described above and resume it only after the hub
+   checks pass.
+
+### Rollback to the Mac orchestrator
+
+**Status (2026-10-17): documented, not yet tried.** Pause the hub tick, stop the
+hub orchestrator, and remove `AO_HUB_ORCHESTRATOR_TICK` if the hub must remain
+without a wake-up loop. Restart the Mac orchestrator with its orchestrator
+prompt, then reload its launchd tick with `orchestrator-tick.sh install`. Verify
+that exactly one orchestrator and one tick are active before allowing new work.
+
 ### Updating the hub's Tailscale version
 
 Update `TAILSCALE_VERSION`, `TAILSCALE_SHA256_AMD64`, and
