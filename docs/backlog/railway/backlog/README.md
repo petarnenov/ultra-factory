@@ -70,9 +70,9 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | RW-2.4.4 Task: Renderer multi-host through the BFF instead of Electron `remotes` | [#34](https://github.com/petarnenov/ultra-factory/issues/34) | ✅ done | [#86](https://github.com/petarnenov/ultra-factory/pull/86) |
 | **RW-2.4 Story: BFF for the hub (login, proxy, host registry)** | [#30](https://github.com/petarnenov/ultra-factory/issues/30) | **✅ done** | — |
 | RW-2.5.1 Task: Hub Dockerfile and supervisor | [#36](https://github.com/petarnenov/ultra-factory/issues/36) | ✅ done | [#91](https://github.com/petarnenov/ultra-factory/pull/91) |
-| RW-2.5.2 Task: Hub deployment on Railway and runbook | [#37](https://github.com/petarnenov/ultra-factory/issues/37) | ⛔ needs-human | [#94](https://github.com/petarnenov/ultra-factory/pull/94) |
-| **RW-2.5 Story: Hub image and deployment** | [#35](https://github.com/petarnenov/ultra-factory/issues/35) | **⛔ needs-human** | — |
-| **RW-2 Epic: Web UI and BFF on Railway** | [#18](https://github.com/petarnenov/ultra-factory/issues/18) | **⛔ needs-human** | — |
+| RW-2.5.2 Task: Hub deployment on Railway and runbook | [#37](https://github.com/petarnenov/ultra-factory/issues/37) | ✅ done | [#94](https://github.com/petarnenov/ultra-factory/pull/94) |
+| **RW-2.5 Story: Hub image and deployment** | [#35](https://github.com/petarnenov/ultra-factory/issues/35) | **✅ done** | — |
+| **RW-2 Epic: Web UI and BFF on Railway** | [#18](https://github.com/petarnenov/ultra-factory/issues/18) | **✅ done** | — |
 | RW-3.1.1 Task: Railway public API spike | [#40](https://github.com/petarnenov/ultra-factory/issues/40) | ✅ done | [#81](https://github.com/petarnenov/ultra-factory/pull/81) |
 | RW-3.1.2 Task: `railway-client.ts` | [#41](https://github.com/petarnenov/ultra-factory/issues/41) | ✅ done | [#85](https://github.com/petarnenov/ultra-factory/pull/85) |
 | **RW-3.1 Story: Railway API client in the BFF** | [#39](https://github.com/petarnenov/ultra-factory/issues/39) | **✅ done** | — |
