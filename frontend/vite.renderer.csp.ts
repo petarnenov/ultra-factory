@@ -136,16 +136,18 @@ function webContentSecurityPolicy(mode: "build" | "serve"): string {
 		mode === "serve" ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
 		"style-src 'self' 'unsafe-inline'",
 		// Repository avatars from self-hosted SCM instances, as in the desktop
-		// policy, minus the loopback daemon origins.
+		// policy, minus the loopback daemon origins. Images only: every
+		// connection stays same-origin.
 		"img-src 'self' data: https:",
 		"font-src 'self' data:",
+		// No PostHog or cloud control-plane origins: the web bridge never
+		// bootstraps telemetry, and cloud terminals need the desktop main
+		// process's token, so neither ever connects from the web build.
 		[
 			"connect-src",
 			"'self'",
 			...explicitApiOrigins(),
 			mode === "serve" ? "ws://localhost:*" : "",
-			...POSTHOG_ORIGINS,
-			...CLOUD_CP_WS_ORIGINS,
 		]
 			.filter(Boolean)
 			.join(" "),
