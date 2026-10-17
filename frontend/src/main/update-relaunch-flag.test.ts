@@ -45,12 +45,17 @@ it.each([
 
 it.each([
 	["a future timestamp", 2_001, 2_000],
-	["an infinite age", Number.POSITIVE_INFINITY, 2_000],
-	["a NaN age", Number.NaN, 2_000],
 	["an age beyond the lifetime", 1_000, 1_000 + 30 * 60_000 + 1],
 ])("rejects a marker with %s", async (_case, startedAt, now) => {
 	await markUpdateRelaunch({ stateDir: root, version: "1.2.3", pid: 100, now: startedAt });
 	expect(await consumeUpdateRelaunchFlag({ stateDir: root, version: "1.2.3", pid: 200, now })).toBe(false);
+});
+
+it("rejects and consumes a raw marker whose timestamp overflows to an infinite age", async () => {
+	await mkdir(path.join(root, "update-restart"), { recursive: true });
+	await writeFile(markerFile(root), '{"version":"1.2.3","fromPID":100,"startedAt":1e400}');
+	expect(await consumeUpdateRelaunchFlag({ stateDir: root, version: "1.2.3", pid: 200, now: 2_000 })).toBe(false);
+	await expect(readFile(markerFile(root), "utf8")).rejects.toThrow();
 });
 
 it("accepts a marker exactly at the lifetime boundary", async () => {
