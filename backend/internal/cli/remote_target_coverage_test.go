@@ -2,14 +2,14 @@ package cli
 
 import (
 	"context"
-
-	"github.com/spf13/cobra"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestCLI_RemoteTargetCoveragePureHelpers(t *testing.T) {
