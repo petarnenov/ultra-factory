@@ -26,3 +26,21 @@ it("keeps host-specific offline controls around shared project rows", () => {
 	fireEvent.click(screen.getByRole("button", { name: "Retry Box B" }));
 	expect(onRetry).toHaveBeenCalledOnce();
 });
+
+it("gives a connected host with no projects its own add-project row", () => {
+	const onAddProject = vi.fn();
+	render(<SidebarProvider><SidebarMenu><RemoteHostsSection
+		hosts={[
+			{ hostId: "box-a", label: "Box A", url: "https://a.test", status: "connected" },
+			{ hostId: "box-c", label: "Box C", url: "https://c.test", status: "connected" },
+		]}
+		workspaces={[{ hostId: "box-a", id: "shared", name: "Project A", path: "/a", sessions: [] }]}
+		renderProject={(host, workspace) => <SidebarMenuItem data-testid={`project-${host.hostId}`}>{workspace.name}</SidebarMenuItem>}
+		onRetry={vi.fn()}
+		onAddProject={onAddProject}
+	/></SidebarMenu></SidebarProvider>);
+	expect(screen.queryByRole("button", { name: "Add project on Box A" })).toBeNull();
+	expect(screen.getByText("No projects")).toBeVisible();
+	fireEvent.click(screen.getByRole("button", { name: "Add project on Box C" }));
+	expect(onAddProject).toHaveBeenCalledWith("box-c");
+});

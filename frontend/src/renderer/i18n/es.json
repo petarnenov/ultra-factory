@@ -2885,6 +2885,8 @@
 	"remote.cloneDescription": "Pega una URL de Git y elige dónde debe crear AO el checkout en el equipo.",
 	"remote.passwordRejected": "Contraseña rechazada",
 	"remote.retryHost": "Reintentar {{label}}",
+	"remote.addProjectOn": "Añadir proyecto en {{label}}",
+	"remote.noProjects": "Sin proyectos",
 	"remote.startOn": "Iniciar en {{label}}",
 	"remote.hostLabel": "Equipo remoto: {{hostId}}",
 	"remote.loadingSession": "Cargando sesión",
