@@ -390,6 +390,13 @@ flows remain unverified.
   [worker/README.md](worker/README.md). Leave the service start command empty so
   the image entrypoint runs. Set `RAILWAY_RUN_UID=0`; the entrypoint prepares the
   root-owned volume and drops to uid/gid `10001` before running the daemon.
+- A worker service that builds from this repository reads the root
+  [`railway.json`](../../railway.json). Its `build.watchPatterns` list the
+  worker image inputs (the paths `worker/Dockerfile.dockerignore` admits, the
+  worker directory, and `railway.json` itself), so a push that changes nothing
+  else does not redeploy the worker and stop its live sessions. Keep the list
+  in sync with that `.dockerignore`. Config-as-code overrides the dashboard's
+  watch paths; services that deploy from an image do not read the file.
 - A desktop app and CLI compatible with the deployed worker revision. The desktop
   app is the recommended installation path. Enable Developer mode under Settings
   → General and sign in to AO Cloud to use Settings → Remote hosts, as described
