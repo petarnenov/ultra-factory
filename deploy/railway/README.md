@@ -432,6 +432,37 @@ in `/data/ao/rw-tick/tick.log` and a `TICK` message in the orchestrator within
 10 minutes. Run only one tick per orchestrator: the Mac and the hub must not
 both nudge.
 
+### Updating the hub's Tailscale version
+
+Update `TAILSCALE_VERSION`, `TAILSCALE_SHA256_AMD64`, and
+`TAILSCALE_SHA256_ARM64` together in `hub/Dockerfile`. Download both archives
+from the [stable package server](https://pkgs.tailscale.com/stable/), compute
+their hashes locally, and cross-check the published `.sha256` files:
+
+```bash
+version=1.104.1 # Replace with the new version.
+download_dir=$(mktemp -d)
+for arch in amd64 arm64; do
+  archive="tailscale_${version}_${arch}.tgz"
+  curl -fLsS "https://pkgs.tailscale.com/stable/${archive}" -o "$download_dir/$archive"
+  curl -fLsS "https://pkgs.tailscale.com/stable/${archive}.sha256" -o "$download_dir/$archive.sha256"
+  sha256sum "$download_dir/$archive"
+  printf '%s  %s\n' "$(cat "$download_dir/$archive.sha256")" "$download_dir/$archive" | sha256sum --check
+done
+```
+
+Copy each locally computed hash into the matching architecture's build arg.
+The build checks the pinned hash first, then the published hash, before
+extracting the archive. Rebuild the hub for `linux/amd64` and `linux/arm64`
+when bumping the version. From the repository root, with `ao-worker:dev`
+available, this negative check must fail at archive verification:
+
+```bash
+docker build --platform linux/amd64 -f deploy/railway/hub/Dockerfile \
+  --build-arg TAILSCALE_SHA256_AMD64=0000000000000000000000000000000000000000000000000000000000000000 \
+  -t ao-hub:checksum-negative .
+```
+
 ### Automated image publish and deploy
 
 [`.github/workflows/hub-image.yml`](../../.github/workflows/hub-image.yml)
