@@ -25,6 +25,9 @@ export type HubHost = {
 /** A Railway service named like a worker that the registry does not know. */
 export type HubOrphan = { id: string; name: string };
 
+/** A Railway worker with no active session for at least `idleStopHours`. */
+export type HubIdleWorker = { id: string; idleSince: string };
+
 export type HubWorkers = {
 	workers: HubHost[];
 	orphans: HubOrphan[];
@@ -32,6 +35,8 @@ export type HubWorkers = {
 	workersByStatus: Record<string, number>;
 	limit: number;
 	providerConfigured?: boolean;
+	idle?: HubIdleWorker[];
+	idleStopHours?: number;
 };
 
 const HUB_WORKERS_PATH = "/hub/workers";
@@ -66,6 +71,8 @@ async function fetchHubWorkers(signal: AbortSignal): Promise<HubWorkers> {
 		workersByStatus: body.workersByStatus ?? {},
 		limit: body.limit ?? 0,
 		...(body.providerConfigured === undefined ? {} : { providerConfigured: body.providerConfigured }),
+		idle: body.idle ?? [],
+		...(body.idleStopHours === undefined ? {} : { idleStopHours: body.idleStopHours }),
 	};
 }
 

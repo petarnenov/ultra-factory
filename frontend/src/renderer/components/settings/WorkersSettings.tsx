@@ -1,4 +1,4 @@
-import { LoaderCircle, Server } from "lucide-react";
+import { Clock, LoaderCircle, Server } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useHubHosts, useHubHostSessionCounts, type HubHost, type HubHostStatus, type HubOrphan } from "../../hooks/useHubHosts";
@@ -69,6 +69,7 @@ export function WorkersSettings({
 	const { data, error, isPending, refetch } = useHubHosts();
 	const workers = data?.workers ?? [];
 	const sessionCounts = useHubHostSessionCounts(workers);
+	const idleIds = new Set((data?.idle ?? []).map((worker) => worker.id));
 	const dateFormat = new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" });
 
 	return <>
@@ -86,6 +87,7 @@ export function WorkersSettings({
 					<div data-testid="worker-row" data-worker-id={host.id} key={host.id}>
 						<SettingsRow icon={Server} label={host.label} description={description}>
 							<div className="flex items-center gap-2">
+								{idleIds.has(host.id) && data?.idleStopHours !== undefined ? <IdleWarning hours={data.idleStopHours} /> : null}
 								{sessions !== undefined ? <span className="text-xs tabular-nums text-settings-muted">{t("settings.workers.activeSessions", { count: sessions })}</span> : null}
 								<WorkerStatusBadge host={host} />
 								{onOpenHost && host.status === "online" ? <Button onClick={() => onOpenHost(host)} size="sm" type="button" variant="outline">{t("settings.workers.open")}</Button> : null}
@@ -99,6 +101,23 @@ export function WorkersSettings({
 		</SettingsSection>
 		{data && data.orphans.length > 0 ? <OrphansSection orphans={data.orphans} /> : null}
 	</>;
+}
+
+// The BFF only reports idleness (AO_HUB_IDLE_STOP_HOURS); stopping a Railway
+// worker without losing its volume is not verified, so the operator decides.
+function IdleWarning({ hours }: { hours: number }) {
+	const { t } = useTranslation();
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="inline-flex items-center gap-1 text-xs text-warning" data-testid="worker-idle" tabIndex={0}>
+					<Clock aria-hidden="true" className="size-3" />
+					{t("settings.workers.idle", { hours })}
+				</span>
+			</TooltipTrigger>
+			<TooltipContent>{t("settings.workers.idleHint", { hours })}</TooltipContent>
+		</Tooltip>
+	);
 }
 
 // Adopt and Delete need the orphan's volume id and credentials, which the

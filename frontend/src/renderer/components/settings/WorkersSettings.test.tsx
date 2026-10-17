@@ -109,6 +109,26 @@ describe("WorkersSettings", () => {
 		expect((await screen.findAllByText("Railway deployment failed")).length).toBeGreaterThan(0);
 	});
 
+	it("warns about an idle worker with the configured threshold", async () => {
+		payload.idle = [{ id: "on", idleSince: "2026-10-17T00:00:00.000Z" }];
+		payload.idleStopHours = 6;
+		renderWorkers();
+		const warning = await within(await waitFor(() => row("on"))).findByTestId("worker-idle");
+
+		expect(warning).toHaveTextContent("Idle 6+ h");
+		expect(within(row("unr")).queryByTestId("worker-idle")).toBeNull();
+		await act(async () => { fireEvent.focus(warning); });
+		expect((await screen.findAllByText(/No active session for 6 hours/)).length).toBeGreaterThan(0);
+	});
+
+	it("shows no idle warning when the idle check is off", async () => {
+		payload.idle = [{ id: "on", idleSince: "2026-10-17T00:00:00.000Z" }];
+		renderWorkers();
+		await screen.findByText("Worker on");
+
+		expect(screen.queryByTestId("worker-idle")).toBeNull();
+	});
+
 	it("lists orphans read-only with Adopt and Delete disabled", async () => {
 		payload.orphans = [{ id: "svc-123", name: "ao-worker-deadbeef" }];
 		renderWorkers();

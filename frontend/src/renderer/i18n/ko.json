@@ -3118,6 +3118,8 @@
 	"settings.workers.createdAt": "{{date}}에 생성됨",
 	"settings.workers.activeSessions_one": "활성 세션 {{count}}개",
 	"settings.workers.activeSessions_other": "활성 세션 {{count}}개",
+	"settings.workers.idle": "유휴 {{hours}}+시간",
+	"settings.workers.idleHint": "{{hours}}시간 동안 활성 세션이 없습니다. 워커는 실행되는 동안 계속 비용이 발생합니다. 더 이상 필요하지 않으면 제거하세요.",
 	"settings.workers.open": "열기",
 	"settings.workers.remove": "제거",
 	"settings.workers.remove.title": "{{label}}을(를) 제거할까요?",

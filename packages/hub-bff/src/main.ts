@@ -28,7 +28,7 @@ try {
 		: undefined;
 	if (config.providerMode === "fake") log("info", "fake worker provider enabled");
 	if (provider instanceof RailwayClient) await provider.assertProjectScope();
-	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log, audit, ...(config.providerMode === "fake" ? { workerPassword: () => config.fakeWorkerPassword! } : {}) });
+	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, maxVolumeGb: config.maxVolumeGb, idleStopHours: config.idleStopHours, log, audit, ...(config.providerMode === "fake" ? { workerPassword: () => config.fakeWorkerPassword! } : {}) });
 	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi, workersApi, audit });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {

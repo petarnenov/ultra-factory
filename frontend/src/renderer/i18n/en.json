@@ -3099,6 +3099,8 @@
 	"settings.workers.createdAt": "Created {{date}}",
 	"settings.workers.activeSessions_one": "{{count}} active session",
 	"settings.workers.activeSessions_other": "{{count}} active sessions",
+	"settings.workers.idle": "Idle {{hours}}+ h",
+	"settings.workers.idleHint": "No active session for {{hours}} hours. The worker keeps costing money while it runs; remove it if you no longer need it.",
 	"settings.workers.open": "Open",
 	"settings.workers.remove": "Remove",
 	"settings.workers.remove.title": "Remove {{label}}?",

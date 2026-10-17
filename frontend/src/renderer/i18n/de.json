@@ -3118,6 +3118,8 @@
 	"settings.workers.createdAt": "Erstellt {{date}}",
 	"settings.workers.activeSessions_one": "{{count}} aktive Sitzung",
 	"settings.workers.activeSessions_other": "{{count}} aktive Sitzungen",
+	"settings.workers.idle": "Inaktiv {{hours}}+ h",
+	"settings.workers.idleHint": "Seit {{hours}} Stunden keine aktive Sitzung. Der Worker verursacht weiter Kosten, solange er läuft; entferne ihn, wenn du ihn nicht mehr brauchst.",
 	"settings.workers.open": "Öffnen",
 	"settings.workers.remove": "Entfernen",
 	"settings.workers.remove.title": "{{label}} entfernen?",

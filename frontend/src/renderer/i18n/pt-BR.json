@@ -3163,6 +3163,8 @@
 	"settings.workers.activeSessions_one": "{{count}} sessão ativa",
 	"settings.workers.activeSessions_other": "{{count}} sessões ativas",
 	"settings.workers.activeSessions_many": "{{count}} sessões ativas",
+	"settings.workers.idle": "Ocioso {{hours}}+ h",
+	"settings.workers.idleHint": "Nenhuma sessão ativa há {{hours}} horas. O worker continua gerando custos enquanto estiver em execução; remova-o se não precisar mais dele.",
 	"settings.workers.open": "Abrir",
 	"settings.workers.remove": "Remover",
 	"settings.workers.remove.title": "Remover {{label}}?",

@@ -194,6 +194,61 @@ describe("Railway worker lifecycle", () => {
 		expect(provider.create).toHaveBeenCalledTimes(1);
 	});
 
+	it("validates a requested volume size against AO_HUB_MAX_VOLUME_GB before reporting sizing unsupported", async () => {
+		const provider = fakeProvider();
+		const h = await setup(provider, { maxVolumeGb: 10 });
+		const env = { GH_TOKEN: "gh-secret", AO_GIT_USER_NAME: "Agent", AO_GIT_USER_EMAIL: "agent@example.com" };
+		const tooLarge = await createWorker(h.server, h.cookie, { label: "worker-a", size: 50, env } as never);
+		expect(tooLarge.status).toBe(400);
+		expect(tooLarge.body).toMatchObject({ error: "volume_size_limit", size: 50, limit: 10 });
+		const invalid = await createWorker(h.server, h.cookie, { label: "worker-a", size: "big", env } as never);
+		expect(invalid.body).toMatchObject({ error: "invalid_size" });
+		const withinLimit = await createWorker(h.server, h.cookie, { label: "worker-a", size: 5, env } as never);
+		expect(withinLimit.body).toMatchObject({ error: "unsupported_size" });
+		expect(provider.create).not.toHaveBeenCalled();
+		expect(h.store.listRailwayWorkers()).toHaveLength(0);
+	});
+
+	it("flags an online worker idle after AO_HUB_IDLE_STOP_HOURS without sessions and never stops it", async () => {
+		let now = Date.parse("2026-10-17T00:00:00.000Z");
+		let sessions: unknown[] = [];
+		let failing = false;
+		const provider = fakeProvider();
+		const h = await setup(provider, { now: () => now, idleStopHours: 2, activeSessions: async () => { if (failing) throw new Error("down"); return sessions; } });
+		const id = await provisioned(h.server, h.cookie, h.store);
+		const idle = async () => (await request(h.server).get("/hub/workers").set("Cookie", h.cookie)).body;
+
+		await h.workersApi.checkIdle();
+		now += 60 * 60_000;
+		expect(await idle()).toMatchObject({ idle: [], idleStopHours: 2 });
+		now += 60 * 60_000;
+		expect((await idle()).idle).toEqual([{ id, idleSince: "2026-10-17T00:00:00.000Z" }]);
+
+		sessions = [{ id: "s", isTerminated: false, activity: { state: "active" } }];
+		await h.workersApi.checkIdle();
+		expect((await idle()).idle).toEqual([]);
+
+		sessions = [];
+		await h.workersApi.checkIdle();
+		now += 3 * 60 * 60_000;
+		failing = true;
+		await h.workersApi.checkIdle();
+		expect((await idle()).idle).toEqual([]);
+		expect(provider.delete).not.toHaveBeenCalled();
+		expect(h.store.getPublic(id)?.status).toBe("online");
+	});
+
+	it("reports no idle workers when AO_HUB_IDLE_STOP_HOURS is unset", async () => {
+		const activeSessions = vi.fn(async () => []);
+		const h = await setup(fakeProvider(), { activeSessions });
+		await provisioned(h.server, h.cookie, h.store);
+		await h.workersApi.checkIdle();
+		const body = (await request(h.server).get("/hub/workers").set("Cookie", h.cookie)).body;
+		expect(body.idle).toEqual([]);
+		expect(body.idleStopHours).toBeUndefined();
+		expect(activeSessions).not.toHaveBeenCalled();
+	});
+
 	it("deletes when the session list is empty", async () => {
 		const provider = fakeProvider();
 		const h = await setup(provider, { activeSessions: async () => [] });

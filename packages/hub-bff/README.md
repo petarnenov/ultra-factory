@@ -56,6 +56,8 @@ npm --prefix packages/hub-bff run typecheck
 | `AO_HUB_DAEMON_PASSWORD_FILE` | no | The hub daemon's `mobile/config.json`, source of the `hub` entry. Default `<AO_DATA_DIR or ~/.ao/data>/mobile/config.json`. |
 | `AO_WEB_ORIGIN` | no | Public origin such as `https://hub.example.com`. When set, state-changing requests must carry exactly this `Origin`; otherwise `Origin` must match the request's `Host`. |
 | `AO_HUB_MAX_WORKERS` | no | Maximum registered Railway workers. Default `5`; must be a positive integer. |
+| `AO_HUB_MAX_VOLUME_GB` | no | Largest worker volume, in GB, a `POST /hub/workers` `size` may request. Unset means no limit; must be a positive number. Railway's `volumeCreate` takes no size, so a valid size is still rejected as `unsupported_size`. |
+| `AO_HUB_IDLE_STOP_HOURS` | no | Flags an online Railway worker as idle after it has had no active session for this many hours. Unset (the default) turns the check off; must be a positive number. Warning only: workers are never stopped automatically. |
 
 Rotating the password is changing the variable and redeploying. Sessions live in
 memory, so a redeploy also signs everyone out.
@@ -74,8 +76,8 @@ memory, so a redeploy also signs everyone out.
 | `POST /hub/hosts` | session | JSON `{"label","url","password"}`. Probes `GET <url>/api/v1/identity`, then checks the bearer with `GET <url>/api/v1/projects`, then saves. `201 {"host":...}`; `400` invalid input; `409` duplicate label or host; `422 host_credential_rejected`; `502 host_unreachable` or `unsupported_api_version`. |
 | `DELETE /hub/hosts/:id` | session | Removes the registry record only (nothing in Railway is deleted). `204`; `404`; `409 hub_not_removable` for the hub entry. |
 | `POST /hub/hosts/:id/probe` | session | Probes the host now. `200 {"host":...}` with the new `status`; `404`. |
-| `GET /hub/workers` | session | Returns registered hosts, detected Railway service orphans, status counts, the last successful reconcile, and the configured worker limit. Does not adopt or delete orphans. |
-| `POST /hub/workers` | session | Creates a Railway worker asynchronously. Returns `202`; returns `429 {"error":"worker_limit_reached","count","limit"}` at the configured limit. |
+| `GET /hub/workers` | session | Returns registered hosts, detected Railway service orphans, status counts, the last successful reconcile, the configured worker limit, and `idle` (`[{"id","idleSince"}]`, plus `idleStopHours` when the idle check is on). Does not adopt or delete orphans. |
+| `POST /hub/workers` | session | Creates a Railway worker asynchronously. Returns `202`; returns `429 {"error":"worker_limit_reached","count","limit"}` at the configured limit. A `size` returns `400`: `invalid_size`, `volume_size_limit` with `size` and `limit` above `AO_HUB_MAX_VOLUME_GB`, otherwise `unsupported_size`. |
 | `DELETE /hub/workers/:id` | session | Requests deletion of a registered Railway worker; failed deletion remains recorded for manual cleanup. |
 | `GET /hub/audit?limit=` | session | Returns the newest audit entries, oldest first within the returned page. `limit` defaults to `100`, maximum `1000`. |
 | everything else | session | The SPA from `AO_HUB_SPA_DIR`, with `index.html` as the fallback for extensionless client-side routes. Without a session: `302 /login` for a page navigation, `401 {"error":"unauthorized"}` otherwise. |

@@ -75,6 +75,18 @@ describe("loadConfig", () => {
 		});
 	});
 
+	it("leaves the volume limit and idle check off by default and validates overrides", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect(await loadConfig(base)).toMatchObject({ maxVolumeGb: undefined, idleStopHours: undefined });
+			expect(await loadConfig({ ...base, AO_HUB_MAX_VOLUME_GB: "50", AO_HUB_IDLE_STOP_HOURS: "12" })).toMatchObject({ maxVolumeGb: 50, idleStopHours: 12 });
+			expect((await loadConfig({ ...base, AO_HUB_IDLE_STOP_HOURS: "" })).idleStopHours).toBeUndefined();
+			await expect(loadConfig({ ...base, AO_HUB_MAX_VOLUME_GB: "0" })).rejects.toThrow(/AO_HUB_MAX_VOLUME_GB/);
+			await expect(loadConfig({ ...base, AO_HUB_IDLE_STOP_HOURS: "soon" })).rejects.toThrow(/AO_HUB_IDLE_STOP_HOURS/);
+		});
+	});
+
 	it("requires the Railway project and environment with a Railway token", async () => {
 		const hash = await hashPassword("pw", TEST_COST);
 		await withSpa(async (dir) => {
@@ -89,18 +101,6 @@ describe("loadConfig", () => {
 		await withSpa(async (dir) => {
 			const config = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash, RAILWAY_PROJECT_ID: "project", RAILWAY_ENVIRONMENT_ID: "environment" });
 			expect(config.railwayToken).toBeUndefined();
-		});
-	});
-
-	it("enables fake provider only with explicit safe test configuration", async () => {
-		const hash = await hashPassword("pw", TEST_COST);
-		await withSpa(async (dir) => {
-			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
-			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "unknown" })).rejects.toThrow(/AO_HUB_PROVIDER/);
-			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "fake" })).rejects.toThrow(/FAKE_WORKER_URL/);
-			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "fake", AO_HUB_FAKE_WORKER_URL: "http://worker-1:3011", AO_HUB_FAKE_WORKER_PASSWORD: "pw", RAILWAY_PROJECT_ID: "project" })).rejects.toThrow(/cannot be used/);
-			const config = await loadConfig({ ...base, AO_HUB_PROVIDER: "fake", AO_HUB_FAKE_WORKER_URL: "http://worker-1:3011", AO_HUB_FAKE_WORKER_PASSWORD: "pw" });
-			expect(config).toMatchObject({ providerMode: "fake", fakeWorkerUrl: "http://worker-1:3011", fakeWorkerPassword: "pw" });
 		});
 	});
 

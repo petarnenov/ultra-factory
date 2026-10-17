@@ -3118,6 +3118,8 @@
 	"settings.workers.createdAt": "作成日時 {{date}}",
 	"settings.workers.activeSessions_one": "アクティブなセッション {{count}} 件",
 	"settings.workers.activeSessions_other": "アクティブなセッション {{count}} 件",
+	"settings.workers.idle": "アイドル {{hours}}+ 時間",
+	"settings.workers.idleHint": "{{hours}} 時間アクティブなセッションがありません。ワーカーは稼働中ずっと費用が発生します。不要になった場合は削除してください。",
 	"settings.workers.open": "開く",
 	"settings.workers.remove": "削除",
 	"settings.workers.remove.title": "{{label}} を削除しますか？",
