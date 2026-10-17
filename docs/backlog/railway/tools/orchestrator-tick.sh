@@ -134,10 +134,17 @@ invariants() {
 		sessions+="\"$h\": $(ao session ls --host "$h" --json 2>/dev/null || echo '{}'),"
 	done
 	sessions="${sessions%,}}"
-	OPEN_PRS="$open_prs" MERGED_PRS="$merged_prs" OPEN_ISSUES="$open_issues" SESSIONS="$sessions" \
-		GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" MIX_SINCE="$AGENT_MIX_SINCE" python3 - <<'PY'
+	# Pass JSON through file descriptors rather than size-limited environment entries.
+	GREEN_MAX="$GREEN_PR_MAX_MINUTES" IDLE_MAX="$IDLE_WORKER_MAX_MINUTES" MIX_SINCE="$AGENT_MIX_SINCE" \
+		python3 - 3<<<"$open_prs" 4<<<"$merged_prs" 5<<<"$open_issues" 6<<<"$sessions" <<'PY'
 import json, os, re
 from datetime import datetime, timezone
+
+# Read each descriptor once; SESSIONS is used by two invariant checks.
+inputs = {}
+for fd, name in enumerate(("OPEN_PRS", "MERGED_PRS", "OPEN_ISSUES", "SESSIONS"), 3):
+    with os.fdopen(fd) as stream:
+        inputs[name] = stream.read()
 
 now = datetime.now(timezone.utc)
 
@@ -155,7 +162,7 @@ def minutes_since(t):
 
 def load(name, default):
     try:
-        return json.loads(os.environ.get(name) or "")
+        return json.loads(inputs.get(name) or "")
     except ValueError:
         return default
 
