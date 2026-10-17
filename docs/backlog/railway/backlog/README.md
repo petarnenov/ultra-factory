@@ -95,7 +95,7 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | RW-4.3.2 Task: Documentation | [#58](https://github.com/petarnenov/ultra-factory/issues/58) | ⬜ todo | — |
 | **RW-4.3 Story: E2E test and documentation** | [#56](https://github.com/petarnenov/ultra-factory/issues/56) | **⬜ todo** | — |
 | **RW-4 Epic: Hardening, tests, documentation** | [#49](https://github.com/petarnenov/ultra-factory/issues/49) | **⬜ todo** | — |
-| RW-5.1.1 Task: ADR for hub egress to off-Railway hosts | [#114](https://github.com/petarnenov/ultra-factory/issues/114) | ⛔ needs-human | — |
+| RW-5.1.1 Task: ADR for hub egress to off-Railway hosts | [#114](https://github.com/petarnenov/ultra-factory/issues/114) | ⛔ needs-human | [#126](https://github.com/petarnenov/ultra-factory/pull/126) |
 | **RW-5.1 Story: ADR for the network path from the hub to machines outside Railway** | [#110](https://github.com/petarnenov/ultra-factory/issues/110) | **⛔ needs-human** | — |
 | RW-5.2.1 Task: Tailscale userspace in the hub image and supervisor | [#115](https://github.com/petarnenov/ultra-factory/issues/115) | ⬜ todo | — |
 | RW-5.2.2 Task: Daemon tailnet dialer for remote hosts | [#116](https://github.com/petarnenov/ultra-factory/issues/116) | ⬜ todo | — |

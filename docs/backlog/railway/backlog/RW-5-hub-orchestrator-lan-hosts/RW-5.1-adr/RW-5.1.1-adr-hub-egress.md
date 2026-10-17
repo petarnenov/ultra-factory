@@ -1,5 +1,5 @@
 # RW-5.1.1 · Task: ADR for hub egress to off-Railway hosts
-**Status:** ⛔ needs-human
+**Status:** ⛔ needs-human (#126)
 
 **Type:** ADR. **Estimate:** 0.5–1 pd. **Story:** RW-5.1.
 
