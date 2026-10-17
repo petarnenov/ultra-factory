@@ -39,7 +39,7 @@ test("logs in, connects and provisions a worker, uses its terminal, then removes
 		headers: { Origin: "http://localhost:8080" },
 		data: { name: "railway-e2e-fixture", remoteUrl: "file:///fixtures/e2e-fixture.git", destinationParent: "/data/projects" },
 	});
-	expect(clone.status()).toBe(201);
+	expect(clone.status(), `Project clone failed: ${await clone.text()}`).toBe(201);
 	const { project } = await clone.json();
 	const sessionResponse = await page.request.post(`/hosts/${registered.hostId}/api/v1/sessions`, {
 		headers: { Origin: "http://localhost:8080" },
