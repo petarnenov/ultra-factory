@@ -67,11 +67,9 @@ from [hub/Dockerfile](hub/Dockerfile),
 `AO_HUB_DAEMON_URL` from the earlier task text are not read by the current
 code. The operator hash is `AO_WEB_PASSWORD_HASH`; the hub entry uses the
 daemon password file and its `lastPort` (normally `3011`) to form the internal
-loopback URL. The BFF currently keeps opaque sessions in memory and has no
-signing secret, so there is no session-secret variable to rotate. Treat the
-requested session-secret design/rotation as an open implementation decision;
-do not create or set a guessed variable. A BFF restart clears all browser
-sessions.
+loopback URL. As specified by [ADR 0006](../../docs/adr/0006-web-bff-for-hub.md),
+sessions are opaque random IDs held in BFF memory; there is no signing secret.
+A BFF redeploy clears all sessions by design.
 
 ### Add the RW-1.4 worker
 
@@ -110,12 +108,12 @@ SSE connections, or in-memory browser sessions.
 ### Rotate credentials and update the image
 
 - **Operator password:** generate a new hash with the command above, replace
-  `AO_WEB_PASSWORD_HASH` in Railway, and redeploy. The process restart clears
-  all in-memory sessions; verify the new password works and the old password
-  fails. Do not change `AO_WEB_PASSWORD` or use a plaintext Railway variable.
-- **Session secret:** there is no session signing secret in the current BFF.
-  Restarting invalidates sessions because they are in memory. A distinct secret
-  rotation procedure remains an open item until session signing is implemented.
+  `AO_WEB_PASSWORD_HASH` in Railway, then redeploy the BFF. Replacing the
+  operator password and redeploying invalidates all sessions because sessions
+  are opaque IDs held in memory; this is the intended behavior. Verify the new
+  password works and the old password fails. Do not change `AO_WEB_PASSWORD`
+  or use a plaintext Railway variable. There is no session signing secret to
+  configure or rotate.
 - **Hub daemon credential:** keep `/data/ao/mobile/config.json` with the volume;
   the supervisor seeds the listener as loopback-only on port `3011` and retains
   the generated password. Never publish either daemon port. Credential rotation
