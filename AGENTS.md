@@ -52,6 +52,14 @@ npm run build
 npm run build:web       # standalone web renderer → dist-web/ (VITE_AO_WEB=1; dev:web:real runs it against a real daemon via AO_DEV_API_TARGET)
 ```
 
+Railway hub (web BFF, `packages/hub-bff`) checks, from the repo root:
+
+```bash
+npm run hub-bff:check                       # BFF typecheck + vitest (same as make hub-bff-check)
+npm --prefix packages/hub-bff test          # BFF tests only
+./deploy/railway/compose.e2e.sh             # local hub + worker Compose and Playwright web e2e; requires Docker
+```
+
 When showing or demoing frontend changes, run `ao preview [url]` from inside the session so the change renders in the desktop browser panel (the inspector rail's Browser tab); do not just describe it.
 
 ### Desktop lab (running the real Electron app for UI review)
@@ -80,6 +88,7 @@ AO_DATA_DIR=/tmp/ao-lab-data ./node_modules/.bin/electron-forge start
 - `docs/architecture.md`: Backend mental model, package layout, lifecycle/session/service boundaries, and load-bearing rules.
 - `docs/STATUS.md`: What is shipped on `main` today and what is still in flight.
 - `docs/cli/README.md`: Intended CLI shape, a thin Cobra client over daemon HTTP with no direct storage/runtime access.
+- `docs/railway/architecture.md`: AO on Railway (hub, workers, web BFF), request flows, and web-build limits. Operator runbook: `deploy/railway/README.md`; threat model: `docs/railway/threat-model.md`.
 - `CLAUDE.md`: Compatibility pointer for Claude Code. It directs agents back to `AGENTS.md`.
 
 For code entry points:
