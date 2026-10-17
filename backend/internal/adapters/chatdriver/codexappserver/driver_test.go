@@ -1134,8 +1134,9 @@ func TestProbeReportsMissingBinary(t *testing.T) {
 	}
 }
 
-// Chat must not be quietly stricter than the terminal path for the same setting.
 // AO's own tools that load agent pages ask this before they use the network.
+// Every sandbox AO runs Codex in has network, workspace-write included (the
+// agent must reach the AO daemon on loopback), unless the caller disabled it.
 func TestSandboxAllowsNetworkFollowsTheCodexSandbox(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
@@ -1146,9 +1147,10 @@ func TestSandboxAllowsNetworkFollowsTheCodexSandbox(t *testing.T) {
 		want           bool
 	}{
 		{"full access at launch", false, false, ports.PermissionModeDefault, "", true},
-		{"accept edits at launch", false, false, ports.PermissionModeAcceptEdits, "", false},
-		{"auto at launch", false, false, ports.PermissionModeAuto, "", false},
-		{"turn narrows full access", false, false, ports.PermissionModeDefault, ports.PermissionModeAcceptEdits, false},
+		{"accept edits at launch", false, false, ports.PermissionModeAcceptEdits, "", true},
+		{"auto at launch", false, false, ports.PermissionModeAuto, "", true},
+		{"turn narrows full access", false, false, ports.PermissionModeDefault, ports.PermissionModeAcceptEdits, true},
+		{"network disabled", false, true, ports.PermissionModeAuto, "", false},
 		{"turn widens accept edits", false, false, ports.PermissionModeAcceptEdits, ports.PermissionModeDefault, true},
 		{"read-only reviewer", true, false, ports.PermissionModeAcceptEdits, "", true},
 		{"read-only background", true, true, ports.PermissionModeAcceptEdits, "", false},
@@ -1310,7 +1312,8 @@ func TestTurnSettingsUseTheTurnLevelWireShapes(t *testing.T) {
 		Effort         string `json:"effort"`
 		ApprovalPolicy string `json:"approvalPolicy"`
 		SandboxPolicy  struct {
-			Type string `json:"type"`
+			Type          string `json:"type"`
+			NetworkAccess bool   `json:"networkAccess"`
 		} `json:"sandboxPolicy"`
 	}
 	if err := json.Unmarshal(sent.Params, &params); err != nil {
@@ -1324,6 +1327,9 @@ func TestTurnSettingsUseTheTurnLevelWireShapes(t *testing.T) {
 	}
 	if params.SandboxPolicy.Type != "workspaceWrite" {
 		t.Errorf("sandboxPolicy.type = %q; a turn needs the tagged shape", params.SandboxPolicy.Type)
+	}
+	if !params.SandboxPolicy.NetworkAccess {
+		t.Error("sandboxPolicy.networkAccess = false; the agent could not reach the AO daemon")
 	}
 }
 

@@ -550,13 +550,13 @@ func TestGetLaunchCommandMapsApprovalModes(t *testing.T) {
 		{
 			name:        "accept-edits",
 			permission:  ports.PermissionModeAcceptEdits,
-			want:        []string{"--ask-for-approval", "on-request"},
+			want:        []string{"--ask-for-approval", "on-request", "-c", "sandbox_workspace_write.network_access=true"},
 			notExpected: "--dangerously-bypass-approvals-and-sandbox",
 		},
 		{
 			name:        "auto",
 			permission:  ports.PermissionModeAuto,
-			want:        []string{"--ask-for-approval", "on-request", "-c", `approvals_reviewer="auto_review"`},
+			want:        []string{"--ask-for-approval", "on-request", "-c", "sandbox_workspace_write.network_access=true", "-c", `approvals_reviewer="auto_review"`},
 			notExpected: "--dangerously-bypass-approvals-and-sandbox",
 		},
 		{
@@ -873,7 +873,7 @@ func TestGetRestoreCommandReadsAgentSessionID(t *testing.T) {
 		"-c", "check_for_update_on_startup=false",
 		"-c", "notice.hide_rate_limit_model_nudge=true",
 		"--dangerously-bypass-hook-trust",
-		"--ask-for-approval", "on-request",
+		"--ask-for-approval", "on-request", "-c", "sandbox_workspace_write.network_access=true",
 		"-c", `approvals_reviewer="auto_review"`,
 	}
 	want = append(want, sessionHookFlags(t)...)

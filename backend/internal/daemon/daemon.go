@@ -222,10 +222,13 @@ func Run() error {
 	// PID for unrelated processes. So a "live" PID is verified against an actual
 	// /healthz probe; a run-file left by a crashed/hard-killed/reused-PID
 	// predecessor is treated as stale and overwritten when the new server starts.
-	if live, err := runfile.CheckStale(cfg.RunFilePath); err != nil {
+	// The probe alone decides, without first requiring the PID to be visible: an
+	// agent sandbox with a private PID namespace cannot see a live predecessor's
+	// PID, and must not start a second daemon over it.
+	if prev, err := runfile.Read(cfg.RunFilePath); err != nil {
 		return fmt.Errorf("inspect run-file: %w", err)
-	} else if live != nil && runFileOwnerServing(&http.Client{Timeout: staleProbeTimeout}, config.LoopbackHost, live) {
-		return fmt.Errorf("daemon already running (pid %d, port %d); refusing to start", live.PID, live.Port)
+	} else if prev != nil && runFileOwnerServing(&http.Client{Timeout: staleProbeTimeout}, config.LoopbackHost, prev) {
+		return fmt.Errorf("daemon already running (pid %d, port %d); refusing to start", prev.PID, prev.Port)
 	}
 
 	// Open the durable store and bring up the CDC substrate: DB triggers capture

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
@@ -168,7 +169,26 @@ func (c *commandContext) ensureLocalDaemon(ctx context.Context, runFilePath stri
 		c.verifiedDaemon = key
 		return nil
 	}
+	if inAgentSession() {
+		return daemonUnavailableError{message: sandboxedDaemonMessage(info), cause: errDaemonNotRunning}
+	}
 	return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", runFilePath), cause: errDaemonNotRunning}
+}
+
+// inAgentSession reports whether this command runs inside an AO agent session,
+// which the daemon marks with AO_SESSION_ID.
+func inAgentSession() bool {
+	return strings.TrimSpace(os.Getenv("AO_SESSION_ID")) != ""
+}
+
+// sandboxedDaemonMessage explains an unreachable daemon to an agent. Neither the
+// run-file's PID nor its port is reachable, which inside an agent session most
+// often means a sandbox hides the daemon rather than that it stopped. Telling
+// the agent to start it made agents replace a live daemon with their own.
+func sandboxedDaemonMessage(info runfile.Info) string {
+	return fmt.Sprintf("AO daemon is not reachable from this agent session: its process (pid %d) is not visible and its port %d does not answer. "+
+		"It is most likely running outside your sandbox: run this command again outside the sandbox (request escalation). "+
+		"Do not run `ao start`, `ao stop` or `ao daemon` from an agent session.", info.PID, info.Port)
 }
 
 func (c *commandContext) doJSONPathWithHeadersAndTimeout(

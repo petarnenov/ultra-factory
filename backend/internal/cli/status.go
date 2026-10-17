@@ -107,6 +107,9 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 		if _, answered, err := c.probeRunFileOwner(ctx, *info); !answered || err != nil {
 			st.State = stateStale
 			st.Error = "run-file points to a dead process"
+			if inAgentSession() {
+				st.Error = sandboxedDaemonMessage(*info)
+			}
 			return st, nil
 		}
 	}

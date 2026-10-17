@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,5 +173,35 @@ func TestStaleRunFileIsRemovedWhenNothingAnswers(t *testing.T) {
 	}
 	if info, _ := runfile.Read(filepath.Clean(cfg.runFile)); info != nil {
 		t.Fatal("stale run-file was not removed")
+	}
+}
+
+// Inside an agent session an unreachable daemon is most likely hidden by a
+// sandbox; the message must not send the agent to `ao start`.
+func TestUnreachableDaemonMessageInAgentSession(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sessionID   string
+		wantContain string
+		wantAbsent  string
+	}{
+		"agent session": {sessionID: "ultra-factory-7", wantContain: "outside the sandbox", wantAbsent: "start it with `ao start`"},
+		"user shell":    {sessionID: "", wantContain: "start it with `ao start`", wantAbsent: "outside the sandbox"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			t.Setenv("AO_SESSION_ID", tc.sessionID)
+			srv, _ := sandboxDaemon(t, sandboxDaemonPID, sandboxDaemonInstance)
+			port := serverPort(t, srv.URL)
+			srv.Close()
+			writeSandboxRunFile(t, cfg.runFile, port)
+
+			err := pidInvisibleContext().getJSON(context.Background(), "projects", nil)
+			if !errors.Is(err, errDaemonNotRunning) {
+				t.Fatalf("err = %v, want errDaemonNotRunning", err)
+			}
+			if msg := err.Error(); !strings.Contains(msg, tc.wantContain) || strings.Contains(msg, tc.wantAbsent) {
+				t.Fatalf("message = %q, want it to contain %q and not %q", msg, tc.wantContain, tc.wantAbsent)
+			}
+		})
 	}
 }
