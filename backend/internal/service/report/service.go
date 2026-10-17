@@ -253,6 +253,12 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	if session.Kind != domain.KindWorker {
 		return domain.ReportRecord{}, apierr.Invalid("REPORT_WORKER_REQUIRED", "Reports can only be created by worker sessions", nil)
 	}
+	// A report is delivered to its project's orchestrator. A standalone worker
+	// has no project, so its report has no recipient and would otherwise fail
+	// the record's invariants as an internal error.
+	if session.ProjectID == "" {
+		return domain.ReportRecord{}, apierr.Invalid("REPORT_PROJECT_REQUIRED", "Reports can only be created by sessions that belong to a project; standalone sessions have no orchestrator to receive them", nil)
+	}
 
 	now := s.now().UTC()
 	var availableAt time.Time

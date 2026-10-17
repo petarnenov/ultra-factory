@@ -95,3 +95,26 @@ func reportContainsAll(s string, values ...string) bool {
 	}
 	return true
 }
+
+type standaloneReportStore struct{}
+
+func (standaloneReportStore) GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{ID: "standalone-5", Kind: domain.KindWorker}, true, nil
+}
+
+func (standaloneReportStore) CreateReport(context.Context, domain.ReportRecord) (domain.ReportRecord, error) {
+	return domain.ReportRecord{}, domain.ErrInvalidReport
+}
+
+// A report from a standalone worker (no project) is a client error, not an
+// internal server error.
+func TestReportsAPI_StandaloneWorkerReportIsABadRequest(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	svc := reportsvc.New(reportsvc.Deps{Store: standaloneReportStore{}})
+	srv := httptest.NewServer(httpd.NewRouterWithControl(config.Config{}, log, nil, httpd.APIDeps{Reports: svc}, httpd.ControlDeps{}))
+	defer srv.Close()
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/reports", `{"sessionId":"standalone-5","message":"hi"}`)
+	if status != http.StatusBadRequest || !strings.Contains(string(body), "REPORT_PROJECT_REQUIRED") {
+		t.Fatalf("status=%d body=%s, want 400 REPORT_PROJECT_REQUIRED", status, body)
+	}
+}
