@@ -1,5 +1,5 @@
 # RW-3.3.3 · Task: "Remove worker" dialog
-**Status:** ⬜ todo
+**Status:** 🔄 in progress
 
 **Type:** frontend React. **Estimate:** 0.5–1 pd. **Story:** RW-3.3.
 
