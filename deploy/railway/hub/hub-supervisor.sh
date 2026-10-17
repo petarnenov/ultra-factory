@@ -41,6 +41,7 @@ readonly ao_uid=10001 ao_gid=10001
 readonly volume_root=/data
 readonly data_dir=${AO_DATA_DIR:-/data/ao}
 readonly hub_dir=${AO_HUB_DATA_DIR:-/data/hub}
+readonly remotes_file=$hub_dir/remotes.json
 readonly home_dir=${HOME:-/data/home}
 readonly tailscale_dir=${AO_HUB_TAILSCALE_DIR:-/data/tailscale}
 readonly tailscale_socket=$tailscale_dir/tailscaled.sock
@@ -98,6 +99,8 @@ prepare_dirs() {
 		chmod 0700 "$dir" || die "cannot chmod $dir; it must be owned by uid $(id -u)"
 	done
 }
+
+export AO_REMOTES_FILE=$remotes_file
 
 # Same character set as the worker entrypoint's password generator.
 generate_password() {

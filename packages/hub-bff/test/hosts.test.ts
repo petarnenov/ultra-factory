@@ -140,7 +140,12 @@ describe("hosts store", () => {
 		await store.add({ label: "worker-1", url: "http://worker-1.railway.internal:3011", password: "secret", hostId: "h_1" });
 		const file = path.join(dir, "hub", "hosts.json");
 		expect(statSync(file).mode & 0o777).toBe(0o600);
-		expect(readdirSync(path.join(dir, "hub"))).toEqual(["hosts.json"]);
+		const mirrorFile = path.join(dir, "hub", "remotes.json");
+		expect(statSync(mirrorFile).mode & 0o777).toBe(0o600);
+		expect(readdirSync(path.join(dir, "hub")).sort()).toEqual(["hosts.json", "remotes.json"]);
+		expect(JSON.parse(readFileSync(mirrorFile, "utf8"))).toEqual({ remotes: [
+			{ label: "worker-1", url: "http://worker-1.railway.internal:3011", password: "secret", hostId: "h_1" },
+		] });
 		const saved = JSON.parse(readFileSync(file, "utf8"));
 		expect(saved).toEqual([
 			expect.objectContaining({ label: "worker-1", url: "http://worker-1.railway.internal:3011", password: "secret", hostId: "h_1", source: "manual", status: "unknown" }),
@@ -149,6 +154,50 @@ describe("hosts store", () => {
 		const reopened = await HostsStore.open(path.join(dir, "hub"));
 		expect(reopened.getHost("h_1")).toEqual({ url: "http://worker-1.railway.internal:3011", hostId: "h_1", bearer: "secret" });
 		expect(reopened.list()[0]).not.toHaveProperty("password");
+	});
+
+	it("rebuilds remotes.json from an existing registry on open", async () => {
+		const dataDir = path.join(dir, "hub");
+		mkdirSync(dataDir);
+		writeFileSync(path.join(dataDir, "hosts.json"), JSON.stringify([
+			{ label: "hub", url: "http://127.0.0.1:3011", password: "hub-secret", hostId: "hub-id", source: "hub", createdAt: "2026-01-01T00:00:00.000Z", status: "online" },
+			{ label: "worker-1", url: "https://worker.example", password: "worker-secret", hostId: "worker-id", source: "manual", createdAt: "2026-01-01T00:00:00.000Z", status: "online" },
+			{ label: "pending", url: "", password: "pending-secret", source: "railway", createdAt: "2026-01-01T00:00:00.000Z", status: "provisioning" },
+		]), { mode: 0o600 });
+		const store = await HostsStore.open(dataDir);
+		const file = path.join(dataDir, "remotes.json");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ remotes: [
+			{ label: "worker-1", url: "https://worker.example", password: "worker-secret", hostId: "worker-id" },
+		] });
+		expect(store.list()).toHaveLength(3);
+	});
+
+	it("creates an empty remotes.json when opening without a registry", async () => {
+		const dataDir = path.join(dir, "empty-hub");
+		const store = await HostsStore.open(dataDir);
+		const file = path.join(dataDir, "remotes.json");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ remotes: [] });
+		expect(store.list()).toEqual([]);
+	});
+
+	it("mirrors only confirmed, active non-hub hosts through add, identity changes, and remove", async () => {
+		const store = await HostsStore.open(path.join(dir, "hub"));
+		const mirror = () => JSON.parse(readFileSync(path.join(dir, "hub", "remotes.json"), "utf8"));
+		await store.upsertHub({ url: "http://127.0.0.1:3011", password: "hub-secret" });
+		await store.createWorker({ id: "worker-record", label: "worker", password: "worker-secret" });
+		expect(mirror()).toEqual({ remotes: [] });
+		await store.updateWorker("worker-record", { url: "http://worker.example:3011", hostId: "worker-id", status: "online" });
+		expect(mirror()).toEqual({ remotes: [
+			{ label: "worker", url: "http://worker.example:3011", password: "worker-secret", hostId: "worker-id" },
+		] });
+		await store.recordProbe("worker-id", { status: "online", hostId: "worker-id" });
+		expect(mirror().remotes[0].hostId).toBe("worker-id");
+		await store.updateWorker("worker-record", { desired: "removed" });
+		expect(mirror()).toEqual({ remotes: [] });
+		await store.removeWorker("worker-record");
+		expect(mirror()).toEqual({ remotes: [] });
 	});
 
 	it("keeps labels unique, case-insensitively, and reserves the hub label", async () => {

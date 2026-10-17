@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile, chown } from "node:fs/promises";
 import { BlockList, isIP } from "node:net";
 import path from "node:path";
 
@@ -130,6 +130,7 @@ export type NewHost = {
 
 export class HostsStore {
 	readonly file: string;
+	readonly remotesFile: string;
 	readonly #allowLoopback: boolean;
 	readonly #now: () => number;
 	#hosts: HostEntry[] = [];
@@ -137,6 +138,7 @@ export class HostsStore {
 
 	private constructor(file: string, allowLoopback: boolean, now: () => number) {
 		this.file = file;
+		this.remotesFile = path.join(path.dirname(file), "remotes.json");
 		this.#allowLoopback = allowLoopback;
 		this.#now = now;
 	}
@@ -147,6 +149,7 @@ export class HostsStore {
 	static async open(dataDir: string, options: { allowLoopback?: boolean; now?: () => number } = {}): Promise<HostsStore> {
 		const store = new HostsStore(path.join(dataDir, "hosts.json"), options.allowLoopback ?? false, options.now ?? Date.now);
 		await store.#load();
+		await store.#writeRemotes(store.#hosts);
 		return store;
 	}
 
@@ -177,16 +180,29 @@ export class HostsStore {
 	// only copy. The temporary file is 0600 before any content is written.
 	async #save(hosts: HostEntry[]): Promise<void> {
 		await mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
-		const temporary = `${this.file}.${randomUUID()}.tmp`;
+		await this.#writeAtomic(this.file, `${JSON.stringify(hosts, null, 2)}\n`);
+		await this.#writeRemotes(hosts);
+		this.#hosts = hosts;
+	}
+
+	async #writeRemotes(hosts: HostEntry[]): Promise<void> {
+		await mkdir(path.dirname(this.remotesFile), { recursive: true, mode: 0o700 });
+		const remotes = hosts.filter((host) => host.source !== "hub" && host.hostId && host.desired !== "removed")
+			.map(({ label, url, password, hostId, accountUserId }) => ({ label, url, password, hostId, ...(accountUserId ? { accountUserId } : {}) }));
+		await this.#writeAtomic(this.remotesFile, `${JSON.stringify({ remotes }, null, 2)}\n`);
+	}
+
+	async #writeAtomic(file: string, contents: string): Promise<void> {
+		const temporary = `${file}.${randomUUID()}.tmp`;
 		let renamed = false;
 		try {
-			await writeFile(temporary, `${JSON.stringify(hosts, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
-			await rename(temporary, this.file);
+			await writeFile(temporary, contents, { encoding: "utf8", mode: 0o600, flag: "wx" });
+			if (process.getuid?.() === 0) await chown(temporary, 10001, 10001);
+			await rename(temporary, file);
 			renamed = true;
 		} finally {
 			if (!renamed) await rm(temporary, { force: true });
 		}
-		this.#hosts = hosts;
 	}
 
 	// Mutations are serialized so concurrent requests cannot lose each other's writes.

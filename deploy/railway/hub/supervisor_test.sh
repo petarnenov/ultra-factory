@@ -35,6 +35,23 @@ test_seeds_loopback_listener() {
 		[[ $(stat -c %a "$config") == 600 ]]
 }
 
+test_exports_remotes_file_to_daemon() {
+	local output="$work/daemon-env" fake="$work/daemon-env.sh" pid
+	cat >"$fake" <<EOF
+#!/usr/bin/env bash
+printf '%s' "\$AO_REMOTES_FILE" >"$output"
+sleep 6132
+EOF
+	chmod +x "$fake"
+	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_DAEMON_COMMAND="$fake" AO_HUB_BFF_MAIN="$work/sleep.js" bash "$supervisor" 2>"$work/remotes.log" &
+	pid=$!
+	for _ in $(seq 1 50); do [[ -f $output ]] && break; sleep 0.1; done
+	kill -TERM "$pid" 2>/dev/null || true
+	wait "$pid" || true
+	[[ -f $output && $(cat "$output") == "$work/hub/remotes.json" ]]
+}
+
 test_keeps_password_and_repairs_listener() {
 	local before after
 	before=$(jq -r .password "$config")
@@ -241,6 +258,7 @@ printf 'setInterval(() => {}, 1000);\n' >"$work/sleep.js"
 mkdir -p "$work/home"
 
 check "seeds a loopback-only listener on 3011 with a 0600 config" test_seeds_loopback_listener
+check "exports the hub remotes file to the daemon" test_exports_remotes_file_to_daemon
 check "keeps the password and repairs the listener on restart" test_keeps_password_and_repairs_listener
 check "rejects an invalid config.json" test_rejects_invalid_json
 check "never prints the generated password" test_never_logs_password
