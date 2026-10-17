@@ -50,6 +50,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/preview"
 	"github.com/aoagents/agent-orchestrator/backend/internal/previewserver"
 	"github.com/aoagents/agent-orchestrator/backend/internal/push"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
@@ -182,6 +183,10 @@ func enqueueAgentSwitchWorkerShutdownTimeout(
 func Run() error {
 	cfg, err := config.Load()
 	if err != nil {
+		return err
+	}
+	// Refuse to start on a malformed tailnet proxy rather than fail per request.
+	if _, err := remotehost.TailnetSOCKSAddress(); err != nil {
 		return err
 	}
 	if cwd, err := os.Getwd(); err == nil {
