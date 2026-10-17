@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useSyncExternalStore } from "react";
 import { markTerminalHandleFresh } from "../lib/fresh-terminal-handles";
 import type { components } from "../../api/schema";
-import { apiClient, apiErrorMessage, getApiBaseUrl, subscribeApiBaseUrl } from "../lib/api-client";
+import { apiClient, apiErrorMessage, getApiBaseUrl, hasTrustedApiBaseUrl, subscribeApiBaseUrl } from "../lib/api-client";
 import { usesPreviewWorkspaceData } from "../lib/preview-mode";
 import { shellTerminalsQueryKey, shellTerminalsQueryOptions, type ShellTerminal } from "./useShellTerminals";
 
@@ -125,12 +125,15 @@ export function useGitHubAuthAutoLoginOffered() {
  *  both read the same react-query cache entry and never disagree. */
 export function useSystemRequirementsGate() {
 	const baseUrl = useSyncExternalStore(subscribeApiBaseUrl, getApiBaseUrl, getApiBaseUrl);
+	// The web build's trusted base is "" (same origin), so trust is read
+	// separately rather than from the URL's truthiness.
+	const trusted = useSyncExternalStore(subscribeApiBaseUrl, hasTrustedApiBaseUrl, hasTrustedApiBaseUrl);
 	const query = useQuery({
 		...systemRequirementsQueryOptions,
 		queryKey: [...systemRequirementsQueryKey, baseUrl],
 		// The preview build has no daemon, and the desktop must wait for its
 		// trusted URL before making the first requirements request.
-		enabled: !usesPreviewWorkspaceData && Boolean(baseUrl),
+		enabled: !usesPreviewWorkspaceData && trusted,
 	});
 	const requirements = query.data?.requirements ?? [];
 	const requirementsBlocked =
