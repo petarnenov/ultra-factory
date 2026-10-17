@@ -89,7 +89,10 @@ func TestCandidateSupplierErrorsAndEmptyResult(t *testing.T) {
 }
 
 func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
-	binary := candidateExecutable(t, "/bin/sleep 1\nprintf '2.0.0\\n'\n")
+	oldTimeout := versionProbeTimeout
+	versionProbeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { versionProbeTimeout = oldTimeout })
+	binary := candidateExecutable(t, "/bin/sleep 0.1\nprintf '2.0.0\\n'\n")
 	got, err := ResolveBinaryForMajorWithCandidates(context.Background(), 2, func(ctx context.Context) ([]string, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok || time.Until(deadline) > versionProbeTimeout {
