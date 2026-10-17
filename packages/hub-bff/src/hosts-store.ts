@@ -9,7 +9,7 @@ import path from "node:path";
 // remoteEntry (backend/internal/cli/remote_target.go), so a record can move
 // between them, and adds the hub's own bookkeeping fields.
 
-export type HostStatus = "unknown" | "provisioning" | "online" | "unreachable" | "auth_failed" | "removing" | "failed";
+export type HostStatus = "draining" | "unknown" | "provisioning" | "online" | "unreachable" | "auth_failed" | "removing" | "failed";
 // "hub" marks the hub daemon's own entry, created from its mobile/config.json.
 export type HostSource = "manual" | "railway" | "hub";
 
@@ -36,7 +36,7 @@ export type HostEntry = {
 export type PublicHost = Omit<HostEntry, "password"> & { id: string; removable: boolean };
 
 // The upstream the reverse proxy resolves a host to (ProxyHost in proxy.ts).
-export type Upstream = { url: string; hostId: string; bearer: string };
+export type Upstream = { url: string; hostId: string; bearer: string; draining?: boolean };
 
 export const HUB_LABEL = "hub";
 // `id` used for the hub entry before its identity probe has returned a host id.
@@ -224,7 +224,7 @@ export class HostsStore {
 	getHost(id: string): Upstream | undefined {
 		const entry = this.get(id);
 		if (!entry?.hostId || !entry.password) return undefined;
-		return { url: entry.url, hostId: entry.hostId, bearer: entry.password };
+		return { url: entry.url, hostId: entry.hostId, bearer: entry.password, ...(entry.status === "draining" ? { draining: true } : {}) };
 	}
 
 	getHub(): Upstream | undefined {
@@ -352,7 +352,7 @@ export class HostsStore {
 			// container's own loopback listener. A worker keeps the id it was
 			// added with, and a different answer is a failed probe.
 			const hostId = entry.source === "hub" && result.hostId ? result.hostId : entry.hostId;
-			const next: HostEntry = { ...entry, status: result.status, checkedAt, ...(hostId ? { hostId } : {}) };
+			const next: HostEntry = { ...entry, status: entry.status === "draining" ? "draining" : result.status, checkedAt, ...(hostId ? { hostId } : {}) };
 			if (next.status !== entry.status || next.hostId !== entry.hostId) {
 				hosts[index] = next;
 				await this.#save(hosts);

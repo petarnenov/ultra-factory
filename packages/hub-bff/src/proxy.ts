@@ -3,7 +3,7 @@ import { request as httpRequest, validateHeaderValue, type IncomingHttpHeaders, 
 import { request as httpsRequest } from "node:https";
 import type { Duplex } from "node:stream";
 
-export type ProxyHost = { url: string; hostId: string; bearer: string };
+export type ProxyHost = { url: string; hostId: string; bearer: string; draining?: boolean };
 // RW-2.4.3 supplies paired registry entries, including the authenticated hub.
 export type ProxyHosts = { getHost(id: string): ProxyHost | undefined; getHub(): ProxyHost | undefined };
 
@@ -66,7 +66,7 @@ export function createProxy(hosts?: ProxyHosts) {
 		headers.authorization = `Bearer ${host.bearer}`;
 		headers["x-ao-expected-host-id"] = host.hostId;
 		if (selected.path.split("?")[0].includes("/preview/files/")) headers.cookie = `ao_conn=${host.bearer}`;
-		return { url, path: selected.path, headers };
+		return { url, path: selected.path, headers, draining: host.draining };
 	}
 
 	return {
@@ -74,6 +74,12 @@ export function createProxy(hosts?: ProxyHosts) {
 			let dest;
 			try { dest = target(req); } catch { proxyError(res, 502, "invalid host configuration"); return; }
 			if (!dest) { proxyError(res, 404, "host or route not found"); return; }
+			const pathname = decodeURIComponent(dest.path.split("?")[0]).replace(/\/$/, "");
+			if (dest.draining && req.method === "POST" && (
+				["/api/v1/sessions", "/api/v1/orchestrators", "/api/v1/orchestrators/delegate"].includes(pathname) ||
+				/^\/api\/v1\/projects\/[^/]+\/tasks\/prepare$/.test(pathname) ||
+				/^\/api\/v1\/sessions\/[^/]+\/(restore|resume-agent)$/.test(pathname)
+			)) { proxyError(res, 409, "worker_draining"); return; }
 			const upstream = (dest.url.protocol === "https:" ? httpsRequest : httpRequest)(dest.url, { method: req.method, path: dest.path, headers: dest.headers }, (reply) => {
 				if (reply.statusCode === 401) { reply.resume(); proxyError(res, 502, "host credential rejected"); return; }
 				const headers = clean(reply.headers);

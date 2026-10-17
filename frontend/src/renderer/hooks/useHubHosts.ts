@@ -6,7 +6,7 @@ import { webHostBaseUrl } from "../lib/web-remotes";
 // Its `workers` list is the same PublicHost list GET /hub/hosts returns, plus the
 // Railway reconcile facts (orphans, limit), so one request feeds the screen.
 
-export type HubHostStatus = "unknown" | "provisioning" | "online" | "unreachable" | "auth_failed" | "removing" | "failed";
+export type HubHostStatus = "draining" | "unknown" | "provisioning" | "online" | "unreachable" | "auth_failed" | "removing" | "failed";
 
 export type HubHost = {
 	id: string;
@@ -87,12 +87,12 @@ export function useHubHosts() {
 }
 
 /**
- * Active session counts for online workers, read through the BFF's
- * /hosts/<id> proxy. A host that is not online, or whose count failed, is
+ * Active session counts for online and draining workers, read through the BFF's
+ * /hosts/<id> proxy. A host outside those states, or whose count failed, is
  * left out of the map.
  */
 export function useHubHostSessionCounts(hosts: readonly HubHost[]): Record<string, number> {
-	const online = hosts.filter((host) => host.status === "online");
+	const online = hosts.filter((host) => (host.status === "online" || host.status === "draining"));
 	const results = useQueries({
 		queries: online.map((host) => ({
 			queryKey: ["hub", "host-sessions", host.id] as const,

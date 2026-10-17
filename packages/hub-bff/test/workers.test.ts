@@ -49,7 +49,7 @@ async function setup(provider: WorkerProvider, extras: Partial<Parameters<typeof
 		async list(limit: number) { return auditEntries.slice(-limit); },
 	};
 	const workersApi = createWorkersApi({ store, provider, image: "example/worker:latest", log: () => {}, audit, probe: async () => ({ ok: true, identity: { hostId: "worker-host" } }), ...extras });
-	const server = createBff({ spaDir: spa, passwordHash, log: () => {}, workersApi, audit, verify: async (candidate) => candidate === operatorPassword });
+	const server = createBff({ spaDir: spa, passwordHash, log: () => {}, workersApi, audit, hosts: store, verify: async (candidate) => candidate === operatorPassword });
 	servers.push(server);
 	const login = await request(server).post("/login").set("Host", "hub.test").set("Origin", origin).send({ password: operatorPassword });
 	const cookie = (login.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
@@ -72,6 +72,48 @@ function deleteWorker(server: ReturnType<typeof createBff>, cookie: string, id: 
 }
 
 describe("Railway worker lifecycle", () => {
+	it("persists draining through probes and restart, blocks creation, and allows explicit release", async () => {
+		const provider = fakeProvider();
+		const h = await setup(provider, { activeSessions: async () => [] });
+		const id = await provisioned(h.server, h.cookie, h.store);
+		const drain = await request(h.server).post(`/hub/workers/${id}/drain`).set("Host", "hub.test").set("Origin", origin).set("Cookie", h.cookie);
+		expect(drain.status).toBe(200);
+		expect(drain.body).toMatchObject({ readyForRedeploy: true, worker: { status: "draining" } });
+		await h.store.recordProbe(id, { status: "online" });
+		const reopened = await HostsStore.open(path.join(dir, "data"));
+		expect(reopened.getPublic(id)?.status).toBe("draining");
+		for (const route of ["sessions", "orchestrators", "orchestrators/delegate", "projects/example/tasks/prepare", "sessions/example/restore", "sessions/example/resume-agent", "%73essions"]) {
+			const blocked = await request(h.server).post(`/hosts/${id}/api/v1/${route}`).set("Host", "hub.test").set("Origin", origin).set("Cookie", h.cookie).send({});
+			expect(blocked.status).toBe(409);
+			expect(blocked.body.error).toBe("worker_draining");
+		}
+		expect(provider.redeploy).not.toHaveBeenCalled();
+		expect(provider.delete).not.toHaveBeenCalled();
+		const release = await request(h.server).delete(`/hub/workers/${id}/drain`).set("Host", "hub.test").set("Origin", origin).set("Cookie", h.cookie);
+		expect(release.status).toBe(200);
+		expect(h.store.getHost(id)?.draining).toBeUndefined();
+	});
+
+	it.each(["idle", "waiting_input"])("does not call a worker empty while a %s session remains", async (state) => {
+		const h = await setup(fakeProvider(), { activeSessions: async () => [{ id: "s1", isTerminated: false, activity: { state }, secret: "hidden" }] });
+		const id = await provisioned(h.server, h.cookie, h.store);
+		const result = await request(h.server).post(`/hub/workers/${id}/drain`).set("Host", "hub.test").set("Origin", origin).set("Cookie", h.cookie);
+		expect(result.body.readyForRedeploy).toBe(false);
+		expect(result.body.sessions).toHaveLength(1);
+		expect(result.text).not.toContain("hidden");
+	});
+
+	it("keeps draining when the session check fails and requires login and origin", async () => {
+		const h = await setup(fakeProvider(), { activeSessions: async () => { throw new Error("unreachable"); } });
+		const id = await provisioned(h.server, h.cookie, h.store);
+		const route = `/hub/workers/${id}/drain`;
+		expect((await request(h.server).post(route).set("Host", "hub.test").set("Origin", origin)).status).toBe(401);
+		expect((await request(h.server).post(route).set("Cookie", h.cookie)).status).toBe(403);
+		const result = await request(h.server).post(route).set("Host", "hub.test").set("Origin", origin).set("Cookie", h.cookie);
+		expect(result.status).toBe(409);
+		expect(result.body).toMatchObject({ readyForRedeploy: false, worker: { status: "draining" } });
+	});
+
 	it("reports worker management unavailable without a provider and quietly skips reconcile", async () => {
 		const logs: Array<{ level: string; message: string }> = [];
 		const h = await setup(undefined as never, { log: (level, message) => logs.push({ level, message }) });
