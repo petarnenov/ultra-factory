@@ -12,12 +12,16 @@ Move coordination from the Mac orchestrator to a hub orchestrator without losing
 - The LAN machines' listeners: Linux and Z600 on `:3011`, IMac on its configured port. They must be reachable on the tailnet address (bind on all interfaces, or on the Tailscale interface).
 
 ## Subtasks
-- [ ] Install Tailscale on IMac, Linux and Z600 and join them to the tailnet with the ACL from the ADR. Verify each listener answers `/api/v1/identity` from the hub over the tailnet. Change no router or firewall rule.
-- [ ] Add the three machines in the hub UI by tailnet address (`http://100.x.y.z:<port>` or MagicDNS). Confirm `ao host ls` inside the hub (RW-5.3.1).
+- [x] Install Tailscale on IMac, Linux and Z600 and join them to the tailnet with the ACL from the ADR. Verify each listener answers `/api/v1/identity` from the hub over the tailnet. Change no router or firewall rule.
+- [x] Add the three machines in the hub UI by tailnet address (`http://100.x.y.z:<port>` or MagicDNS). Confirm `ao host ls` inside the hub (RW-5.3.1).
 - [ ] Drain the Mac orchestrator: no new workers; wait until its remote workers end and their links are dropped (`ao session ls --host …`, the `remote reports: link removed` log).
-- [ ] Stop the Mac orchestrator and unload its launchd tick. Start the hub orchestrator with the orchestrator prompt, and enable the hub wake-up loop (RW-5.4.2).
+- [x] Stop the Mac orchestrator and unload its launchd tick. Start the hub orchestrator with the orchestrator prompt, and enable the hub wake-up loop (RW-5.4.2).
 - [ ] End to end on each machine: spawn a worker, receive its `ao report` in the hub orchestrator exactly once, open a PR, and merge it into the integration branch after review.
 - [ ] Update `deploy/railway/README.md` and `orchestrator-prompt.md` with the cutover and rollback (restart the Mac orchestrator, reload launchd).
+
+## Progress
+
+- 2026-10-17: IMac, Linux and Z600 joined the tailnet, and the hub reached their identity endpoints over the tailnet. All three hosts were added and reported online in `ao host ls`. The Mac orchestrator and its launchd tick were stopped; the Railway hub orchestrator was started with the wake-up loop enabled.
 
 ## Acceptance criteria
 - [ ] Hub orchestrator, three machines, one merged PR per machine, reports delivered exactly once, no inbound port at home.
