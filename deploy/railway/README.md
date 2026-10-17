@@ -1,4 +1,167 @@
-# Railway worker: operator runbook
+# Railway deployment runbooks
+
+## Hub
+
+This section covers the hub image from [hub/Dockerfile](hub/Dockerfile), which
+runs the AO daemon, hub BFF, and web SPA in one Railway service. Railway setup,
+deployment, and all browser checks below are operator procedures; none have been
+performed as part of this runbook. Keep every live result marked pending until
+an operator records sanitized evidence.
+
+### Create the service
+
+1. Build and publish the hub image from the repository root using the
+   instructions in [hub/Dockerfile](hub/Dockerfile), or select the published
+   hub image tag. Do not put credentials in build arguments or the image.
+2. Create a Railway service named `hub` from that image. Leave the start command
+   empty so the image entrypoint runs. Attach one persistent volume at `/data`.
+   The supervisor expects to initialize the volume as root and then run as uid
+   `10001`; set `RAILWAY_RUN_UID=0` so it can prepare ownership and permissions.
+3. Railway sets `PORT`; the BFF listens on it (the image default is `8080`).
+   Configure the service's public domain to target `$PORT`, not daemon ports
+   `3001` or `3011`. Railway's public domain/TLS provisioning and any custom
+   domain DNS/TLS status are pending operator validation.
+4. Generate the operator password hash locally. Enter the password without
+   putting it in shell history, then supply it on stdin to the repository's
+   helper; copy only the resulting hash to Railway's `AO_WEB_PASSWORD_HASH`
+   variable:
+
+   ```sh
+   read -rsp 'Hub operator password: ' HUB_PASSWORD; printf '\n'
+   printf '%s' "$HUB_PASSWORD" | npm --prefix packages/hub-bff run --silent hash-password
+   unset HUB_PASSWORD
+   ```
+
+   The actual helper is `packages/hub-bff/scripts/hash-password.ts`, invoked by
+   that npm script. Do not set `AO_WEB_PASSWORD` in Railway: although the BFF
+   supports it for local development, the Railway service should receive only
+   the salted scrypt hash. Never paste the password or hash into issue comments,
+   logs, or validation evidence.
+
+### Hub environment variables
+
+The following names are read by the hub image or BFF. Defaults noted below come
+from [hub/Dockerfile](hub/Dockerfile),
+[hub-supervisor.sh](hub/hub-supervisor.sh), and
+[`packages/hub-bff/src/config.ts`](../../packages/hub-bff/src/config.ts).
+
+| Variable | Hub configuration |
+| --- | --- |
+| `PORT` | Set by Railway; BFF listen port. Image default `8080`. Public domain target must use this port. |
+| `RAILWAY_RUN_UID` | Set to `0` so the supervisor can prepare `/data` ownership, then drop privileges to uid/gid `10001`. |
+| `AO_WEB_PASSWORD_HASH` | Required. Locally generated salted scrypt hash for operator login. Rotate by replacing this variable and redeploying. |
+| `AO_WEB_ORIGIN` | Optional public origin, for example `https://hub.example.com`; when set, state-changing requests must match it. |
+| `AO_HUB_SPA_DIR` | Image default `/opt/ao/hub/dist-web`; must contain `index.html`. |
+| `AO_HUB_DATA_DIR` | Image default `/data/hub`; contains `hosts.json`, including worker connection credentials. |
+| `AO_DATA_DIR` | Supervisor default `/data/ao`; daemon data, database, worktrees, and mobile listener configuration. |
+| `HOME` | Supervisor default `/data/home`; home files and Git configuration. |
+| `AO_HUB_DAEMON_PASSWORD_FILE` | Image default `/data/ao/mobile/config.json`; supervisor seeds this file on first start and preserves its daemon listener password on restarts. |
+| `AO_HUB_BFF_HOST` | Optional BFF listen address; code default `::` (all interfaces, dual-stack). |
+| `AO_HUB_MAX_WORKERS` | Optional worker registration limit; default `5`, positive integer. |
+| `RAILWAY_API_TOKEN` | Optional credential for Railway worker management. Supply only after the operator has verified required permissions and accepted the resource/deletion behavior; the RW-3.1.1 spike did not verify service or volume deletion permissions. |
+| `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID` | Required with the Railway API token for worker provisioning. |
+| `AO_HUB_WORKER_IMAGE` | Optional worker image used for worker provisioning. |
+| `AO_HUB_WORKER_URL_MODE` | Optional `public` or `private`; default `public`. Private Railway DNS connectivity is an open live check. |
+
+`AO_HUB_OPERATOR_PASSWORD_HASH`, `AO_HUB_SESSION_SECRET`, and
+`AO_HUB_DAEMON_URL` from the earlier task text are not read by the current
+code. The operator hash is `AO_WEB_PASSWORD_HASH`; the hub entry uses the
+daemon password file and its `lastPort` (normally `3011`) to form the internal
+loopback URL. The BFF currently keeps opaque sessions in memory and has no
+signing secret, so there is no session-secret variable to rotate. Treat the
+requested session-secret design/rotation as an open implementation decision;
+do not create or set a guessed variable. A BFF restart clears all browser
+sessions.
+
+### Add the RW-1.4 worker
+
+After the hub is deployed and login works, open **Settings → Remote hosts** in
+the hub UI and add the worker with label `worker-1`, its listener URL, and its
+pairing password. Use
+`http://worker-1.railway.internal:3011` only after the operator verifies that
+the hub can resolve and reach that private endpoint (including Railway's
+private-network address family). The Railway spike did not verify this. If
+private networking does not work, use the worker's public HTTPS URL and verify
+that its public domain targets the authenticated listener on `3011`; never
+expose the hub daemon's `3001` listener. Confirm `/hub/hosts` contains the hub
+entry and the worker entry, and that the worker reports online. Do not include
+pairing credentials in screenshots or logs.
+
+### Data layout, backup, and recovery
+
+The hub image places durable state under the mounted volume:
+
+| Path | Contents |
+| --- | --- |
+| `/data/ao` | Daemon database, worktrees, `running.json`, and `mobile/config.json` for the loopback-only listener credential. |
+| `/data/hub/hosts.json` | Host registry, including worker connection credentials; stored with restrictive permissions. |
+| `/data/home` | Hub home directory. |
+
+Before a backup, stop or quiesce the service so SQLite and registry writes are
+not in flight, then use the operator-approved Railway volume backup/snapshot
+procedure and record its timestamp and volume identity. Restore only to an
+operator-selected volume and verify file ownership, permissions, login, host
+registry, daemon readiness, and worker reachability before reopening traffic.
+The exact Railway backup/restore mechanism and volume recovery behavior were
+not established by the Railway API spike and remain pending operator
+validation. A volume backup does not preserve live agent processes, terminals,
+SSE connections, or in-memory browser sessions.
+
+### Rotate credentials and update the image
+
+- **Operator password:** generate a new hash with the command above, replace
+  `AO_WEB_PASSWORD_HASH` in Railway, and redeploy. The process restart clears
+  all in-memory sessions; verify the new password works and the old password
+  fails. Do not change `AO_WEB_PASSWORD` or use a plaintext Railway variable.
+- **Session secret:** there is no session signing secret in the current BFF.
+  Restarting invalidates sessions because they are in memory. A distinct secret
+  rotation procedure remains an open item until session signing is implemented.
+- **Hub daemon credential:** keep `/data/ao/mobile/config.json` with the volume;
+  the supervisor seeds the listener as loopback-only on port `3011` and retains
+  the generated password. Never publish either daemon port. Credential rotation
+  behavior for the hub BFF's automatically read hub entry should be separately
+  validated before changing that file.
+- **Image update:** confirm no active hub sessions, stop new work, and record
+  pending work before redeploying. Restarting the hub terminates live daemon
+  processes and terminals, even though `/data` persists. Select the intended
+  image revision and reattach the same `/data` volume; after startup, verify
+  `/healthz`, the board, `/hub/hosts`, and a new terminal session. Do not infer
+  recovery of active work from persisted session records.
+- **Rollback:** if the new image fails these checks, select the previously
+  recorded working image revision and redeploy it with the same `/data` volume
+  and compatible service variables. Verify health, login, host entries, and a
+  new terminal before reopening normal use. Do not roll back by deleting or
+  replacing the volume. This procedure is pending a human deployment exercise.
+
+### Logs and validation record
+
+Use the selected Railway hub service's deployment logs. The supervisor writes
+startup and process-exit messages to stderr; the BFF writes structured JSON
+request logs to stdout and excludes passwords, hashes, cookies, and headers.
+Do not share unredacted `mobile/config.json`, environment dumps, or logs that
+could reveal credentials.
+
+Record these checks after deployment. All values are **pending human validation**
+until an operator supplies the dated result, image revision, and sanitized
+evidence. No Railway deployment or live browser test was performed for this
+runbook.
+
+| Check | Result | Evidence to record |
+| --- | --- | --- |
+| Public domain and TLS | Pending human validation | Domain, HTTP→HTTPS behavior, certificate result, and target port `$PORT`. |
+| Login and SPA board | Pending human validation | Browser/client and measured SPA load time; confirm login and hub board render. |
+| Hub and worker hosts | Pending human validation | `/hub/hosts` shows the hub entry and `worker-1`; record online/offline state and whether the private or public worker URL was used. |
+| SSE | Pending human validation | Measure event delivery latency from an approved board update; include method and client location. |
+| Terminal | Pending human validation | Open an approved worker session, send input, and confirm streamed output; live PTY/terminal is not expected to survive restart. |
+| Persistence and restart | Pending human validation | Verify `/data` contents and host registry after restart; separately record what live processes stopped. |
+| Image update and rollback | Pending human validation | Record old/new image revisions, no-active-session check, volume attachment, rollback procedure, and outcome. |
+| Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
+
+The spike in [`packages/hub-bff/docs/railway-api-notes.md`](../../packages/hub-bff/docs/railway-api-notes.md)
+confirmed only selected Railway GraphQL create/configuration operations with a
+public test image. It did not deploy this hub image or verify hub startup,
+private worker networking, image timing, volume persistence/backup, or deletion
+permissions. Those items remain open and must not be reported as passed.
 
 This runbook supports RW-1.4.2 ([issue #17](https://github.com/petarnenov/ultra-factory/issues/17)).
 The log below corrects uncorroborated Railway claims previously added on this
