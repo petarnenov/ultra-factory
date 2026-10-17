@@ -45,6 +45,7 @@ import (
 	agentswitchobs "github.com/aoagents/agent-orchestrator/backend/internal/observe/agentswitch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/sentryobs"
 	usagepipeline "github.com/aoagents/agent-orchestrator/backend/internal/observe/usage"
+	"github.com/aoagents/agent-orchestrator/backend/internal/outbox"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/presence"
 	"github.com/aoagents/agent-orchestrator/backend/internal/preview"
@@ -1132,6 +1133,16 @@ func Run() error {
 			if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
 				log.Error("background agent-process reconciliation on boot failed", "err", reconcileErr)
 			}
+		}()
+		go func() {
+			// Deliver reports and activity the CLI queued while no daemon
+			// answered, once boot reconciliation has restored the sessions.
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+			}
+			runOutboxDrainer(ctx, outbox.Dirs(cfg.DataDir), srv.Handler(), store, time.Now, log)
 		}()
 		go func() {
 			// The session operation gate skips reconciliation in progress, so
