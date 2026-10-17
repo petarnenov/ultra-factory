@@ -69,6 +69,9 @@ func assertClientPayloadHashChanges(t *testing.T, base ports.ChatUserMessage, ba
 	if got == baseHash {
 		t.Fatalf("%s: expected hash to change, but it stayed %s", name, got)
 	}
+	if baseAfter := mustClientPayloadHash(t, base); baseAfter != baseHash {
+		t.Fatalf("%s: test fixture was mutated: base hash became %s, want %s", name, baseAfter, baseHash)
+	}
 }
 
 func TestClientPayloadHashBehaviorAndBoundaries(t *testing.T) {
