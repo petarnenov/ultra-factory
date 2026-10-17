@@ -103,6 +103,15 @@ describe("Railway worker lifecycle", () => {
 		expect(h.auditEntries).toContainEqual(expect.objectContaining({ event: "worker.create", subjectId: id }));
 	});
 
+	it("uses the injected worker password only when the fake-mode seam is supplied", async () => {
+		const provider = fakeProvider();
+		const h = await setup(provider, { workerPassword: () => "fixed-e2e-worker-password" });
+		const response = await createWorker(h.server, h.cookie);
+		const id = response.body.worker.id as string;
+		await vi.waitFor(() => expect(h.store.getPublic(id)?.status).toBe("online"));
+		expect(provider.specs[0]?.env.AO_REMOTE_PASSWORD).toBe("fixed-e2e-worker-password");
+	});
+
 	it("retains a failed record after Railway create errors without leaking error text", async () => {
 		const provider = fakeProvider({ create: vi.fn(async () => { throw new Error("Not Authorized secret-value"); }) });
 		const h = await setup(provider);

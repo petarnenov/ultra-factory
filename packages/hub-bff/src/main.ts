@@ -5,6 +5,7 @@ import { HostsStore } from "./hosts-store.ts";
 import { jsonLogger } from "./log.ts";
 import { createBff } from "./server.ts";
 import { RailwayClient } from "./railway-client.ts";
+import { FakeRailwayProvider } from "./fake-provider.ts";
 import { createWorkersApi } from "./workers-api.ts";
 import { openAuditLog } from "./audit.ts";
 import path from "node:path";
@@ -20,11 +21,14 @@ try {
 	const monitor = createHostsMonitor({ store, hubConfigPath: config.hubConfigPath, log });
 	await monitor.syncHub();
 	const hostsApi = createHostsApi({ store, monitor, log, audit });
-	const provider = config.railwayToken && config.railwayProjectId && config.railwayEnvironmentId
+	const provider = config.providerMode === "fake"
+		? new FakeRailwayProvider(config.fakeWorkerUrl!)
+		: config.railwayToken && config.railwayProjectId && config.railwayEnvironmentId
 		? new RailwayClient({ token: config.railwayToken, projectId: config.railwayProjectId, environmentId: config.railwayEnvironmentId })
 		: undefined;
-	if (provider) await provider.assertProjectScope();
-	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log, audit });
+	if (config.providerMode === "fake") log("info", "fake worker provider enabled");
+	if (provider instanceof RailwayClient) await provider.assertProjectScope();
+	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log, audit, ...(config.providerMode === "fake" ? { workerPassword: () => config.fakeWorkerPassword! } : {}) });
 	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi, workersApi, audit });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {

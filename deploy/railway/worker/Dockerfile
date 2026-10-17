@@ -56,6 +56,7 @@ ARG TARGETARCH
 # npm packages installed globally, each pinned. Override the whole list to add
 # or drop a CLI; Claude Code must stay because Claude Code Chat runs it.
 ARG AGENT_NPM_PACKAGES="@anthropic-ai/claude-code@2.1.228 @openai/codex@0.147.0 opencode-ai@1.19.3"
+ARG SKIP_AGENT_INSTALL=0
 # Optional; build with --build-arg CURSOR_AGENT_VERSION= to leave it out.
 ARG CURSOR_AGENT_VERSION=2026.08.11-e8db854
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -85,9 +86,11 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     gh --version
 
-RUN npm install --global ${AGENT_NPM_PACKAGES} && \
-    npm cache clean --force && \
-    claude --version
+RUN if [ "${SKIP_AGENT_INSTALL}" != "1" ]; then \
+        npm install --global ${AGENT_NPM_PACKAGES} && \
+        npm cache clean --force && \
+        claude --version; \
+    fi
 
 RUN if [ -n "${CURSOR_AGENT_VERSION}" ]; then \
         case "${TARGETARCH}" in \
