@@ -68,7 +68,7 @@ func DefaultConfig() Config {
 		MainBranch:       "main",
 		IssueLabel:       "rw",
 		BranchPrefix:     "rw/",
-		Interval:         5 * time.Minute,
+		Interval:         3 * time.Minute,
 		TickTimeout:      4 * time.Minute,
 		Renudge:          30 * time.Minute,
 		ViolationRenudge: 10 * time.Minute,
