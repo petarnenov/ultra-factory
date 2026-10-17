@@ -315,7 +315,7 @@ func (m *Manager) executeChatAgentSwitch(
 		CapturedAt:            m.clock(),
 	}
 	if quota, ok := m.readQuotaSnapshot(ctx, id, stoppedSession.Harness, stoppedSession.Metadata.ControllerGeneration); ok {
-		quota.fillMissingSwitchContext(&finalContext)
+		finalContext.fillFromQuotaSnapshot(quota)
 	}
 	if observedTranscript != nil {
 		finalContext.SourceTranscriptPath = observedTranscript.Path

@@ -84,9 +84,10 @@ type Store interface {
 	WriteSCMObservation(ctx context.Context, pr domain.PullRequest, checks []domain.PullRequestCheck, reviews []domain.PullRequestReview, threads []domain.PullRequestReviewThread, comments []domain.PullRequestComment, reviewMode ports.ReviewWriteMode) error
 }
 
-// Lifecycle is the provider-neutral lifecycle notification sink.
+// Lifecycle handles provider-neutral SCM reactions and completion retries.
 type Lifecycle interface {
 	ApplySCMObservation(ctx context.Context, sessionID domain.SessionID, obs ports.SCMObservation) error
+	RetryCompletedSessionTermination(ctx context.Context, sessionID domain.SessionID) error
 }
 
 type credentialChecker interface {
@@ -578,6 +579,16 @@ func (o *Observer) Poll(ctx context.Context) error {
 		}
 		prepared := o.prepareForPersistence(obs, local, opts, now)
 		if !prepared.Changed.Metadata && !prepared.Changed.CI && !prepared.Changed.Review {
+			// Terminal PR facts remain actionable for opted-in live sessions even
+			// after their semantic hashes have been acknowledged. Retry only the
+			// completion check so this path does not replay nudges or notifications.
+			if o.lifecycle != nil && subj.session.TerminateOnPRMerge && (prepared.PR.Merged || prepared.PR.Closed) {
+				if err := o.lifecycle.RetryCompletedSessionTermination(ctx, subj.session.ID); err != nil {
+					o.logger.Error("scm observer: terminal completion retry failed", "session", subj.session.ID, "pr", firstNonEmpty(prepared.PR.URL, prepared.PR.HTMLURL, local.URL), "err", err)
+					markRepoRefreshFailed(subj.repo)
+					continue
+				}
+			}
 			prRefreshOK[key] = true
 			continue
 		}

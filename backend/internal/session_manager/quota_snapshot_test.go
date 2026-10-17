@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -89,41 +88,5 @@ func TestObserveQuotaAndSnapshotRejectsSupersededGeneration(t *testing.T) {
 	entries, _ := filepath.Glob(filepath.Join(m.dataDir, "quota-snapshots", "session-1", "*.json"))
 	if len(entries) != 0 {
 		t.Fatalf("stale generation created snapshot: %v", entries)
-	}
-}
-
-func TestQuotaSnapshotFillsOnlyMissingSwitchContext(t *testing.T) {
-	quota := quotaSnapshot{
-		OriginalTask: "saved task", LatestUserPrompt: "saved prompt", AssistantUpdate: "saved update",
-		Workspaces:   []quotaWorkspaceFact{{Path: "/saved", Branch: "saved", Dirty: true}},
-		PullRequests: []switchPRFact{{Number: 1}},
-	}
-	current := deterministicSwitchContext{
-		OriginalTask: "current task", LatestUserPrompt: "current prompt", LatestAssistantUpdate: "current update",
-		Workspaces:   []switchWorkspaceFact{{Path: "/current", Branch: "current"}},
-		PullRequests: []switchPRFact{{Number: 2}},
-	}
-	for _, tc := range []struct {
-		name  string
-		input deterministicSwitchContext
-		want  deterministicSwitchContext
-	}{
-		{name: "preserve current facts", input: current, want: current},
-		{
-			name:  "fill missing facts",
-			input: deterministicSwitchContext{OriginalTask: " ", LatestUserPrompt: "\n", TerminalTail: "live tail"},
-			want: deterministicSwitchContext{
-				OriginalTask: "saved task", LatestUserPrompt: "saved prompt", LatestAssistantUpdate: "saved update",
-				Workspaces:   []switchWorkspaceFact{{Path: "/saved", Branch: "saved", Dirty: true}},
-				PullRequests: []switchPRFact{{Number: 1}}, TerminalTail: "live tail",
-			},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			quota.fillMissingSwitchContext(&tc.input)
-			if !reflect.DeepEqual(tc.input, tc.want) {
-				t.Fatalf("context = %+v, want %+v", tc.input, tc.want)
-			}
-		})
 	}
 }

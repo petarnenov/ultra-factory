@@ -10472,6 +10472,33 @@ func TestSendSemanticTUIDoesNotAcceptPaneWrite(t *testing.T) {
 	}
 }
 
+func TestSendSemanticTimeoutAcceptsLateHookWithoutRepasting(t *testing.T) {
+	st := newFakeStore()
+	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{
+		ID: "s1", Harness: domain.HarnessClaudeCode, Mode: domain.SessionModeTUI,
+		Activity: domain.Activity{State: domain.ActivityActive},
+		Metadata: domain.SessionMetadata{RuntimeLaunchID: "launch-1"},
+	})
+	msg := &fakeMessenger{}
+	m := newSendTestManager(t, semanticSignalingAgent{}, msg, st)
+	const deliveryID = "report-batch:late"
+	err := m.SendSemantic(context.Background(), "s1", "report", deliveryID)
+	if !errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
+		t.Fatalf("SendSemantic = %v, want acceptance timeout", err)
+	}
+	rec := st.sessions["s1"]
+	rec.Metadata.ConversationCheckpointState = domain.ConversationCheckpointCoordination
+	rec.Metadata.ConversationCheckpointGeneration = "launch-1"
+	rec.Metadata.ConversationCheckpointTurnID = deliveryID
+	st.sessions["s1"] = rec
+	if err := m.SendSemantic(context.Background(), "s1", "retry", deliveryID); err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.msgs) != 1 {
+		t.Fatalf("pane writes = %d, want 1", len(msg.msgs))
+	}
+}
+
 func TestSendSemanticTUIRejectsAdapterWithoutAcceptanceSignal(t *testing.T) {
 	st := newFakeStore()
 	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{

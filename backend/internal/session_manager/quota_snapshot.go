@@ -222,6 +222,28 @@ func validQuotaSnapshot(body []byte, id domain.SessionID, source QuotaSnapshotSo
 		existing.SchemaVersion == 1 && existing.SessionID == id && existing.Harness == source.Harness && existing.Generation == source.Generation
 }
 
+// fillFromQuotaSnapshot fills the facts a stopped session left empty from its
+// latest quota snapshot.
+func (c *deterministicSwitchContext) fillFromQuotaSnapshot(quota quotaSnapshot) {
+	if strings.TrimSpace(c.OriginalTask) == "" {
+		c.OriginalTask = quota.OriginalTask
+	}
+	if strings.TrimSpace(c.LatestUserPrompt) == "" {
+		c.LatestUserPrompt = quota.LatestUserPrompt
+	}
+	if strings.TrimSpace(c.LatestAssistantUpdate) == "" {
+		c.LatestAssistantUpdate = quota.AssistantUpdate
+	}
+	if len(c.Workspaces) == 0 {
+		for _, fact := range quota.Workspaces {
+			c.Workspaces = append(c.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
+		}
+	}
+	if len(c.PullRequests) == 0 {
+		c.PullRequests = quota.PullRequests
+	}
+}
+
 func (m *Manager) readQuotaSnapshot(ctx context.Context, id domain.SessionID, harness domain.AgentHarness, generation string) (quotaSnapshot, bool) {
 	if strings.TrimSpace(generation) == "" || !handoffPathComponent(string(id)) || strings.TrimSpace(m.dataDir) == "" {
 		return quotaSnapshot{}, false
@@ -280,24 +302,4 @@ func boundedQuotaText(value string) string {
 		value = value[len(value)-limit:]
 	}
 	return normalizeHistoricalContext([]byte(value))
-}
-
-func (quota quotaSnapshot) fillMissingSwitchContext(finalContext *deterministicSwitchContext) {
-	if strings.TrimSpace(finalContext.OriginalTask) == "" {
-		finalContext.OriginalTask = quota.OriginalTask
-	}
-	if strings.TrimSpace(finalContext.LatestUserPrompt) == "" {
-		finalContext.LatestUserPrompt = quota.LatestUserPrompt
-	}
-	if strings.TrimSpace(finalContext.LatestAssistantUpdate) == "" {
-		finalContext.LatestAssistantUpdate = quota.AssistantUpdate
-	}
-	if len(finalContext.Workspaces) == 0 {
-		for _, fact := range quota.Workspaces {
-			finalContext.Workspaces = append(finalContext.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
-		}
-	}
-	if len(finalContext.PullRequests) == 0 {
-		finalContext.PullRequests = quota.PullRequests
-	}
 }

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 )
 
@@ -188,13 +189,11 @@ func (h *hostClient) do(ctx context.Context, method, path string, in, out any) e
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	limited := io.LimitReader(resp.Body, maxResponseBytes)
 	defer func() {
-		// Consume the response before closing so the next request can reuse
-		// the identity-checked connection, without exceeding the response cap.
-		_, _ = io.Copy(io.Discard, limited)
+		remotehost.DrainBody(resp.Body)
 		_ = resp.Body.Close()
 	}()
+	limited := io.LimitReader(resp.Body, maxResponseBytes)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var apiErr wireAPIError
 		_ = json.NewDecoder(limited).Decode(&apiErr)

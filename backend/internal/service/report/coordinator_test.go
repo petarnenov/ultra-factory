@@ -296,3 +296,32 @@ func (d *coordinatorDelivery) Interrupt(_ context.Context, target domain.Session
 	d.interrupts = append(d.interrupts, target)
 	return nil
 }
+
+func TestCoordinatorAcceptanceTimeoutDefersBatch(t *testing.T) {
+	now := time.Now()
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator}}
+	store.add(reportAt("one", "worker", now, now, "finished"))
+	d := &coordinatorDelivery{submitErr: domain.ErrSemanticAcceptanceTimeout}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: d, Now: func() time.Time { return now }})
+	if _, err := c.RunDue(context.Background()); err == nil {
+		t.Fatal("expected timeout")
+	}
+	d.submitErr = nil
+	for i := 0; i < 20; i++ {
+		now = now.Add(time.Second)
+		if _, err := c.RunDue(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(d.submissions) != 0 || store.acked != 0 {
+		t.Fatal("retried before backoff")
+	}
+	now = now.Add(domain.ReportAcceptanceRetryDelay)
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.submissions) != 1 || store.acked != 1 {
+		t.Fatal("did not retry after backoff")
+	}
+}

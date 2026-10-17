@@ -262,6 +262,7 @@ func (p *fakeProvider) FetchReviewThreads(_ context.Context, ref ports.SCMPRRef)
 type fakeLifecycle struct {
 	observed []ports.SCMObservation
 	err      error
+	retries  int
 }
 
 func (l *fakeLifecycle) ApplySCMObservation(_ context.Context, _ domain.SessionID, obs ports.SCMObservation) error {
@@ -270,6 +271,11 @@ func (l *fakeLifecycle) ApplySCMObservation(_ context.Context, _ domain.SessionI
 	}
 	l.observed = append(l.observed, obs)
 	return nil
+}
+
+func (l *fakeLifecycle) RetryCompletedSessionTermination(context.Context, domain.SessionID) error {
+	l.retries++
+	return l.err
 }
 
 func newTestObserver(store *fakeStore, provider *fakeProvider, lc Lifecycle, now time.Time) *Observer {

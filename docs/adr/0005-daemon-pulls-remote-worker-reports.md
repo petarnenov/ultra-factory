@@ -111,6 +111,11 @@ characters, because all of them reach the orchestrator's prompt.
   both daemons: the acknowledgement leaves reports alone once the remote
   daemon has claimed them, but the pull may already have read them. AO does not
   support that setup otherwise either.
+- Only reports cross hosts. Changes to a remote worker's PR or CI do not wake
+  the local orchestrator directly: the remote daemon's SCM observer already
+  nudges the worker, and the worker tells its orchestrator through
+  `ao report`, which this flow carries. Mirroring remote SCM events would need
+  a second pulled feed and is out of scope.
 - Any authenticated caller can acknowledge a worker's pending reports. Such a
   caller can already create, kill, and message sessions.
 - Longer term, a challenge-response (an HMAC of a server nonce) would remove the

@@ -1,6 +1,7 @@
 package remotereports
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -913,5 +914,82 @@ func TestSlowButSuccessfulAcknowledgementsStayWithinTheHostBudget(t *testing.T) 
 	}
 	if len(acked) != slowLinks {
 		t.Fatalf("acknowledged %d of the slow host's %d reports after the next pass", len(acked), slowLinks)
+	}
+}
+
+func TestAnOfflineHostDoesNotBlockTheOthersAndCatchesUpWhenItReturns(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	offline := newFakeHost(t, "host-offline", "pw-o")
+	offline.pending["w-1"] = reportsJSON(needsInput("rpt_1", now))
+	healthy := newFakeHost(t, "host-healthy", "pw-h")
+	healthy.pending["w-2"] = reportsJSON(needsInput("rpt_2", now))
+	store := newMemStore(link("host-offline", "w-1"), link("host-healthy", "w-2"))
+	deliverer := &fakeDeliverer{}
+	observer := newTestObserver(store, deliverer, offline, healthy)
+	// The saved entry points at an address nothing listens on.
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	inner := observer.lookup
+	isDown := true
+	observer.lookup = func(id string) (remotehost.Entry, bool, error) {
+		entry, ok, err := inner(id)
+		if id == "host-offline" && isDown {
+			entry.URL = down.URL
+		}
+		return entry, ok, err
+	}
+
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 || len(deliverer.calls[0].reports) != 1 || deliverer.calls[0].reports[0].ID != "rpt_2" || len(healthy.acks()) != 1 {
+		t.Fatalf("the healthy host was not settled: deliveries=%+v acks=%v", deliverer.calls, healthy.acks())
+	}
+	if store.linkCount() != 2 {
+		t.Fatal("an offline host's link must be kept")
+	}
+
+	// The host comes back: its report is delivered once and acknowledged.
+	isDown = false
+	healthy.setPending("w-2", reportsJSON())
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 2 || len(deliverer.calls[1].reports) != 1 || deliverer.calls[1].reports[0].ID != "rpt_1" {
+		t.Fatalf("the returning host was not delivered: %+v", deliverer.calls)
+	}
+	if acks := offline.acks(); len(acks) != 1 || len(acks[0]) != 1 || acks[0][0] != "rpt_1" {
+		t.Fatalf("returning host acks = %v", acks)
+	}
+}
+
+type timeoutDeliverer struct{ attempts int }
+
+func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error {
+	d.attempts++
+	return domain.ErrSemanticAcceptanceTimeout
+}
+
+func TestSettleAcceptanceTimeoutBacksOff(t *testing.T) {
+	now := time.Now()
+	d := &timeoutDeliverer{}
+	store := newMemStore()
+	var logs bytes.Buffer
+	o := New(Deps{Store: store, Deliverer: d, Now: func() time.Time { return now }, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	items := []*pulled{{fresh: []domain.ReportRecord{{ID: "report-1", CreatedAt: now}}}}
+	for i := 0; i < 20; i++ {
+		o.settle(context.Background(), "p", items, newSettlePass())
+		now = now.Add(time.Second)
+	}
+	if d.attempts != 1 || len(store.recorded) != 0 {
+		t.Fatalf("attempts=%d recorded=%v", d.attempts, store.recorded)
+	}
+	now = now.Add(domain.ReportAcceptanceRetryDelay)
+	o.settle(context.Background(), "p", items, newSettlePass())
+	if d.attempts != 2 {
+		t.Fatalf("attempts=%d, want delayed retry", d.attempts)
+	}
+	if strings.Count(logs.String(), "remote report delivery failed") != 2 || !strings.Contains(logs.String(), "delivery_id=report-batch:") {
+		t.Fatalf("repeat failures not visible: %s", logs.String())
 	}
 }

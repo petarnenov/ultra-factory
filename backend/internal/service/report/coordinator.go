@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sort"
 	"strings"
@@ -179,6 +180,11 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 		}
 	}
 	if err := c.delivery.Submit(ctx, target.ID, batch.Render(), batch.IdempotencyKey()); err != nil {
+		slog.Warn("report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
+		if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
+			_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC().Add(domain.ReportAcceptanceRetryDelay), err.Error())
+			return errors.Join(err, deferErr)
+		}
 		return c.release(ctx, batch, err)
 	}
 	_, err = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())

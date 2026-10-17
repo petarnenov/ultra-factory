@@ -4648,7 +4648,7 @@ func (m *Manager) SendSemantic(ctx context.Context, id domain.SessionID, message
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			return fmt.Errorf("%w: prompt submission was not observed", ErrSemanticAcceptanceUnsupported)
+			return fmt.Errorf("%w: %w", ErrSemanticAcceptanceUnsupported, domain.ErrSemanticAcceptanceTimeout)
 		case <-ticker.C:
 		}
 	}
@@ -4714,7 +4714,7 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 		return err
 	}
 
-	if _, coordination := domain.CoordinationDeliveryID(message); !coordination && !options.AuthoredByUser && strings.TrimSpace(message) != "" {
+	if _, coordination := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(message)); !coordination && !options.AuthoredByUser && strings.TrimSpace(message) != "" {
 		deliveryID := clientMessageID
 		if deliveryID == "" {
 			deliveryID = "session-send:" + m.newLaunchID()
@@ -4729,7 +4729,7 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 		options.InteractionAt = m.clock()
 	}
 	var afterWrite func(context.Context) error
-	_, internalReportDelivery := domain.CoordinationDeliveryID(message)
+	_, internalReportDelivery := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(message))
 	if strings.TrimSpace(message) != "" && !internalReportDelivery && options.AuthoredByUser {
 		if recorder, ok := m.store.(latestUserPromptRecorder); ok {
 			afterWrite = func(writeCtx context.Context) error {
