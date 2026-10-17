@@ -81,7 +81,7 @@ func TestRequestRereviewValidationAndCommentAuthor(t *testing.T) {
 		wantMessage string
 	}{
 		{"missing worker", "", "reviewer", ErrInvalid, "review: invalid input: worker session id is required"},
-		{"missing reviewer", "worker", "@", ErrInvalid, "review: invalid input: reviewer is required"},
+		{"missing reviewer", "worker", "  ", ErrInvalid, "review: invalid input: reviewer is required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := svc.RequestRereview(ctx, tc.worker, "", tc.reviewer)
