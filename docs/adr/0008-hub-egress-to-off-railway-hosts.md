@@ -66,7 +66,10 @@ trusted-proxy mode). That path needs its own decision on bearer visibility first
 ### 1. The proxy exception
 
 The exception covers the daemon and the BFF. It is the only way a bearer can reach a
-tailnet address through the hub.
+tailnet address through the hub. The supervisor also passes it to the orchestrator tick
+loop, which only runs `ao` CLI commands; those use the same `DirectClient` and identity
+probe as the daemon, as do the `ao` commands of agent sessions that inherit the
+daemon's environment.
 
 1. **Configuration.** `AO_REMOTE_TAILNET_SOCKS`, a `host:port` value. The hub
    supervisor sets it only when `TS_AUTHKEY` is set and the tailnet is up. When it is
