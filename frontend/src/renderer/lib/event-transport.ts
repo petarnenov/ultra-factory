@@ -19,6 +19,7 @@ import type { components } from "../../api/schema";
 import { editorHandoffQueryKey, editorHandoffQueryRoot } from "../hooks/useEditorHandoff";
 import { baseUrlForHost, connectedHosts, subscribeConnectedHosts } from "./host-clients";
 import { probeRemoteSse } from "./remote-sse-probe";
+import { isWebBuild } from "./platform";
 
 export type EventTransport = {
 	connect: () => () => void;
@@ -430,7 +431,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					return;
 				}
 				const baseUrl = getApiBaseUrl();
-				if (!accountSource || accountSourceBaseUrl !== baseUrl || accountSource.readyState === EVENTSOURCE_CLOSED) {
+				if (!isWebBuild && (!accountSource || accountSourceBaseUrl !== baseUrl || accountSource.readyState === EVENTSOURCE_CLOSED)) {
 					accountSource?.close();
 					accountSourceBaseUrl = baseUrl;
 					try {
@@ -444,6 +445,10 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					} catch {
 						accountSource = undefined;
 					}
+				} else if (isWebBuild && accountSource) {
+					accountSource.close();
+					accountSource = undefined;
+					accountSourceBaseUrl = undefined;
 				}
 				// Keep a still-usable source on the same base URL; replace one the
 				// browser abandoned (CLOSED) or one bound to a stale port.

@@ -72,6 +72,19 @@ function deleteWorker(server: ReturnType<typeof createBff>, cookie: string, id: 
 }
 
 describe("Railway worker lifecycle", () => {
+	it("reports worker management unavailable without a provider and quietly skips reconcile", async () => {
+		const logs: Array<{ level: string; message: string }> = [];
+		const h = await setup(undefined as never, { log: (level, message) => logs.push({ level, message }) });
+		h.workersApi.start();
+		await vi.waitFor(async () => {
+			const result = await request(h.server).get("/hub/workers").set("Cookie", h.cookie);
+			expect(result.body).toMatchObject({ orphans: [], providerConfigured: false });
+		});
+		expect(logs).toContainEqual({ level: "info", message: "Railway worker management not configured" });
+		expect(logs.some(({ level }) => level === "error")).toBe(false);
+		h.workersApi.stop();
+	});
+
 	it("writes a provisioning record before create and reaches online with a 32-character password", async () => {
 		const provider = fakeProvider();
 		const h = await setup(provider);

@@ -79,6 +79,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "agents",
 		icon: BadgeCheck,
 		label: (t) => t("settings.agents"),
+		visible: () => !isWebBuild,
 		render: (_t, titleHidden) => <CodexAccountsSection titleHidden={titleHidden} />,
 	},
 	{
@@ -112,7 +113,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "remoteHosts",
 		icon: Server,
 		label: (t) => t("settings.remoteHosts"),
-		visible: ({ developerMode }) => developerMode,
+		visible: ({ developerMode }) => isWebBuild || developerMode,
 		render: (_t, titleHidden) => <RemoteHostsSettings titleHidden={titleHidden} />,
 	},
 	{

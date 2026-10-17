@@ -3103,6 +3103,7 @@
 	"settings.workers.provisionUnavailable": "Die Bereitstellung von Railway-Workern ist nicht konfiguriert.",
 	"settings.workers.loading": "Worker werden geladen…",
 	"settings.workers.empty": "Noch keine Worker.",
+	"settings.workers.providerUnavailable": "Railway worker management is not configured.",
 	"settings.workers.status.unknown": "Unbekannt",
 	"settings.workers.status.provisioning": "Wird bereitgestellt",
 	"settings.workers.status.online": "Online",
