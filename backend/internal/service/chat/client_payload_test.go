@@ -55,6 +55,15 @@ func mustClientPayloadHash(t *testing.T, msg ports.ChatUserMessage) string {
 func assertClientPayloadHashChanges(t *testing.T, base ports.ChatUserMessage, baseHash, name string, mutate func(*ports.ChatUserMessage)) {
 	t.Helper()
 	msg := base
+	msg.Content = make([]ports.ChatContent, len(base.Content))
+	copy(msg.Content, base.Content)
+	for i := range msg.Content {
+		if msg.Content[i].Excerpt != nil {
+			excerpt := *msg.Content[i].Excerpt
+			msg.Content[i].Excerpt = &excerpt
+		}
+	}
+	msg.Excerpts = append([]ports.ChatExcerptReference(nil), base.Excerpts...)
 	mutate(&msg)
 	got := mustClientPayloadHash(t, msg)
 	if got == baseHash {
