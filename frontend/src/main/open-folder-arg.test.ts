@@ -39,6 +39,11 @@ describe("parseOpenFolderPathArg", () => {
 		expect(parseOpenFolderPathArg(["electron.exe", "ao-app://callback?token=abc"])).toBeUndefined();
 	});
 
+	it("ignores a nonexistent path before a later dropped directory", async () => {
+		const dir = await tempDir();
+		expect(parseOpenFolderPathArg(["electron.exe", path.join(dir, "missing"), dir])).toBe(path.resolve(dir));
+	});
+
 	it("skips a file path (not a directory) before finding the real directory", async () => {
 		const dir = await tempDir();
 		expect(parseOpenFolderPathArg(["electron.exe", __filename, dir])).toBe(path.resolve(dir));
@@ -73,5 +78,13 @@ describe("parseOpenFolderPathArg", () => {
 			const dropped = await tempDir();
 			expect(parseOpenFolderPathArg(["electron.exe", appDir, dropped])).toBe(path.resolve(dropped));
 		});
+	});
+
+	it("checks the first real folder only and skips positional URL and flags before it", async () => {
+		const first = await tempDir();
+		const second = await tempDir();
+		expect(parseOpenFolderPathArg(["electron.exe", "ao-app://callback", "--installed-via=msi", first, second])).toBe(
+			path.resolve(first),
+		);
 	});
 });
