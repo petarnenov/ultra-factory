@@ -200,7 +200,10 @@ func ReadIdentity(ctx context.Context, client http.Client, base string) (string,
 	if err != nil {
 		return "", fmt.Errorf("unreachable: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		DrainBody(resp.Body)
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("identity probe returned HTTP %d", resp.StatusCode)
 	}
@@ -215,6 +218,19 @@ func ReadIdentity(ctx context.Context, client http.Client, base string) (string,
 		return "", errors.New("AO versions are incompatible; update AO on this computer and the remote host")
 	}
 	return id.HostID, nil
+}
+
+// drainLimit bounds how much of a response DrainBody reads to keep its
+// connection reusable.
+const drainLimit = 64 << 10
+
+// DrainBody reads what a JSON decoder left of a response, such as the trailing
+// newline; call it before closing the body. Closing a body before EOF makes
+// the transport drop the connection, and the next request would then send the
+// saved credential over a new connection that never answered the identity
+// probe.
+func DrainBody(body io.Reader) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, drainLimit))
 }
 
 // Find returns the saved host recorded under hostID. It never matches by label
