@@ -29,6 +29,7 @@ export type WorkersApiOptions = {
 	maxWorkers?: number;
 	maxVolumeGb?: number;
 	idleStopHours?: number;
+	workerPassword?: () => string;
 };
 
 export type IdleWorker = { id: string; idleSince: string };
@@ -84,7 +85,7 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 			variables[key] = env[key] as string;
 		}
 		const id = randomUUID();
-		const password = randomBytes(24).toString("base64url");
+		const password = options.workerPassword?.() ?? randomBytes(24).toString("base64url");
 		try {
 			await options.store.createWorker({ id, label: body.label, password, maxWorkers });
 		} catch (err) {

@@ -103,6 +103,18 @@ describe("loadConfig", () => {
 			expect(config.railwayToken).toBeUndefined();
 		});
 	});
+
+	it("enables fake provider only with explicit safe test configuration", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "unknown" })).rejects.toThrow(/AO_HUB_PROVIDER/);
+			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "fake" })).rejects.toThrow(/FAKE_WORKER_URL/);
+			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "fake", AO_HUB_FAKE_WORKER_URL: "http://worker-1:3011", AO_HUB_FAKE_WORKER_PASSWORD: "pw", RAILWAY_PROJECT_ID: "project" })).rejects.toThrow(/cannot be used/);
+			const config = await loadConfig({ ...base, AO_HUB_PROVIDER: "fake", AO_HUB_FAKE_WORKER_URL: "http://worker-1:3011", AO_HUB_FAKE_WORKER_PASSWORD: "pw" });
+			expect(config).toMatchObject({ providerMode: "fake", fakeWorkerUrl: "http://worker-1:3011", fakeWorkerPassword: "pw" });
+		});
+	});
 });
 
 describe("jsonLogger", () => {

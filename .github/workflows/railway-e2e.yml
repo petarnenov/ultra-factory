@@ -1,0 +1,36 @@
+name: Railway compose e2e
+
+on:
+  pull_request:
+    paths:
+      - "deploy/railway/**"
+      - "packages/hub-bff/**"
+      - "frontend/src/renderer/**"
+      - "frontend/e2e/railway/**"
+      - "frontend/playwright.railway.config.ts"
+      - ".github/workflows/railway-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: npm ci --prefix frontend
+      - run: npm ci
+        working-directory: packages/product-ui
+      - run: npm ci
+        working-directory: packages/hub-bff
+      - run: npm --prefix frontend exec -- playwright install --with-deps chromium
+      - run: npm --prefix packages/hub-bff run typecheck && npm --prefix packages/hub-bff test
+      - run: npm --prefix frontend run typecheck:e2e
+      - run: ./deploy/railway/compose.e2e.sh

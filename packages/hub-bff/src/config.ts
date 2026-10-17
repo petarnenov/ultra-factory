@@ -19,6 +19,9 @@ export type Config = {
 	railwayEnvironmentId?: string;
 	workerImage?: string;
 	workerUrlMode: "public" | "private";
+	providerMode?: "fake";
+	fakeWorkerUrl?: string;
+	fakeWorkerPassword?: string;
 	maxWorkers: number;
 	// Largest worker volume a POST /hub/workers spec may request, in GB.
 	maxVolumeGb?: number;
@@ -67,6 +70,10 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1) throw new Error("AO_HUB_MAX_WORKERS must be a positive integer");
 	const maxVolumeGb = optionalPositiveNumber(env.AO_HUB_MAX_VOLUME_GB, "AO_HUB_MAX_VOLUME_GB");
 	const idleStopHours = optionalPositiveNumber(env.AO_HUB_IDLE_STOP_HOURS, "AO_HUB_IDLE_STOP_HOURS");
+	const providerMode = env.AO_HUB_PROVIDER;
+	if (providerMode && providerMode !== "fake") throw new Error("AO_HUB_PROVIDER must be fake when set");
+	if (providerMode === "fake" && (env.RAILWAY_PROJECT_ID || env.RAILWAY_ENVIRONMENT_ID)) throw new Error("AO_HUB_PROVIDER=fake cannot be used with Railway project or environment IDs");
+	if (providerMode === "fake" && (!env.AO_HUB_FAKE_WORKER_URL || !env.AO_HUB_FAKE_WORKER_PASSWORD)) throw new Error("AO_HUB_FAKE_WORKER_URL and AO_HUB_FAKE_WORKER_PASSWORD are required when AO_HUB_PROVIDER=fake");
 	// Railway injects RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID into every
 	// service, so the IDs alone are normal and leave worker management off. Only
 	// a token without both IDs is a misconfiguration.
@@ -76,6 +83,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 		host: env.AO_HUB_BFF_HOST ?? "::", port, spaDir, passwordHash, publicOrigin, plaintextPassword: !hash, hubDataDir, hubConfigPath,
 		railwayToken: env.RAILWAY_API_TOKEN, railwayProjectId: env.RAILWAY_PROJECT_ID, railwayEnvironmentId: env.RAILWAY_ENVIRONMENT_ID,
 		workerImage: env.AO_HUB_WORKER_IMAGE, workerUrlMode, maxWorkers, maxVolumeGb, idleStopHours,
+		...(providerMode === "fake" ? { providerMode, fakeWorkerUrl: env.AO_HUB_FAKE_WORKER_URL, fakeWorkerPassword: env.AO_HUB_FAKE_WORKER_PASSWORD } : {}),
 	};
 }
 

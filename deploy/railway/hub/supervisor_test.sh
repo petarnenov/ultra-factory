@@ -23,7 +23,7 @@ check() {
 
 # Runs the supervisor's preparation steps against a scratch data dir.
 seed() {
-	AO_HUB_SUPERVISOR_DRY_RUN=1 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+	AO_HUB_SUPERVISOR_DRY_RUN=1 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
 		bash "$supervisor" 2>"$work/seed.log"
 }
 
@@ -55,11 +55,43 @@ test_never_logs_password() {
 	! grep -q "$password" "$work/seed.log"
 }
 
+# fake_package writes a minimal npm package and its relative bin link.
+fake_package() {
+	local prefix=$1 pkg=$2 version=$3 bin=$4
+	mkdir -p "$prefix/lib/node_modules/$pkg" "$prefix/bin"
+	printf '{"name":"%s","version":"%s"}\n' "$pkg" "$version" >"$prefix/lib/node_modules/$pkg/package.json"
+	printf '#!/bin/sh\necho %s\n' "$version" >"$prefix/lib/node_modules/$pkg/cli.js"
+	chmod +x "$prefix/lib/node_modules/$pkg/cli.js"
+	ln -sfn "../lib/node_modules/$pkg/cli.js" "$prefix/bin/$bin"
+}
+
+sync_agents() {
+	AO_HUB_SUPERVISOR_DRY_RUN=1 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_NPM_SEED="$work/seed" NPM_CONFIG_PREFIX="$work/prefix" bash "$supervisor" 2>"$work/sync.log"
+}
+
+test_seeds_agent_prefix() {
+	fake_package "$work/seed" "@acme/claude" 2.0.0 claude
+	fake_package "$work/seed" tool 1.0.0 tool
+	sync_agents && [[ $("$work/prefix/bin/claude") == 2.0.0 && $("$work/prefix/bin/tool") == 1.0.0 ]]
+}
+
+test_keeps_newer_ui_update() {
+	fake_package "$work/prefix" "@acme/claude" 2.5.0 claude
+	sync_agents && [[ $("$work/prefix/bin/claude") == 2.5.0 ]] && ! grep -q '@acme/claude' "$work/sync.log"
+}
+
+test_newer_image_replaces_older_copy() {
+	fake_package "$work/seed" tool 1.10.0 tool
+	sync_agents && [[ $("$work/prefix/bin/tool") == 1.10.0 && $("$work/prefix/bin/claude") == 2.5.0 ]] &&
+		grep -q 'agent CLI tool 1.0.0 -> 1.10.0' "$work/sync.log"
+}
+
 # A fake "daemon" that stays up, and a fake BFF that exits with status 3: the
 # supervisor must stop the daemon and exit with 3.
 test_exits_when_one_child_exits() {
 	local status=0
-	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
 		AO_HUB_DAEMON_COMMAND="sleep 6130" AO_HUB_BFF_MAIN="$work/exit3.js" \
 		timeout 20 bash "$supervisor" 2>"$work/exit.log" || status=$?
 	[[ $status == 3 ]] && grep -q 'hub BFF exited with status' "$work/exit.log" && ! pgrep -a -x sleep | grep -q ' 6130$'
@@ -68,7 +100,7 @@ test_exits_when_one_child_exits() {
 # SIGTERM to the supervisor must stop both children and exit 0.
 test_sigterm_stops_both() {
 	local pid status=0
-	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
 		AO_HUB_DAEMON_COMMAND="sleep 6130" AO_HUB_BFF_MAIN="$work/sleep.js" \
 		bash "$supervisor" 2>"$work/term.log" &
 	pid=$!
@@ -114,6 +146,9 @@ check "seeds a loopback-only listener on 3011 with a 0600 config" test_seeds_loo
 check "keeps the password and repairs the listener on restart" test_keeps_password_and_repairs_listener
 check "rejects an invalid config.json" test_rejects_invalid_json
 check "never prints the generated password" test_never_logs_password
+check "seeds the image's agent CLIs into the volume prefix" test_seeds_agent_prefix
+check "keeps an agent CLI updated from the UI" test_keeps_newer_ui_update
+check "replaces an older copy with a newer image version" test_newer_image_replaces_older_copy
 check "exits with the status of the first child that exits" test_exits_when_one_child_exits
 check "SIGTERM stops both processes and exits 0" test_sigterm_stops_both
 check "a tick loop that exits is restarted without stopping the hub" test_tick_loop_restarts_without_stopping_the_hub
