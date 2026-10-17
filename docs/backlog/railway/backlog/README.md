@@ -81,7 +81,7 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | **RW-3.2 Story: Worker lifecycle** | [#42](https://github.com/petarnenov/ultra-factory/issues/42) | **✅ done** | — |
 | RW-3.3.1 Task: Worker list | [#46](https://github.com/petarnenov/ultra-factory/issues/46) | ✅ done | [#97](https://github.com/petarnenov/ultra-factory/pull/97) |
 | RW-3.3.2 Task: "Add worker" dialog | [#47](https://github.com/petarnenov/ultra-factory/issues/47) | 🔄 in progress | — |
-| RW-3.3.3 Task: "Remove worker" dialog | [#48](https://github.com/petarnenov/ultra-factory/issues/48) | 🔄 in progress | — |
+| RW-3.3.3 Task: "Remove worker" dialog | [#48](https://github.com/petarnenov/ultra-factory/issues/48) | ✅ done | [#101](https://github.com/petarnenov/ultra-factory/pull/101) |
 | **RW-3.3 Story: "Workers" UI screen** | [#45](https://github.com/petarnenov/ultra-factory/issues/45) | **🔄 in progress** | — |
 | **RW-3 Epic: Adding and removing workers from the web UI** | [#38](https://github.com/petarnenov/ultra-factory/issues/38) | **🔄 in progress** | — |
 | RW-4.1.1 Task: Threat model and security headers | [#51](https://github.com/petarnenov/ultra-factory/issues/51) | ✅ done | [#98](https://github.com/petarnenov/ultra-factory/pull/98) |
