@@ -47,7 +47,8 @@ func TestListFiltersAndIdentifiesRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listing, err := New().List(context.Background(), filepath.Join(root, "nested", ".."))
+	uncleanPath := root + string(filepath.Separator) + "nested" + string(filepath.Separator) + ".."
+	listing, err := New().List(context.Background(), uncleanPath)
 	if err != nil {
 		t.Fatal(err)
 	}
