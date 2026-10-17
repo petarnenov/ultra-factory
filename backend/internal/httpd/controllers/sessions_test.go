@@ -4589,6 +4589,9 @@ func TestSessionsAPI_InteractionRecencyKeepsHumanTimestampSeparate(t *testing.T)
 }
 
 func (f *fakeSessionService) RequestKill(ctx context.Context, id domain.SessionID) (sessionmanager.KillResult, error) {
+	if _, ok := f.sessions[id]; !ok {
+		return sessionmanager.KillResult{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
 	freed, err := f.Kill(ctx, id)
 	return sessionmanager.KillResult{Freed: freed && !f.cleanupPending, CleanupPending: f.cleanupPending}, err
 }
@@ -4656,5 +4659,17 @@ func TestSessionsAPI_KillReportsAcceptedCleanup(t *testing.T) {
 	}
 	if status != http.StatusOK || !result.CleanupPending || result.Freed || !svc.sessions["ao-1"].IsTerminated {
 		t.Fatalf("accepted cleanup response = %d %s", status, body)
+	}
+}
+
+func TestSessionsAPI_KillUnknownSession(t *testing.T) {
+	svc := newFakeSessionService()
+	srv := newSessionTestServer(t, svc)
+	body, status, _ := doRequest(t, srv, http.MethodPost, "/api/v1/sessions/missing/kill", `{"deleteArtifacts":true}`)
+	if status != http.StatusNotFound || !strings.Contains(string(body), `"code":"SESSION_NOT_FOUND"`) {
+		t.Fatalf("kill response = %d %s; want 404 SESSION_NOT_FOUND", status, body)
+	}
+	if len(svc.artifactsDeleted) != 0 {
+		t.Fatalf("artifacts deleted for unknown session: %v", svc.artifactsDeleted)
 	}
 }

@@ -5924,3 +5924,15 @@ func TestDeleteArtifactsAcceptsTheCanonicalArtifactDir(t *testing.T) {
 		t.Fatalf("deleted = %v, want [mer-1]", deleter.deleted)
 	}
 }
+
+func TestRequestKillMapsNotFound(t *testing.T) {
+	svc := NewWithDeps(Deps{Store: newFakeStore(), Manager: &fakeCommander{killErr: sessionmanager.ErrNotFound}})
+	result, err := svc.RequestKill(context.Background(), "missing")
+	var apiError *apierr.Error
+	if !errors.As(err, &apiError) || apiError.Code != "SESSION_NOT_FOUND" {
+		t.Fatalf("RequestKill error = %v; want SESSION_NOT_FOUND", err)
+	}
+	if result != (sessionmanager.KillResult{}) {
+		t.Fatalf("RequestKill result = %+v; want empty result", result)
+	}
+}
