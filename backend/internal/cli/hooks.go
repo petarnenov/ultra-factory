@@ -428,7 +428,7 @@ func hookConversationFacts(agent domain.AgentHarness, event string, payload []by
 			origin = domain.ConversationCheckpointOriginCoordination
 		}
 	}
-	coordinationID, _ := domain.CoordinationDeliveryID(observedPrompt)
+	coordinationID, _ := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(observedPrompt))
 	return hookConversationSnapshot{
 		ProviderTurnID:        turnID,
 		LatestUserPrompt:      capHookText(userPrompt, maxHookInteractionLen),
@@ -449,7 +449,7 @@ func firstHookValue(values ...string) string {
 }
 
 func isAOCoordinationMessage(value string) bool {
-	value = strings.TrimSpace(value)
+	value = domain.UnwrapPastedContent(value)
 	_, reportDelivery := domain.CoordinationDeliveryID(value)
 	return reportDelivery || strings.HasPrefix(value, "<ao-handoff-request") ||
 		strings.HasPrefix(value, "AO transferred the previous agent's context in hidden system instructions.")
@@ -710,7 +710,7 @@ func hookSemanticAcceptanceFacts(event string, payload []byte) hookConversationS
 	if json.Unmarshal(payload, &p) != nil {
 		return hookConversationSnapshot{}
 	}
-	id, ok := domain.CoordinationDeliveryID(p.Prompt)
+	id, ok := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(p.Prompt))
 	if !ok {
 		return hookConversationSnapshot{}
 	}
