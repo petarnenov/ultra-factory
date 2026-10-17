@@ -17,8 +17,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: backend/go.mod
           cache: false
@@ -78,7 +78,7 @@ jobs:
           (cd backend && go test ./internal/pricing/catalogsync \
             -run TestGeneratedCatalogLoadsThroughRuntimeFetcherAndCache -count 1)
       - name: Upload generated catalog preview
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: pricing-catalog-preview-${{ github.event.pull_request.number }}
           path: pricing/catalog/v1
