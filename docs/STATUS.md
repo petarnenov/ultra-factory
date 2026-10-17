@@ -252,6 +252,70 @@ surface (`npm run sqlc`, `npm run api`).
 - Paired-device push, mute/unpair controls, supported macOS keep-awake, and
   mobile review/reviewer screens.
 
+## Railway hosting
+
+Status: built on the `feat/railway-hosting` integration branch, not on `main`.
+A hub and one worker run live on Railway (first validation 2026-10-17). Design:
+[`railway/architecture.md`](railway/architecture.md); operator runbook and
+validation record: [`deploy/railway/README.md`](../deploy/railway/README.md);
+security: [`railway/threat-model.md`](railway/threat-model.md); backlog:
+[`backlog/railway/`](backlog/railway/).
+
+Built on the branch:
+
+- **Worker image** (`deploy/railway/worker`): an AO daemon with the
+  bearer-authenticated remote-host listener on `3011` (dual-stack, ADR 0007),
+  trusted-proxy lockout keying (ADR 0005), agent CLIs, and state on a `/data`
+  volume.
+- **Hub image** (`deploy/railway/hub`): daemon, web BFF, and web SPA under one
+  supervisor, with both daemon listeners on loopback only. Published and
+  redeployed automatically by `hub-image.yml` on pushes to the branch.
+- **Web build of the renderer** (`npm --prefix frontend run build:web`) with
+  Electron-only capabilities turned off.
+- **Web BFF** (`packages/hub-bff`, ADR 0006): single-operator login, session
+  cookie, CSRF and login throttling, security headers and CSP, host registry,
+  REST/SSE/`/mux` proxy with injected bearers, audit log.
+- **Worker management** through the Railway GraphQL API (create, reconcile,
+  remove), worker limit, volume-size limit, idle warning, and worker drain.
+- **Orchestration across hosts**: report pull from remote workers (ADR 0005)
+  and an optional orchestrator wake-up loop in the hub.
+- **Operations**: hub database/registry backup script, rotation procedures, and
+  a local Compose + Playwright e2e (`deploy/railway/compose.e2e.sh`, run in CI
+  by `railway-e2e.yml`).
+
+Verified live: hub public domain and TLS, login and board, hub → worker over
+Railway private networking (IPv4 and IPv6), live worker terminal in the
+browser, persistence of `/data` across hub image updates, and automated hub
+deploys.
+
+Pending live checks (not to be reported as passed): board load time and SSE and
+terminal latency ([#141](https://github.com/petarnenov/ultra-factory/issues/141)); PR status in the browser, a full sweep of the web
+build, and the image CSP decision ([#142](https://github.com/petarnenov/ultra-factory/issues/142)); hub orchestrator credentials ([#134](https://github.com/petarnenov/ultra-factory/issues/134));
+backup and restore, drain, worker redeploy, hub rollback, and the limits ([#145](https://github.com/petarnenov/ultra-factory/issues/145));
+Railway token deletion permissions and live worker provisioning; desktop and
+CLI flows against a Railway worker ([#17](https://github.com/petarnenov/ultra-factory/issues/17)).
+
+Known limitations:
+
+- Access to the web UI is a shell on every host the hub reaches. One operator
+  password, no per-user identity or second factor.
+- Worker creation through the Railway API stays off (no `RAILWAY_API_TOKEN`)
+  until a project-scoped token is shown to delete services and volumes.
+- A redeploy or restart ends live agent processes, terminals, and browser
+  sessions; only `/data` survives. Every merge that touches the hub image
+  inputs redeploys the hub.
+- The web build has no browser panel, agent CDP browser, browser-profile
+  import, editor handoff, CLI link, app auto-update, or tray. Routes the
+  remote-host listener blocks (system install, Codex accounts, side-chat
+  launch, preview-server control, mobile and desktop controls) are unavailable
+  on the hub and on workers.
+- Bearers are stored in plaintext on the hub volume (`hosts.json`), and volume
+  snapshots contain them.
+- Worker volume size cannot be set (Railway's `volumeCreate` takes no size).
+  Idle workers are flagged, never stopped.
+- Hosts outside Railway (behind NAT) are not reachable from the hub until ADR
+  0008 (tailnet egress, RW-5.2) is implemented.
+
 ## In flight / not yet a runtime feature
 
 - **Cloud availability**: public client and desktop integration exist, but usage
