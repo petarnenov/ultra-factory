@@ -11514,3 +11514,15 @@ func TestOrchestratorWorkspaceBranchCollision(t *testing.T) {
 		})
 	}
 }
+
+func TestKill_UnknownSession(t *testing.T) {
+	m, _, _, _ := newManager()
+	result, err := m.RequestKill(ctx, "missing")
+	if !errors.Is(err, ErrNotFound) || result != (KillResult{}) {
+		t.Fatalf("RequestKill = %+v, %v; want empty result and ErrNotFound", result, err)
+	}
+	freed, err := m.Kill(ctx, "missing")
+	if err != nil || freed {
+		t.Fatalf("Kill = %v, %v; want false, nil", freed, err)
+	}
+}

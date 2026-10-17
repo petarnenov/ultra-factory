@@ -1106,3 +1106,30 @@ func TestSessionClaimPR_GHFallbackWhenProjectRepoMissing(t *testing.T) {
 		t.Fatalf("ghDir=%q out=%s", ghDir, out)
 	}
 }
+
+func TestSessionKill_UnknownSession(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/sessions/missing/kill" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, `{"error":"not_found","code":"SESSION_NOT_FOUND","message":"Unknown session","requestId":"req-kill"}`)
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "kill", "missing")
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("error = %v, exit = %d; want exit 1", err, ExitCode(err))
+	}
+	for _, want := range []string{"SESSION_NOT_FOUND", "req-kill"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v; want %q", err, want)
+		}
+	}
+	if strings.Contains(out+errOut, "killed") {
+		t.Fatalf("unexpected success output: %s%s", out, errOut)
+	}
+}
