@@ -48,7 +48,7 @@ Constraints found in the code and platform:
 | Bearer and TLS | WireGuard between peers. Tailscale's coordination service does not hold the keys. | TLS ends at Cloudflare, which sees the bearer and the traffic (ADR 0004). | TLS ends at Tailscale's edge, so the bearer is visible there. Verify before relying on it. |
 | Failure: tailnet or tunnel down | Hub cannot reach any host. Pulls fail and reports stay `pending` on the host (ADR 0005). Nothing is lost. | Cloudflare or the per-host tunnel is down, so that host is unreachable. | Funnel or its edge is down, or disabled by tailnet policy, so that host is unreachable. |
 | Failure: key or credential expiry | Auth key expired before first join: no enrolment. Node key expiry: the node drops off the tailnet until re-enrolled. | Tunnel credential revoked: that host is unreachable. | Funnel disabled by policy: that host is unreachable. |
-| Same-connection rule (#93) | Not enforced today; best effort. RW-5.2.2 adds an `httptrace` `GotConn` check that fails the pass and re-probes on an unprobed connection (Decision 1). The SOCKS hop adds one more place where idle connections can close. | Not enforced today. The edge can close idle connections, so the same `GotConn` check is needed. | Same as T2. |
+| Same-connection rule (#93) | Not enforced today; best effort. RW-5.2.2 gates dialing: after the probe, the per-pass dialer refuses any new connection, so the bearer can only travel on a probed one (Decision 1, item 8). The SOCKS hop adds one more place where idle connections can close. | Not enforced today. The edge can close idle connections, so the same dial gate is needed. | Same as T2. |
 | SSE and `/mux` | Direct TCP through SOCKS. No buffering layer. | Response bodies are buffered by the tunnel, so SSE does not stream (ADR 0004). `/mux` is unaffected. | Not measured. Verify before relying on it. |
 
 **Decision: T1.** It is the only option that adds no public surface and keeps the
@@ -100,8 +100,9 @@ tailnet address through the hub.
    The current `remotehost.UnattendedTransportAllowed` does **not** yet match item 3: it
    accepts `100.64.0.0/10` and `*.ts.net` only. It misses the `fd7a:115c:a1e0::/48` IPv6
    range and a trailing-dot hostname. RW-5.2.2 must change it to call the item 3
-   predicate. This widens plain `http://` for those two forms only. Both are WireGuard
-   encrypted, the same as the IPv4 range. Without `TS_AUTHKEY` the hub sees no change.
+   predicate. The check does not depend on `TS_AUTHKEY`, so the widening applies to every
+   daemon, desktop included. It allows plain `http://` for those two forms only. Both are
+   WireGuard encrypted, the same as the IPv4 range, so the change is safe but not a no-op.
    The BFF's scheme handling is not changed by this ADR (see open questions).
 8. **Same connection (new requirement for RW-5.2.2).** The SOCKS dialer is the
    `DialContext` of the one transport that `DirectClient` already returns. The identity
@@ -111,16 +112,21 @@ tailnet address through the hub.
    connection closes between the probe and a later request, `net/http` re-dials and
    sends the bearer on a new connection that never answered the probe. A SOCKS hop adds
    another place where idle connections can close, so the gap widens with this change.
-   RW-5.2.2 must close it with this mechanism:
-   - Attach an `httptrace.ClientTrace` with `GotConn` to every request that carries the
-     bearer. The request fails if `GotConn` reports `Reused == false` on any request
-     after the probe, unless the probe itself opened that connection in the same pass.
-   - On such a failure, the pass stops for that host and the next pass re-probes from
-     scratch. No bearer is sent on the unprobed connection. Pulls and acknowledgements
-     are retried by the next pass, and the delivery record keeps them from being
-     delivered twice (ADR 0005).
-   - A test in `observe/remotereports` forces a closed keep-alive connection between the
-     probe and a pull, and asserts that the bearer is not sent on the new connection.
+   RW-5.2.2 must close it by gating the dial, not by inspecting the request:
+   - Each host's pass gets its own transport whose `DialContext` (the SOCKS or direct
+     dialer) is armed for exactly one probe. `ReadIdentity` runs over that transport.
+     When the probe returns, the gate closes.
+   - After the gate closes, any dial on that transport fails with an error. A request
+     that reuses an idle connection keeps working. A request that would need a new
+     connection cannot send the bearer, because no unprobed connection can be created.
+     `net/http` cannot write a request on a connection it did not dial through the gate.
+   - The failure stops the pass for that host. The next pass builds a new transport and
+     re-probes. Pulls and acknowledgements are retried, and the delivery record keeps
+     them from being delivered twice (ADR 0005).
+   - `httptrace.GotConn` is not the mechanism. It returns nothing, and cancelling the
+     request from it races with the write. It may be used as a test assertion only.
+   - A test in `observe/remotereports` closes the keep-alive connection between the
+     probe and a pull, and asserts that the pull fails with no bearer on the wire.
 
 ### 2. Secret handling
 
@@ -190,8 +196,9 @@ recommended, but that is an operations step outside this ADR.
   (ADR 0005).
 - **Code scope.** RW-5.2.2 and RW-5.2.3 implement this exception, with tests for
   routing, validation, environment-proxy avoidance and same-connection behavior. The
-  daemon and BFF change only when `AO_REMOTE_TAILNET_SOCKS` is set, so behavior is
-  unchanged without it.
+  dialer and the same-connection gate are active only when `AO_REMOTE_TAILNET_SOCKS` is
+  set. The one change that applies to every daemon is the scheme widening in Decision
+  item 7 (IPv6 tailnet range and trailing-dot names), which is WireGuard encrypted.
 - **AGENTS.md.** The hard rule about network-facing binds and the proxy rule are
   extended by this ADR. The reference is added to the AGENTS.md hard rules, marked
   Proposed, and takes effect only when this ADR is Accepted.
