@@ -1,0 +1,244 @@
+name: Hub image
+
+# Builds the Railway hub image (deploy/railway/hub/Dockerfile) and smoke-tests
+# it. The hub extends the worker image (deploy/railway/worker/Dockerfile).
+#
+# Pull requests and manual runs build the worker image from this commit into
+# the job's local Docker store (ao-worker:ci, never pushed), build the hub on
+# top of it, and smoke-test the result. Nothing is published.
+#
+# A push to main or a hub-v* tag publishes ghcr.io/<owner>/ao-hub, on top of
+# the published worker image named by the AO_WORKER_TAG repository variable
+# (sha-<short> or worker-v<semver>). That path fails early if the variable is
+# unset, because no worker tag can be assumed.
+
+on:
+  push:
+    branches: [main]
+    tags: ["hub-v*"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packages/**"
+      - "deploy/railway/**"
+      - ".github/workflows/hub-image.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packages/**"
+      - "deploy/railway/**"
+      - ".github/workflows/hub-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Pull requests cancel their older runs. A push to main and a hub-v* tag on the
+# same commit must not share a group, or the tag run could be cancelled.
+concurrency:
+  group: hub-image-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# local-ci (`make ci-local`) runs every workflow as a push and sets
+# LOCAL_CI_LOCAL in the runner. A local run must never publish.
+env:
+  AO_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+  AO_COMMIT: ${{ github.sha }}
+
+jobs:
+  # Decides the mode once: publish (push to main or hub-v*, not local-ci) or
+  # verify (everything else). Publish resolves the worker image to a published
+  # tag and fails early if AO_WORKER_TAG is unset.
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      worker-image: ${{ steps.plan.outputs.worker-image }}
+    steps:
+      - name: Choose mode and worker image
+        id: plan
+        env:
+          WORKER_TAG: ${{ vars.AO_WORKER_TAG }}
+        run: |
+          owner=${GITHUB_REPOSITORY%%/*}
+          publish=false
+          if [ "${LOCAL_CI_LOCAL:-}" != true ] && [ "$GITHUB_EVENT_NAME" = push ]; then
+            publish=true
+          fi
+          echo "publish=$publish" >>"$GITHUB_OUTPUT"
+          if [ "$publish" = true ]; then
+            if [ -z "$WORKER_TAG" ]; then
+              echo "::error::Publishing the hub image needs the AO_WORKER_TAG repository variable set to a published ao-worker tag (sha-<short> or worker-v<semver>)."
+              exit 1
+            fi
+            echo "worker-image=ghcr.io/${owner,,}/ao-worker:$WORKER_TAG" >>"$GITHUB_OUTPUT"
+          else
+            # Built by the smoke job itself; no registry involved.
+            echo "worker-image=ao-worker:ci" >>"$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  # Starts the hub the way Railway does (entrypoint, empty volume, operator
+  # hash) and checks the public endpoints: health, login, and the
+  # authenticated hosts list. curl runs in a second container on the same
+  # network, as Railway's proxy would reach the service.
+  smoke:
+    name: Smoke (linux/amd64)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        if: needs.plan.outputs.publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # Verify mode only: the worker image from this commit, loaded into the
+      # local Docker store. The classic builder is used for the hub build below
+      # so FROM sees this local image; buildx's container driver does not.
+      - name: Build the worker image from this commit (not pushed)
+        if: needs.plan.outputs.publish != 'true'
+        run: |
+          docker build -f deploy/railway/worker/Dockerfile \
+            --build-arg AO_VERSION="$AO_VERSION" --build-arg AO_COMMIT="$AO_COMMIT" \
+            -t ao-worker:ci .
+
+      - name: Build the hub image
+        env:
+          WORKER_IMAGE: ${{ needs.plan.outputs.worker-image }}
+        run: |
+          docker build -f deploy/railway/hub/Dockerfile \
+            --build-arg AO_WORKER_IMAGE="$WORKER_IMAGE" \
+            -t ao-hub:smoke .
+
+      - name: Start the hub on a temporary volume
+        run: |
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          hash=$(printf '%s' "$password" | npm --prefix packages/hub-bff run --silent hash-password)
+          echo "::add-mask::$hash"
+          echo "HUB_PASSWORD=$password" >>"$GITHUB_ENV"
+          docker network create ao-hub-smoke
+          docker volume create ao-hub-smoke
+          docker run --detach --name ao-hub-smoke \
+            --network ao-hub-smoke \
+            --env PORT=8080 \
+            --env AO_WEB_PASSWORD_HASH="$hash" \
+            --volume ao-hub-smoke:/data \
+            ao-hub:smoke
+
+      - name: Check health, login, and the hosts list
+        run: |
+          base=http://ao-hub-smoke:8080
+          client() { docker run --rm --network ao-hub-smoke --entrypoint curl ao-hub:smoke --silent "$@"; }
+          status() { client --output /dev/null --write-out '%{http_code}' "$@" || true; }
+
+          code=000
+          for _ in $(seq 60); do
+            code=$(status "$base/healthz")
+            [ "$code" = 200 ] && break
+            sleep 2
+          done
+          echo "GET /healthz -> $code"
+          test "$code" = 200
+
+          code=$(status "$base/hub/hosts")
+          echo "GET /hub/hosts without a session -> $code"
+          test "$code" = 401
+
+          # Headers go to stdout (--dump-header -), not to the discarded body:
+          # with --include and --output /dev/null curl drops them.
+          resp=$(client --dump-header - --output /dev/null --write-out '\nHTTP_CODE=%{http_code}\n' \
+            --header 'Content-Type: application/json' --header "Origin: $base" \
+            --data "{\"password\":\"$HUB_PASSWORD\"}" "$base/login" || true)
+          code=$(printf '%s' "$resp" | sed -n 's/^HTTP_CODE=//p')
+          echo "POST /login with the operator password -> $code"
+          test "$code" = 204
+          cookie=$(printf '%s' "$resp" | tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\).*/\1/p' | head -n 1)
+          test -n "$cookie"
+
+          code=$(status --cookie "$cookie" "$base/hub/hosts")
+          echo "GET /hub/hosts with the session -> $code"
+          test "$code" = 200
+
+      - name: Hub logs
+        if: failure()
+        run: docker logs ao-hub-smoke || true
+
+      - name: Remove the hub, its volume, and its network
+        if: always()
+        run: |
+          docker rm --force ao-hub-smoke || true
+          docker volume rm ao-hub-smoke || true
+          docker network rm ao-hub-smoke || true
+
+  # Publish only: multi-arch build on top of the published worker tag, pushed
+  # to GHCR. linux/arm64 builds under QEMU; only the final stage is emulated
+  # because the web build runs on the build host.
+  publish:
+    name: Build and publish (linux/amd64, linux/arm64)
+    needs: [plan, smoke]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      # sha-<short> on every build; hub-v<semver> only on hub-v* tags. The
+      # image never takes a moving tag.
+      - name: Tags
+        id: tags
+        run: |
+          owner=${GITHUB_REPOSITORY%%/*}
+          image=ghcr.io/${owner,,}/ao-hub
+          {
+            echo "tags<<EOF"
+            echo "$image:sha-${GITHUB_SHA::7}"
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              echo "$image:$GITHUB_REF_NAME"
+            fi
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/railway/hub/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            AO_WORKER_IMAGE=${{ needs.plan.outputs.worker-image }}
+          cache-from: type=gha,scope=hub-image
+          cache-to: type=gha,mode=max,scope=hub-image
