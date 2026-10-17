@@ -49,7 +49,7 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | RW-1.3.2 Task: Dual-stack bind of the remote-host listener | [#13](https://github.com/petarnenov/ultra-factory/issues/13) | ✅ done | [#66](https://github.com/petarnenov/ultra-factory/pull/66) |
 | RW-1.3.3 Task: Identity probe and Expected-Host-ID guard through a proxy | [#14](https://github.com/petarnenov/ultra-factory/issues/14) | ✅ done | [#71](https://github.com/petarnenov/ultra-factory/pull/71) |
 | **RW-1.3 Story: Remote-host listener behind a reverse proxy** | [#11](https://github.com/petarnenov/ultra-factory/issues/11) | **✅ done** | — |
-| RW-1.4.1 Task: Deploy to Railway and networking checks | [#16](https://github.com/petarnenov/ultra-factory/issues/16) | ⬜ todo ⚠️ | — |
+| RW-1.4.1 Task: Deploy to Railway and networking checks | [#16](https://github.com/petarnenov/ultra-factory/issues/16) | ✅ done | [#99](https://github.com/petarnenov/ultra-factory/pull/99) |
 | RW-1.4.2 Task: End-to-end session from the desktop app and runbook | [#17](https://github.com/petarnenov/ultra-factory/issues/17) | ⛔ needs-human | [#83](https://github.com/petarnenov/ultra-factory/pull/83) |
 | **RW-1.4 Story: Manual worker deploy and connection from the desktop app** | [#15](https://github.com/petarnenov/ultra-factory/issues/15) | **⛔ needs-human** | — |
 | **RW-1 Epic: Worker on Railway, managed from the desktop app** | [#2](https://github.com/petarnenov/ultra-factory/issues/2) | **⛔ needs-human** | — |
