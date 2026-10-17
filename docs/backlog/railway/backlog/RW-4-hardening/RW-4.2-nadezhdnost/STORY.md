@@ -1,4 +1,5 @@
 # RW-4.2 · Story: Reliability and costs
+**Status:** ⬜ todo
 
 **Estimate:** 1 pd.
 

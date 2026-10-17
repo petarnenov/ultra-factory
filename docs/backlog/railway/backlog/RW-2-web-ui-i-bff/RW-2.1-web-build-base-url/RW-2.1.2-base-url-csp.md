@@ -1,4 +1,5 @@
 # RW-2.1.2 · Task: Base URL without `127.0.0.1` and CSP for the web build
+**Status:** ✅ done (#67)
 
 **Type:** frontend TS + Vite. **Estimate:** 0.5–1 pd. **Story:** RW-2.1.
 

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 )
 
@@ -188,7 +189,10 @@ func (h *hostClient) do(ctx context.Context, method, path string, in, out any) e
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		remotehost.DrainBody(resp.Body)
+		_ = resp.Body.Close()
+	}()
 	limited := io.LimitReader(resp.Body, maxResponseBytes)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var apiErr wireAPIError

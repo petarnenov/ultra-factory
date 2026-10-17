@@ -1,4 +1,5 @@
 # RW-3.1.1 · Task: Railway public API spike
+**Status:** ✅ done (#81)
 
 **Type:** research. **Estimate:** 0.5 pd. **Story:** RW-3.1.
 

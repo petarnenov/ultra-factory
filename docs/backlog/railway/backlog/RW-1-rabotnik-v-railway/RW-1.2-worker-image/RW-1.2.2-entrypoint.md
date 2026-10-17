@@ -1,4 +1,5 @@
 # RW-1.2.2 · Task: Worker entrypoint
+**Status:** ✅ done (#65)
 
 **Type:** infrastructure + shell. **Estimate:** 1 pd. **Story:** RW-1.2.
 

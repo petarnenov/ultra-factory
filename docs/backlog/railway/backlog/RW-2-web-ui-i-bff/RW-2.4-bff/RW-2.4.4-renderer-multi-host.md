@@ -1,4 +1,5 @@
 # RW-2.4.4 · Task: Renderer multi-host through the BFF instead of Electron `remotes`
+**Status:** ✅ done (#86)
 
 **Type:** frontend TS. **Estimate:** 0.5–1 pd. **Story:** RW-2.4. **Dependencies:** RW-2.4.3, RW-2.2.1.
 

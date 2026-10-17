@@ -42,6 +42,17 @@ export class SessionStore {
 		if (id) this.sessions.delete(id);
 	}
 
+	// Ends every session, including the caller's: "logout everywhere".
+	revokeAll(): void {
+		this.sessions.clear();
+	}
+
+	// Lists live sessions without their ids. `current` marks the caller's own.
+	list(currentId: string | undefined): Array<{ createdAt: number; lastSeenAt: number; current: boolean }> {
+		this.sweep();
+		return [...this.sessions].map(([id, s]) => ({ createdAt: s.createdAt, lastSeenAt: s.lastSeenAt, current: id === currentId }));
+	}
+
 	private sweep(): void {
 		const now = this.now();
 		for (const [id, s] of this.sessions) {

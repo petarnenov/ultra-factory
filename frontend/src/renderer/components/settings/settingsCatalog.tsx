@@ -1,7 +1,7 @@
-import { Activity, BadgeCheck, Bot, CircleHelp, CreditCard, Globe2, Keyboard, RefreshCw, Server, Settings2, Smartphone, type LucideIcon } from "lucide-react";
+import { Activity, BadgeCheck, Bot, CircleHelp, CreditCard, Globe2, Keyboard, RefreshCw, Server, ServerCog, Settings2, Smartphone, type LucideIcon } from "lucide-react";
 import { lazy, type ReactNode } from "react";
 import type { TFunction } from "i18next";
-import { capabilities } from "../../lib/platform";
+import { capabilities, isWebBuild } from "../../lib/platform";
 import type { GlobalSettingsSection } from "../../stores/ui-store";
 import { BillingSection } from "./BillingSection";
 import { BrowserDownloadsSection } from "./BrowserDownloadsSection";
@@ -15,7 +15,9 @@ import { KeyboardShortcutsContent } from "./KeyboardShortcutsContent";
 import { MobileDevicesSection } from "./MobileDevicesSection";
 import { ReportProblemContent } from "./ReportProblemContent";
 import { RemoteHostsSettings } from "./RemoteHostsSettings";
+import { RemoveWorkerDialog } from "./RemoveWorkerDialog";
 import { SettingsSection } from "./SettingsSection";
+import { WorkersSettings } from "./WorkersSettings";
 
 /** The memory window's own blocks, loaded only when the page is opened: it
  * samples the machine every two seconds while it is on screen. */
@@ -112,6 +114,14 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		label: (t) => t("settings.remoteHosts"),
 		visible: ({ developerMode }) => developerMode,
 		render: (_t, titleHidden) => <RemoteHostsSettings titleHidden={titleHidden} />,
+	},
+	{
+		id: "workers",
+		icon: ServerCog,
+		label: (t) => t("settings.workers"),
+		// The hub BFF's worker registry exists only behind the web build.
+		visible: () => isWebBuild,
+		render: (_t, titleHidden) => <WorkersSettings titleHidden={titleHidden} rowActions={(host) => <RemoveWorkerDialog host={host} />} />,
 	},
 	{
 		id: "mobile",

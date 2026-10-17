@@ -1,4 +1,5 @@
 # RW-1.3.2 · Task: Dual-stack bind of the remote-host listener
+**Status:** ✅ done (#66)
 
 **Type:** backend Go. **Estimate:** 0.5–1 pd. **Story:** RW-1.3. **Dependencies:** RW-1.1.3.
 

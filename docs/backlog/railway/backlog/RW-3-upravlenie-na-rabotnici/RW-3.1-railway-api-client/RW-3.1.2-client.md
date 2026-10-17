@@ -1,4 +1,5 @@
 # RW-3.1.2 · Task: `railway-client.ts`
+**Status:** ✅ done (#85)
 
 **Type:** Node TS. **Estimate:** 1–1.5 pd. **Story:** RW-3.1. **Dependencies:** RW-3.1.1.
 

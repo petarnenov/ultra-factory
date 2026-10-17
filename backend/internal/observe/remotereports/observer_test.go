@@ -915,3 +915,49 @@ func TestSlowButSuccessfulAcknowledgementsStayWithinTheHostBudget(t *testing.T) 
 		t.Fatalf("acknowledged %d of the slow host's %d reports after the next pass", len(acked), slowLinks)
 	}
 }
+
+func TestAnOfflineHostDoesNotBlockTheOthersAndCatchesUpWhenItReturns(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	offline := newFakeHost(t, "host-offline", "pw-o")
+	offline.pending["w-1"] = reportsJSON(needsInput("rpt_1", now))
+	healthy := newFakeHost(t, "host-healthy", "pw-h")
+	healthy.pending["w-2"] = reportsJSON(needsInput("rpt_2", now))
+	store := newMemStore(link("host-offline", "w-1"), link("host-healthy", "w-2"))
+	deliverer := &fakeDeliverer{}
+	observer := newTestObserver(store, deliverer, offline, healthy)
+	// The saved entry points at an address nothing listens on.
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	inner := observer.lookup
+	isDown := true
+	observer.lookup = func(id string) (remotehost.Entry, bool, error) {
+		entry, ok, err := inner(id)
+		if id == "host-offline" && isDown {
+			entry.URL = down.URL
+		}
+		return entry, ok, err
+	}
+
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 || len(deliverer.calls[0].reports) != 1 || deliverer.calls[0].reports[0].ID != "rpt_2" || len(healthy.acks()) != 1 {
+		t.Fatalf("the healthy host was not settled: deliveries=%+v acks=%v", deliverer.calls, healthy.acks())
+	}
+	if store.linkCount() != 2 {
+		t.Fatal("an offline host's link must be kept")
+	}
+
+	// The host comes back: its report is delivered once and acknowledged.
+	isDown = false
+	healthy.setPending("w-2", reportsJSON())
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 2 || len(deliverer.calls[1].reports) != 1 || deliverer.calls[1].reports[0].ID != "rpt_1" {
+		t.Fatalf("the returning host was not delivered: %+v", deliverer.calls)
+	}
+	if acks := offline.acks(); len(acks) != 1 || len(acks[0]) != 1 || acks[0][0] != "rpt_1" {
+		t.Fatalf("returning host acks = %v", acks)
+	}
+}

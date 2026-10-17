@@ -1,4 +1,5 @@
 # RW-3.3 · Story: "Workers" UI screen
+**Status:** ✅ done
 
 **As** an operator **I want** to see the workers with their status in Settings → Workers and add/remove them through a dialog, **so that** I can manage capacity without the Railway console.
 

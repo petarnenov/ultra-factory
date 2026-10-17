@@ -1,4 +1,5 @@
 # RW-1.1.1 · Task: ADR for trusting a reverse proxy in front of the remote-host listener
+**Status:** ✅ done (#60)
 
 **Type:** ADR. **Estimate:** 0.5 pd. **Story:** RW-1.1.
 

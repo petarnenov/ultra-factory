@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/remoteworker"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
+	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
 
 type recordedDelivery struct {
@@ -41,11 +42,7 @@ func (d *recordedDelivery) Interrupt(context.Context, domain.SessionID) error { 
 
 func openStore(t *testing.T, project string) *sqlite.Store {
 	t.Helper()
-	s, err := sqlite.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
+	s := sqlitetest.MustOpen(t)
 	if err := s.UpsertProject(context.Background(), domain.ProjectRecord{ID: project, Path: "/tmp/" + project, RegisteredAt: time.Now().UTC()}); err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +66,12 @@ func createSession(t *testing.T, s *sqlite.Store, project string, kind domain.Se
 // a bearer check standing in for the LAN listener's auth middleware.
 func startRemoteDaemon(t *testing.T, store *sqlite.Store, reports *reportsvc.Service, hostID, password string) *httptest.Server {
 	t.Helper()
+	srv := httptest.NewServer(remoteDaemonHandler(store, reports, hostID, password))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func remoteDaemonHandler(store *sqlite.Store, reports *reportsvc.Service, hostID, password string) http.Handler {
 	r := chi.NewRouter()
 	r.Route("/api/v1", func(api chi.Router) {
 		(&controllers.IdentityController{HostID: hostID}).Register(api)
@@ -95,9 +98,7 @@ func startRemoteDaemon(t *testing.T, store *sqlite.Store, reports *reportsvc.Ser
 			})
 		})
 	})
-	srv := httptest.NewServer(r)
-	t.Cleanup(srv.Close)
-	return srv
+	return r
 }
 
 func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
@@ -202,5 +203,172 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 	}
 	if remaining, _ := localStore.ListRemoteWorkerLinks(ctx); len(remaining) != 0 {
 		t.Fatalf("link survived the remote worker: %+v", remaining)
+	}
+}
+
+// TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts walks one report
+// through an offline host, a lost acknowledgement, and a restart of each
+// daemon, with both daemons on real stores, and requires exactly one delivery.
+func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
+	ctx := context.Background()
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// A restart reopens the same database file; the schema is already current.
+	reopen := func(dir string) *sqlite.Store {
+		t.Helper()
+		s, err := sqlite.OpenPreMigrated(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	// Worker host.
+	remoteDir := t.TempDir()
+	remoteStore, err := sqlitetest.Open(remoteDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remoteStore.UpsertProject(ctx, domain.ProjectRecord{ID: "widgets", Path: "/tmp/widgets", RegisteredAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	worker := createSession(t, remoteStore, "widgets", domain.KindWorker)
+	created, err := reportsvc.New(reportsvc.Deps{Store: remoteStore}).Create(ctx, reportsvc.CreateInput{SessionID: worker.ID, State: domain.ReportNeedsInput, Note: "Postgres or SQLite?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var (
+		urlMu     sync.Mutex
+		remoteURL string
+		failAcks  bool
+	)
+	serveRemote := func(store *sqlite.Store) *httptest.Server {
+		inner := remoteDaemonHandler(store, reportsvc.New(reportsvc.Deps{Store: store}), "host-build", "s3cret")
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			urlMu.Lock()
+			fail := failAcks
+			urlMu.Unlock()
+			if fail && r.URL.Path == "/api/v1/reports/acknowledge" {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			inner.ServeHTTP(w, r)
+		}))
+		urlMu.Lock()
+		remoteURL = srv.URL
+		urlMu.Unlock()
+		return srv
+	}
+	lookup := func(id string) (remotehost.Entry, bool, error) {
+		urlMu.Lock()
+		defer urlMu.Unlock()
+		if id == "host-build" {
+			return remotehost.Entry{Label: "build-box", URL: remoteURL, Password: "s3cret", HostID: "host-build"}, true, nil
+		}
+		return remotehost.Entry{}, false, nil
+	}
+	remoteState := func(store *sqlite.Store) domain.ReportDeliveryState {
+		t.Helper()
+		rec, ok, err := store.GetReport(ctx, created.ID)
+		if err != nil || !ok {
+			t.Fatalf("remote report: ok=%v err=%v", ok, err)
+		}
+		return rec.DeliveryState
+	}
+
+	// This machine.
+	localDir := t.TempDir()
+	localStore, err := sqlitetest.Open(localDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := localStore.UpsertProject(ctx, domain.ProjectRecord{ID: "ultra-factory", Path: "/tmp/ultra-factory", RegisteredAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := createSession(t, localStore, "ultra-factory", domain.KindOrchestrator)
+	delivery := &recordedDelivery{}
+	startLocal := func(store *sqlite.Store) *remotereports.Observer {
+		coordinator := reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{Store: store, Delivery: delivery})
+		return remotereports.New(remotereports.Deps{Store: store, Deliverer: coordinator, SelfHostID: "host-local", Lookup: lookup, Logger: quiet})
+	}
+	observer := startLocal(localStore)
+
+	// The host is offline when the link is made and on the first passes.
+	offline := httptest.NewServer(http.NotFoundHandler())
+	offline.Close()
+	urlMu.Lock()
+	remoteURL = offline.URL
+	urlMu.Unlock()
+	if _, err := remoteworker.New(remoteworker.Deps{Store: localStore, SelfHostID: "host-local", Lookup: lookup}).Register(ctx, remoteworker.RegisterInput{
+		ParentSessionID: orchestrator.ID, HostID: "host-build", RemoteSessionID: worker.ID, RemoteProjectID: "widgets", DisplayName: "auth refactor",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := observer.Poll(ctx); err != nil {
+			t.Fatalf("an offline host must not fail the pass: %v", err)
+		}
+	}
+	if len(delivery.submissions) != 0 {
+		t.Fatalf("delivered while the host was offline: %v", delivery.submissions)
+	}
+	if links, _ := localStore.ListRemoteWorkerLinks(ctx); len(links) != 1 {
+		t.Fatal("an offline host's link must be kept")
+	}
+
+	// The host returns, but its acknowledgement is lost: the report is
+	// delivered once and stays pending remotely.
+	urlMu.Lock()
+	failAcks = true
+	urlMu.Unlock()
+	remote := serveRemote(remoteStore)
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 || delivery.targets[0] != orchestrator.ID || !strings.Contains(delivery.submissions[0], "Postgres or SQLite?") {
+		t.Fatalf("submissions = %v targets = %v", delivery.submissions, delivery.targets)
+	}
+	if state := remoteState(remoteStore); state != domain.ReportPending {
+		t.Fatalf("remote report state = %s, want pending after a lost acknowledgement", state)
+	}
+
+	// The local daemon restarts: the delivery record survives, so the next
+	// pass acknowledges the report without delivering it again.
+	if err := localStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	localStore = reopen(localDir)
+	t.Cleanup(func() { _ = localStore.Close() })
+	observer = startLocal(localStore)
+	urlMu.Lock()
+	failAcks = false
+	urlMu.Unlock()
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("redelivered after a local restart: %v", delivery.submissions)
+	}
+	if state := remoteState(remoteStore); state != domain.ReportAcknowledged {
+		t.Fatalf("remote report state = %s, want acknowledged", state)
+	}
+
+	// The remote daemon restarts on a new address: the acknowledgement is
+	// durable there, so nothing is pulled again.
+	remote.Close()
+	if err := remoteStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	remoteStore = reopen(remoteDir)
+	t.Cleanup(func() { _ = remoteStore.Close() })
+	remote = serveRemote(remoteStore)
+	t.Cleanup(remote.Close)
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("redelivered after a remote restart: %v", delivery.submissions)
+	}
+	if state := remoteState(remoteStore); state != domain.ReportAcknowledged {
+		t.Fatalf("remote report state = %s after restart, want acknowledged", state)
 	}
 }

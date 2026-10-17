@@ -1,4 +1,5 @@
 # RW-1.1 · Story: Architecture decisions (ADR)
+**Status:** ✅ done (#60)
 
 **As** a maintainer **I want** recorded decisions for the two deviations from the hard rules in `AGENTS.md`, **so that** the code in RW-1.3 and RW-2.4 can be reviewed against a clear policy.
 

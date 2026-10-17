@@ -1,4 +1,5 @@
 # RW-2.2 · Story: Hiding Electron-only features in the web build
+**Status:** ✅ done
 
 **As** a browser user **I want** the buttons and panels that require Electron to be hidden or to show a clear message, **so that** there are no broken actions.
 

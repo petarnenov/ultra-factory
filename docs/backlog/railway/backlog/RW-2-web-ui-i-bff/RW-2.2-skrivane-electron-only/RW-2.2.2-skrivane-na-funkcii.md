@@ -1,4 +1,5 @@
 # RW-2.2.2 · Task: Hiding Electron-only features
+**Status:** ✅ done (#75)
 
 **Type:** frontend React. **Estimate:** 1–1.5 pd. **Story:** RW-2.2. **Dependencies:** RW-2.2.1.
 

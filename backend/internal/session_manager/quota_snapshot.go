@@ -90,7 +90,7 @@ func (m *Manager) ObserveQuotaAndSnapshot(ctx context.Context, id domain.Session
 	if remaining < 0 || remaining > quotaSnapshotThresholdPercent || observedAt.IsZero() || observedAt.After(now.Add(time.Minute)) || now.Sub(observedAt) > quotaObservationMaxAge {
 		return nil
 	}
-	if (source.Harness != domain.HarnessCodex && !(source.Controller && source.Harness == domain.HarnessClaudeCode)) || strings.TrimSpace(source.Generation) == "" {
+	if (source.Harness != domain.HarnessCodex && (!source.Controller || source.Harness != domain.HarnessClaudeCode)) || strings.TrimSpace(source.Generation) == "" {
 		return nil
 	}
 	rec, found, err := m.store.GetSession(ctx, id)
@@ -220,6 +220,28 @@ func validQuotaSnapshot(body []byte, id domain.SessionID, source QuotaSnapshotSo
 	var existing quotaSnapshot
 	return len(body) <= quotaSnapshotMaxBytes && json.Unmarshal(body, &existing) == nil &&
 		existing.SchemaVersion == 1 && existing.SessionID == id && existing.Harness == source.Harness && existing.Generation == source.Generation
+}
+
+// fillFromQuotaSnapshot fills the facts a stopped session left empty from its
+// latest quota snapshot.
+func (c *deterministicSwitchContext) fillFromQuotaSnapshot(quota quotaSnapshot) {
+	if strings.TrimSpace(c.OriginalTask) == "" {
+		c.OriginalTask = quota.OriginalTask
+	}
+	if strings.TrimSpace(c.LatestUserPrompt) == "" {
+		c.LatestUserPrompt = quota.LatestUserPrompt
+	}
+	if strings.TrimSpace(c.LatestAssistantUpdate) == "" {
+		c.LatestAssistantUpdate = quota.AssistantUpdate
+	}
+	if len(c.Workspaces) == 0 {
+		for _, fact := range quota.Workspaces {
+			c.Workspaces = append(c.Workspaces, switchWorkspaceFact{Repository: fact.Repository, Path: fact.Path, Branch: fact.Branch, HeadSHA: fact.HeadSHA, Dirty: fact.Dirty, Staged: fact.Staged, Untracked: fact.Untracked})
+		}
+	}
+	if len(c.PullRequests) == 0 {
+		c.PullRequests = quota.PullRequests
+	}
 }
 
 func (m *Manager) readQuotaSnapshot(ctx context.Context, id domain.SessionID, harness domain.AgentHarness, generation string) (quotaSnapshot, bool) {

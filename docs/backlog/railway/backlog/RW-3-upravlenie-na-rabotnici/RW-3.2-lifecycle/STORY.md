@@ -1,4 +1,5 @@
 # RW-3.2 · Story: Worker lifecycle
+**Status:** ✅ done
 
 **As** an operator **I want** the BFF to take the worker through the states provisioning → online → removing → removed with visible progress and recovery after a hub restart, **so that** no "orphans" are left behind in Railway.
 
