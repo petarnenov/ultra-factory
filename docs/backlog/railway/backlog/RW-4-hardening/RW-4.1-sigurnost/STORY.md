@@ -1,5 +1,5 @@
 # RW-4.1 · Story: Security
-**Status:** ⬜ todo
+**Status:** ✅ done
 
 **Estimate:** 1–2 pd.
 

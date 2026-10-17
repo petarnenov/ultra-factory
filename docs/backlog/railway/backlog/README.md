@@ -85,8 +85,8 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | **RW-3.3 Story: "Workers" UI screen** | [#45](https://github.com/petarnenov/ultra-factory/issues/45) | **✅ done** | — |
 | **RW-3 Epic: Adding and removing workers from the web UI** | [#38](https://github.com/petarnenov/ultra-factory/issues/38) | **✅ done** | — |
 | RW-4.1.1 Task: Threat model and security headers | [#51](https://github.com/petarnenov/ultra-factory/issues/51) | ✅ done | [#98](https://github.com/petarnenov/ultra-factory/pull/98) |
-| RW-4.1.2 Task: Railway token scope, rotation, audit log | [#52](https://github.com/petarnenov/ultra-factory/issues/52) | ⬜ todo | — |
-| **RW-4.1 Story: Security** | [#50](https://github.com/petarnenov/ultra-factory/issues/50) | **⬜ todo** | — |
+| RW-4.1.2 Task: Railway token scope, rotation, audit log | [#52](https://github.com/petarnenov/ultra-factory/issues/52) | ✅ done | [#107](https://github.com/petarnenov/ultra-factory/pull/107) |
+| **RW-4.1 Story: Security** | [#50](https://github.com/petarnenov/ultra-factory/issues/50) | **✅ done** | — |
 | RW-4.2.1 Task: Backup and redeploy strategy | [#54](https://github.com/petarnenov/ultra-factory/issues/54) | ⬜ todo | — |
 | RW-4.2.2 Task: Limits and cost monitoring | [#55](https://github.com/petarnenov/ultra-factory/issues/55) | ⬜ todo | — |
 | **RW-4.2 Story: Reliability and costs** | [#53](https://github.com/petarnenov/ultra-factory/issues/53) | **⬜ todo** | — |
