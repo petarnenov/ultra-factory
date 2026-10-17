@@ -1,7 +1,7 @@
 # 8. Hub egress to off-Railway hosts over a tailnet
 
 Date: 2026-10-17
-Status: Proposed
+Status: Accepted (human approval: option T1 approved by the user, 2026-10-17)
 
 ## Context
 
@@ -207,8 +207,8 @@ recommended, but that is an operations step outside this ADR.
   - the scheme widening in Decision item 7 (IPv6 tailnet range and trailing-dot names),
     which is WireGuard encrypted.
 - **AGENTS.md.** The hard rule about network-facing binds and the proxy rule are
-  extended by this ADR. The reference is added to the AGENTS.md hard rules, marked
-  Proposed, and takes effect only when this ADR is Accepted.
+  extended by this ADR. The reference is added to the AGENTS.md hard rules and takes
+  effect with this ADR's acceptance.
 
 ## Open questions
 
