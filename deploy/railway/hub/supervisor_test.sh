@@ -110,6 +110,34 @@ test_sigterm_stops_both() {
 	[[ $status == 0 ]] && ! pgrep -a -x sleep | grep -q ' 6130$'
 }
 
+# With AO_HUB_ORCHESTRATOR_TICK=1 a tick loop that exits is restarted and the
+# daemon and BFF keep running; SIGTERM then stops all three.
+test_tick_loop_restarts_without_stopping_the_hub() {
+	local pid status=0
+	printf '#!/usr/bin/env bash\necho run >>"%s"\nexit 3\n' "$work/tick-runs" >"$work/tick.sh"
+	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_DAEMON_COMMAND="sleep 6131" AO_HUB_BFF_MAIN="$work/sleep.js" \
+		AO_HUB_ORCHESTRATOR_TICK=1 AO_HUB_TICK_COMMAND="bash $work/tick.sh" AO_HUB_TICK_START_DELAY=0 AO_HUB_TICK_RESTART_DELAY=1 \
+		bash "$supervisor" 2>"$work/tick.log" &
+	pid=$!
+	sleep 3.5
+	kill -0 "$pid" && pgrep -a -x sleep | grep -q ' 6131$' &&
+		(($(wc -l <"$work/tick-runs") >= 2)) &&
+		grep -q 'orchestrator tick loop exited with status 3; restarting in 1s' "$work/tick.log" || {
+		kill -TERM "$pid"
+		return 1
+	}
+	kill -TERM "$pid"
+	wait "$pid" || status=$?
+	[[ $status == 0 ]] && ! pgrep -a -x sleep | grep -q ' 6131$'
+}
+
+# The tick loop is opt-in.
+test_tick_loop_is_off_by_default() {
+	seed && ! grep -q 'tick loop' "$work/seed.log" &&
+		AO_HUB_ORCHESTRATOR_TICK=1 seed && grep -q 'would start the tick loop: /usr/local/bin/ao-orchestrator-tick.sh loop' "$work/seed.log"
+}
+
 printf 'process.exit(3);\n' >"$work/exit3.js"
 printf 'setInterval(() => {}, 1000);\n' >"$work/sleep.js"
 mkdir -p "$work/home"
@@ -123,6 +151,8 @@ check "keeps an agent CLI updated from the UI" test_keeps_newer_ui_update
 check "replaces an older copy with a newer image version" test_newer_image_replaces_older_copy
 check "exits with the status of the first child that exits" test_exits_when_one_child_exits
 check "SIGTERM stops both processes and exits 0" test_sigterm_stops_both
+check "a tick loop that exits is restarted without stopping the hub" test_tick_loop_restarts_without_stopping_the_hub
+check "the tick loop is opt-in (AO_HUB_ORCHESTRATOR_TICK=1)" test_tick_loop_is_off_by_default
 
 if ((failures > 0)); then
 	printf '%d check(s) failed\n' "$failures"

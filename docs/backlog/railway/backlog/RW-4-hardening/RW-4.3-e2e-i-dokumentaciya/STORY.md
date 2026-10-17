@@ -1,5 +1,5 @@
 # RW-4.3 · Story: E2E test and documentation
-**Status:** ⬜ todo
+**Status:** 👀 in review
 
 **Estimate:** 1–2 pd.
 

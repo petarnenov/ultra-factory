@@ -1,5 +1,5 @@
 # RW-5.4.2 · Task: Wake-up and reconcile loop inside the hub
-**Status:** ⬜ todo
+**Status:** 🔄 in progress
 
 **Type:** operations. **Estimate:** 1 pd. **Story:** RW-5.4.
 

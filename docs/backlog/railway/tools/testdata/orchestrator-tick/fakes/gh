@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Fake `gh` for orchestrator-tick-test.sh. It serves files from TICK_FIXTURE
+# and applies --jq with the real jq, as gh does.
+set -euo pipefail
+f="$TICK_FIXTURE"
+args=("$@")
+jq_expr="" state="" file=""
+for ((i = 0; i < ${#args[@]}; i++)); do
+	case "${args[i]}" in
+	--jq) jq_expr="${args[i + 1]}" ;;
+	--state) state="${args[i + 1]}" ;;
+	esac
+done
+case "$1 $2" in
+"auth token")
+	[[ "${TICK_GH_AUTH:-1}" == 1 ]] || exit 1
+	echo fake-token
+	exit 0
+	;;
+"pr list") file="prs-$state.json" ;;
+"issue list") file="issues-open.json" ;;
+api\ *) file="${TICK_COMPARE:-compare-even.json}" ;;
+*)
+	echo "fake gh: unexpected: $*" >&2
+	exit 1
+	;;
+esac
+if [[ -n "$jq_expr" ]]; then jq -r "$jq_expr" "$f/$file"; else cat "$f/$file"; fi

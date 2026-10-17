@@ -1288,7 +1288,7 @@ func validateContinuationAgent(agent ports.Agent) (ports.ContinuationCapabilitie
 }
 
 func (m *Manager) preserveCurrentNativeSession(ctx context.Context, store ports.AgentSwitchStore, rec domain.SessionRecord, agent ports.Agent, env map[string]string, generation domain.AgentGenerationID) (domain.AgentNativeSession, error) {
-	configDir, err := nativeConfigDir(ctx, agent, env)
+	configDir, err := sourceNativeConfigDir(ctx, agent, env)
 	if err != nil {
 		return domain.AgentNativeSession{}, err
 	}
@@ -1732,6 +1732,18 @@ func (m *Manager) findTargetResumeCandidate(ctx context.Context, store ports.Age
 		return candidate, true, nil
 	}
 	return domain.AgentNativeSession{}, false, nil
+}
+
+// sourceNativeConfigDir is nativeConfigDir for the agent being switched away
+// from. Any harness can be a switch source, but only continuation-capable
+// targets must expose their state root. Without one the source conversation is
+// still recorded, with an unknown ("") config dir: it gets no transcript path
+// and never matches a later resume lookup, so switching back starts fresh.
+func sourceNativeConfigDir(ctx context.Context, agent ports.Agent, env map[string]string) (string, error) {
+	if _, ok := agent.(ports.AgentNativeSessionConfigProvider); !ok {
+		return "", ctx.Err()
+	}
+	return nativeConfigDir(ctx, agent, env)
 }
 
 func nativeConfigDir(ctx context.Context, agent ports.Agent, env map[string]string) (string, error) {

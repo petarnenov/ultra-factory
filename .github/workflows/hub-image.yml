@@ -29,6 +29,7 @@ on:
       - "frontend/**"
       - "packages/**"
       - "deploy/railway/**"
+      - "docs/backlog/railway/tools/orchestrator-tick.sh"
       - ".github/workflows/hub-image.yml"
   pull_request:
     paths:
@@ -36,6 +37,7 @@ on:
       - "frontend/**"
       - "packages/**"
       - "deploy/railway/**"
+      - "docs/backlog/railway/tools/orchestrator-tick.sh"
       - ".github/workflows/hub-image.yml"
   workflow_dispatch:
 

@@ -64,6 +64,11 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `AO_HUB_WORKER_URL_MODE` | Optional `public` or `private`; default `public`. Private Railway DNS connectivity is an open live check. |
 | `AO_HARNESS_UPDATE_CHECKS` | Image default `on` for the hub (the worker image keeps `off`), so Settings → Harness → This computer reports updates and offers Update. |
 | `NPM_CONFIG_PREFIX`, `AO_HUB_NPM_SEED` | Image defaults `/data/home/.npm-global` and `/opt/ao/npm-global`. The image installs Claude Code and Codex under the seed; the supervisor copies them into the volume prefix when it lacks them or has an older version. `PATH` searches the volume prefix first, so a harness update from the UI installs there and persists across restarts and image updates. |
+| `ANTHROPIC_API_KEY` | Optional. Claude Code credential for an orchestrator in the hub, read by `claude` from the environment. See [Orchestrator agent credentials](#orchestrator-agent-credentials). |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Optional alternative to `ANTHROPIC_API_KEY` for Claude Code. Set at most one of the two. |
+| `OPENAI_API_KEY` | Optional. Codex API key; used only for the one-time `codex login --with-api-key` below, not read by AO's readiness probe. |
+| `AO_HUB_ORCHESTRATOR_TICK` | Optional. `1` starts the orchestrator wake-up loop under the supervisor; default off. See [Orchestrator wake-up loop](#orchestrator-wake-up-loop). The tick also reads the `RW_TICK_*` variables documented in its script header. |
+| `GH_TOKEN` | Required for an orchestrator in the hub. Fine-grained token limited to this repository; read by `gh` and, through `gh auth token`, by the daemon's GitHub adapters. |
 
 `AO_HUB_OPERATOR_PASSWORD_HASH`, `AO_HUB_SESSION_SECRET`, and
 `AO_HUB_DAEMON_URL` from the earlier task text are not read by the current
@@ -72,6 +77,146 @@ daemon password file and its `lastPort` (normally `3011`) to form the internal
 loopback URL. As specified by [ADR 0006](../../docs/adr/0006-web-bff-for-hub.md),
 sessions are opaque random IDs held in BFF memory; there is no signing secret.
 A BFF redeploy clears all sessions by design.
+
+### Orchestrator agent credentials
+
+An orchestrator started in the hub runs one of its agent CLIs: `claude` and
+`codex` from the hub's updatable prefix (see `NPM_CONFIG_PREFIX` above), or
+`opencode` inherited from the worker image. It needs a
+provider credential for its harness and a GitHub token. The operator sets
+them; no credential goes into the repository, the image, build arguments, or
+logs. The hub supervisor does not log credential values. Unlike the worker
+entrypoint, it does not log credential variable names either and does not run
+`gh auth setup-git` (see the GitHub token below).
+
+There are two ways to authenticate a harness:
+
+- **Railway variable.** The value lives in Railway's variable store and
+  reaches the daemon and every agent process through the environment.
+  Nothing is written to the volume. Rotation is a variable change and a
+  redeploy.
+- **One-time interactive login in a hub terminal.** The CLI writes its own
+  credential file under `HOME=/data/home` on the volume, so the login
+  survives redeploys. Rotation is a new login. The file is in every volume
+  snapshot. Run the login as uid `10001` with `HOME=/data/home`, for example
+  from a terminal session on the hub host in the web UI. A Railway shell may
+  start as root with another `HOME`; in that case wrap the command in
+  `setpriv --reuid=10001 --regid=10001 --init-groups env HOME=/data/home …`,
+  otherwise the file lands in the wrong place or is unreadable to the daemon.
+
+Per harness:
+
+| Harness | Chosen method | Alternative | Where `ao agent ls` looks |
+| --- | --- | --- | --- |
+| `claude-code` | `ANTHROPIC_API_KEY` as a Railway variable on the `hub` service. | `CLAUDE_CODE_OAUTH_TOKEN` as a variable (created locally with `claude setup-token`; check the provider's terms for subscription use on a server), or `claude` then `/login` in a hub terminal, which writes `/data/home/.claude/.credentials.json`. | Environment first, then the credentials file. |
+| `codex` | One-time login in a hub terminal: `codex login --device-auth` for a ChatGPT account, or `printenv OPENAI_API_KEY \| codex login --with-api-key` for an API key. Both write `/data/home/.codex/auth.json`. | None. AO's probe runs `codex login status`, which reads `auth.json`, so an `OPENAI_API_KEY` variable without the login step is not expected to report `authorized`. Remove `OPENAI_API_KEY` from Railway after the login if it is not needed for anything else. | `codex login status`. |
+
+Pick one harness for the orchestrator and set up only its credential. The
+other harnesses can stay unauthorized.
+
+**GitHub token (`GH_TOKEN`).** The orchestrator reads and edits issues,
+comments on them, opens, reviews and merges pull requests with `gh pr merge`,
+and the daemon polls PR and CI facts. Create a fine-grained personal access
+token with **Repository access: Only select repositories →
+`petarnenov/ultra-factory`** and these repository permissions:
+
+| Permission | Access | Why |
+| --- | --- | --- |
+| Metadata | Read | Mandatory for every fine-grained token. |
+| Issues | Read and write | `gh issue view`, issue comments, editing task checklists and labels. |
+| Pull requests | Read and write | `gh pr view/create/review/comment` and `gh pr merge`. |
+| Contents | Read and write | Merging a PR writes to the base branch; clone and fetch read it; `git push` writes branches. |
+| Commit statuses | Read (optional) | CI state for PR facts and `gh pr checks`. Confirm in the live check whether it is needed. |
+| Workflows | Read and write (optional) | Only if the orchestrator must merge PRs that change `.github/workflows/`. Without it those merges fail and stay with a human. |
+
+Grant nothing else: no account permissions, no other repositories, no admin.
+The token cannot bypass branch protection. Set an expiry and record it. `gh`
+reads `GH_TOKEN` directly, and the daemon's `gh auth token` fallback returns
+it, so `gh auth login` is not needed and should not be run (it would write
+the token to `/data/home/.config/gh/hosts.yml`). For `git` over HTTPS with
+the same token, run `gh auth setup-git` once in a hub terminal as uid
+`10001`; it writes only a credential-helper reference to
+`/data/home/.gitconfig`, not the token.
+
+**Rotation.** Railway variables: create the new key or token, replace the
+variable on the `hub` service, redeploy when no hub session is active (see
+**Image update** below: a restart ends live agents), confirm `ao agent ls`
+and `gh auth status` in the hub, then revoke the old credential at the
+provider. Interactive logins: log in again in a hub terminal (for Codex,
+`codex logout` first), confirm `ao agent ls`, then revoke the old session or
+key at the provider. A credential that may have leaked is revoked first and
+replaced second.
+
+**Live check (operator, pending).** In a hub terminal, `ao agent ls` lists
+the chosen harness as `authorized`; an orchestrator session started in the
+hub answers a prompt and runs
+`gh issue view 119 --repo petarnenov/ultra-factory`. Record only the result
+and the date, never `gh auth status -t` output or environment dumps.
+
+### Orchestrator wake-up loop
+
+Worker reports reach a hub orchestrator through the ADR 0005 pull, but no
+report covers PR and CI state (a PR that turns green, a merge conflict). On
+the Mac, launchd runs
+[`orchestrator-tick.sh`](../../docs/backlog/railway/tools/orchestrator-tick.sh)
+every 5 minutes for that. In the hub the same script runs as
+`/usr/local/bin/ao-orchestrator-tick.sh loop`, a third child of the
+supervisor, when the `hub` service has `AO_HUB_ORCHESTRATOR_TICK=1`.
+
+- **Why not `ao automation`.** An automation run spawns a new session with a
+  prompt; it cannot run a script or send a message to an existing
+  orchestrator. A supervised loop needs no daemon change and nothing on the
+  operator's machines.
+- **What one tick does.** It finds the single live orchestrator of
+  `RW_TICK_PROJECT` (default `ultra-factory`) with `ao orchestrator ls`. Zero
+  or several live orchestrators, or a daemon that is not ready, are only
+  logged as `VIOLATION`; nothing is sent. An orchestrator in an active turn is
+  never interrupted. Otherwise, when the snapshot of worker sessions, open PRs
+  to `feat/railway-hosting` and invariants changed, or work is in flight and
+  the last nudge is older than 30 minutes (10 with a violation), it sends a
+  `TICK` message with `ao send`. A green mergeable PR therefore produces a
+  `TICK` on the next tick, within 5 minutes.
+- **GitHub.** `gh` reads `GH_TOKEN` (see
+  [Orchestrator agent credentials](#orchestrator-agent-credentials)); no
+  `gh auth login` is needed. Without a checkout in the image, the
+  "integration branch contains main" check uses the GitHub compare API. A
+  missing or rejected token is logged as `VIOLATION`.
+- **Hosts.** `RW_TICK_HOSTS` (default `Linux IMac Z600`) names the hosts whose
+  `rw/` sessions go into the snapshot, through `ao session ls --host`.
+- **Log and state.** `/data/ao/rw-tick/` (`$AO_DATA_DIR/rw-tick`):
+  `tick.log`, the last snapshot and the last-sent state. Each log line is
+  also printed to the service log. The `TICK` message itself is not logged.
+- **Start.** The first tick runs 60 seconds after the container starts
+  (`AO_HUB_TICK_START_DELAY`), so the daemon is ready.
+- **Failure.** A failed tick is logged and the loop continues. If the loop
+  process exits, the supervisor logs it and restarts it after 60 seconds; the
+  daemon and the BFF keep running.
+
+**Pause for a redeploy or maintenance.** In a hub terminal (uid `10001`,
+`HOME=/data/home`):
+
+```bash
+ao-orchestrator-tick.sh pause "redeploy"   # writes /data/ao/rw-tick/paused
+ao-orchestrator-tick.sh status             # shows the flag and the last ticks
+ao-orchestrator-tick.sh resume             # removes the flag
+```
+
+The flag is on the volume, so it survives the redeploy; resume after the
+hub is verified. While it is set every tick logs `paused (...)` and sends
+nothing. Setting `RW_TICK_PAUSED=1` on the service pauses as well, but changing
+a variable restarts the hub. To turn the loop off for good, remove
+`AO_HUB_ORCHESTRATOR_TICK`.
+
+**Offline check.** `bash docs/backlog/railway/tools/orchestrator-tick-test.sh`
+runs ticks with `--dry-run` against fixtures, with fake `ao` and `gh`.
+
+**Live check (operator, pending).** With `AO_HUB_ORCHESTRATOR_TICK=1`, a hub
+orchestrator running, and the Mac's launchd tick stopped
+(`orchestrator-tick.sh uninstall` on the Mac), a green mergeable PR to
+`feat/railway-hosting` produces a `nudged <orchestrator> (state changed)` line
+in `/data/ao/rw-tick/tick.log` and a `TICK` message in the orchestrator within
+10 minutes. Run only one tick per orchestrator: the Mac and the hub must not
+both nudge.
 
 ### Add the RW-1.4 worker
 
@@ -96,7 +241,7 @@ The hub image places durable state under the mounted volume:
 | `/data/ao` | Daemon database, worktrees, `running.json`, and `mobile/config.json` for the loopback-only listener credential. |
 | `/data/hub/hosts.json` | Host registry, including worker connection credentials; stored with restrictive permissions. |
 | `/data/hub/audit.jsonl` | Append-only security events; mode `0600`, no secrets. |
-| `/data/home` | Hub home directory. |
+| `/data/home` | Hub home directory, including any interactive agent logins (`.claude/.credentials.json`, `.codex/auth.json`). |
 
 Before a backup, stop or quiesce the service so SQLite and registry writes are
 not in flight, then use the operator-approved Railway volume backup/snapshot
@@ -128,6 +273,8 @@ SSE connections, or in-memory browser sessions.
   worker creation disabled by leaving `RAILWAY_API_TOKEN` and its project IDs
   unset until an operator verifies deletion permissions for a project-scoped
   token.
+- **Agent and GitHub credentials:** see **Rotation** under
+  [Orchestrator agent credentials](#orchestrator-agent-credentials).
 - **Hub daemon credential:** keep `/data/ao/mobile/config.json` with the volume;
   the supervisor seeds the listener as loopback-only on port `3011` and retains
   the generated password. Never publish either daemon port. Credential rotation
@@ -147,7 +294,9 @@ SSE connections, or in-memory browser sessions.
   after first boot. Verify the old password fails and the new one works without
   putting either value in logs, shell history, or issue evidence.
 - **Image update:** confirm no active hub sessions, stop new work, and record
-  pending work before redeploying. Restarting the hub terminates live daemon
+  pending work before redeploying. With the wake-up loop on, pause it first
+  and resume it after the checks below (see
+  [Orchestrator wake-up loop](#orchestrator-wake-up-loop)). Restarting the hub terminates live daemon
   processes and terminals, even though `/data` persists. Select the intended
   image revision and reattach the same `/data` volume; after startup, verify
   `/healthz`, the board, `/hub/hosts`, and a new terminal session. Do not infer
@@ -215,6 +364,7 @@ runbook.
 | Persistence and restart | Pending human validation | Verify `/data` contents and host registry after restart; separately record what live processes stopped. |
 | Image update and rollback | Pending human validation | Record old/new image revisions, no-active-session check, volume attachment, rollback procedure, and outcome. |
 | Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
+| Orchestrator credentials (RW-5.4.1) | Pending human validation | `ao agent ls` shows the chosen harness `authorized`; a hub orchestrator answers a prompt and runs `gh issue view` against this repository. No credential output. |
 
 The spike in [`packages/hub-bff/docs/railway-api-notes.md`](../../packages/hub-bff/docs/railway-api-notes.md)
 confirmed only selected Railway GraphQL create/configuration operations with a
