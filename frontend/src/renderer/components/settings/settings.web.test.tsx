@@ -15,12 +15,13 @@ vi.mock("../../lib/bridge", async (importOriginal) => {
 const context = { cloudEnabled: false, developerMode: true, diagnostics: false, hasCoder: false, selfServeBilling: false };
 
 describe("Settings in the web build", () => {
-	it("hides Updates and Browser profiles but keeps Remote hosts", () => {
+	it("hides Updates and Browser profiles but keeps Remote hosts and adds Workers", () => {
 		const sections = visibleGlobalSettings(context).map((item) => item.id);
 
 		expect(sections).not.toContain("updates");
 		expect(sections).not.toContain("browserProfiles");
 		expect(sections).toContain("remoteHosts");
+		expect(sections).toContain("workers");
 		expect(sections).toContain("general");
 	});
 
