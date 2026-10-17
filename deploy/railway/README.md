@@ -156,6 +156,40 @@ SSE connections, or in-memory browser sessions.
   new terminal before reopening normal use. Do not roll back by deleting or
   replacing the volume. This procedure is pending a human deployment exercise.
 
+### Automated image publish and deploy
+
+[`.github/workflows/hub-image.yml`](../../.github/workflows/hub-image.yml)
+builds, smoke-tests, and publishes the hub image on every push to
+`feat/railway-hosting` that touches its inputs (`backend/`, `frontend/`,
+`packages/`, `deploy/railway/`, or the workflow). That branch publishes
+`ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64 only, then the deploy job
+sets the Railway `hub` service image to that tag and waits for the deployment
+to reach `SUCCESS`. Pushes to `main` and `hub-v*` tags still publish
+multi-arch images and never deploy. Every deploy restarts the hub, as in
+**Image update** above. To approve each deploy instead, add required reviewers
+to the `railway-hub` environment.
+
+One-time setup (operator):
+
+1. Set the repository variable `AO_WORKER_TAG` to a published `ao-worker` tag
+   that has a linux/amd64 image. The hub image extends it.
+2. In each GHCR package's settings (`ao-hub`, `ao-worker`), under **Manage
+   Actions access**, give this repository access: write for `ao-hub`, read for
+   `ao-worker`. Packages first pushed from a laptop are not linked to the
+   repository, and `GITHUB_TOKEN` cannot push or pull them otherwise.
+3. Keep `ao-hub` pullable by Railway: public, or registry credentials on the
+   service.
+4. Create a Railway project token for the hub's project and environment
+   (Project Settings → Tokens). In GitHub, create the `railway-hub`
+   environment with the secrets `RAILWAY_TOKEN` (that token) and
+   `RAILWAY_HUB_SERVICE_ID` (the `hub` service ID). Without them the deploy
+   job is skipped with a notice and the image is still published.
+
+The deploy uses Railway's `serviceInstanceUpdate`, `serviceInstanceDeployV2`,
+and `deployment` GraphQL operations with the project token's
+`Project-Access-Token` header. Its first run is the live check of those
+operations; record the result in the validation record below.
+
 ### Logs and validation record
 
 Use the selected Railway hub service's deployment logs. The supervisor writes
