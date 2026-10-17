@@ -578,6 +578,17 @@ func (o *Observer) Poll(ctx context.Context) error {
 		}
 		prepared := o.prepareForPersistence(obs, local, opts, now)
 		if !prepared.Changed.Metadata && !prepared.Changed.CI && !prepared.Changed.Review {
+			// Terminal PR facts remain actionable for opted-in live sessions even
+			// after their semantic hashes have been acknowledged. Retrying the
+			// lifecycle reaction here covers both a prior active-agent deferral
+			// and enabling terminate-on-merge after the PR was already merged.
+			if o.lifecycle != nil && subj.session.TerminateOnPRMerge && (prepared.PR.Merged || prepared.PR.Closed) {
+				if err := o.lifecycle.ApplySCMObservation(ctx, subj.session.ID, prepared); err != nil {
+					o.logger.Error("scm observer: terminal lifecycle retry failed", "session", subj.session.ID, "pr", firstNonEmpty(prepared.PR.URL, prepared.PR.HTMLURL, local.URL), "err", err)
+					markRepoRefreshFailed(subj.repo)
+					continue
+				}
+			}
 			prRefreshOK[key] = true
 			continue
 		}

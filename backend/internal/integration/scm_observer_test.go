@@ -249,6 +249,19 @@ func (f *scmFixture) enableTerminateOnPRMerge(t *testing.T) {
 	f.session.TerminateOnPRMerge = true
 }
 
+func setSCMFixtureActivity(t *testing.T, f *scmFixture, state domain.ActivityState) {
+	t.Helper()
+	ctx := context.Background()
+	rec, ok, err := f.store.GetSession(ctx, f.session.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetSession: ok=%v err=%v", ok, err)
+	}
+	rec.Activity = domain.Activity{State: state, LastActivityAt: time.Now()}
+	if err := f.store.UpdateSession(ctx, rec); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+}
+
 func failingSCMObservation(prURL string, num int, headSHA, logTail string) ports.SCMObservation {
 	failed := ports.SCMCheckObservation{
 		Name:       "build",
@@ -467,6 +480,65 @@ func TestSCMObserverEndToEnd(t *testing.T) {
 		}
 		if rec, _, _ := f.store.GetSession(ctx, f.session.ID); !rec.IsTerminated {
 			t.Fatalf("successful retry left session live: %+v", rec)
+		}
+	})
+
+	t.Run("Merged PR deferred while agent is active terminates after quiescing", func(t *testing.T) {
+		ctx := context.Background()
+		f := newSCMFixture(t, "feat/x")
+		f.enableTerminateOnPRMerge(t)
+		setSCMFixtureActivity(t, f, domain.ActivityActive)
+		const prURL = "https://github.com/octocat/hello/pull/79"
+		f.provider.detected["feat/x"] = ports.SCMPRObservation{
+			URL: prURL, Number: 79, SourceBranch: "feat/x", HeadRepo: scmTestRepo.Repo, TargetBranch: "main", HeadSHA: "beef", Author: "octocat", Merged: true,
+		}
+		f.provider.observations[79] = mergedSCMObservation(prURL, 79, "beef")
+
+		if err := f.observer.Poll(ctx); err != nil {
+			t.Fatalf("active Poll: %v", err)
+		}
+		if rec, _, _ := f.store.GetSession(ctx, f.session.ID); rec.IsTerminated {
+			t.Fatalf("active agent must not be terminated: %+v", rec.Activity)
+		}
+		setSCMFixtureActivity(t, f, domain.ActivityIdle)
+		for i := 0; i < 3; i++ {
+			if err := f.observer.Poll(ctx); err != nil {
+				t.Fatalf("quiescent Poll %d: %v", i, err)
+			}
+		}
+		rec, _, err := f.store.GetSession(ctx, f.session.ID)
+		if err != nil {
+			t.Fatalf("GetSession: %v", err)
+		}
+		if !rec.IsTerminated {
+			t.Fatalf("session stayed live after agent quiesced: activity=%s", rec.Activity.State)
+		}
+	})
+
+	t.Run("Enabling terminate-on-merge after merge terminates completed session", func(t *testing.T) {
+		ctx := context.Background()
+		f := newSCMFixture(t, "feat/x")
+		setSCMFixtureActivity(t, f, domain.ActivityIdle)
+		const prURL = "https://github.com/octocat/hello/pull/80"
+		f.provider.detected["feat/x"] = ports.SCMPRObservation{
+			URL: prURL, Number: 80, SourceBranch: "feat/x", HeadRepo: scmTestRepo.Repo, TargetBranch: "main", HeadSHA: "cafe", Author: "octocat", Merged: true,
+		}
+		f.provider.observations[80] = mergedSCMObservation(prURL, 80, "cafe")
+		if err := f.observer.Poll(ctx); err != nil {
+			t.Fatalf("initial Poll: %v", err)
+		}
+		f.enableTerminateOnPRMerge(t)
+		for i := 0; i < 3; i++ {
+			if err := f.observer.Poll(ctx); err != nil {
+				t.Fatalf("enabled Poll %d: %v", i, err)
+			}
+		}
+		rec, _, err := f.store.GetSession(ctx, f.session.ID)
+		if err != nil {
+			t.Fatalf("GetSession: %v", err)
+		}
+		if !rec.IsTerminated {
+			t.Fatal("enabling terminate-on-merge after merge left the completed session live")
 		}
 	})
 
