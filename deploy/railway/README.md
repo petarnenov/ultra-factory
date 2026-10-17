@@ -58,6 +58,8 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `AO_HUB_DAEMON_PASSWORD_FILE` | Image default `/data/ao/mobile/config.json`; supervisor seeds this file on first start and preserves its daemon listener password on restarts. |
 | `AO_HUB_BFF_HOST` | Optional BFF listen address; code default `::` (all interfaces, dual-stack). |
 | `AO_HUB_MAX_WORKERS` | Optional worker registration limit; default `5`, positive integer. |
+| `AO_HUB_MAX_VOLUME_GB` | Optional upper bound, in GB, for a worker volume size in a `POST /hub/workers` spec. Unset means no limit. See [Limits and cost monitoring](#limits-and-cost-monitoring). |
+| `AO_HUB_IDLE_STOP_HOURS` | Optional. Hours without an active session before an online Railway worker shows an idle warning in Settings → Workers. Unset (default) turns the check off. Warning only; nothing is stopped. |
 | `RAILWAY_API_TOKEN` | Optional credential for Railway worker management. Supply only after the operator has verified required permissions and accepted the resource/deletion behavior; the RW-3.1.1 spike did not verify service or volume deletion permissions. |
 | `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID` | Required with the Railway API token for worker provisioning. |
 | `AO_HUB_WORKER_IMAGE` | Optional worker image used for worker provisioning. |
@@ -337,6 +339,74 @@ The deploy uses Railway's `serviceInstanceUpdate`, `serviceInstanceDeployV2`,
 and `deployment` GraphQL operations with the project token's
 `Project-Access-Token` header. Its first run is the live check of those
 operations; record the result in the validation record below.
+
+### Limits and cost monitoring
+
+Railway bills by usage: CPU, memory, network egress, volume storage, and
+backups, per service. Every running worker costs money whether or not an agent
+is working on it, so the hub has three guards:
+
+- `AO_HUB_MAX_WORKERS` (default `5`) caps how many Railway workers the BFF
+  registers; `POST /hub/workers` answers `429 worker_limit_reached` at the cap.
+- `AO_HUB_MAX_VOLUME_GB` rejects a create request whose `size` exceeds the
+  limit with `400 volume_size_limit`. Railway's `volumeCreate` takes no size
+  ([RW-3.1.1 notes](../../packages/hub-bff/docs/railway-api-notes.md)), so
+  every `size` is still refused, as `unsupported_size`, until sizing is
+  verified; volumes get the plan default.
+- `AO_HUB_IDLE_STOP_HOURS` makes the BFF check each online Railway worker's
+  active sessions every 5 minutes. A worker with none for that many hours shows
+  an "Idle" warning in Settings → Workers and a `warn` log line
+  `idle Railway workers detected`. The clock is in memory: it restarts when the
+  BFF restarts, and a failed session check clears it. **No worker is stopped
+  automatically.** The verified Railway API has no stop/start that is known to
+  keep the volume, so the operator removes an idle worker with the Remove
+  dialog, or leaves it running.
+
+#### Read Railway usage for the project
+
+Read-only steps; they change nothing in the project.
+
+1. Dashboard: open the workspace **Usage** page (account switcher, top left, or
+   `railway.com/workspace/usage` for a personal account). It shows the current
+   bill and an estimated bill for the current period, and ranks projects by
+   cost. Railway's own advice is to run a project for about a week and
+   extrapolate from the estimate.
+2. CLI, while logged in as a workspace member:
+
+   ```sh
+   railway usage                                    # workspace summary
+   railway usage projects --project <project>       # per-service CPU, memory, egress, volume, backup, total
+   railway usage projects --project <project> --period previous
+   railway usage limit status --target workspace    # current compute soft/hard limits
+   ```
+
+   Worker services are named `ao-worker-<id>`; the hub is the hub service. A
+   worker that costs money but has no matching row in Settings → Workers is an
+   orphan; it is listed under "Unregistered Railway services" and must be
+   deleted in the Railway console.
+3. Per service: the service **Metrics** tab shows CPU, memory, and disk over
+   time. Use it to size replica limits (below).
+
+Set a workspace spending guard as a workspace admin, in the Usage page or with
+`railway usage limit set --target workspace --soft <dollars> --hard <dollars>`
+(whole dollars). The soft limit only emails. **The hard limit takes every
+workload in the workspace offline, the hub included,** and that stops live
+agent sessions just like a redeploy does. Prefer a soft limit plus the worker
+cap; set a hard limit only as a backstop well above the expected bill.
+
+#### Recommended sizes
+
+These are starting points, not measured values: no worker load was measured on
+Railway for this runbook.
+
+| Setting | Recommendation |
+| --- | --- |
+| `AO_HUB_MAX_WORKERS` | Keep the default `5` or lower until a week of usage shows the per-worker cost; raise it deliberately. |
+| `AO_HUB_MAX_VOLUME_GB` | The plan's default volume size (Hobby 5 GB, Pro 50 GB, per the [volume reference](https://docs.railway.com/volumes/reference)), so a spec can never ask for more than Railway gives by default. |
+| `AO_HUB_IDLE_STOP_HOURS` | `12` for a single operator; it flags a worker left running overnight without warning during a normal working day. |
+| Hub replica limits | Leave unset for the first week, then set CPU and memory to about 1.5× the peak on the Metrics tab (service settings → Deploy → Replica Limits). Too low a memory limit crashes the service. |
+| Worker replica limits | Same method, measured on a worker while it runs its usual number of parallel agent sessions; each Claude Code session plus its build/test commands is the main memory consumer. |
+| Volumes | Hub: holds the database, `hosts.json`, and orchestrator worktrees. Worker: holds `HOME`, the AO database, and every worktree. Watch disk on the Metrics tab and grow the volume in the Railway console before it fills. |
 
 ### Logs and validation record
 

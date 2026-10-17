@@ -3163,6 +3163,8 @@
 	"settings.workers.activeSessions_one": "{{count}} sesión activa",
 	"settings.workers.activeSessions_other": "{{count}} sesiones activas",
 	"settings.workers.activeSessions_many": "{{count}} sesiones activas",
+	"settings.workers.idle": "Inactivo {{hours}}+ h",
+	"settings.workers.idleHint": "Sin sesiones activas desde hace {{hours}} horas. El worker sigue generando costes mientras se ejecuta; elimínalo si ya no lo necesitas.",
 	"settings.workers.open": "Abrir",
 	"settings.workers.remove": "Quitar",
 	"settings.workers.remove.title": "¿Quitar {{label}}?",

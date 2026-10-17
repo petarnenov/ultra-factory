@@ -20,6 +20,10 @@ export type Config = {
 	workerImage?: string;
 	workerUrlMode: "public" | "private";
 	maxWorkers: number;
+	// Largest worker volume a POST /hub/workers spec may request, in GB.
+	maxVolumeGb?: number;
+	// Hours with no active session before a worker is flagged idle; unset is off.
+	idleStopHours?: number;
 };
 
 // loadConfig reads the BFF's environment. It throws with an operator-facing
@@ -61,6 +65,8 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	if (workerUrlMode !== "public" && workerUrlMode !== "private") throw new Error("AO_HUB_WORKER_URL_MODE must be public or private");
 	const maxWorkers = Number(env.AO_HUB_MAX_WORKERS ?? "5");
 	if (!Number.isSafeInteger(maxWorkers) || maxWorkers < 1) throw new Error("AO_HUB_MAX_WORKERS must be a positive integer");
+	const maxVolumeGb = optionalPositiveNumber(env.AO_HUB_MAX_VOLUME_GB, "AO_HUB_MAX_VOLUME_GB");
+	const idleStopHours = optionalPositiveNumber(env.AO_HUB_IDLE_STOP_HOURS, "AO_HUB_IDLE_STOP_HOURS");
 	// Railway injects RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID into every
 	// service, so the IDs alone are normal and leave worker management off. Only
 	// a token without both IDs is a misconfiguration.
@@ -69,6 +75,15 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	return {
 		host: env.AO_HUB_BFF_HOST ?? "::", port, spaDir, passwordHash, publicOrigin, plaintextPassword: !hash, hubDataDir, hubConfigPath,
 		railwayToken: env.RAILWAY_API_TOKEN, railwayProjectId: env.RAILWAY_PROJECT_ID, railwayEnvironmentId: env.RAILWAY_ENVIRONMENT_ID,
-		workerImage: env.AO_HUB_WORKER_IMAGE, workerUrlMode, maxWorkers,
+		workerImage: env.AO_HUB_WORKER_IMAGE, workerUrlMode, maxWorkers, maxVolumeGb, idleStopHours,
 	};
+}
+
+// optionalPositiveNumber parses an unset-or-positive numeric variable. An unset
+// or empty value means "no limit" / "off".
+function optionalPositiveNumber(value: string | undefined, name: string): number | undefined {
+	if (value === undefined || value.trim() === "") return undefined;
+	const parsed = Number(value);
+	if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${name} must be a positive number`);
+	return parsed;
 }

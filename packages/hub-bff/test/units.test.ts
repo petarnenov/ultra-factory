@@ -75,6 +75,18 @@ describe("loadConfig", () => {
 		});
 	});
 
+	it("leaves the volume limit and idle check off by default and validates overrides", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect(await loadConfig(base)).toMatchObject({ maxVolumeGb: undefined, idleStopHours: undefined });
+			expect(await loadConfig({ ...base, AO_HUB_MAX_VOLUME_GB: "50", AO_HUB_IDLE_STOP_HOURS: "12" })).toMatchObject({ maxVolumeGb: 50, idleStopHours: 12 });
+			expect((await loadConfig({ ...base, AO_HUB_IDLE_STOP_HOURS: "" })).idleStopHours).toBeUndefined();
+			await expect(loadConfig({ ...base, AO_HUB_MAX_VOLUME_GB: "0" })).rejects.toThrow(/AO_HUB_MAX_VOLUME_GB/);
+			await expect(loadConfig({ ...base, AO_HUB_IDLE_STOP_HOURS: "soon" })).rejects.toThrow(/AO_HUB_IDLE_STOP_HOURS/);
+		});
+	});
+
 	it("requires the Railway project and environment with a Railway token", async () => {
 		const hash = await hashPassword("pw", TEST_COST);
 		await withSpa(async (dir) => {

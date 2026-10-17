@@ -3100,6 +3100,8 @@
 	"settings.workers.createdAt": "创建于 {{date}}",
 	"settings.workers.activeSessions_one": "{{count}} 个活动会话",
 	"settings.workers.activeSessions_other": "{{count}} 个活动会话",
+	"settings.workers.idle": "空闲 {{hours}}+ 小时",
+	"settings.workers.idleHint": "已有 {{hours}} 小时没有活动会话。工作节点运行期间会持续产生费用；如果不再需要，请将其移除。",
 	"settings.workers.open": "打开",
 	"settings.workers.remove": "移除",
 	"settings.workers.remove.title": "移除 {{label}}？",

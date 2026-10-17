@@ -24,7 +24,7 @@ try {
 		? new RailwayClient({ token: config.railwayToken, projectId: config.railwayProjectId, environmentId: config.railwayEnvironmentId })
 		: undefined;
 	if (provider) await provider.assertProjectScope();
-	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, log, audit });
+	const workersApi = createWorkersApi({ store, provider, image: config.workerImage, urlMode: config.workerUrlMode, maxWorkers: config.maxWorkers, maxVolumeGb: config.maxVolumeGb, idleStopHours: config.idleStopHours, log, audit });
 	const server = createBff({ spaDir: config.spaDir, passwordHash: config.passwordHash, publicOrigin: config.publicOrigin, log, hosts: store, hostsApi, workersApi, audit });
 	server.listen(config.port, config.host, () => {
 		log("info", "hub bff listening", {

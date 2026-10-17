@@ -27,9 +27,13 @@ export type WorkersApiOptions = {
 	probe?: (url: string) => Promise<{ ok: true; identity: { hostId: string } } | { ok: false }>;
 	activeSessions?: (url: string, password: string, hostId: string) => Promise<unknown[]>;
 	maxWorkers?: number;
+	maxVolumeGb?: number;
+	idleStopHours?: number;
 };
 
-export type WorkersApi = ((req: IncomingMessage, res: ServerResponse, pathname: string) => Promise<void>) & { start(): void; stop(): void };
+export type IdleWorker = { id: string; idleSince: string };
+
+export type WorkersApi = ((req: IncomingMessage, res: ServerResponse, pathname: string) => Promise<void>) & { start(): void; stop(): void; checkIdle(): Promise<void> };
 
 export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 	const now = options.now ?? Date.now;
@@ -40,6 +44,11 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 	let reconciling: Promise<void> | undefined;
 	let lastReconcile: string | undefined;
 	let orphans: RailwayService[] = [];
+	// First time each online Railway worker was seen with no active session,
+	// kept in memory only: a BFF restart restarts every idle clock, which errs
+	// toward warning later rather than earlier.
+	const idleSince = new Map<string, number>();
+	let checkingIdle: Promise<void> | undefined;
 
 	async function create(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		if (!options.provider || !options.image) return sendJson(res, 503, { error: "worker_provisioning_unavailable" });
@@ -51,7 +60,15 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		} catch {
 			return sendJson(res, 400, { error: "invalid_request" });
 		}
-		if (body.size !== undefined) return sendJson(res, 400, { error: "unsupported_size", message: "Railway volume sizing is not verified; omit size" });
+		if (body.size !== undefined) {
+			if (typeof body.size !== "number" || !Number.isFinite(body.size) || body.size <= 0) return sendJson(res, 400, { error: "invalid_size", message: "size must be a positive number of GB" });
+			if (options.maxVolumeGb !== undefined && body.size > options.maxVolumeGb) {
+				return sendJson(res, 400, { error: "volume_size_limit", size: body.size, limit: options.maxVolumeGb, message: `Requested volume size ${body.size} GB exceeds the ${options.maxVolumeGb} GB limit` });
+			}
+			// Railway's volumeCreate takes no size (docs/railway-api-notes.md), so
+			// a size within the limit still cannot be applied.
+			return sendJson(res, 400, { error: "unsupported_size", message: "Railway volume sizing is not verified; omit size" });
+		}
 		const env = body.env;
 		if (!env || typeof env !== "object" || Array.isArray(env)) return sendJson(res, 400, { error: "invalid_environment" });
 		const variables: Record<string, string> = {};
@@ -172,6 +189,43 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		try { await reconciling; } finally { reconciling = undefined; }
 	}
 
+	// checkIdle reads each online Railway worker's active sessions. A worker
+	// with sessions, or whose session list cannot be read, has its idle clock
+	// cleared: a failed check is not evidence of idleness. Reporting only; the
+	// verified Railway API has no stop/start that keeps the volume, so nothing
+	// is stopped automatically.
+	async function checkIdle(): Promise<void> {
+		if (options.idleStopHours === undefined) return;
+		if (checkingIdle) return checkingIdle;
+		checkingIdle = (async () => {
+			const online = new Set<string>();
+			for (const worker of options.store.listRailwayWorkers()) {
+				const id = worker.id ?? worker.hostId;
+				if (!id || worker.status !== "online" || !worker.hostId) continue;
+				online.add(id);
+				try {
+					const active = nonTerminatedSessions(await (options.activeSessions ?? getSessionList)(worker.url, worker.password, worker.hostId));
+					if (active.length) idleSince.delete(id);
+					else if (!idleSince.has(id)) idleSince.set(id, now());
+				} catch {
+					idleSince.delete(id);
+				}
+			}
+			for (const id of idleSince.keys()) if (!online.has(id)) idleSince.delete(id);
+			const idle = idleWorkers();
+			if (idle.length) options.log("warn", "idle Railway workers detected", { idleWorkers: idle.map((worker) => worker.id).join(","), idleStopHours: options.idleStopHours });
+		})();
+		try { await checkingIdle; } finally { checkingIdle = undefined; }
+	}
+
+	function idleWorkers(): IdleWorker[] {
+		if (options.idleStopHours === undefined) return [];
+		const threshold = options.idleStopHours * 60 * 60_000;
+		const idle: IdleWorker[] = [];
+		for (const [id, since] of idleSince) if (now() - since >= threshold) idle.push({ id, idleSince: new Date(since).toISOString() });
+		return idle;
+	}
+
 	async function resumeJobs(): Promise<void> {
 		for (const worker of options.store.listRailwayWorkers()) {
 			if (worker.status === "provisioning") {
@@ -189,8 +243,8 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 
 	function start(): void {
 		if (reconcileTimer) return;
-		void resumeJobs().then(() => reconcile());
-		reconcileTimer = setInterval(() => { void reconcile(); }, RECONCILE_INTERVAL_MS);
+		void resumeJobs().then(() => reconcile()).then(() => checkIdle());
+		reconcileTimer = setInterval(() => { void reconcile().then(() => checkIdle()); }, RECONCILE_INTERVAL_MS);
 		reconcileTimer.unref?.();
 	}
 
@@ -232,7 +286,7 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		const method = req.method ?? "GET";
 		const rest = pathname.slice(PREFIX.length).replace(/\/$/, "");
 		if (!rest) {
-			if (method === "GET") return sendJson(res, 200, { workers: options.store.list(), orphans, lastReconcile, workersByStatus: workerCounts(), limit: maxWorkers, providerConfigured: Boolean(options.provider) });
+			if (method === "GET") return sendJson(res, 200, { workers: options.store.list(), orphans, lastReconcile, workersByStatus: workerCounts(), limit: maxWorkers, providerConfigured: Boolean(options.provider), idle: idleWorkers(), ...(options.idleStopHours === undefined ? {} : { idleStopHours: options.idleStopHours }) });
 			if (method === "POST") return create(req, res);
 			return sendJson(res, 405, { error: "method_not_allowed" });
 		}
@@ -242,7 +296,7 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		const force = new URL(req.url ?? "/", "http://bff.invalid").searchParams.get("force") === "1";
 		return remove(res, match[1], force);
 	};
-	Object.assign(api, { start, stop });
+	Object.assign(api, { start, stop, checkIdle });
 	return api as WorkersApi;
 }
 
