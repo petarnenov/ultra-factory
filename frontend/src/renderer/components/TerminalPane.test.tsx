@@ -66,6 +66,11 @@ const {
 		visibleContentCallback: { value: undefined as (() => void) | undefined },
 	}),
 );
+const platform = vi.hoisted(() => ({ web: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	return { ...actual, get isWebBuild() { return platform.web; } };
+});
 let terminalLinkHandler: ((uri: string) => void) | undefined;
 
 vi.mock("../hooks/useCloudCp", () => ({
@@ -406,6 +411,21 @@ function activeXterm(): HTMLElement {
 }
 
 describe("TerminalPane empty states", () => {
+	it("attaches a live terminal in the web build without the Electron bridge", async () => {
+		platform.web = true;
+		const previousAO = window.ao;
+		window.ao = undefined;
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const view = render(<QueryClientProvider client={queryClient}><TerminalPane daemonReady fontSize={12} theme="dark" /></QueryClientProvider>);
+		try {
+			await waitFor(() => expect(screen.getByTestId("xterm")).toBeInTheDocument());
+			expect(terminalSessionOptions.length).toBeGreaterThan(0);
+		} finally {
+			view.unmount();
+			window.ao = previousAO;
+			platform.web = false;
+		}
+	});
 	it("does not send Cursor theme protocol to a standalone shell owned by a Cursor session", () => {
 		const cursorSession = { ...worker, provider: "cursor" } satisfies WorkspaceSession;
 		const shell = {

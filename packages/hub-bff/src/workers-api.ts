@@ -151,10 +151,15 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 
 	async function reconcile(): Promise<void> {
 		if (reconciling) return reconciling;
+		const provider = options.provider;
+		if (!provider) {
+			orphans = [];
+			options.log("info", "Railway worker management not configured");
+			return;
+		}
 		reconciling = (async () => {
 			try {
-				if (!options.provider) throw new Error("Railway provider is unavailable");
-				const services = (await options.provider.list()).filter((service) => service.name.startsWith(WORKER_SERVICE_PREFIX));
+				const services = (await provider.list()).filter((service) => service.name.startsWith(WORKER_SERVICE_PREFIX));
 				const registered = new Set(options.store.listRailwayWorkers().flatMap((worker) => worker.railway?.serviceId ? [worker.railway.serviceId] : []));
 				orphans = services.filter((service) => !registered.has(service.id));
 				for (const orphan of orphans) options.log("warn", "orphan Railway worker detected", { serviceId: orphan.id, serviceName: orphan.name });
@@ -227,7 +232,7 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		const method = req.method ?? "GET";
 		const rest = pathname.slice(PREFIX.length).replace(/\/$/, "");
 		if (!rest) {
-			if (method === "GET") return sendJson(res, 200, { workers: options.store.list(), orphans, lastReconcile, workersByStatus: workerCounts(), limit: maxWorkers });
+			if (method === "GET") return sendJson(res, 200, { workers: options.store.list(), orphans, lastReconcile, workersByStatus: workerCounts(), limit: maxWorkers, providerConfigured: Boolean(options.provider) });
 			if (method === "POST") return create(req, res);
 			return sendJson(res, 405, { error: "method_not_allowed" });
 		}

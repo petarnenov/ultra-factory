@@ -28,6 +28,7 @@ import {
 import { useSessionBrowserLink } from "../hooks/useSessionBrowserLink";
 import { useSessionLinkNavigation } from "../lib/use-session-link-navigation";
 import { electronBridge } from "../lib/electron-bridge";
+import { isWebBuild } from "../lib/platform";
 import { getApiBaseUrl } from "../lib/api-client";
 import {
 	createTerminalMux,
@@ -774,7 +775,7 @@ export function TerminalPane({
 			? terminalTarget.handleId
 			: `${session?.terminalHandleId ?? "empty"}:${session?.terminalGeneration ?? ""}`;
 
-	if (!electronBridge()) {
+	if (!isWebBuild && !electronBridge()) {
 		// A standalone shell has no agent and no branch, so it previews as a plain
 		// prompt rather than borrowing the session's agent transcript.
 		if (terminalTarget?.kind === "shell") {

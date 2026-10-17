@@ -75,7 +75,7 @@ export function WorkersSettings({
 		<SettingsSection title={t("settings.workers")} sectionId="workers" titleHidden={titleHidden} grouped>
 			<div className="flex justify-end px-3 py-1">{addWorkerAction ?? <AddWorkerDialog />}</div>
 			{isPending ? <p className="px-3 py-2 text-xs text-settings-muted" role="status">{t("settings.workers.loading")}</p> : null}
-			{!isPending && !error && workers.length === 0 ? <p className="px-3 py-2 text-pretty text-xs text-settings-muted">{t("settings.workers.empty")}</p> : null}
+			{!isPending && !error && workers.length === 0 ? <p className="px-3 py-2 text-pretty text-xs text-settings-muted">{data?.providerConfigured === false ? t("settings.workers.providerUnavailable") : t("settings.workers.empty")}</p> : null}
 			{workers.map((host) => {
 				const sessions = sessionCounts[host.id];
 				const description = [

@@ -3103,6 +3103,7 @@
 	"settings.workers.provisionUnavailable": "Railway ワーカーの作成が設定されていません。",
 	"settings.workers.loading": "ワーカーを読み込み中…",
 	"settings.workers.empty": "ワーカーはまだありません。",
+	"settings.workers.providerUnavailable": "Railway worker management is not configured.",
 	"settings.workers.status.unknown": "不明",
 	"settings.workers.status.provisioning": "プロビジョニング中",
 	"settings.workers.status.online": "オンライン",

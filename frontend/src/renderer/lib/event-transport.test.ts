@@ -29,6 +29,11 @@ const {
 	unsubscribeConnectedHostsMock: vi.fn(),
 	remoteGetMock: vi.fn(),
 }));
+const platform = vi.hoisted(() => ({ web: false }));
+vi.mock("./platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./platform")>();
+	return { ...actual, get isWebBuild() { return platform.web; } };
+});
 
 vi.mock("./bridge", () => ({
 	aoBridge: {
@@ -123,6 +128,12 @@ afterEach(() => {
 });
 
 describe("createEventTransport", () => {
+	it("does not open the Codex account stream in the web build", () => {
+		platform.web = true;
+		createEventTransport(fakeQueryClient()).connect();
+		expect(accountSources()).toEqual([]);
+		platform.web = false;
+	});
 	it("polls while probing every host, then stops after a delivered stream frame", async () => {
 		vi.useFakeTimers();
 		try {

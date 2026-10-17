@@ -3147,6 +3147,7 @@
 	"settings.workers.provisionUnavailable": "A criação de workers no Railway não está configurada.",
 	"settings.workers.loading": "Carregando workers…",
 	"settings.workers.empty": "Nenhum worker ainda.",
+	"settings.workers.providerUnavailable": "Railway worker management is not configured.",
 	"settings.workers.status.unknown": "Desconhecido",
 	"settings.workers.status.provisioning": "Provisionando",
 	"settings.workers.status.online": "Online",

@@ -31,6 +31,7 @@ export type HubWorkers = {
 	lastReconcile?: string;
 	workersByStatus: Record<string, number>;
 	limit: number;
+	providerConfigured?: boolean;
 };
 
 const HUB_WORKERS_PATH = "/hub/workers";
@@ -64,6 +65,7 @@ async function fetchHubWorkers(signal: AbortSignal): Promise<HubWorkers> {
 		...(body.lastReconcile ? { lastReconcile: body.lastReconcile } : {}),
 		workersByStatus: body.workersByStatus ?? {},
 		limit: body.limit ?? 0,
+		...(body.providerConfigured === undefined ? {} : { providerConfigured: body.providerConfigured }),
 	};
 }
 

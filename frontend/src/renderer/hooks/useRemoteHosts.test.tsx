@@ -80,6 +80,14 @@ it("keeps remote hosts disconnected until Developer mode is enabled", async () =
 	expect(connectedHosts()).toEqual([]);
 });
 
+it("enables remote hosts by default in the web build", async () => {
+	platform.web = true;
+	useUiStore.setState({ developerMode: false, remoteHosts: false });
+	const { result } = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
+	expect(remotes.list).toHaveBeenCalled();
+});
+
 it("connects both saved boxes and exposes their stable IDs", async () => {
 	useUiStore.setState({ remoteHosts: true });
 	const { result } = renderHook(() => useRemoteHosts());
