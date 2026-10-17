@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,35 +135,50 @@ func TestDirectClientRefusesToDialTailnetWithAnInvalidProxyAndNeverFallsBack(t *
 func TestProbedClientAllowsOnlyTheProbeConnection(t *testing.T) {
 	// A "/close" response ends its connection, so the transport cannot keep
 	// it idle; the next request has to dial, which the gate must refuse.
-	closing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/close" {
 			w.Header().Set("Connection", "close")
 		}
 		_, _ = w.Write([]byte(`{"hostId":"host-build","apiVersion":1}`))
 	}))
-	t.Cleanup(closing.Close)
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
 
 	client, gate := ProbedClient(nil, 5*time.Second)
-	if _, err := ReadIdentity(context.Background(), client, closing.URL); err != nil {
+	if _, err := ReadIdentity(context.Background(), client, srv.URL); err != nil {
 		t.Fatalf("probe: %v", err)
 	}
 	gate.Close()
 
-	// The connection that answered the probe is idle; reuse still works.
-	reuse, err := client.Get(closing.URL + "/api/v1/sessions")
-	if err != nil {
-		t.Fatalf("reuse of probed connection: %v", err)
+	// The probe's connection returns to the idle pool asynchronously after its
+	// body is read, so a request can race it and be refused (never sent). Retry
+	// until it is reused; no request may open a second connection.
+	for _, path := range []string{"/api/v1/sessions", "/close"} {
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			resp, err := client.Get(srv.URL + path)
+			if err == nil {
+				_ = resp.Body.Close()
+				break
+			}
+			if !errors.Is(err, ErrUnprobedConnection) || time.Now().After(deadline) {
+				t.Fatalf("GET %s on the probed connection: %v", path, err)
+			}
+			time.Sleep(time.Millisecond)
+		}
 	}
-	_ = reuse.Body.Close()
-
-	end, err := client.Get(closing.URL + "/close")
-	if err != nil {
-		t.Fatalf("closing request: %v", err)
+	if got := conns.Load(); got != 1 {
+		t.Fatalf("connections opened = %d, want only the probe's", got)
 	}
-	_ = end.Body.Close()
 
-	_, err = client.Get(closing.URL + "/api/v1/sessions")
-	if !errors.Is(err, ErrUnprobedConnection) {
+	// The "/close" response ended the probe's connection, so a new dial is refused.
+	if _, err := client.Get(srv.URL + "/api/v1/sessions"); !errors.Is(err, ErrUnprobedConnection) {
 		t.Fatalf("err = %v, want ErrUnprobedConnection", err)
 	}
 }
