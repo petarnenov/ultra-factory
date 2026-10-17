@@ -1,5 +1,5 @@
 # RW-1.4.1 · Task: Deploy to Railway and networking checks
-**Status:** ⛔ needs-human
+**Status:** ⬜ todo
 
 **Type:** operations. **Estimate:** 0.5 pd. **Story:** RW-1.4.
 
