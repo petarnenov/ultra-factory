@@ -74,18 +74,22 @@ func TestRequestRereviewValidationAndCommentAuthor(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name     string
-		worker   domain.SessionID
-		reviewer string
-		want     error
+		name        string
+		worker      domain.SessionID
+		reviewer    string
+		want        error
+		wantMessage string
 	}{
-		{"missing worker", "", "reviewer", ErrInvalid},
-		{"missing reviewer", "worker", " @ ", ErrInvalid},
+		{"missing worker", "", "reviewer", ErrInvalid, "review: invalid input: worker session id is required"},
+		{"missing reviewer", "worker", "@", ErrInvalid, "review: invalid input: reviewer is required"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := svc.RequestRereview(ctx, tc.worker, "", tc.reviewer)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("error = %v, want %v", err, tc.want)
+			}
+			if err.Error() != tc.wantMessage {
+				t.Fatalf("error message = %q, want %q", err, tc.wantMessage)
 			}
 		})
 	}
