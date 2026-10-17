@@ -356,3 +356,30 @@ func parseNodeVersion(version string) ([3]int, bool) {
 func normalizeNodeVersion(version string) string {
 	return strings.TrimPrefix(strings.TrimSpace(version), "v")
 }
+
+// agentShellSecretEnv names AO variables that carry credentials, or must never
+// carry a value, and so are not forwarded by AgentShellEnv.
+var agentShellSecretEnv = map[string]bool{
+	"AO_BROWSER_CAPABILITY":          true,
+	"AO_BROWSER_RUNTIME_TOKEN":       true,
+	"AO_BROWSER_RUNTIME_TOKEN_STDIN": true,
+}
+
+// AgentShellEnv selects the AO variables the commands an agent runs need to
+// reach AO as this session (ao report, ao hooks, ao send): every non-empty
+// AO_ variable of the session env except credentials. An agent that narrows
+// its command environment, such as Codex with
+// shell_environment_policy.inherit = "core", receives them explicitly. The
+// result goes onto a command line or into provider config, which is why
+// credentials are left out.
+func AgentShellEnv(env map[string]string) map[string]string {
+	out := map[string]string{}
+	for key, value := range env {
+		upper := strings.ToUpper(key)
+		if !strings.HasPrefix(upper, "AO_") || value == "" || agentShellSecretEnv[upper] {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}

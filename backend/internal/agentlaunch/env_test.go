@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -116,5 +117,22 @@ func TestConfiguredPATHWindowsUsesExactProtectedSpelling(t *testing.T) {
 	}
 	if got := configuredPATH(map[string]string{"Path": "project"}, true); got != "project" {
 		t.Fatalf("case-insensitive configured PATH = %q, want project", got)
+	}
+}
+
+func TestAgentShellEnvKeepsAOVariablesWithoutCredentials(t *testing.T) {
+	got := AgentShellEnv(map[string]string{
+		"AO_SESSION_ID":                  "ao-7",
+		"AO_DATA_DIR":                    "/data",
+		"AO_ISSUE_ID":                    "",
+		"AO_BROWSER_CAPABILITY":          "secret",
+		"AO_BROWSER_RUNTIME_TOKEN":       "secret",
+		"AO_BROWSER_RUNTIME_TOKEN_STDIN": "1",
+		"PATH":                           "/bin",
+		"GITHUB_TOKEN":                   "secret",
+	})
+	want := map[string]string{"AO_SESSION_ID": "ao-7", "AO_DATA_DIR": "/data"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("AgentShellEnv = %v, want %v", got, want)
 	}
 }

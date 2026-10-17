@@ -1112,3 +1112,45 @@ func TestDoctorLaunchProbesMirrorLaunchFlags(t *testing.T) {
 		}
 	}
 }
+
+// A user's shell_environment_policy (inherit = "core") strips AO's variables
+// from the commands Codex runs; AO sets them explicitly, before the prompt.
+func TestLaunchAndRestoreForwardAOShellEnv(t *testing.T) {
+	plugin := &Plugin{resolvedBinary: "codex"}
+	env := map[string]string{"AO_SESSION_ID": "ao-7", "AO_DATA_DIR": "/data dir"}
+	want := []string{
+		"-c", `shell_environment_policy.set.AO_DATA_DIR="/data dir"`,
+		"-c", `shell_environment_policy.set.AO_SESSION_ID="ao-7"`,
+	}
+	launch, err := plugin.GetLaunchCommand(context.Background(), ports.LaunchConfig{
+		Permissions: ports.PermissionModeAuto, Prompt: "go", SessionID: "ao-7", WorkspacePath: canonicalTempDir(t), ShellEnv: env,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore, ok, err := plugin.GetRestoreCommand(context.Background(), ports.RestoreConfig{
+		Session:     ports.SessionRef{ID: "ao-7", WorkspacePath: canonicalTempDir(t), Metadata: map[string]string{ports.MetadataKeyAgentSessionID: "019a0000-0000-7000-8000-000000000000"}},
+		Permissions: ports.PermissionModeAuto, ShellEnv: env,
+	})
+	if err != nil || !ok {
+		t.Fatalf("restore: ok=%v err=%v", ok, err)
+	}
+	for name, argv := range map[string][]string{"launch": launch, "restore": restore} {
+		at := indexOfSubslice(argv, want)
+		if at < 0 {
+			t.Fatalf("%s argv lacks %v: %#v", name, want, argv)
+		}
+		if sep := indexOfSubslice(argv, []string{"--"}); sep >= 0 && sep < at {
+			t.Fatalf("%s forwards the env after the prompt separator: %#v", name, argv)
+		}
+	}
+}
+
+func indexOfSubslice(s, sub []string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if reflect.DeepEqual(s[i:i+len(sub)], sub) {
+			return i
+		}
+	}
+	return -1
+}

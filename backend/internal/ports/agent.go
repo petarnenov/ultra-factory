@@ -689,6 +689,10 @@ type LaunchConfig struct {
 	SystemPrompt     string
 	SystemPromptFile string
 	WorkspacePath    string
+	// ShellEnv holds the AO variables the commands the agent runs must see
+	// (agentlaunch.AgentShellEnv). The process environment already has them;
+	// an adapter whose agent narrows its command environment forwards them.
+	ShellEnv map[string]string
 }
 
 // WorkspaceHookConfig carries inputs needed to install workspace-local agent hooks.
@@ -722,6 +726,8 @@ type RestoreConfig struct {
 	// system-prompt flag should re-apply this in their resume command.
 	SystemPrompt     string
 	SystemPromptFile string
+	// ShellEnv is LaunchConfig.ShellEnv for a resumed agent.
+	ShellEnv map[string]string
 }
 
 // SessionRef identifies an AO session whose agent-owned metadata may be read.

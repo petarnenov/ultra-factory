@@ -322,7 +322,7 @@ func (d *Driver) Start(ctx context.Context, cfg ports.ChatStartConfig) (ports.Ch
 	// thread/start has no top-level effort field either; carry the durable AO
 	// choice as a config override like thread/resume does, so a fresh thread
 	// does not silently fall back to the provider default.
-	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, cfg.DisableNetwork); len(config) > 0 {
+	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, cfg.DisableNetwork, agentlaunch.AgentShellEnv(cfg.Env)); len(config) > 0 {
 		params["config"] = config
 	}
 	if cfg.SystemPrompt != "" {
@@ -402,7 +402,7 @@ func (d *Driver) Resume(ctx context.Context, cfg ports.ChatResumeConfig) (ports.
 	// thread/resume has no top-level effort field. Codex exposes persistent
 	// reasoning effort as a config override, so carry the durable AO choice into
 	// the resumed thread instead of silently falling back to the provider default.
-	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, false); len(config) > 0 {
+	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, false, agentlaunch.AgentShellEnv(cfg.Env)); len(config) > 0 {
 		params["config"] = config
 	}
 	// Developer instructions are launch context, not durable conversation
@@ -440,10 +440,18 @@ func (d *Driver) Resume(ctx context.Context, cfg ports.ChatResumeConfig) (ports.
 //
 // Under the workspace-write sandbox it also grants network access (see
 // workspaceNetworkKey), unless the caller disabled network.
-func threadConfig(effort string, servers []ports.ChatMCPServerConfig, sandbox string, disableNetwork bool) map[string]any {
+//
+// shellEnv (agentlaunch.AgentShellEnv) is set for the commands the agent runs,
+// so a user's shell_environment_policy, such as inherit = "core", cannot strip
+// the AO variables ao report, ao send and the AO hooks need. Dotted keys add
+// to the user's `set` table instead of replacing it.
+func threadConfig(effort string, servers []ports.ChatMCPServerConfig, sandbox string, disableNetwork bool, shellEnv map[string]string) map[string]any {
 	config := map[string]any{}
 	if effort != "" {
 		config["model_reasoning_effort"] = effort
+	}
+	for name, value := range shellEnv {
+		config["shell_environment_policy.set."+name] = value
 	}
 	if sandbox == "workspace-write" && !disableNetwork {
 		config[workspaceNetworkKey] = true
@@ -780,7 +788,7 @@ func (d *Driver) ForkIntoHost(ctx context.Context, sourceProviderConversationID,
 	}
 	// Same overrides as thread/start and thread/resume: without the MCP servers
 	// a fresh fork has no AO tools until a restart resumes it.
-	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, cfg.DisableNetwork); len(config) > 0 {
+	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, cfg.DisableNetwork, agentlaunch.AgentShellEnv(cfg.Env)); len(config) > 0 {
 		params["config"] = config
 	}
 	if cfg.SystemPrompt != "" {

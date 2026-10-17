@@ -11526,3 +11526,33 @@ func TestKill_UnknownSession(t *testing.T) {
 		t.Fatalf("Kill = %v, %v; want false, nil", freed, err)
 	}
 }
+
+// Adapters forward ShellEnv to agents that narrow their command environment,
+// so it carries the session identity and never the browser capability.
+func TestSpawn_PassesAOShellEnvWithoutCredentials(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	agent := &recordingAgent{}
+	m := New(Deps{
+		Runtime:   &fakeRuntime{},
+		Agents:    singleAgent{agent: agent},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Lifecycle: &fakeLCM{store: st},
+		LookPath:  func(string) (string, error) { return "/bin/true", nil },
+	})
+	rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Prompt: "fix the button"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := agent.lastLaunch.ShellEnv
+	if env[EnvSessionID] != string(rec.ID) || env[EnvProjectID] != "mer" {
+		t.Fatalf("ShellEnv = %v, want the session and project ids", env)
+	}
+	for _, secret := range []string{EnvBrowserCapability, EnvBrowserRuntimeToken, EnvBrowserRuntimeTokenStdin} {
+		if _, ok := env[secret]; ok {
+			t.Fatalf("ShellEnv carries %s: %v", secret, env)
+		}
+	}
+}
