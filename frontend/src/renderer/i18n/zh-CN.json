@@ -3090,6 +3090,8 @@
 	"settings.workers.providerUnavailable": "Railway worker management is not configured.",
 	"settings.workers.status.unknown": "未知",
 	"settings.workers.status.provisioning": "正在预配",
+	"settings.workers.status.draining": "Draining",
+	"settings.workers.drainingNotice": "This worker is draining. New sessions are paused.",
 	"settings.workers.status.online": "在线",
 	"settings.workers.status.unreachable": "无法访问",
 	"settings.workers.status.auth_failed": "身份验证失败",

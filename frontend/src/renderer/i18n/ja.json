@@ -3108,6 +3108,8 @@
 	"settings.workers.providerUnavailable": "Railway worker management is not configured.",
 	"settings.workers.status.unknown": "不明",
 	"settings.workers.status.provisioning": "プロビジョニング中",
+	"settings.workers.status.draining": "Draining",
+	"settings.workers.drainingNotice": "This worker is draining. New sessions are paused.",
 	"settings.workers.status.online": "オンライン",
 	"settings.workers.status.unreachable": "到達不可",
 	"settings.workers.status.auth_failed": "認証失敗",

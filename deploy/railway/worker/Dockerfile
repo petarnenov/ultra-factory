@@ -72,6 +72,7 @@ RUN apt-get update && \
         jq \
         openssh-client \
         procps \
+        sqlite3 \
         tini \
         tmux && \
     install -d -m 0755 /etc/apt/keyrings && \

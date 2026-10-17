@@ -684,3 +684,121 @@ Repository sources for these instructions: the linked worker files,
 `frontend/src/main/remote-proxy.ts`, and the desktop's
 `frontend/src/renderer/components/settings/RemoteHostsSettings.tsx` and
 `frontend/src/renderer/components/CreateProjectFlow.tsx`.
+
+## Backup and planned redeploy (RW-4.2.1)
+
+`deploy/railway/scripts/backup-volume.sh` exports the hub's `/data/ao/ao.db`
+using SQLite `.backup`, checks the snapshot's integrity, and archives it with
+`/data/hub/hosts.json`. It requires the image's `sqlite3`, `tar`, and `base64`,
+and local Bash, Python 3, and an authenticated Railway CLI. It requires explicit
+project, environment, and service arguments; it never uses the linked default.
+
+```bash
+# Safe inspection only: no SSH, local archive, or Railway mutation.
+deploy/railway/scripts/backup-volume.sh --dry-run PROJECT ENVIRONMENT HUB_SERVICE ./hub-backup.tar.gz
+# Operator-only live export, outside agent verification:
+deploy/railway/scripts/backup-volume.sh PROJECT ENVIRONMENT HUB_SERVICE ./hub-backup.tar.gz
+```
+
+The local archive is mode 0600 and an existing destination is never overwritten.
+Treat it as a credential: `hosts.json` contains worker bearers. Keep it on encrypted
+storage with restricted access and a retention policy. The script supports local
+export; upload to an S3-compatible destination separately using your approved
+credentials, encryption, and retention settings. No bucket credentials are stored
+in the script or archive. Schedule backups before maintenance and at the cadence
+required by your recovery-point objective, and test restoration periodically.
+
+This is a database/registry backup, **not a full volume backup**. It does not contain
+worktrees, agent transcripts, HOME, mobile configuration, audit logs, or other
+credentials. Preserve those through a separate volume backup before destructive
+maintenance. It targets the hub: a worker without `hosts.json` fails closed.
+Database and registry snapshots are individually consistent, not a cross-service
+transaction; pause registry changes during export. Interrupted SSH or invalid
+archives leave no published local backup. A hard container kill may leave a
+private `backup.*` staging directory on the volume; remove it during maintenance.
+
+For a restore rehearsal, use an isolated, stopped service and a copy of its volume.
+Inspect the archive member list (`ao.db`, `hosts.json`) before extraction. Run
+`sqlite3 ao.db 'PRAGMA integrity_check;'` and verify expected session records.
+Stop both daemon and BFF before replacing either file, retain the original volume,
+and ensure no old database `-wal` or `-shm` files accompany the restored snapshot.
+Restore file ownership for uid 10001 and mode 0600. Restore worktrees, transcripts,
+and mobile configuration from the matching volume backup; do not assume this
+archive alone can resume an agent. Start the isolated service, verify identity and
+registry access, then confirm a representative session can resume.
+
+### Worker drain procedure
+
+Use the authenticated BFF with the normal operator session cookie and matching
+`Origin` header. These routes are not daemon or Railway APIs:
+
+- `POST /hub/workers/:id/drain` persists `draining` and returns the worker,
+  sanitized non-terminated sessions, and `readyForRedeploy`. Repeating the POST
+  refreshes the session check. Unknown/non-Railway workers return 404; workers
+  without a completed identity/resource registration return 409.
+- An unreachable or malformed session response returns 409,
+  `session_check_failed`, and `readyForRedeploy: false`; the worker stays draining.
+  Idle and waiting-for-input sessions still count. A failed check is never zero.
+- The task composer disables new submission while draining. The BFF also refuses
+  session creation, orchestrator creation/delegation, task preparation, restore,
+  and resume requests to that worker with 409 `worker_draining`, including stale
+  browser clients. Existing session inspection, conversation, and terminal
+  connections remain available so work can finish.
+- Drain survives health probes and BFF restarts. It never kills a session, deletes
+  a volume, or invokes Railway redeploy. Both entering and leaving drain are audited.
+- `DELETE /hub/workers/:id/drain` explicitly releases the worker after maintenance
+  or cancellation. Its status returns to `unknown` until the next health probe;
+  release does not claim that the worker is healthy.
+
+Before draining, pause orchestrator delegation, scheduled spawning, and direct
+CLI/desktop clients targeting that worker. The BFF gate only covers requests
+through this hub; it is not a daemon-wide scheduling lock. Already accepted
+requests can finish creating sessions, so wait for in-flight launches to settle
+and repeat the drain check immediately before maintenance. Only an operator may
+redeploy after a successful empty-session check and a verified backup. Keep the
+worker drained until identity, health, persisted data, and a controlled resume
+check have been verified. Never use Remove worker as a redeploy operation: removal
+deletes the service and volume.
+
+The hub auto-deploy workflow is separate from this worker gate. Merges touching
+`backend/`, `frontend/`, `packages/`, or `deploy/railway/` can replace the hub.
+Coordinate a hub maintenance window and pause hub work before merging such a PR;
+worker drain does not protect sessions executing on the hub itself.
+
+### Restart behavior and verification
+
+A container replacement kills its PTY/tmux/provider processes; a daemon-only
+restart may reconnect to surviving processes. Startup recovery is observational:
+`session_manager/startup_health.go` checks the existing controller/runtime and
+records an exited agent when the host is confirmed absent. Probe errors preserve
+activity and make status readiness unavailable, rather than proving termination.
+The periodic runtime reaper can subsequently terminate a confirmed-dead runtime,
+subject to recent-activity and mass-death safeguards. The displayed board status
+is derived from these facts and PR state, so it need not immediately read
+"terminated" after a container restart. See [architecture](../../docs/architecture.md#runtime-reaper).
+
+Recovery does not automatically replay every interrupted task. Resume requires
+persisted provider conversation data, worktree state, and valid agent credentials.
+`resume-agent` is for a live session whose agent exited; a terminated session uses
+Restore. Native resume is preferred when the adapter supports it; some harnesses
+can fall back to the saved prompt, while unsupported transcript-preserving restores
+fail. Shutdown-saved sessions have a separate `RestoreAll` path. Check the actual
+resume result; retained database rows alone do not guarantee continuation.
+
+Local checks (no Railway service or volume is contacted):
+
+```bash
+bash -n deploy/railway/scripts/backup-volume.sh
+python3 deploy/railway/scripts/backup-volume_test.py
+npm --prefix packages/hub-bff run typecheck
+npm --prefix packages/hub-bff test
+make check
+cd backend && go test ./internal/observe/reaper ./internal/lifecycle ./internal/session_manager
+```
+
+Pending operator checks on a disposable deployed environment: export and restore
+an actual hub archive; drain a worker with running/idle/waiting sessions; confirm
+new browser tasks are rejected; finish the sessions and confirm the empty result;
+redeploy with the original volume; inspect status readiness and resume behavior
+for the supported agent modes; release drain and launch a new task. Record exact
+image versions and outcomes. These live checks are not performed by local tests.

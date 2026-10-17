@@ -50,6 +50,16 @@ afterEach(async () => {
 });
 
 describe("REST proxy", () => {
+	it.each([true, false])("rejects malformed path encoding without forwarding or disrupting a host (draining=%s)", async (draining) => {
+		host.draining = draining;
+		const response = await request(bff).post("/hosts/h_test/api/v1/sessions%E0").set({ Cookie: cookie, Origin: origin }).send({});
+		// The existing safe-path gate rejects this before upstream resolution.
+		expect(response.status).toBe(404);
+		expect(received).toHaveLength(0);
+		const healthy = await request(bff).get("/hosts/h_test/readyz").set("Cookie", cookie);
+		expect(healthy.status).toBe(200);
+		expect(received).toHaveLength(1);
+	});
 	it.each(["/api/items?q=a%2Fb", "/readyz", "/hosts/h_test/api/items?q=a%2Fb", "/hosts/h_test/readyz"])("routes %s and replaces untrusted headers", async (url) => {
 		const res = await request(bff).get(url).set({ Cookie: `${cookie}; ao_conn=attacker`, Origin: origin, Authorization: "Bearer attacker", "CF-Connecting-IP": "203.0.113.1", "X-Forwarded-For": "203.0.113.2", "X-AO-Expected-Host-ID": "attacker", Accept: "application/json", "Last-Event-ID": "event-2" });
 		expect(res.status).toBe(200);

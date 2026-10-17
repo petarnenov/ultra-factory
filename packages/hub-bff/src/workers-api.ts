@@ -254,6 +254,22 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		reconcileTimer = undefined;
 	}
 
+	async function drain(res: ServerResponse, id: string): Promise<void> {
+		const host = options.store.get(id);
+		if (!host || host.source !== "railway") return sendJson(res, 404, { error: "not_found" });
+		if (!host.hostId || !host.railway || host.desired === "removed" || !["online", "unreachable", "auth_failed", "draining"].includes(host.status)) {
+			return sendJson(res, 409, { error: "worker_not_ready" });
+		}
+		await options.audit?.record("worker.drain", id);
+		await options.store.updateWorker(id, { status: "draining" });
+		try {
+			const sessions = nonTerminatedSessions(await (options.activeSessions ?? getSessionList)(host.url, host.password, host.hostId));
+			return sendJson(res, 200, { worker: options.store.getPublic(id), sessions, readyForRedeploy: sessions.length === 0 });
+		} catch {
+			return sendJson(res, 409, { error: "session_check_failed", worker: options.store.getPublic(id), readyForRedeploy: false });
+		}
+	}
+
 	async function remove(res: ServerResponse, id: string, force: boolean): Promise<void> {
 		const host = options.store.get(id);
 		if (!host || host.source !== "railway") return sendJson(res, 404, { error: "not_found" });
@@ -290,6 +306,19 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 			if (method === "GET") return sendJson(res, 200, { workers: options.store.list(), orphans, lastReconcile, workersByStatus: workerCounts(), limit: maxWorkers, providerConfigured: Boolean(options.provider), idle: idleWorkers(), ...(options.idleStopHours === undefined ? {} : { idleStopHours: options.idleStopHours }) });
 			if (method === "POST") return create(req, res);
 			return sendJson(res, 405, { error: "method_not_allowed" });
+		}
+		const drainMatch = /^\/([^/]+)\/drain$/.exec(rest);
+		if (drainMatch) {
+			if (method === "DELETE") {
+				const host = options.store.get(drainMatch[1]);
+				if (!host || host.source !== "railway") return sendJson(res, 404, { error: "not_found" });
+				if (host.status !== "draining") return sendJson(res, 409, { error: "worker_not_draining" });
+				await options.audit?.record("worker.undrain", drainMatch[1]);
+				const worker = await options.store.updateWorker(drainMatch[1], { status: "unknown" });
+				return sendJson(res, 200, { worker });
+			}
+			if (method !== "POST") return sendJson(res, 405, { error: "method_not_allowed" });
+			return drain(res, drainMatch[1]);
 		}
 		const match = /^\/([^/]+)$/.exec(rest);
 		if (!match) return sendJson(res, 404, { error: "not_found" });

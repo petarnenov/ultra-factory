@@ -12,6 +12,7 @@ import { SettingsSection } from "./SettingsSection";
 type BadgeVariant = "neutral" | "success" | "warning" | "error";
 
 const statusLabel = {
+	draining: "settings.workers.status.draining",
 	unknown: "settings.workers.status.unknown",
 	provisioning: "settings.workers.status.provisioning",
 	online: "settings.workers.status.online",
@@ -22,6 +23,7 @@ const statusLabel = {
 } as const satisfies Record<HubHostStatus, string>;
 
 const statusVariant: Record<HubHostStatus, BadgeVariant> = {
+	draining: "warning",
 	unknown: "neutral",
 	provisioning: "neutral",
 	online: "success",
@@ -37,7 +39,7 @@ export function WorkerStatusBadge({ host }: { host: Pick<HubHost, "status" | "la
 	const badge = (
 		<Badge data-status={host.status} tabIndex={host.status === "failed" && host.lastError ? 0 : undefined} variant={statusVariant[host.status] ?? "neutral"}>
 			{busy ? <LoaderCircle aria-hidden="true" className="animate-spin" /> : null}
-			{t(statusLabel[host.status] ?? statusLabel.unknown)}
+			{t(statusLabel[host.status] ?? statusLabel.unknown, { defaultValue: host.status === "draining" ? "Draining" : "Unknown" })}
 		</Badge>
 	);
 	if (host.status !== "failed" || !host.lastError) return badge;
@@ -90,7 +92,7 @@ export function WorkersSettings({
 								{idleIds.has(host.id) && data?.idleStopHours !== undefined ? <IdleWarning hours={data.idleStopHours} /> : null}
 								{sessions !== undefined ? <span className="text-xs tabular-nums text-settings-muted">{t("settings.workers.activeSessions", { count: sessions })}</span> : null}
 								<WorkerStatusBadge host={host} />
-								{onOpenHost && host.status === "online" ? <Button onClick={() => onOpenHost(host)} size="sm" type="button" variant="outline">{t("settings.workers.open")}</Button> : null}
+								{onOpenHost && (host.status === "online" || host.status === "draining") ? <Button onClick={() => onOpenHost(host)} size="sm" type="button" variant="outline">{t("settings.workers.open")}</Button> : null}
 								{rowActions?.(host)}
 							</div>
 						</SettingsRow>

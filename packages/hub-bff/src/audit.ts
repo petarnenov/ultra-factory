@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, lstat } from "node:fs/promises";
 import path from "node:path";
 
-export type AuditEvent = "login.success" | "login.failure" | "host.add" | "host.remove" | "worker.create" | "worker.delete" | "worker.force_kill";
+export type AuditEvent = "login.success" | "login.failure" | "host.add" | "host.remove" | "worker.undrain" | "worker.drain" | "worker.create" | "worker.delete" | "worker.force_kill";
 export type AuditEntry = { ts: string; event: AuditEvent; subjectId?: string };
 
 export interface AuditLog {

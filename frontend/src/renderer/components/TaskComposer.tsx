@@ -13,6 +13,7 @@ import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import type { components } from "../../api/schema";
 import { apiClient, apiErrorCode, apiErrorMessage } from "../lib/api-client";
 import { clientForHost } from "../lib/host-clients";
+import { useHubHosts } from "../hooks/useHubHosts";
 import { useConnectedHosts } from "../hooks/useHostConnection";
 import { captureRendererEvent } from "../lib/telemetry";
 import {
@@ -139,6 +140,8 @@ export function TaskComposer({
 	}, [t]);
 	const queryClient = useQueryClient();
 	const remoteConnections = useConnectedHosts();
+	const hubHosts = useHubHosts();
+	const workerDraining = Boolean(hostId) && (hubHosts.data?.workers.some((host) => (host.id === hostId || host.hostId === hostId) && host.status === "draining") ?? false);
 	const hostConnected = !hostId || remoteConnections.includes(hostId);
 	const [isPromptDirty, setIsPromptDirty] = useState(false);
 	const [model, setModel] = useState("");
@@ -571,13 +574,13 @@ export function TaskComposer({
 				? "supported"
 				: "unsupported";
 	const canSubmit =
-		hostConnected &&
+		!workerDraining && hostConnected &&
 		Boolean(projectId) &&
 		(!isStandalone || selectedAgent !== "") &&
 		(!hostId || Boolean(agentCatalog?.agents.some((candidate) => candidate.id === selectedAgent && isLaunchableAgent(candidate)))) &&
 		(isCloudProject || isStandalone || projectQuery.data !== undefined) &&
 		(!hostId || (agentsQuery.isSuccess && settings !== undefined));
-	const remoteLoadError = !hostId ? undefined : !hostConnected ? t("remote.hostOffline") :
+	const remoteLoadError = workerDraining ? t("settings.workers.drainingNotice", { defaultValue: "This worker is draining. New sessions are paused." }) : !hostId ? undefined : !hostConnected ? t("remote.hostOffline") :
 		[projectQuery.error, agentsQuery.error].find((cause): cause is Error => cause instanceof Error)?.message ?? settingsError ??
 			(agentsQuery.isSuccess && !agentCatalog?.agents.some(isLaunchableAgent) ? t("remote.noReadyAgent") : undefined);
 	const refreshSelectedModels = useCallback(async () => {

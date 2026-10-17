@@ -14,7 +14,7 @@ type HubHost = {
 	label: string;
 	url: string;
 	source: "manual" | "railway" | "hub";
-	status: "unknown" | "online" | "unreachable" | "auth_failed";
+	status: "draining" | "unknown" | "online" | "unreachable" | "auth_failed";
 };
 
 type HubError = { error?: string; message?: string };
@@ -88,7 +88,7 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 			if (!response.ok) throw await failure(response, `Could not probe ${url}`);
 			const { host } = (await response.json()) as { host: HubHost };
 			if (host.status === "auth_failed") throw new Error(`host ${url} is unauthorized`);
-			if (host.status !== "online") throw new Error(`host ${url} is offline`);
+			if (host.status !== "online" && host.status !== "draining") throw new Error(`host ${url} is offline`);
 			return { hostId: host.id, label: host.label, url: host.url, base: webHostBaseUrl(apiBaseUrl(), host.id) };
 		},
 		disconnect: async () => undefined,
