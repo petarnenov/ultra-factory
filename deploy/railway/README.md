@@ -62,6 +62,8 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `RAILWAY_PROJECT_ID`, `RAILWAY_ENVIRONMENT_ID` | Required with the Railway API token for worker provisioning. |
 | `AO_HUB_WORKER_IMAGE` | Optional worker image used for worker provisioning. |
 | `AO_HUB_WORKER_URL_MODE` | Optional `public` or `private`; default `public`. Private Railway DNS connectivity is an open live check. |
+| `AO_HARNESS_UPDATE_CHECKS` | Image default `on` for the hub (the worker image keeps `off`), so Settings → Harness → This computer reports updates and offers Update. |
+| `NPM_CONFIG_PREFIX`, `AO_HUB_NPM_SEED` | Image defaults `/data/home/.npm-global` and `/opt/ao/npm-global`. The image installs Claude Code and Codex under the seed; the supervisor copies them into the volume prefix when it lacks them or has an older version. `PATH` searches the volume prefix first, so a harness update from the UI installs there and persists across restarts and image updates. |
 | `ANTHROPIC_API_KEY` | Optional. Claude Code credential for an orchestrator in the hub, read by `claude` from the environment. See [Orchestrator agent credentials](#orchestrator-agent-credentials). |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Optional alternative to `ANTHROPIC_API_KEY` for Claude Code. Set at most one of the two. |
 | `OPENAI_API_KEY` | Optional. Codex API key; used only for the one-time `codex login --with-api-key` below, not read by AO's readiness probe. |
@@ -78,8 +80,9 @@ A BFF redeploy clears all sessions by design.
 
 ### Orchestrator agent credentials
 
-An orchestrator started in the hub runs one of the agent CLIs that the hub
-inherits from the worker image (`claude`, `codex`, `opencode`). It needs a
+An orchestrator started in the hub runs one of its agent CLIs: `claude` and
+`codex` from the hub's updatable prefix (see `NPM_CONFIG_PREFIX` above), or
+`opencode` inherited from the worker image. It needs a
 provider credential for its harness and a GitHub token. The operator sets
 them; no credential goes into the repository, the image, build arguments, or
 logs. The hub supervisor does not log credential values. Unlike the worker
