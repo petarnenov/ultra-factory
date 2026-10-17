@@ -46,23 +46,24 @@ ENV AO_HUB_SPA_DIR=/opt/ao/hub/dist-web \
 # the release checksum before either executable is copied into the image.
 ARG TARGETARCH
 ARG TAILSCALE_VERSION=1.104.1
+ARG TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
+ARG TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
 USER root
 RUN set -eu; \
     case "$TARGETARCH" in \
-      amd64|arm64) tailscale_arch="$TARGETARCH" ;; \
+      amd64) tailscale_arch=amd64; tailscale_sha256="$TAILSCALE_SHA256_AMD64" ;; \
+      arm64) tailscale_arch=arm64; tailscale_sha256="$TAILSCALE_SHA256_ARM64" ;; \
       *) echo "unsupported Tailscale architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     archive="tailscale_${TAILSCALE_VERSION}_${tailscale_arch}.tgz"; \
     curl --fail --silent --show-error --location "https://pkgs.tailscale.com/stable/${archive}" --output "/tmp/${archive}"; \
-    curl --fail --silent --show-error --location "https://pkgs.tailscale.com/stable/${archive}.sha256" --output "/tmp/${archive}.sha256"; \
-    tailscale_sha256=$(cat "/tmp/${archive}.sha256"); \
     case "$tailscale_sha256" in *[!0-9a-f]*|'') echo "invalid Tailscale checksum" >&2; exit 1 ;; esac; \
     test "${#tailscale_sha256}" -eq 64; \
     printf '%s  %s\n' "$tailscale_sha256" "/tmp/${archive}" | sha256sum --check --status; \
     tar -xzf "/tmp/${archive}" -C /tmp; \
     install -m 0755 "/tmp/tailscale_${TAILSCALE_VERSION}_${tailscale_arch}/tailscale" /usr/local/bin/tailscale; \
     install -m 0755 "/tmp/tailscale_${TAILSCALE_VERSION}_${tailscale_arch}/tailscaled" /usr/local/bin/tailscaled; \
-    rm -rf "/tmp/${archive}" "/tmp/${archive}.sha256" "/tmp/tailscale_${TAILSCALE_VERSION}_${tailscale_arch}"
+    rm -rf "/tmp/${archive}" "/tmp/tailscale_${TAILSCALE_VERSION}_${tailscale_arch}"
 
 # The BFF has no runtime dependencies (node:http only) and Node 24 runs the
 # .ts sources directly, so there is no npm install step for it.
