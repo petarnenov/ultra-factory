@@ -45,16 +45,16 @@ recorded.
 
 | Check | Status | Sanitized evidence |
 | --- | --- | --- |
-| Railway target | Pass | Project `giving-success` (`a1a58d18-7935-41fd-b930-5ee98621f246`), environment `production` (`a885c9c4-51e2-4ac4-9042-79d0f9989d85`), service `ultra-factory` (`0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c`). |
-| Active deployment | Pass | Deployment `d5cd05c7-18ad-4b6c-9244-8059b4418943` is `SUCCESS`/`RUNNING`, created `2026-10-17T00:25:36.213Z`, commit `0f1d9f4c4aca8010e903755349c4a10d586188a0` on `feat/railway-hosting`, image digest `sha256:118d402e09183292688dbf1d89428c895e69f22047d37fae3381bda64e216931`. |
+| Railway target | Pass | Project `<project-name>` (`<project-id>`), environment `<environment-name>` (`<environment-id>`), service `<service-name>` (`<service-id>`). |
+| Active deployment | Pass | Deployment `<deployment-id>` is `SUCCESS`/`RUNNING`, created `2026-10-17`, commit `<commit>` on `feat/railway-hosting`, image digest `<image-digest>`. |
 | Source/build | Pass | Repository `petarnenov/ultra-factory`, Dockerfile `deploy/railway/worker/Dockerfile`, root build context (`rootDirectory=null`). |
 | Volume | Pass, persistence configured | `ultra-factory-volume` is `READY`, 50 GB, mounted at `/data`. Read-only metadata showed `/data/ao/ao.db` present (2,154,496 bytes); database contents were not read. |
-| Public HTTPS and identity | Pass | `https://ultra-factory-production.up.railway.app/api/v1/identity` returned HTTP 200 with TLS verification result 0, API version 1, and host ID `h_a7b1467b-8c11-4dc5-b57b-9ddfe7c8863f`. |
+| Public HTTPS and identity | Pass | `https://<worker-domain>/api/v1/identity` returned HTTP 200 with TLS verification result 0, API version 1, and host ID `<host-id>`. |
 | Readiness and authenticated route | Pass | On HTTPS, `/readyz` and `/api/v1/sessions` returned 401 without authentication and 200 with the local bearer credential. No credential value was output. |
-| Public routing | Pass | Domain `ultra-factory-production.up.railway.app` is `ACTIVE` and targets port `3011`. |
+| Public routing | Pass | Domain `<worker-domain>` is `ACTIVE` and targets port `3011`. |
 | Main listener port `3001` | Pass, loopback-only | Read-only `/proc/net/tcp` and `/proc/net/tcp6` inspection showed `127.0.0.1:3001` and no wildcard listener on that port at inspection time. |
 | Remote listener port `3011` | Pass, dual-stack | `/proc/net/tcp6` showed a wildcard listener on 3011 and `bindv6only=0`; the configured `AO_REMOTE_BIND` is `dual` and `AO_REMOTE_TRUSTED_PROXY` is `1`. |
-| Private-network reachability | Pass, self-route | From the service container, `ultra-factory.railway.internal` resolved to IPv4 and IPv6. Requests to `http://ultra-factory.railway.internal:3011/api/v1/identity` returned 200 over both families. A separate peer service was not created, so peer-to-peer reachability remains unverified. |
+| Private-network reachability | Pass, self-route | From the service container, `<service>.railway.internal` resolved to IPv4 and IPv6. Requests to `http://<service>.railway.internal:3011/api/v1/identity` returned 200 over both families. A separate peer service was not created, so peer-to-peer reachability remains unverified. |
 | Host identity across observed deployments | Pass, limited | Current host ID matches the prior observation before the latest deployment. This does not independently establish database continuity. |
 | Database preservation across redeploy | Unverified | No redeploy or pre/post database marker/checksum comparison was performed. A deliberate redeploy and sanitized state comparison are needed. |
 | Five-failure lockout and client isolation | Unverified | No wrong-password sequence was sent, to avoid locking out a client. Requires an isolated test source and a second source IP or equivalent sanitized logs. |
