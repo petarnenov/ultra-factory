@@ -49,6 +49,16 @@ COPY --chown=10001:10001 packages/hub-bff/src /opt/ao/hub/bff/src
 COPY --chown=10001:10001 packages/hub-bff/login /opt/ao/hub/bff/login
 COPY --chmod=0755 deploy/railway/hub/hub-supervisor.sh /usr/local/bin/ao-hub-supervisor.sh
 
+# The orchestrator wake-up loop (AO_HUB_ORCHESTRATOR_TICK=1, RW-5.4.2). Its
+# invariant checks need python3, which the worker image does not ship.
+USER root
+RUN apt-get update && \
+    apt-get install --yes --no-install-recommends python3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 --version
+USER 10001:10001
+COPY --chmod=0755 docs/backlog/railway/tools/orchestrator-tick.sh /usr/local/bin/ao-orchestrator-tick.sh
+
 # Railway sets PORT; the BFF listens on it. The daemon's remote-host listener
 # is on 3011 and loopback-only (see hub-supervisor.sh), so it is not exposed.
 EXPOSE $PORT

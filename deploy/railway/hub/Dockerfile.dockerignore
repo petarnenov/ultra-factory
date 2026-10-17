@@ -7,6 +7,7 @@
 !packages/hub-bff/src/
 !packages/hub-bff/login/
 !deploy/railway/hub/hub-supervisor.sh
+!docs/backlog/railway/tools/orchestrator-tick.sh
 **/node_modules
 frontend/dist-web
 frontend/dist-electron

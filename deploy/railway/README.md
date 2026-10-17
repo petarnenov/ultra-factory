@@ -65,6 +65,7 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `ANTHROPIC_API_KEY` | Optional. Claude Code credential for an orchestrator in the hub, read by `claude` from the environment. See [Orchestrator agent credentials](#orchestrator-agent-credentials). |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Optional alternative to `ANTHROPIC_API_KEY` for Claude Code. Set at most one of the two. |
 | `OPENAI_API_KEY` | Optional. Codex API key; used only for the one-time `codex login --with-api-key` below, not read by AO's readiness probe. |
+| `AO_HUB_ORCHESTRATOR_TICK` | Optional. `1` starts the orchestrator wake-up loop under the supervisor; default off. See [Orchestrator wake-up loop](#orchestrator-wake-up-loop). The tick also reads the `RW_TICK_*` variables documented in its script header. |
 | `GH_TOKEN` | Required for an orchestrator in the hub. Fine-grained token limited to this repository; read by `gh` and, through `gh auth token`, by the daemon's GitHub adapters. |
 
 `AO_HUB_OPERATOR_PASSWORD_HASH`, `AO_HUB_SESSION_SECRET`, and
@@ -149,6 +150,69 @@ hub answers a prompt and runs
 `gh issue view 119 --repo petarnenov/ultra-factory`. Record only the result
 and the date, never `gh auth status -t` output or environment dumps.
 
+### Orchestrator wake-up loop
+
+Worker reports reach a hub orchestrator through the ADR 0005 pull, but no
+report covers PR and CI state (a PR that turns green, a merge conflict). On
+the Mac, launchd runs
+[`orchestrator-tick.sh`](../../docs/backlog/railway/tools/orchestrator-tick.sh)
+every 5 minutes for that. In the hub the same script runs as
+`/usr/local/bin/ao-orchestrator-tick.sh loop`, a third child of the
+supervisor, when the `hub` service has `AO_HUB_ORCHESTRATOR_TICK=1`.
+
+- **Why not `ao automation`.** An automation run spawns a new session with a
+  prompt; it cannot run a script or send a message to an existing
+  orchestrator. A supervised loop needs no daemon change and nothing on the
+  operator's machines.
+- **What one tick does.** It finds the single live orchestrator of
+  `RW_TICK_PROJECT` (default `ultra-factory`) with `ao orchestrator ls`. Zero
+  or several live orchestrators, or a daemon that is not ready, are only
+  logged as `VIOLATION`; nothing is sent. An orchestrator in an active turn is
+  never interrupted. Otherwise, when the snapshot of worker sessions, open PRs
+  to `feat/railway-hosting` and invariants changed, or work is in flight and
+  the last nudge is older than 30 minutes (10 with a violation), it sends a
+  `TICK` message with `ao send`. A green mergeable PR therefore produces a
+  `TICK` on the next tick, within 5 minutes.
+- **GitHub.** `gh` reads `GH_TOKEN` (see
+  [Orchestrator agent credentials](#orchestrator-agent-credentials)); no
+  `gh auth login` is needed. Without a checkout in the image, the
+  "integration branch contains main" check uses the GitHub compare API. A
+  missing or rejected token is logged as `VIOLATION`.
+- **Hosts.** `RW_TICK_HOSTS` (default `Linux IMac Z600`) names the hosts whose
+  `rw/` sessions go into the snapshot, through `ao session ls --host`.
+- **Log and state.** `/data/ao/rw-tick/` (`$AO_DATA_DIR/rw-tick`):
+  `tick.log`, the last snapshot and the last-sent state. Each log line is
+  also printed to the service log. The `TICK` message itself is not logged.
+- **Failure.** A failed tick is logged and the loop continues. If the loop
+  process exits, the supervisor logs it and restarts it after 60 seconds; the
+  daemon and the BFF keep running.
+
+**Pause for a redeploy or maintenance.** In a hub terminal (uid `10001`,
+`HOME=/data/home`):
+
+```bash
+ao-orchestrator-tick.sh pause "redeploy"   # writes /data/ao/rw-tick/paused
+ao-orchestrator-tick.sh status             # shows the flag and the last ticks
+ao-orchestrator-tick.sh resume             # removes the flag
+```
+
+The flag is on the volume, so it survives the redeploy; resume after the
+hub is verified. While it is set every tick logs `paused (...)` and sends
+nothing. Setting `RW_TICK_PAUSED=1` on the service pauses as well, but changing
+a variable restarts the hub. To turn the loop off for good, remove
+`AO_HUB_ORCHESTRATOR_TICK`.
+
+**Offline check.** `bash docs/backlog/railway/tools/orchestrator-tick-test.sh`
+runs ticks with `--dry-run` against fixtures, with fake `ao` and `gh`.
+
+**Live check (operator, pending).** With `AO_HUB_ORCHESTRATOR_TICK=1`, a hub
+orchestrator running, and the Mac's launchd tick stopped
+(`orchestrator-tick.sh uninstall` on the Mac), a green mergeable PR to
+`feat/railway-hosting` produces a `nudged <orchestrator> (state changed)` line
+in `/data/ao/rw-tick/tick.log` and a `TICK` message in the orchestrator within
+10 minutes. Run only one tick per orchestrator: the Mac and the hub must not
+both nudge.
+
 ### Add the RW-1.4 worker
 
 After the hub is deployed and login works, open **Settings → Remote hosts** in
@@ -225,7 +289,9 @@ SSE connections, or in-memory browser sessions.
   after first boot. Verify the old password fails and the new one works without
   putting either value in logs, shell history, or issue evidence.
 - **Image update:** confirm no active hub sessions, stop new work, and record
-  pending work before redeploying. Restarting the hub terminates live daemon
+  pending work before redeploying. With the wake-up loop on, pause it first
+  and resume it after the checks below (see
+  [Orchestrator wake-up loop](#orchestrator-wake-up-loop)). Restarting the hub terminates live daemon
   processes and terminals, even though `/data` persists. Select the intended
   image revision and reattach the same `/data` volume; after startup, verify
   `/healthz`, the board, `/hub/hosts`, and a new terminal session. Do not infer

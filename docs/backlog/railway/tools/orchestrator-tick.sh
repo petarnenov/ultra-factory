@@ -20,13 +20,37 @@
 # does not answer, or no single live orchestrator exists, nobody can be woken:
 # the tick logs a VIOLATION to tick.log and sends nothing.
 #
+# The same script runs in two places. On the Mac, launchd calls `run` every
+# INTERVAL seconds. In the Railway hub, hub-supervisor.sh runs `loop` as a
+# supervised child (RW-5.4.2). gh authenticates through GH_TOKEN; when no
+# integration-branch checkout is available (RW_TICK_REPO_DIR or the script's
+# own repository), the main-merged check asks the GitHub compare API instead
+# of git. State and the log live in $AO_DATA_DIR/rw-tick.
+#
+# A maintenance flag pauses every tick: `orchestrator-tick.sh pause [reason]`
+# writes $AO_DATA_DIR/rw-tick/paused, `resume` removes it. RW_TICK_PAUSED=1
+# pauses as well. A paused tick logs "paused" and sends nothing.
+#
 # Usage:
-#   orchestrator-tick.sh run         one tick (what launchd calls)
-#   orchestrator-tick.sh snapshot    print the state a tick would send, send nothing
-#   orchestrator-tick.sh install     install and load the launchd agent
-#   orchestrator-tick.sh uninstall   unload and remove the launchd agent
-#   orchestrator-tick.sh status      show the agent and the last tick
+#   orchestrator-tick.sh [--dry-run] run   one tick (what launchd calls)
+#   orchestrator-tick.sh loop              run a tick every INTERVAL seconds (hub)
+#   orchestrator-tick.sh snapshot          print the state a tick would send, send nothing
+#   orchestrator-tick.sh pause [reason]    set the maintenance flag
+#   orchestrator-tick.sh resume            clear the maintenance flag
+#   orchestrator-tick.sh install           install and load the launchd agent (macOS)
+#   orchestrator-tick.sh uninstall         unload and remove the launchd agent (macOS)
+#   orchestrator-tick.sh status            show the agent or the flag, and the last tick
+#
+# --dry-run runs the whole tick but never calls `ao send` and never updates the
+# last-sent state; it prints the message it would send. With fake `ao` and `gh`
+# on PATH this is the offline test (orchestrator-tick-test.sh).
 set -euo pipefail
+
+DRY_RUN=0
+if [[ "${1:-}" == --dry-run ]]; then
+	DRY_RUN=1
+	shift
+fi
 
 PROJECT="${RW_TICK_PROJECT:-ultra-factory}"
 # Empty: find the project's orchestrator on every tick.
@@ -43,9 +67,12 @@ GREEN_PR_MAX_MINUTES="${RW_TICK_GREEN_PR_MAX_MINUTES:-10}"
 IDLE_WORKER_MAX_MINUTES="${RW_TICK_IDLE_WORKER_MAX_MINUTES:-30}"
 # Workers created after this instant must follow the claude-code + codex mix.
 AGENT_MIX_SINCE="${RW_TICK_AGENT_MIX_SINCE:-2026-10-16T15:45:00Z}"
-REPO_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+# A checkout of REPO for the main-merged check. Empty in the hub image, where
+# the script is not inside a repository: the GitHub compare API is used instead.
+REPO_DIR="${RW_TICK_REPO_DIR-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || true)}"
 
 STATE_DIR="${AO_DATA_DIR:-$HOME/.ao}/rw-tick"
+PAUSE_FLAG="$STATE_DIR/paused"
 LABEL="dev.aoagents.rw-orchestrator-tick"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -75,7 +102,18 @@ snapshot() {
 # code, because "remember to do X after Y" instructions get skipped.
 invariants() {
 	# 1. The integration branch contains origin/main.
-	if git -C "$REPO_DIR" fetch -q origin main "$BASE" 2>/dev/null; then
+	if [[ -z "$REPO_DIR" ]]; then
+		local compare behind shas
+		if compare="$(gh api "repos/$REPO/compare/$BASE...main" --jq '"\(.ahead_by) \([.commits[-5:][].sha[0:7]] | join(","))"' 2>/dev/null)"; then
+			behind="${compare%% *}"
+			shas="${compare#* }"
+			if ((behind > 0)); then
+				printf 'VIOLATION: %s is %s commit(s) behind main (%s) → git merge origin/main into %s and push\n' "$BASE" "$behind" "$shas" "$BASE"
+			fi
+		else
+			printf 'VIOLATION: the GitHub compare of %s with main failed; check GH_TOKEN and repository access\n' "$BASE"
+		fi
+	elif git -C "$REPO_DIR" fetch -q origin main "$BASE" 2>/dev/null; then
 		local behind shas
 		behind="$(git -C "$REPO_DIR" rev-list --count "origin/$BASE..origin/main" 2>/dev/null || echo 0)"
 		if ((behind > 0)); then
@@ -254,6 +292,14 @@ PY
 run_tick() {
 	mkdir -p "$STATE_DIR"
 	chmod 700 "$STATE_DIR"
+	if [[ "${RW_TICK_PAUSED:-0}" == 1 ]]; then
+		log "paused (RW_TICK_PAUSED=1); skip"
+		return 0
+	fi
+	if [[ -f "$PAUSE_FLAG" ]]; then
+		log "paused ($(head -n 1 "$PAUSE_FLAG")); skip"
+		return 0
+	fi
 	local problem
 	problem="$(daemon_problem)"
 	if [[ -n "$problem" ]]; then
@@ -275,6 +321,11 @@ run_tick() {
 	if [[ "$activity" == active || "$status" == working ]]; then
 		log "orchestrator busy (status=$status activity=$activity); skip"
 		return 0
+	fi
+	# Without GitHub access the PR and CI state is missing from the snapshot,
+	# which is the only thing a tick adds over the workers' own reports.
+	if ! gh auth token >/dev/null 2>&1; then
+		log "VIOLATION gh is not authenticated; PR and CI state is unknown → set GH_TOKEN (see deploy/railway/README.md)"
 	fi
 
 	local snap="$STATE_DIR/snapshot.txt" last="$STATE_DIR/last-sent.txt" stamp="$STATE_DIR/last-sent.at"
@@ -325,12 +376,57 @@ $first
 Reports from workers on other machines do not reach you (issue #63), so here is the current state:
 $(cat "$snap")
 Run a full pass per \"Wake-up and reconcile loop\" in your instructions: merge every green PR that meets the criteria, nudge stalled workers, start every task whose dependencies are merged, update #59. Do not wait for ao report from remote workers."
-	if ao send --session "$SESSION" --message "$msg" >/dev/null 2>&1; then
+	if ((DRY_RUN)); then
+		log "dry run: would nudge $SESSION ($reason)"
+		printf '%s\n' "$msg"
+	elif ao send --session "$SESSION" --message "$msg" >/dev/null 2>&1; then
 		cp "$snap" "$last"
 		date +%s >"$stamp"
 		log "nudged $SESSION ($reason)"
 	else
 		log "ao send to $SESSION failed"
+	fi
+}
+
+# loop runs a tick every INTERVAL_SECONDS until SIGTERM, appending to tick.log
+# and echoing each line to stderr so the hub's service log shows it too. A
+# failed tick is logged and never ends the loop.
+loop() {
+	mkdir -p "$STATE_DIR"
+	chmod 700 "$STATE_DIR"
+	local sleeper=
+	trap '[[ -n $sleeper ]] && kill "$sleeper" 2>/dev/null; exit 0' TERM INT
+	log "tick loop started (every ${INTERVAL_SECONDS}s), log: $STATE_DIR/tick.log" | tee -a "$STATE_DIR/tick.log" >&2
+	while :; do
+		(run_tick) 2>&1 | tee -a "$STATE_DIR/tick.log" >&2 || log "tick failed" | tee -a "$STATE_DIR/tick.log" >&2
+		# sleep in the background so SIGTERM is handled at once.
+		sleep "$INTERVAL_SECONDS" &
+		sleeper=$!
+		wait "$sleeper" || true
+		sleeper=
+	done
+}
+
+pause() {
+	mkdir -p "$STATE_DIR"
+	chmod 700 "$STATE_DIR"
+	printf '%s by %s at %s\n' "${1:-maintenance}" "$(id -un 2>/dev/null || id -u)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$PAUSE_FLAG"
+	log "paused: $(cat "$PAUSE_FLAG")" | tee -a "$STATE_DIR/tick.log"
+}
+
+resume() {
+	if [[ -f "$PAUSE_FLAG" ]]; then
+		rm -f "$PAUSE_FLAG"
+		log "resumed" | tee -a "$STATE_DIR/tick.log"
+	else
+		log "not paused"
+	fi
+}
+
+require_macos() {
+	if [[ "$(uname -s)" != Darwin ]]; then
+		echo "$0 $1: launchd is macOS only; in the hub, hub-supervisor.sh runs \"$0 loop\" (AO_HUB_ORCHESTRATOR_TICK=1)" >&2
+		exit 2
 	fi
 }
 
@@ -369,15 +465,27 @@ uninstall_agent() {
 
 case "${1:-}" in
 run) run_tick ;;
+loop) loop ;;
 snapshot) snapshot ;;
-install) install_agent ;;
-uninstall) uninstall_agent ;;
+pause) pause "${2:-}" ;;
+resume) resume ;;
+install)
+	require_macos install
+	install_agent
+	;;
+uninstall)
+	require_macos uninstall
+	uninstall_agent
+	;;
 status)
-	launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E 'state =|last exit|run interval' || echo "agent not loaded"
+	if [[ "$(uname -s)" == Darwin ]]; then
+		launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -E 'state =|last exit|run interval' || echo "agent not loaded"
+	fi
+	if [[ -f "$PAUSE_FLAG" ]]; then echo "paused: $(cat "$PAUSE_FLAG")"; else echo "not paused"; fi
 	tail -n 5 "$STATE_DIR/tick.log" 2>/dev/null || true
 	;;
 *)
-	echo "usage: $0 {run|snapshot|install|uninstall|status}" >&2
+	echo "usage: $0 [--dry-run] {run|loop|snapshot|pause [reason]|resume|install|uninstall|status}" >&2
 	exit 2
 	;;
 esac
