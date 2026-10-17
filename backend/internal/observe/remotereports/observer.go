@@ -468,8 +468,10 @@ func (o *Observer) connect(ctx context.Context, hostID string) (*hostClient, err
 	if o.refusedPassword(hostID, entry.Password) {
 		return nil, errCredentialRefused
 	}
-	client := remotehost.DirectClient(o.httpClient, o.reqTimeout)
+	// Only the probe may open a connection for this pass; see ProbedClient.
+	client, gate := remotehost.ProbedClient(o.httpClient, o.reqTimeout)
 	actual, err := remotehost.ReadIdentity(ctx, client, base)
+	gate.Close()
 	if err != nil {
 		closeIdle(client)
 		return nil, err
