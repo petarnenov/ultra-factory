@@ -2885,6 +2885,8 @@
 	"remote.cloneDescription": "Collez une URL Git et choisissez où AO doit créer la copie de travail sur l’hôte.",
 	"remote.passwordRejected": "Mot de passe refusé",
 	"remote.retryHost": "Réessayer {{label}}",
+	"remote.addProjectOn": "Ajouter un projet sur {{label}}",
+	"remote.noProjects": "Aucun projet",
 	"remote.startOn": "Démarrer sur {{label}}",
 	"remote.hostLabel": "Hôte distant : {{hostId}}",
 	"remote.loadingSession": "Chargement de la session",

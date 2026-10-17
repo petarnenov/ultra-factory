@@ -2844,6 +2844,8 @@
 	"remote.cloneDescription": "Git URL を貼り付け、ホスト上で AO がチェックアウトを作成する場所を選択します。",
 	"remote.passwordRejected": "パスワードが拒否されました",
 	"remote.retryHost": "{{label}} に再接続",
+	"remote.addProjectOn": "{{label}} にプロジェクトを追加",
+	"remote.noProjects": "プロジェクトなし",
 	"remote.startOn": "{{label}} で開始",
 	"remote.hostLabel": "リモートホスト: {{hostId}}",
 	"remote.loadingSession": "セッションを読み込み中",

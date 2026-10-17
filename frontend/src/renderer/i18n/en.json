@@ -2826,6 +2826,8 @@
 	"remote.cloneDescription": "Paste a Git URL and choose where AO should create the checkout on the host.",
 	"remote.passwordRejected": "Password rejected",
 	"remote.retryHost": "Retry {{label}}",
+	"remote.addProjectOn": "Add project on {{label}}",
+	"remote.noProjects": "No projects",
 	"remote.startOn": "Start on {{label}}",
 	"remote.hostLabel": "Remote host: {{hostId}}",
 	"remote.loadingSession": "Loading session",

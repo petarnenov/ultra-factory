@@ -11,10 +11,11 @@ type Props = {
 	failedHostIds?: string[];
 	renderProject: (host: RemoteHost, workspace: WorkspaceSummary) => ReactNode;
 	onRetry: () => void;
+	onAddProject?: (hostId: string) => void;
 };
 
 /** Only host-specific chrome lives here; project and session rows are shared. */
-export function RemoteHostsSection({ hosts, workspaces, failedHostIds = [], renderProject, onRetry }: Props) {
+export function RemoteHostsSection({ hosts, workspaces, failedHostIds = [], renderProject, onRetry, onAddProject }: Props) {
 	const { t } = useTranslation();
 	return <>
 		{hosts.map((host) => {
@@ -32,6 +33,19 @@ export function RemoteHostsSection({ hosts, workspaces, failedHostIds = [], rend
 				</SidebarMenuButton>
 			</SidebarMenuItem>;
 			const projects = workspaces.filter((workspace) => workspace.hostId === host.hostId);
+			// A connected host is otherwise visible only through its projects, so an
+			// empty one gets the host's own row as its "Add project on" entry point.
+			if (projects.length === 0 && onAddProject && !failedHostIds.includes(host.hostId)) return <SidebarMenuItem key={host.url} data-host-id={host.hostId}>
+				<SidebarMenuButton
+					aria-label={t("remote.addProjectOn", { label: host.label, defaultValue: "Add project on {{label}}" })}
+					className="h-9 gap-2 rounded-lg px-2.5 text-sm text-muted-foreground hover:bg-interactive-hover [&_svg]:size-icon-md"
+					onClick={() => onAddProject(host.hostId)}
+				>
+					<Folder aria-hidden="true" />
+					<span className="truncate">{host.label}</span>
+					<span className="ml-auto text-xs">{t("remote.noProjects", { defaultValue: "No projects" })}</span>
+				</SidebarMenuButton>
+			</SidebarMenuItem>;
 			return <Fragment key={host.url}>
 				{projects.map((workspace) => <Fragment key={`${host.hostId}:${workspace.id}`}>{renderProject(host, workspace)}</Fragment>)}
 				{failedHostIds.includes(host.hostId) && <SidebarMenuItem>

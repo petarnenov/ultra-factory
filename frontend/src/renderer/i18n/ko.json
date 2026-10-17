@@ -2844,6 +2844,8 @@
 	"remote.cloneDescription": "Git URL을 붙여넣고 AO가 호스트에서 체크아웃을 만들 위치를 선택하세요.",
 	"remote.passwordRejected": "비밀번호가 거부되었습니다",
 	"remote.retryHost": "{{label}} 다시 연결",
+	"remote.addProjectOn": "{{label}}에 프로젝트 추가",
+	"remote.noProjects": "프로젝트 없음",
 	"remote.startOn": "{{label}}에서 시작",
 	"remote.hostLabel": "원격 호스트: {{hostId}}",
 	"remote.loadingSession": "세션 불러오는 중",
