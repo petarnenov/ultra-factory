@@ -42,9 +42,7 @@ func TestNormalizeImportPathCoverage(t *testing.T) {
 			}
 		}
 	})
-	t.Run("missing home returns error", func(t *testing.T) {
-		// Only meaningful when HOME lookup fails; force by invalid tilde form not applicable.
-		// Ensure whitespace is trimmed before validation.
+	t.Run("trims surrounding whitespace", func(t *testing.T) {
 		got, err := normalizeImportPath("   /tmp/foo   ")
 		if err != nil {
 			t.Fatalf("unexpected: %v", err)
@@ -121,6 +119,9 @@ func TestValidateImportRemoteURLCoverage(t *testing.T) {
 		{"token query invalid", "https://github.com/acme/repository.git?token=secret", true, "GIT_URL_CONTAINS_CREDENTIALS"},
 		{"scp valid", "git@github.com:acme/repository.git", false, ""},
 		{"file valid", "file:///tmp/acme/repository.git", false, ""},
+		{"ssh credential query invalid", "ssh://git@github.com/acme/repository.git?token=secret", true, "GIT_URL_CONTAINS_CREDENTIALS"},
+		{"git credential query invalid", "git://git.example.test/acme/repository.git?password=x", true, "GIT_URL_CONTAINS_CREDENTIALS"},
+		{"ssh benign query valid", "ssh://git@github.com/acme/repository.git?ref=main", false, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,13 +131,8 @@ func TestValidateImportRemoteURLCoverage(t *testing.T) {
 					t.Fatalf("expected error")
 				}
 				var apiErr *apierr.Error
-				if errors.As(err, &apiErr) {
-					if tc.code != "" && apiErr.Code != tc.code {
-						t.Fatalf("code=%q, want %q", apiErr.Code, tc.code)
-					}
-				} else if tc.code != "" {
-					// invalidImportRemoteURL returns apierr.Error too; ensure code where applicable.
-					t.Fatalf("err=%v, want *apierr.Error", err)
+				if !errors.As(err, &apiErr) || (tc.code != "" && apiErr.Code != tc.code) {
+					t.Fatalf("err=%v (code=%v), want code %q", err, apiErr, tc.code)
 				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -145,9 +141,8 @@ func TestValidateImportRemoteURLCoverage(t *testing.T) {
 	}
 }
 
-func TestImportInvalidImportResultAndStatusCoverage(t *testing.T) {
-	// Exercise New default root and Status availability already covered, but
-	// keep a smoke assertion for unsupported kind in Validate.
+func TestValidateRejectsUnsupportedImportKind(t *testing.T) {
+	// Smoke test for the unsupported-import-kind error path in Validate.
 	svc := New(Deps{Store: newFakeStore(), Root: filepath.Join(t.TempDir(), "none")})
 	_, err := svc.Validate(context.Background(), ImportValidationInput{ImportKind: "bogus", Path: filepath.Join(t.TempDir(), "x")})
 	if err == nil {
@@ -156,14 +151,6 @@ func TestImportInvalidImportResultAndStatusCoverage(t *testing.T) {
 	var apiErr *apierr.Error
 	if !errors.As(err, &apiErr) || apiErr.Code != "UNSUPPORTED_IMPORT_KIND" {
 		t.Fatalf("err=%v, want UNSUPPORTED_IMPORT_KIND", err)
-	}
-
-	st, err := svc.Status(context.Background())
-	if err != nil {
-		t.Fatalf("Status: %v", err)
-	}
-	if st.Available {
-		t.Fatalf("expected unavailable, got %+v", st)
 	}
 }
 
@@ -186,6 +173,10 @@ func TestDirectChildStatusesAndHelpersCoverage(t *testing.T) {
 	if err := os.MkdirAll(child, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	plain := filepath.Join(root, "plain")
+	if err := os.MkdirAll(plain, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	// unsupported metadata: .git file in a non-repo folder
 	if err := os.WriteFile(filepath.Join(child, ".git"), []byte("gitdir: /nope"), 0o644); err != nil {
 		t.Fatal(err)
@@ -194,11 +185,17 @@ func TestDirectChildStatusesAndHelpersCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("directChildImportStatuses: %v", err)
 	}
-	if len(statuses) != 1 {
-		t.Fatalf("statuses = %#v, want 1", statuses)
+	if len(statuses) != 2 {
+		t.Fatalf("statuses = %#v, want 2", statuses)
 	}
-	if !containsString(statuses[0].BlockingErrors, "UNSUPPORTED_GIT_METADATA") {
-		t.Fatalf("blocking errors = %#v, want UNSUPPORTED_GIT_METADATA", statuses[0].BlockingErrors)
+	var childStatus *RepoGitStatus
+	for i := range statuses {
+		if statuses[i].RepoPath == child {
+			childStatus = &statuses[i]
+		}
+	}
+	if childStatus == nil || !containsString(childStatus.BlockingErrors, "UNSUPPORTED_GIT_METADATA") {
+		t.Fatalf("child status = %#v, want UNSUPPORTED_GIT_METADATA", childStatus)
 	}
 
 	// directChildImportRepos filters out plain children without blocking errors.
@@ -206,9 +203,8 @@ func TestDirectChildStatusesAndHelpersCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("directChildImportRepos: %v", err)
 	}
-	// child has blocking error, so it is surfaced
-	if len(repos) != 1 {
-		t.Fatalf("repos = %#v, want 1", repos)
+	if len(repos) != 1 || repos[0].RepoPath != child {
+		t.Fatalf("repos = %#v, want only child", repos)
 	}
 }
 
