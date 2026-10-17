@@ -76,13 +76,13 @@ func TestPreviewFailureClassesAreCachedWithShortTTL(t *testing.T) {
 	}
 	now = now.Add(failureTTL + time.Nanosecond)
 	_, err := svc.Preview(context.Background(), server.URL)
-	if err == nil || err.Error() != errNotHTML.Error() {
+	if !errors.Is(err, errNotHTML) {
 		t.Fatalf("non-HTML response error = %v, want not found", err)
 	}
 	if calls != 2 {
 		t.Fatalf("calls after failure expiry = %d, want 2", calls)
 	}
-	if _, err := (cacheEntry{failure: failureNotFound}).result(); err == nil || err.Error() != errNotHTML.Error() {
+	if _, err := (cacheEntry{failure: failureNotFound}).result(); !errors.Is(err, errNotHTML) {
 		t.Fatalf("cached not-found result error = %v", err)
 	}
 	if _, err := (cacheEntry{failure: failureFetch}).result(); !errors.Is(err, ErrFetchFailed) {
@@ -137,12 +137,15 @@ func TestPreviewValidationAndURLResolution(t *testing.T) {
 }
 
 func TestCacheEvictsExpiredThenOldestAndUsesFailureTTL(t *testing.T) {
-	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	now := start
 	svc := New(nil)
 	svc.now = func() time.Time { return now }
 	if _, ok := svc.lookup("missing"); ok {
 		t.Fatal("missing cache key found")
 	}
+	svc.store("old-success", cacheEntry{preview: Preview{Title: "still fresh"}, fetchedAt: start})
+	now = start.Add(time.Minute)
 	svc.store("failure", cacheEntry{failure: failureFetch, fetchedAt: now})
 	if ttl := entryTTL(failureFetch); ttl != failureTTL {
 		t.Fatalf("failure TTL = %v", ttl)
@@ -156,17 +159,34 @@ func TestCacheEvictsExpiredThenOldestAndUsesFailureTTL(t *testing.T) {
 	if ttl := entryTTL(failureNone); ttl != successTTL {
 		t.Fatalf("success TTL = %v", ttl)
 	}
-	now = now.Add(failureTTL + time.Nanosecond)
-	for i := 0; i <= maxCacheEntries; i++ {
+	now = start.Add(3*time.Minute + time.Nanosecond)
+	for i := 0; i < maxCacheEntries-2; i++ {
 		svc.store(fmt.Sprintf("key-%03d", i), cacheEntry{preview: Preview{URL: fmt.Sprint(i)}, fetchedAt: now.Add(time.Duration(i) * time.Second)})
 	}
 	if len(svc.entries) != maxCacheEntries {
+		t.Fatalf("cache size before insertion = %d, want %d", len(svc.entries), maxCacheEntries)
+	}
+	svc.store("after-expiry", cacheEntry{preview: Preview{Title: "newest"}, fetchedAt: now})
+	if len(svc.entries) != maxCacheEntries {
 		t.Fatalf("cache size = %d", len(svc.entries))
 	}
-	if _, ok := svc.entries["key-000"]; ok {
-		t.Fatal("oldest entry was not evicted when cache was full")
+	if _, ok := svc.entries["old-success"]; !ok {
+		t.Fatal("older fresh entry was evicted instead of the expired entry")
 	}
 	if _, ok := svc.entries["failure"]; ok {
 		t.Fatal("expired failure was not lazily evicted")
+	}
+
+	oldest := New(nil)
+	oldest.now = func() time.Time { return now }
+	for i := 0; i < maxCacheEntries; i++ {
+		oldest.store(fmt.Sprintf("fresh-%03d", i), cacheEntry{preview: Preview{URL: fmt.Sprint(i)}, fetchedAt: now.Add(time.Duration(i) * time.Second)})
+	}
+	oldest.store("overflow", cacheEntry{preview: Preview{Title: "overflow"}, fetchedAt: now.Add(time.Hour)})
+	if _, ok := oldest.entries["fresh-000"]; ok {
+		t.Fatal("oldest fresh entry was not evicted when cache remained full")
+	}
+	if _, ok := oldest.entries["fresh-001"]; !ok {
+		t.Fatal("newer fresh entry was evicted instead of the oldest")
 	}
 }
