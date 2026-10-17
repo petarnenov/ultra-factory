@@ -23,7 +23,7 @@ describe("web build renderer CSP", () => {
 		const policy = contentSecurityPolicy("build", true);
 		expect(policy).not.toContain("127.0.0.1");
 		expect(policy).not.toContain("localhost");
-		expect(directive(policy, "connect-src")?.split(" ").slice(0, 2)).toEqual(["connect-src", "'self'"]);
+		expect(directive(policy, "connect-src")).toBe("connect-src 'self'");
 		expect(directive(policy, "connect-src")).not.toMatch(/ (https?|wss?):( |$)/);
 		expect(directive(policy, "img-src")).toBe("img-src 'self' data: https:");
 		expect(directive(policy, "frame-src")).toBe("frame-src 'self'");

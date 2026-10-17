@@ -45,7 +45,7 @@ export const SPA_CSP = [
 	"style-src 'self' 'unsafe-inline'",
 	"img-src 'self' data: https:",
 	"font-src 'self' data:",
-	"connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com wss://staging-api.aoagents.dev wss://api.aoagents.dev",
+	"connect-src 'self'",
 	"object-src 'none'",
 	"base-uri 'self'",
 	"frame-src 'self'",

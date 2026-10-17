@@ -101,6 +101,7 @@ describe("BFF security headers", () => {
 	it("keeps the SPA policy free of loopback origins and wildcard schemes", () => {
 		expect(SPA_CSP).not.toMatch(/127\.0\.0\.1|localhost/);
 		expect(SPA_CSP).not.toMatch(/connect-src[^;]*\s(https?:|wss?:)(\s|;|$)/);
+		expect(SPA_CSP).toContain("connect-src 'self';");
 		expect(SPA_CSP).toContain("object-src 'none'");
 		expect(SPA_CSP).toContain("frame-ancestors 'none'");
 	});
