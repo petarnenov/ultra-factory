@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -164,7 +165,12 @@ func (m *Service) prepareClone(ctx context.Context, in CloneInput, resume bool) 
 
 	cmd := aoprocess.CommandContext(ctx, "git", "clone", "--origin", "origin", "--", remoteURL, temporaryPath)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=Never")
+	var cloneStderr bytes.Buffer
+	cmd.Stderr = &cloneStderr
 	if err := cmd.Run(); err != nil {
+		if stderr := strings.TrimSpace(cloneStderr.String()); stderr != "" {
+			m.logger.Warn("project: git clone failed", "stderr", stderr)
+		}
 		var executableError *exec.Error
 		if errors.As(err, &executableError) {
 			return ClonePreparationResult{}, apierr.Invalid("GIT_NOT_FOUND", "Git is required to clone a repository.", nil)
