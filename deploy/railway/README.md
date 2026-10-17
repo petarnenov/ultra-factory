@@ -183,6 +183,8 @@ supervisor, when the `hub` service has `AO_HUB_ORCHESTRATOR_TICK=1`.
 - **Log and state.** `/data/ao/rw-tick/` (`$AO_DATA_DIR/rw-tick`):
   `tick.log`, the last snapshot and the last-sent state. Each log line is
   also printed to the service log. The `TICK` message itself is not logged.
+- **Start.** The first tick runs 60 seconds after the container starts
+  (`AO_HUB_TICK_START_DELAY`), so the daemon is ready.
 - **Failure.** A failed tick is logged and the loop continues. If the loop
   process exits, the supervisor logs it and restarts it after 60 seconds; the
   daemon and the BFF keep running.

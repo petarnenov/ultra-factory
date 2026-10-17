@@ -11,7 +11,8 @@
 #
 # If the daemon or the BFF exits, the other is stopped and this script exits
 # with the first one's status, so Railway restarts the whole container. The
-# tick loop is not critical: when it exits it is logged and restarted after
+# tick loop starts after AO_HUB_TICK_START_DELAY seconds and is not critical:
+# when it exits it is logged and restarted after
 # AO_HUB_TICK_RESTART_DELAY seconds, and the hub keeps running. SIGTERM or
 # SIGINT stops every child and exits 0.
 #
@@ -42,6 +43,8 @@ readonly dry_run=${AO_HUB_SUPERVISOR_DRY_RUN:-0}
 readonly bff_main=${AO_HUB_BFF_MAIN:-/opt/ao/hub/bff/src/main.ts}
 read -r -a daemon_command <<<"${AO_HUB_DAEMON_COMMAND:-ao daemon}"
 readonly tick_enabled=${AO_HUB_ORCHESTRATOR_TICK:-0}
+# The first tick waits for the daemon to become ready.
+readonly tick_start_delay=${AO_HUB_TICK_START_DELAY:-60}
 readonly tick_restart_delay=${AO_HUB_TICK_RESTART_DELAY:-60}
 read -r -a tick_command <<<"${AO_HUB_TICK_COMMAND:-/usr/local/bin/ao-orchestrator-tick.sh loop}"
 
@@ -160,8 +163,8 @@ supervise() {
 	bff_pid=$!
 	log "started ao daemon (pid $daemon_pid) and the hub BFF (pid $bff_pid)"
 	if [[ $tick_enabled == 1 ]]; then
-		start_tick 0
-		log "started the orchestrator tick loop (pid $tick_pid)"
+		start_tick "$tick_start_delay"
+		log "started the orchestrator tick loop (pid $tick_pid, first tick in ${tick_start_delay}s)"
 	fi
 
 	# wait -n returns when the first child exits. A signal trapped above

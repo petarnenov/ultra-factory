@@ -85,7 +85,7 @@ test_tick_loop_restarts_without_stopping_the_hub() {
 	printf '#!/usr/bin/env bash\necho run >>"%s"\nexit 3\n' "$work/tick-runs" >"$work/tick.sh"
 	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
 		AO_HUB_DAEMON_COMMAND="sleep 6131" AO_HUB_BFF_MAIN="$work/sleep.js" \
-		AO_HUB_ORCHESTRATOR_TICK=1 AO_HUB_TICK_COMMAND="bash $work/tick.sh" AO_HUB_TICK_RESTART_DELAY=1 \
+		AO_HUB_ORCHESTRATOR_TICK=1 AO_HUB_TICK_COMMAND="bash $work/tick.sh" AO_HUB_TICK_START_DELAY=0 AO_HUB_TICK_RESTART_DELAY=1 \
 		bash "$supervisor" 2>"$work/tick.log" &
 	pid=$!
 	sleep 3.5
