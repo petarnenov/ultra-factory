@@ -75,12 +75,20 @@ describe("loadConfig", () => {
 		});
 	});
 
-	it("requires the Railway token, project, and environment settings together", async () => {
+	it("requires the Railway project and environment with a Railway token", async () => {
 		const hash = await hashPassword("pw", TEST_COST);
 		await withSpa(async (dir) => {
 			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
-			await expect(loadConfig({ ...base, RAILWAY_API_TOKEN: "masked" })).rejects.toThrow(/must be set together/);
-			await expect(loadConfig({ ...base, RAILWAY_PROJECT_ID: "project", RAILWAY_ENVIRONMENT_ID: "environment" })).rejects.toThrow(/must be set together/);
+			await expect(loadConfig({ ...base, RAILWAY_API_TOKEN: "masked" })).rejects.toThrow(/needs RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID/);
+			await expect(loadConfig({ ...base, RAILWAY_API_TOKEN: "masked", RAILWAY_PROJECT_ID: "project" })).rejects.toThrow(/needs RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID/);
+		});
+	});
+
+	it("starts with the IDs Railway injects into every service and no token", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const config = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash, RAILWAY_PROJECT_ID: "project", RAILWAY_ENVIRONMENT_ID: "environment" });
+			expect(config.railwayToken).toBeUndefined();
 		});
 	});
 });

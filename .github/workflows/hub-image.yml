@@ -150,9 +150,13 @@ jobs:
           echo "HUB_PASSWORD=$password" >>"$GITHUB_ENV"
           docker network create ao-hub-smoke
           docker volume create ao-hub-smoke
+          # Railway injects RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID into
+          # every service; the hub must start with them and no Railway token.
           docker run --detach --name ao-hub-smoke \
             --network ao-hub-smoke \
             --env PORT=8080 \
+            --env RAILWAY_PROJECT_ID=smoke-project \
+            --env RAILWAY_ENVIRONMENT_ID=smoke-environment \
             --env AO_WEB_PASSWORD_HASH="$hash" \
             --volume ao-hub-smoke:/data \
             ao-hub:smoke
@@ -332,4 +336,12 @@ jobs:
             sleep 10
           done
           echo "Hub deployment status: $status"
+          test "$status" = SUCCESS
+
+          # SUCCESS means the container started. A hub that exits right after
+          # startup turns CRASHED within seconds, so check again.
+          sleep 60
+          gql 'query($id: String!) { deployment(id: $id) { status } }' "$vars"
+          status=$(jq -r '.data.deployment.status' response.json)
+          echo "Hub deployment status after 60s: $status"
           test "$status" = SUCCESS
