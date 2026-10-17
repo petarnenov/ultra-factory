@@ -20,8 +20,9 @@ Constraints found in the code and platform:
   sets `Proxy = nil` and disables redirects, so a saved bearer never crosses an
   `HTTP(S)_PROXY` (agent sandboxes set one). Any tailnet path must be a narrower,
   explicit exception, not a re-enabled environment proxy.
-- **Precedents.** `remotehost.UnattendedTransportAllowed` already accepts plain
-  `http://` to `100.64.0.0/10` and `*.ts.net`, because WireGuard encrypts the traffic.
+- **Precedents.** `remotehost.UnattendedTransportAllowed` accepts plain `http://` to
+  `100.64.0.0/10` and `*.ts.net`, because WireGuard encrypts the traffic. It does not
+  yet cover the IPv6 tailnet range or a trailing-dot name (see Decision item 7).
   [ADR 0004](0004-cloudflare-tunnel-for-remote-mobile-access.md) already supervises
   `cloudflared` for mobile access.
 - **The BFF dials directly.** `packages/hub-bff/src/hosts-probe.ts` and
@@ -74,11 +75,15 @@ tailnet address through the hub.
    other value is a startup error. The daemon and the BFF both refuse to start, with a
    clear message. A hostname such as `localhost` is rejected too, so the target cannot
    be redirected by name resolution.
-3. **Routing.** A destination uses SOCKS5 only if it is:
-   - an IP literal in `100.64.0.0/10` or `fd7a:115c:a1e0::/48`, or
-   - a hostname that ends in `.ts.net` (case-insensitive, trailing dot ignored).
+3. **Routing.** A destination is a *tailnet destination* if, after lowercasing and
+   removing one trailing dot from a hostname, it is:
+   - an IP literal in `100.64.0.0/10` or `fd7a:115c:a1e0::/48` (a bracketed IPv6
+     literal is parsed first), or
+   - a hostname that ends in `.ts.net`.
 
-   Every other destination dials directly, unchanged. The decision uses the name as
+   Only tailnet destinations use SOCKS5. Every other destination dials directly, unchanged.
+   The same predicate decides the scheme rule in item 7, so routing and scheme cannot
+   disagree. The decision uses the name as
    written, not the resolved address. Tailnet hostnames are sent to the SOCKS server
    unresolved, so MagicDNS works. Non-tailnet hostnames are never sent to SOCKS.
 4. **Environment proxies are never read.** `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and
@@ -90,10 +95,14 @@ tailnet address through the hub.
    allow.
 6. **Redirects.** The redirect guard is unchanged. A tailnet host cannot redirect the
    bearer to a public address.
-7. **Scheme.** Unchanged. `https://` is allowed everywhere. Plain `http://` is allowed
-   only toward loopback, tailnet addresses, or with `AO_REMOTE_REPORTS_ALLOW_HTTP=1`,
-   as `UnattendedTransportAllowed` already enforces for the daemon. The BFF's scheme
-   handling is not changed by this ADR (see open questions).
+7. **Scheme.** `https://` is allowed everywhere. Plain `http://` is allowed only toward
+   loopback, toward a tailnet destination (item 3), or with `AO_REMOTE_REPORTS_ALLOW_HTTP=1`.
+   The current `remotehost.UnattendedTransportAllowed` does **not** yet match item 3: it
+   accepts `100.64.0.0/10` and `*.ts.net` only. It misses the `fd7a:115c:a1e0::/48` IPv6
+   range and a trailing-dot hostname. RW-5.2.2 must change it to call the item 3
+   predicate. This widens plain `http://` for those two forms only. Both are WireGuard
+   encrypted, the same as the IPv4 range. Without `TS_AUTHKEY` the hub sees no change.
+   The BFF's scheme handling is not changed by this ADR (see open questions).
 8. **Same connection (new requirement for RW-5.2.2).** The SOCKS dialer is the
    `DialContext` of the one transport that `DirectClient` already returns. The identity
    probe, the pulls and the acknowledgements share that transport, as ADR 0005 requires.
