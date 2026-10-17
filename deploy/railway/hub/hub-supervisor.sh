@@ -17,7 +17,9 @@
 #   3. Seed or repair <AO_DATA_DIR>/mobile/config.json: the listener is enabled,
 #      loopback-only, on port 3011. The password is generated once and kept.
 #      It is the BFF's bearer for the daemon and is never printed.
-#   4. exec-style supervision of the two processes above.
+#   4. Sync the image's agent CLIs (AO_HUB_NPM_SEED) into the npm prefix on the
+#      volume (NPM_CONFIG_PREFIX), so harness updates made from the UI persist.
+#   5. exec-style supervision of the two processes above.
 #
 # AO_HUB_SUPERVISOR_DRY_RUN=1 runs steps 2-3 and exits without starting the
 # processes (see supervisor_test.sh). AO_HUB_DAEMON_COMMAND and AO_HUB_BFF_MAIN
@@ -117,6 +119,61 @@ seed_daemon_listener() {
 	fi
 }
 
+# version_newer exits 0 when version $1 is newer than $2 (major.minor.patch;
+# prerelease and build suffixes are ignored).
+version_newer() {
+	node -e '
+		const parse = (v) => v.split(/[-+]/)[0].split(".").map((n) => Number.parseInt(n, 10) || 0);
+		const [a, b] = process.argv.slice(1).map(parse);
+		for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) process.exit((a[i] ?? 0) > (b[i] ?? 0) ? 0 : 1);
+		process.exit(1);
+	' "$1" "$2"
+}
+
+package_version() {
+	node -p 'require(process.argv[1]).version' "$1/package.json" 2>/dev/null
+}
+
+# sync_agent_prefix copies each agent CLI the image installed under
+# AO_HUB_NPM_SEED into NPM_CONFIG_PREFIX on the volume when the volume lacks it
+# or has an older version, with the package's bin links. A version updated
+# from the UI (npm install -g into that prefix) is newer and is kept, so it
+# survives restarts; a newer image version replaces an older one.
+sync_agent_prefix() {
+	local seed=${AO_HUB_NPM_SEED:-} dest=${NPM_CONFIG_PREFIX:-}
+	[[ -n $seed && -n $dest && -d $seed/lib/node_modules ]] || return 0
+	mkdir -p "$dest/lib/node_modules" "$dest/bin" || die "$dest is not writable by uid $(id -u)"
+	local dir pkg seed_version dest_version link target
+	local -a synced=()
+	for dir in "$seed"/lib/node_modules/*/ "$seed"/lib/node_modules/@*/*/; do
+		[[ -f $dir/package.json ]] || continue
+		pkg=${dir#"$seed/lib/node_modules/"}
+		pkg=${pkg%/}
+		seed_version=$(package_version "$seed/lib/node_modules/$pkg")
+		dest_version=$(package_version "$dest/lib/node_modules/$pkg" || true)
+		if [[ -n $dest_version ]] && ! version_newer "$seed_version" "$dest_version"; then
+			continue
+		fi
+		mkdir -p "$(dirname "$dest/lib/node_modules/$pkg")"
+		rm -rf "$dest/lib/node_modules/$pkg"
+		cp -a "$seed/lib/node_modules/$pkg" "$dest/lib/node_modules/$pkg"
+		synced+=("$pkg")
+		log "agent CLI $pkg ${dest_version:-(none)} -> $seed_version"
+	done
+	((${#synced[@]})) || return 0
+	# npm's bin links are relative (../lib/node_modules/<pkg>/...), so a copied
+	# link resolves inside the volume prefix.
+	for link in "$seed"/bin/*; do
+		[[ -L $link ]] || continue
+		target=$(readlink "$link")
+		for pkg in "${synced[@]}"; do
+			if [[ $target == *"/node_modules/$pkg/"* ]]; then
+				cp -a --remove-destination "$link" "$dest/bin/"
+			fi
+		done
+	done
+}
+
 stopping=0
 daemon_pid=
 bff_pid=
@@ -153,6 +210,7 @@ supervise() {
 
 prepare_dirs
 seed_daemon_listener
+sync_agent_prefix
 
 if [[ $dry_run == 1 ]]; then
 	log "dry run; would start: ${daemon_command[*]} and node $bff_main"
