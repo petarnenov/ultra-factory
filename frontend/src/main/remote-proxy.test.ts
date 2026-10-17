@@ -5,6 +5,7 @@ import { startRemoteProxy, type ActiveProxy } from "./remote-proxy";
 
 type Seen = {
 	url: string;
+	connection: string | undefined;
 	auth: string | undefined;
 	expectedHost: string | undefined;
 	origin: string | undefined;
@@ -51,6 +52,7 @@ async function startUpstream(
 		req.on("end", () => {
 			seen.push({
 				url: req.url ?? "",
+				connection: req.headers.connection,
 				auth: req.headers.authorization,
 				expectedHost: req.headers["x-ao-expected-host-id"] as string | undefined,
 				origin: req.headers.origin,
@@ -563,6 +565,9 @@ describe("startRemoteProxy", () => {
 			body: await response.json(),
 		}));
 		expect(await listSessions()).toEqual({ status: 200, body: { sessions: [{ id: "before-restart" }] } });
+		// The old global agent advertised keep-alive here and retained sockets
+		// across daemon restarts, which made restart recovery timing-dependent.
+		expect(first.seen[0]?.connection).toBe("close");
 
 		const oldDaemon = upstream!;
 		oldDaemon.closeAllConnections();
