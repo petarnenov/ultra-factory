@@ -149,6 +149,7 @@ export class HostsStore {
 	static async open(dataDir: string, options: { allowLoopback?: boolean; now?: () => number } = {}): Promise<HostsStore> {
 		const store = new HostsStore(path.join(dataDir, "hosts.json"), options.allowLoopback ?? false, options.now ?? Date.now);
 		await store.#load();
+		await store.#writeRemotes(store.#hosts);
 		return store;
 	}
 
@@ -180,10 +181,15 @@ export class HostsStore {
 	async #save(hosts: HostEntry[]): Promise<void> {
 		await mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 });
 		await this.#writeAtomic(this.file, `${JSON.stringify(hosts, null, 2)}\n`);
+		await this.#writeRemotes(hosts);
+		this.#hosts = hosts;
+	}
+
+	async #writeRemotes(hosts: HostEntry[]): Promise<void> {
+		await mkdir(path.dirname(this.remotesFile), { recursive: true, mode: 0o700 });
 		const remotes = hosts.filter((host) => host.source !== "hub" && host.hostId && host.desired !== "removed")
 			.map(({ label, url, password, hostId, accountUserId }) => ({ label, url, password, hostId, ...(accountUserId ? { accountUserId } : {}) }));
 		await this.#writeAtomic(this.remotesFile, `${JSON.stringify({ remotes }, null, 2)}\n`);
-		this.#hosts = hosts;
 	}
 
 	async #writeAtomic(file: string, contents: string): Promise<void> {

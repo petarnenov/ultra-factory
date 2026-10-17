@@ -156,6 +156,32 @@ describe("hosts store", () => {
 		expect(reopened.list()[0]).not.toHaveProperty("password");
 	});
 
+	it("rebuilds remotes.json from an existing registry on open", async () => {
+		const dataDir = path.join(dir, "hub");
+		mkdirSync(dataDir);
+		writeFileSync(path.join(dataDir, "hosts.json"), JSON.stringify([
+			{ label: "hub", url: "http://127.0.0.1:3011", password: "hub-secret", hostId: "hub-id", source: "hub", createdAt: "2026-01-01T00:00:00.000Z", status: "online" },
+			{ label: "worker-1", url: "https://worker.example", password: "worker-secret", hostId: "worker-id", source: "manual", createdAt: "2026-01-01T00:00:00.000Z", status: "online" },
+			{ label: "pending", url: "", password: "pending-secret", source: "railway", createdAt: "2026-01-01T00:00:00.000Z", status: "provisioning" },
+		]), { mode: 0o600 });
+		const store = await HostsStore.open(dataDir);
+		const file = path.join(dataDir, "remotes.json");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ remotes: [
+			{ label: "worker-1", url: "https://worker.example", password: "worker-secret", hostId: "worker-id" },
+		] });
+		expect(store.list()).toHaveLength(3);
+	});
+
+	it("creates an empty remotes.json when opening without a registry", async () => {
+		const dataDir = path.join(dir, "empty-hub");
+		const store = await HostsStore.open(dataDir);
+		const file = path.join(dataDir, "remotes.json");
+		expect(statSync(file).mode & 0o777).toBe(0o600);
+		expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ remotes: [] });
+		expect(store.list()).toEqual([]);
+	});
+
 	it("mirrors only confirmed, active non-hub hosts through add, identity changes, and remove", async () => {
 		const store = await HostsStore.open(path.join(dir, "hub"));
 		const mirror = () => JSON.parse(readFileSync(path.join(dir, "hub", "remotes.json"), "utf8"));
