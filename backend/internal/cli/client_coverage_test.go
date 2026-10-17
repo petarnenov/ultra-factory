@@ -86,7 +86,7 @@ func TestCLI_ClientCoverageRunfileReadError(t *testing.T) {
 	}
 	c := &commandContext{deps: Deps{ProcessAlive: func(int) bool { return true }, HTTPClient: &http.Client{}}}
 	err := c.doJSON(context.Background(), http.MethodGet, "status", nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "unmarshal") && !strings.Contains(err.Error(), "invalid character") && !strings.Contains(err.Error(), "unexpected EOF") {
+	if err == nil || !strings.Contains(err.Error(), "parse run-file") {
 		t.Fatalf("err = %v, want runfile read error", err)
 	}
 }
@@ -97,8 +97,8 @@ func TestCLI_ClientCoverageNewRequestError(t *testing.T) {
 	writeRunFileFor(t, cfg, srv)
 	c := &commandContext{deps: Deps{ProcessAlive: func(int) bool { return true }, HTTPClient: &http.Client{}}}
 	err := c.doJSON(context.Background(), "BAD METHOD", "status", nil, nil)
-	if err == nil {
-		t.Fatal("expected request creation error")
+	if err == nil || !strings.Contains(err.Error(), "invalid method") {
+		t.Fatalf("err = %v, want invalid method error", err)
 	}
 }
 
