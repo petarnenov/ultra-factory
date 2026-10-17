@@ -43,17 +43,22 @@ ENV AO_HUB_SPA_DIR=/opt/ao/hub/dist-web \
     PORT=8080
 
 # Install the pinned static Tailscale binaries. The archive is verified against
-# the release checksum before either executable is copied into the image.
+# pinned checksum and the published checksum before either executable is copied.
 ARG TARGETARCH
 ARG TAILSCALE_VERSION=1.104.1
+ARG TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
+ARG TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
 USER root
 RUN set -eu; \
     case "$TARGETARCH" in \
-      amd64|arm64) tailscale_arch="$TARGETARCH" ;; \
+      amd64) tailscale_sha256="$TAILSCALE_SHA256_AMD64" ;; \
+      arm64) tailscale_sha256="$TAILSCALE_SHA256_ARM64" ;; \
       *) echo "unsupported Tailscale architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
+    tailscale_arch="$TARGETARCH"; \
     archive="tailscale_${TAILSCALE_VERSION}_${tailscale_arch}.tgz"; \
     curl --fail --silent --show-error --location "https://pkgs.tailscale.com/stable/${archive}" --output "/tmp/${archive}"; \
+    printf '%s  %s\n' "$tailscale_sha256" "/tmp/${archive}" | sha256sum --check --status; \
     curl --fail --silent --show-error --location "https://pkgs.tailscale.com/stable/${archive}.sha256" --output "/tmp/${archive}.sha256"; \
     tailscale_sha256=$(cat "/tmp/${archive}.sha256"); \
     case "$tailscale_sha256" in *[!0-9a-f]*|'') echo "invalid Tailscale checksum" >&2; exit 1 ;; esac; \
