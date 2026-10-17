@@ -1,5 +1,5 @@
 # RW-5.3 · Story: One host list for the hub UI and `ao spawn --host`
-**Status:** ⬜ todo
+**Status:** 🔄 in progress
 
 **As** an operator **I want** a machine I add in the hub UI to be usable by the orchestrator running in the hub, **so that** I manage the list of machines in one place.
 

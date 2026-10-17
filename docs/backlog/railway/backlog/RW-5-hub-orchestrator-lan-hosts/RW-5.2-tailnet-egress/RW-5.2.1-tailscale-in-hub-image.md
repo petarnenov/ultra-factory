@@ -1,5 +1,5 @@
 # RW-5.2.1 · Task: Tailscale userspace in the hub image and supervisor
-**Status:** ⬜ todo
+**Status:** 👀 in review (#147)
 
 **Type:** infrastructure. **Estimate:** 1 pd. **Story:** RW-5.2.
 

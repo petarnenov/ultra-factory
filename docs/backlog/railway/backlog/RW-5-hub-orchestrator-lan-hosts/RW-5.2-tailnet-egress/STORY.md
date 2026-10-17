@@ -1,5 +1,5 @@
 # RW-5.2 · Story: Tailnet egress from the hub
-**Status:** ⬜ todo
+**Status:** 👀 in review
 
 **As** an operator **I want** the hub's daemon and BFF to reach my machines over my tailnet, **so that** the hub can manage them without any port open at home.
 

@@ -1,5 +1,5 @@
 # RW-5.2.3 · Task: BFF tailnet dialer for probe, workers API and proxy
-**Status:** ⬜ todo
+**Status:** 🔄 in progress
 
 **Type:** BFF. **Estimate:** 1–1.5 pd. **Story:** RW-5.2.
 

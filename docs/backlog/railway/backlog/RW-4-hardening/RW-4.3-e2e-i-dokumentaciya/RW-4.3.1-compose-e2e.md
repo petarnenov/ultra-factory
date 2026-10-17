@@ -1,5 +1,5 @@
 # RW-4.3.1 · Task: Local compose and Playwright e2e
-**Status:** 👀 in review (#133)
+**Status:** ✅ done (#133)
 
 **Type:** tests. **Estimate:** 1 pd. **Story:** RW-4.3.
 
