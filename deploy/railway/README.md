@@ -241,6 +241,7 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `AO_HUB_ORCHESTRATOR_TICK` | Optional. `1` starts the orchestrator wake-up loop under the supervisor; default off. See [Orchestrator wake-up loop](#orchestrator-wake-up-loop). The tick also reads the `RW_TICK_*` variables documented in its script header. |
 | `TS_AUTHKEY` | Optional. A pre-approved, non-reusable, non-ephemeral auth key tagged `tag:ao-hub`. When present, the supervisor joins the tailnet in userspace mode and passes `AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055` only to the daemon, the BFF and the orchestrator tick loop (whose `ao session ls --host` calls reach the remote hosts) after `tailscale up` succeeds. The key is read from the supervisor environment, sent to `tailscale up` over stdin, and is not logged, passed in a child environment or argv, or written to `/data`. |
 | `TS_HOSTNAME` | Optional Tailscale node name; defaults to `ao-hub`. |
+| `TS_DEBUG_MTU` | Optional Tailscale tunnel MTU for the hub; defaults to `1232`. Railway's `railnet0` has MTU 1316, and Tailscale's default 1280 makes full-size WireGuard packets 1340 bytes, so large responses from some tailnet hosts are lost (`ao session ls --host` times out while `ao host ls` shows them online). |
 | `GH_TOKEN` | Required for an orchestrator in the hub. Fine-grained token limited to this repository; read by `gh` and, through `gh auth token`, by the daemon's GitHub adapters. |
 
 **Tailnet key rotation.** Create a new pre-approved key with the same `tag:ao-hub`,
