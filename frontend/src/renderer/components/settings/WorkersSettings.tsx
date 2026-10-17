@@ -2,6 +2,7 @@ import { LoaderCircle, Server } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useHubHosts, useHubHostSessionCounts, type HubHost, type HubHostStatus, type HubOrphan } from "../../hooks/useHubHosts";
+import { AddWorkerDialog } from "./AddWorkerDialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -72,7 +73,7 @@ export function WorkersSettings({
 
 	return <>
 		<SettingsSection title={t("settings.workers")} sectionId="workers" titleHidden={titleHidden} grouped>
-			{addWorkerAction ? <div className="flex justify-end px-3 py-1">{addWorkerAction}</div> : null}
+			<div className="flex justify-end px-3 py-1">{addWorkerAction ?? <AddWorkerDialog />}</div>
 			{isPending ? <p className="px-3 py-2 text-xs text-settings-muted" role="status">{t("settings.workers.loading")}</p> : null}
 			{!isPending && !error && workers.length === 0 ? <p className="px-3 py-2 text-pretty text-xs text-settings-muted">{t("settings.workers.empty")}</p> : null}
 			{workers.map((host) => {
