@@ -67,3 +67,24 @@ func TestReportRecordValidatesSettlementDeadline(t *testing.T) {
 		t.Fatal("expected missing settlement deadline to fail")
 	}
 }
+
+func TestUnwrapPastedContent(t *testing.T) {
+	valid := WrapReportDelivery("report-batch:abc", "finished")
+	for _, tc := range []struct {
+		prompt   string
+		accepted bool
+	}{
+		{" \n<pasted_content id=\"51be\">\n" + valid + "\n</pasted_content> ", true},
+		{valid, true},
+		{"<pasted_content id=\"51be\">" + valid, false},
+		{"prefix <pasted_content id=\"51be\">" + valid + "</pasted_content>", false},
+		{"<pasted_content id=\"51be\">" + valid + "</pasted_content> suffix", false},
+		{"<pasted_content id=\"51be\">" + WrapReportDelivery("bad/id", "finished") + "</pasted_content>", false},
+		{"<pasted_content id=\"51be\">" + WrapReportDelivery(strings.Repeat("a", 129), "finished") + "</pasted_content>", false},
+	} {
+		_, ok := CoordinationDeliveryID(UnwrapPastedContent(tc.prompt))
+		if ok != tc.accepted {
+			t.Errorf("accepted %q = %v", tc.prompt, ok)
+		}
+	}
+}
