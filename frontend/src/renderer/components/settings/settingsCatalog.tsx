@@ -15,6 +15,7 @@ import { KeyboardShortcutsContent } from "./KeyboardShortcutsContent";
 import { MobileDevicesSection } from "./MobileDevicesSection";
 import { ReportProblemContent } from "./ReportProblemContent";
 import { RemoteHostsSettings } from "./RemoteHostsSettings";
+import { RemoveWorkerDialog } from "./RemoveWorkerDialog";
 import { SettingsSection } from "./SettingsSection";
 import { WorkersSettings } from "./WorkersSettings";
 
@@ -120,7 +121,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		label: (t) => t("settings.workers"),
 		// The hub BFF's worker registry exists only behind the web build.
 		visible: () => isWebBuild,
-		render: (_t, titleHidden) => <WorkersSettings titleHidden={titleHidden} />,
+		render: (_t, titleHidden) => <WorkersSettings titleHidden={titleHidden} rowActions={(host) => <RemoveWorkerDialog host={host} />} />,
 	},
 	{
 		id: "mobile",
