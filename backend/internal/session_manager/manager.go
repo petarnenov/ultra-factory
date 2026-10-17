@@ -2493,7 +2493,10 @@ func (m *Manager) kill(ctx context.Context, id domain.SessionID, backgroundClean
 		return KillResult{}, fmt.Errorf("kill %s: %w", id, err)
 	}
 	if !ok {
-		return KillResult{}, nil // already gone: benign race
+		if backgroundCleanup {
+			return KillResult{}, fmt.Errorf("kill %s: %w", id, ErrNotFound)
+		}
+		return KillResult{}, nil // already gone: benign race for internal Kill callers
 	}
 	m.stopPreviewBestEffort(ctx, id)
 	m.destroyBrowserBestEffort(ctx, id)
