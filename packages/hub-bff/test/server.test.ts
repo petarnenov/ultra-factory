@@ -6,6 +6,7 @@ import path from "node:path";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LogFields } from "../src/log.ts";
+import type { AuditEntry, AuditLog, AuditEvent } from "../src/audit.ts";
 import { hashPassword } from "../src/password.ts";
 import { LOGIN_ATTEMPTS_PER_MINUTE, MAX_CONCURRENT_PASSWORD_CHECKS, SESSION_COOKIE, createBff } from "../src/server.ts";
 import { SESSION_IDLE_MS } from "../src/sessions.ts";
@@ -30,14 +31,19 @@ beforeAll(async () => {
 
 afterAll(() => rmSync(spaDir, { recursive: true, force: true }));
 
-type Harness = { server: Server; logs: string[]; advance: (ms: number) => void };
+type Harness = { server: Server; logs: string[]; auditEntries: AuditEntry[]; advance: (ms: number) => void };
 
 function harness(): Harness {
 	const logs: string[] = [];
+	const auditEntries: AuditEntry[] = [];
+	const audit: AuditLog = {
+		async record(event: AuditEvent, subjectId?: string) { auditEntries.push({ ts: new Date().toISOString(), event, ...(subjectId ? { subjectId } : {}) }); },
+		async list(limit: number) { return auditEntries.slice(-limit); },
+	};
 	let now = Date.now();
 	const log = (level: string, msg: string, fields?: LogFields) => logs.push(JSON.stringify({ level, msg, ...fields }));
-	const server = createBff({ spaDir, passwordHash, log, now: () => now });
-	return { server, logs, advance: (ms) => (now += ms) };
+	const server = createBff({ spaDir, passwordHash, log, audit, now: () => now });
+	return { server, logs, auditEntries, advance: (ms) => (now += ms) };
 }
 
 function login(server: Server, body: unknown, headers: Record<string, string> = {}) {
@@ -138,6 +144,20 @@ describe("hub bff", () => {
 		expect(res.status).toBe(401);
 		expect(res.body).toEqual({ error: "invalid_credentials" });
 		expect(res.headers["set-cookie"]).toBeUndefined();
+		expect(h.auditEntries.map((entry) => entry.event)).toContain("login.failure");
+	});
+
+	it("serves recent audit entries only to an authenticated session and validates limit", async () => {
+		await login(h.server, { password: "wrong" });
+		const cookie = await sessionCookie(h.server);
+		const denied = await request(h.server).get("/hub/audit");
+		expect(denied.status).toBe(401);
+		const recent = await request(h.server).get("/hub/audit?limit=1").set("Cookie", cookie);
+		expect(recent.status).toBe(200);
+		expect(recent.body.entries).toHaveLength(1);
+		expect(recent.body.entries[0].event).toBe("login.success");
+		expect((await request(h.server).get("/hub/audit?limit=1001").set("Cookie", cookie)).status).toBe(400);
+		expect((await request(h.server).get("/hub/audit?limit=wat").set("Cookie", cookie)).status).toBe(400);
 	});
 
 	it.each([

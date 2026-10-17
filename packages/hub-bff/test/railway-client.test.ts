@@ -19,6 +19,22 @@ function reply(body: unknown, status = 200): Response {
 }
 
 describe("RailwayClient", () => {
+	it("verifies that the configured token is scoped to the target project and environment", async () => {
+		const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(reply({ data: { projectToken: { projectId: options.projectId, environmentId: options.environmentId } } }));
+		const client = new RailwayClient({ ...options, fetch });
+		await expect(client.assertProjectScope()).resolves.toBeUndefined();
+		const query = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as { query: string };
+		expect(query.query).toBe(railwayQueries.projectToken);
+		expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({ "Project-Access-Token": options.token });
+	});
+
+	it("refuses a token with account auth or a different project/environment scope", async () => {
+		const accountClient = new RailwayClient({ ...options, tokenKind: "account", fetch: vi.fn() });
+		await expect(accountClient.assertProjectScope()).rejects.toThrow(/project-scoped/);
+		const mismatched = new RailwayClient({ ...options, fetch: vi.fn().mockResolvedValue(reply({ data: { projectToken: { projectId: "other", environmentId: options.environmentId } } })) });
+		await expect(mismatched.assertProjectScope()).rejects.toThrow(/does not match/);
+	});
+
 	it("creates service and volume from the recorded successful response shapes", async () => {
 		const fetch = vi.fn<typeof globalThis.fetch>()
 			.mockResolvedValueOnce(reply({ data: { serviceCreate: { id: "<SERVICE_ID>", name: "worker" } } }))

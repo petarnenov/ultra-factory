@@ -13,15 +13,23 @@ It also reconciles Railway workers through `/hub/workers` when Railway is config
 ## Railway worker client
 
 `src/railway-client.ts` implements the provider-neutral `WorkerProvider` using
-Railway's GraphQL API. Supply the token, token kind, project ID, and environment
-ID through `RailwayClientOptions`. Project tokens use the
-`Project-Access-Token` header by default; account tokens use `Authorization:
-Bearer`. Automated tests use recorded response shapes and a fake fetch. The
-manual create-to-running-to-delete integration test remains skipped: the
-project token tested in RW-3.1.1 could not delete services or volumes, and no
-account/workspace token with cleanup permissions has been authorized or
-verified. Do not run the lifecycle against Railway until that permission is
-established.
+Railway's GraphQL API. Production configuration uses the
+`Project-Access-Token` header and calls Railway's `projectToken` query before
+opening the BFF listener. Startup fails unless the returned project and
+environment IDs match `RAILWAY_PROJECT_ID` and `RAILWAY_ENVIRONMENT_ID`; account
+tokens are not accepted by the production configuration. Automated tests use
+recorded response shapes and a fake fetch.
+
+The intended least privilege is a project-scoped token for the single configured
+environment, with permission to list/read services and deployments, create
+services and volumes, create domains, upsert service variables, redeploy, and
+delete the created services and volumes. The RW-3.1.1 project token was enough
+for create and status operations but was denied service and volume deletion.
+Railway's minimum permissions for the complete lifecycle therefore remain
+unverified. Do not configure `RAILWAY_API_TOKEN` and the matching project IDs
+until an operator verifies the required deletion permissions with an authorized
+project-scoped token. Never substitute an account-wide token to bypass the
+project token's permission limit.
 
 ## Running
 
@@ -69,6 +77,7 @@ memory, so a redeploy also signs everyone out.
 | `GET /hub/workers` | session | Returns registered hosts, detected Railway service orphans, status counts, the last successful reconcile, and the configured worker limit. Does not adopt or delete orphans. |
 | `POST /hub/workers` | session | Creates a Railway worker asynchronously. Returns `202`; returns `429 {"error":"worker_limit_reached","count","limit"}` at the configured limit. |
 | `DELETE /hub/workers/:id` | session | Requests deletion of a registered Railway worker; failed deletion remains recorded for manual cleanup. |
+| `GET /hub/audit?limit=` | session | Returns the newest audit entries, oldest first within the returned page. `limit` defaults to `100`, maximum `1000`. |
 | everything else | session | The SPA from `AO_HUB_SPA_DIR`, with `index.html` as the fallback for extensionless client-side routes. Without a session: `302 /login` for a page navigation, `401 {"error":"unauthorized"}` otherwise. |
 
 Every response carries `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
@@ -148,6 +157,11 @@ start if it is readable by group or others. A host's `id` in the API is its
 - **Logs**: one JSON object per line on stdout. Request lines carry the method,
   the path without the query string, the status, and the duration. Login lines
   carry the client key. Passwords, hashes, cookies, and headers are never logged.
+- **Audit log**: `<AO_HUB_DATA_DIR>/audit.jsonl` is an append-only JSONL file on
+  the hub volume with mode `0600`. It records login success/failure, host add /
+  remove, worker create / delete, and forced worker deletion. Entries contain
+  only a timestamp, event name, and optional opaque host/worker ID. They never
+  include passwords, tokens, request bodies, cookies, or client addresses.
 
 ## Decisions
 

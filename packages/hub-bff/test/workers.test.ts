@@ -8,6 +8,7 @@ import type { WorkerProvider, WorkerSpec } from "../src/railway-client.ts";
 import { createBff } from "../src/server.ts";
 import { createWorkersApi } from "../src/workers-api.ts";
 import { hashPassword } from "../src/password.ts";
+import type { AuditEntry, AuditEvent, AuditLog } from "../src/audit.ts";
 
 const operatorPassword = "operator-password";
 const origin = "http://hub.test";
@@ -42,12 +43,17 @@ async function setup(provider: WorkerProvider, extras: Partial<Parameters<typeof
 	mkdirSync(spa);
 	writeFileSync(path.join(spa, "index.html"), "ok");
 	const store = await HostsStore.open(path.join(dir, "data"));
-	const workersApi = createWorkersApi({ store, provider, image: "example/worker:latest", log: () => {}, probe: async () => ({ ok: true, identity: { hostId: "worker-host" } }), ...extras });
-	const server = createBff({ spaDir: spa, passwordHash, log: () => {}, workersApi, verify: async (candidate) => candidate === operatorPassword });
+	const auditEntries: AuditEntry[] = [];
+	const audit: AuditLog = {
+		async record(event: AuditEvent, subjectId?: string) { auditEntries.push({ ts: new Date().toISOString(), event, ...(subjectId ? { subjectId } : {}) }); },
+		async list(limit: number) { return auditEntries.slice(-limit); },
+	};
+	const workersApi = createWorkersApi({ store, provider, image: "example/worker:latest", log: () => {}, audit, probe: async () => ({ ok: true, identity: { hostId: "worker-host" } }), ...extras });
+	const server = createBff({ spaDir: spa, passwordHash, log: () => {}, workersApi, audit, verify: async (candidate) => candidate === operatorPassword });
 	servers.push(server);
 	const login = await request(server).post("/login").set("Host", "hub.test").set("Origin", origin).send({ password: operatorPassword });
 	const cookie = (login.headers["set-cookie"] as unknown as string[])[0].split(";")[0];
-	return { server, store, cookie, workersApi };
+	return { server, store, cookie, workersApi, auditEntries };
 }
 
 function createWorker(server: ReturnType<typeof createBff>, cookie: string, body = { label: "worker-a", env: { GH_TOKEN: "gh-secret", AO_GIT_USER_NAME: "Agent", AO_GIT_USER_EMAIL: "agent@example.com" } }) {
@@ -81,6 +87,7 @@ describe("Railway worker lifecycle", () => {
 		expect(provider.specs[0]?.env.AO_REMOTE_PASSWORD).toHaveLength(32);
 		expect(response.text).not.toContain("gh-secret");
 		expect(saved.password).not.toBe("gh-secret");
+		expect(h.auditEntries).toContainEqual(expect.objectContaining({ event: "worker.create", subjectId: id }));
 	});
 
 	it("retains a failed record after Railway create errors without leaking error text", async () => {
@@ -172,6 +179,7 @@ describe("Railway worker lifecycle", () => {
 		expect((await deleteWorker(h.server, h.cookie, id)).status).toBe(204);
 		expect(h.store.getPublic(id)).toBeUndefined();
 		expect(provider.delete).toHaveBeenCalledWith("service-1", "volume-1");
+		expect(h.auditEntries).toContainEqual(expect.objectContaining({ event: "worker.delete", subjectId: id }));
 	});
 
 	it("deletes when all listed sessions are terminated", async () => {
@@ -208,6 +216,7 @@ describe("Railway worker lifecycle", () => {
 		const id = await provisioned(h.server, h.cookie, h.store);
 		expect((await deleteWorker(h.server, h.cookie, id, true)).status).toBe(204);
 		expect(provider.delete).toHaveBeenCalledWith("service-1", "volume-1");
+		expect(h.auditEntries).toContainEqual(expect.objectContaining({ event: "worker.force_kill", subjectId: id }));
 	});
 
 	it("retains a failed record when Railway denies deletion", async () => {

@@ -54,6 +54,7 @@ export const railwayQueries = {
 	upsertVariable: `mutation($input: VariableUpsertInput!) { variableUpsert(input: $input) }`,
 	status: `query($serviceId: String!, $environmentId: String!) { serviceInstance(serviceId: $serviceId, environmentId: $environmentId) { serviceName latestDeployment { id status createdAt } } }`,
 	listServices: `query($projectId: String!) { project(id: $projectId) { services { edges { node { id name } } } } }`,
+	projectToken: `query { projectToken { projectId environmentId } }`,
 	redeploy: `mutation($serviceId: String!, $environmentId: String!) { serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId) }`,
 	updateServiceInstance: `mutation($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }`,
 	deleteService: `mutation($id: String!) { serviceDelete(id: $id) }`,
@@ -90,6 +91,14 @@ export class RailwayClient implements WorkerProvider {
 		this.retryDelayMs = options.retryDelayMs ?? 250;
 		this.sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
 		this.authHeader = (options.tokenKind ?? "project") === "project" ? "Project-Access-Token" : "Authorization";
+	}
+
+	async assertProjectScope(): Promise<void> {
+		if (this.authHeader !== "Project-Access-Token") throw new Error("Railway worker management requires a project-scoped token");
+		const result = await this.request<{ projectToken: { projectId?: string; environmentId?: string } | null }>(railwayQueries.projectToken);
+		if (result.projectToken?.projectId !== this.options.projectId || result.projectToken.environmentId !== this.options.environmentId) {
+			throw new Error("Railway token scope does not match the configured project and environment");
+		}
 	}
 
 	async create(spec: WorkerSpec): Promise<{ serviceId: string; volumeId: string; environmentId: string; url: string }> {

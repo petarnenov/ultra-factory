@@ -74,6 +74,15 @@ describe("loadConfig", () => {
 			await expect(loadConfig({ ...base, AO_HUB_MAX_WORKERS: "0" })).rejects.toThrow(/AO_HUB_MAX_WORKERS/);
 		});
 	});
+
+	it("requires the Railway token, project, and environment settings together", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			await expect(loadConfig({ ...base, RAILWAY_API_TOKEN: "masked" })).rejects.toThrow(/must be set together/);
+			await expect(loadConfig({ ...base, RAILWAY_PROJECT_ID: "project", RAILWAY_ENVIRONMENT_ID: "environment" })).rejects.toThrow(/must be set together/);
+		});
+	});
 });
 
 describe("jsonLogger", () => {

@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Logger } from "./log.ts";
+import type { AuditLog } from "./audit.ts";
 import { probeIdentity } from "./hosts-probe.ts";
 import { HostsValidationError, type HostsStore } from "./hosts-store.ts";
 import type { RailwayService, WorkerProvider, WorkerSpec } from "./railway-client.ts";
@@ -20,6 +21,7 @@ export type WorkersApiOptions = {
 	image?: string;
 	urlMode?: "public" | "private";
 	log: Logger;
+	audit?: AuditLog;
 	now?: () => number;
 	sleep?: (milliseconds: number) => Promise<void>;
 	probe?: (url: string) => Promise<{ ok: true; identity: { hostId: string } } | { ok: false }>;
@@ -77,6 +79,12 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 				return sendJson(res, err.code === "label_taken" ? 409 : 400, { error: err.code, message: err.message });
 			}
 			throw err;
+		}
+		try {
+			await options.audit?.record("worker.create", id);
+		} catch (error) {
+			await options.store.updateWorker(id, { status: "failed", lastError: "Worker creation audit could not be written" });
+			throw error;
 		}
 		variables.AO_REMOTE_PASSWORD = password;
 		const name = `ao-worker-${id.slice(0, 8)}`;
@@ -201,6 +209,8 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 			if (active.length) return sendJson(res, 409, { error: "active_sessions", sessions: active });
 		}
 		if (!host.railway) return sendJson(res, 409, { error: "worker_still_provisioning" });
+		if (force) await options.audit?.record("worker.force_kill", id);
+		await options.audit?.record("worker.delete", id);
 		await options.store.updateWorker(id, { status: "removing", desired: "removed", lastError: undefined });
 		try {
 			if (!options.provider) throw new Error("Worker provider is unavailable");

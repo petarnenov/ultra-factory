@@ -93,6 +93,7 @@ The hub image places durable state under the mounted volume:
 | --- | --- |
 | `/data/ao` | Daemon database, worktrees, `running.json`, and `mobile/config.json` for the loopback-only listener credential. |
 | `/data/hub/hosts.json` | Host registry, including worker connection credentials; stored with restrictive permissions. |
+| `/data/hub/audit.jsonl` | Append-only security events; mode `0600`, no secrets. |
 | `/data/home` | Hub home directory. |
 
 Before a backup, stop or quiesce the service so SQLite and registry writes are
@@ -114,11 +115,35 @@ SSE connections, or in-memory browser sessions.
   password works and the old password fails. Do not change `AO_WEB_PASSWORD`
   or use a plaintext Railway variable. There is no session signing secret to
   configure or rotate.
+- **Railway API token:** create a project-scoped token for the configured
+  project/environment, replace `RAILWAY_API_TOKEN` in Railway, and redeploy.
+  Startup checks Railway's `projectToken` identity against
+  `RAILWAY_PROJECT_ID` and `RAILWAY_ENVIRONMENT_ID` and fails closed on a
+  mismatch or account-wide credential. Revoke the old token after the new
+  deployment passes the scope check. The token tested in RW-3.1.1 could not
+  delete services or volumes; the permissions needed for complete worker
+  cleanup remain unverified. Do not substitute an account-wide token. Keep
+  worker creation disabled by leaving `RAILWAY_API_TOKEN` and its project IDs
+  unset until an operator verifies deletion permissions for a project-scoped
+  token.
 - **Hub daemon credential:** keep `/data/ao/mobile/config.json` with the volume;
   the supervisor seeds the listener as loopback-only on port `3011` and retains
   the generated password. Never publish either daemon port. Credential rotation
   behavior for the hub BFF's automatically read hub entry should be separately
   validated before changing that file.
+- **Worker password:** the `ao remote-host` CLI has no password-rotation
+  command. The daemon does provide `POST /api/v1/mobile/regenerate` on its
+  loopback API at `127.0.0.1:3001`; the authenticated remote-host listener and
+  BFF proxy intentionally block `/api/v1/mobile`, so
+  `/hosts/:id/api/v1/mobile/regenerate` cannot be used. From the selected
+  worker's private Railway shell, call the loopback route and keep its returned
+  password private. The BFF has no route to update a host credential, so update
+  only the matching worker's `password` field in `/data/hub/hosts.json` on the
+  hub volume using an atomic replacement that preserves mode `0600`, then
+  restart the BFF and probe the host. Do not delete `mobile/config.json` or rely
+  on changing `AO_REMOTE_PASSWORD`: the worker entrypoint ignores that variable
+  after first boot. Verify the old password fails and the new one works without
+  putting either value in logs, shell history, or issue evidence.
 - **Image update:** confirm no active hub sessions, stop new work, and record
   pending work before redeploying. Restarting the hub terminates live daemon
   processes and terminals, even though `/data` persists. Select the intended
