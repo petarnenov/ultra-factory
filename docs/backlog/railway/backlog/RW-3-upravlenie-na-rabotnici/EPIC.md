@@ -1,5 +1,5 @@
 # RW-3 · Epic: Adding and removing workers from the web UI
-**Status:** 🔄 in progress
+**Status:** ✅ done
 
 **Goal.** From Settings → Workers in the web UI, the operator clicks "Add worker", sets a name, keys and size, and the BFF creates a Railway service with a volume from the worker image, waits for it to come online and registers it. "Remove" deletes the service and the volume after confirmation.
 
