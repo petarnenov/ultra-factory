@@ -38,9 +38,19 @@ func (e *IncompatibleVersionError) Error() string {
 // when none match, a classified version mismatch takes precedence over generic
 // shim failures so readiness can provide actionable guidance.
 func ResolveBinaryForMajor(ctx context.Context, major int) (string, error) {
+	return ResolveBinaryForMajorWithCandidates(ctx, major, nil)
+}
+
+// ResolveBinaryForMajorWithCandidates probes candidates from discover using the
+// same version policy and shared deadline as ResolveBinaryForMajor. A nil
+// supplier uses the normal BinaryCandidates discovery path.
+func ResolveBinaryForMajorWithCandidates(ctx context.Context, major int, discover func(context.Context) ([]string, error)) (string, error) {
+	if discover == nil {
+		discover = BinaryCandidates
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, versionProbeTimeout)
 	defer cancel()
-	candidates, err := BinaryCandidates(probeCtx)
+	candidates, err := discover(probeCtx)
 	if err != nil {
 		return "", err
 	}
