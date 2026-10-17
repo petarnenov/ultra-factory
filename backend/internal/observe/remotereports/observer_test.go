@@ -1,6 +1,7 @@
 package remotereports
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -959,5 +960,36 @@ func TestAnOfflineHostDoesNotBlockTheOthersAndCatchesUpWhenItReturns(t *testing.
 	}
 	if acks := offline.acks(); len(acks) != 1 || len(acks[0]) != 1 || acks[0][0] != "rpt_1" {
 		t.Fatalf("returning host acks = %v", acks)
+	}
+}
+
+type timeoutDeliverer struct{ attempts int }
+
+func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error {
+	d.attempts++
+	return domain.ErrSemanticAcceptanceTimeout
+}
+
+func TestSettleAcceptanceTimeoutBacksOff(t *testing.T) {
+	now := time.Now()
+	d := &timeoutDeliverer{}
+	store := newMemStore()
+	var logs bytes.Buffer
+	o := New(Deps{Store: store, Deliverer: d, Now: func() time.Time { return now }, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	items := []*pulled{{fresh: []domain.ReportRecord{{ID: "report-1", CreatedAt: now}}}}
+	for i := 0; i < 20; i++ {
+		o.settle(context.Background(), "p", items, newSettlePass())
+		now = now.Add(time.Second)
+	}
+	if d.attempts != 1 || len(store.recorded) != 0 {
+		t.Fatalf("attempts=%d recorded=%v", d.attempts, store.recorded)
+	}
+	now = now.Add(domain.ReportAcceptanceRetryDelay)
+	o.settle(context.Background(), "p", items, newSettlePass())
+	if d.attempts != 2 {
+		t.Fatalf("attempts=%d, want delayed retry", d.attempts)
+	}
+	if strings.Count(logs.String(), "remote report delivery failed") != 2 || !strings.Contains(logs.String(), "delivery_id=report-batch:") {
+		t.Fatalf("repeat failures not visible: %s", logs.String())
 	}
 }

@@ -2315,3 +2315,16 @@ func TestHooksSessionDeliveryPreservesCoordinationOrigin(t *testing.T) {
 		t.Fatalf("hook facts=%+v", req)
 	}
 }
+
+func TestHookWrappedCoordinationPrompt(t *testing.T) {
+	prompt := "\n <pasted_content id=\"51be\">\n" + domain.WrapReportDelivery("report-batch:abc123", "finished") + "\n</pasted_content> \n"
+	payload := []byte(`{"prompt":` + mustJSONString(t, prompt) + `}`)
+	for _, got := range []hookConversationSnapshot{
+		hookConversationFacts(domain.HarnessClaudeCode, "user-prompt-submit", payload),
+		hookSemanticAcceptanceFacts("user-prompt-submit", payload),
+	} {
+		if got.CoordinationID != "report-batch:abc123" || got.CheckpointOrigin != domain.ConversationCheckpointOriginCoordination || got.LatestUserPrompt != "" {
+			t.Fatalf("wrapped prompt facts = %+v", got)
+		}
+	}
+}
