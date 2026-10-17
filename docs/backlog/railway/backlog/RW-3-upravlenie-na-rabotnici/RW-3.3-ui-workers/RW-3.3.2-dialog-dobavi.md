@@ -1,4 +1,5 @@
 # RW-3.3.2 · Task: "Add worker" dialog
+**Status:** ⬜ todo
 
 **Type:** frontend React. **Estimate:** 0.5–1 pd. **Story:** RW-3.3.
 

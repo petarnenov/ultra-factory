@@ -1,4 +1,5 @@
 # RW-1.2.1 · Task: Worker Dockerfile
+**Status:** ✅ done (#61)
 
 **Type:** infrastructure. **Estimate:** 1 pd. **Story:** RW-1.2.
 

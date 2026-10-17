@@ -1,4 +1,5 @@
 # RW-4.2.2 · Task: Limits and cost monitoring
+**Status:** ⬜ todo
 
 **Type:** operations + Node TS. **Estimate:** 0.5 pd. **Story:** RW-4.2.
 

@@ -1,4 +1,5 @@
 # RW-2.4.3 · Task: Host registry and API for adding/removing by address
+**Status:** ✅ done (#84)
 
 **Type:** Node TS. **Estimate:** 1–2 pd. **Story:** RW-2.4. **Dependencies:** RW-2.4.1.
 

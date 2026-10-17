@@ -1,4 +1,5 @@
 # RW-1.2 · Story: Worker image and entrypoint
+**Status:** ✅ done
 
 **As** an operator **I want** a published container image that, when started on Railway, brings up `ao daemon` with the remote-host listener enabled and all of its state on a volume, **so that** I can create a worker with just an image URL and env variables.
 

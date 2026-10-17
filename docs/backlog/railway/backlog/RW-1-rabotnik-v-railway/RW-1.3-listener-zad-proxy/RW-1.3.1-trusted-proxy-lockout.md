@@ -1,4 +1,5 @@
 # RW-1.3.1 · Task: Trusted-proxy mode for lockout
+**Status:** ✅ done (#68)
 
 **Type:** backend Go, security. **Estimate:** 1 pd. **Story:** RW-1.3. **Dependencies:** RW-1.1.1.
 

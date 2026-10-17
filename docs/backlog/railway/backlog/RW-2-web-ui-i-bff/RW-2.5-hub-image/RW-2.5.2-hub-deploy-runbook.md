@@ -1,4 +1,5 @@
 # RW-2.5.2 · Task: Hub deployment on Railway and runbook
+**Status:** ⛔ needs-human (#94)
 
 **Type:** operations + documentation. **Estimate:** 0.5–1 pd. **Story:** RW-2.5.
 

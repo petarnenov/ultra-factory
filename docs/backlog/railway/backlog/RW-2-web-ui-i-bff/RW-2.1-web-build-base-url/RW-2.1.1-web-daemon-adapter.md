@@ -1,4 +1,5 @@
 # RW-2.1.1 · Task: Web `daemon` adapter in `aoBridge`
+**Status:** ✅ done (#62)
 
 **Type:** frontend TS. **Estimate:** 1 pd. **Story:** RW-2.1.
 

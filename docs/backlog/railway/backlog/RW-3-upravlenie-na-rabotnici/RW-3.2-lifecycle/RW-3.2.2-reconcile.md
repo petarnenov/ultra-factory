@@ -1,4 +1,5 @@
 # RW-3.2.2 · Task: Reconcile, orphans and limits
+**Status:** ✅ done (#88)
 
 **Type:** Node TS. **Estimate:** 1–1.5 pd. **Story:** RW-3.2. **Dependencies:** RW-3.2.1.
 

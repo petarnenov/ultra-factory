@@ -1,4 +1,5 @@
 # RW-2.3.1 · Task: Keyboard shortcuts in the renderer
+**Status:** ✅ done (#74)
 
 **Type:** frontend TS. **Estimate:** 0.5–1 pd. **Story:** RW-2.3.
 
