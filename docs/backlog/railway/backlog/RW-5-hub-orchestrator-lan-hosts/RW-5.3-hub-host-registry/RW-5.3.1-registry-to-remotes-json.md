@@ -1,5 +1,5 @@
 # RW-5.3.1 · Task: Mirror the hub host registry into the daemon's `remotes.json`
-**Status:** 🔄 in progress
+**Status:** ✅ done (#152)
 
 **Type:** BFF + infrastructure. **Estimate:** 1 pd. **Story:** RW-5.3.
 

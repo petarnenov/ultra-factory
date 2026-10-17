@@ -1,5 +1,5 @@
 # RW-5.2.2 · Task: Daemon tailnet dialer for remote hosts
-**Status:** 👀 in review (#148)
+**Status:** ✅ done (#148)
 
 **Type:** backend. **Estimate:** 1–1.5 pd. **Story:** RW-5.2.
 

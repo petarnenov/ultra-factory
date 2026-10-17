@@ -97,12 +97,12 @@ Status rules: ✅ done requires a closed issue and a merged linked PR; 👀 in r
 | **RW-4 Epic: Hardening, tests, documentation** | [#49](https://github.com/petarnenov/ultra-factory/issues/49) | **✅ done** | — |
 | RW-5.1.1 Task: ADR for hub egress to off-Railway hosts | [#114](https://github.com/petarnenov/ultra-factory/issues/114) | ✅ done | [#126](https://github.com/petarnenov/ultra-factory/pull/126) |
 | **RW-5.1 Story: ADR for the network path from the hub to machines outside Railway** | [#110](https://github.com/petarnenov/ultra-factory/issues/110) | **✅ done** | — |
-| RW-5.2.1 Task: Tailscale userspace in the hub image and supervisor | [#115](https://github.com/petarnenov/ultra-factory/issues/115) | 👀 in review | [#147](https://github.com/petarnenov/ultra-factory/pull/147) |
-| RW-5.2.2 Task: Daemon tailnet dialer for remote hosts | [#116](https://github.com/petarnenov/ultra-factory/issues/116) | 👀 in review | [#148](https://github.com/petarnenov/ultra-factory/pull/148) |
-| RW-5.2.3 Task: BFF tailnet dialer for probe, workers API and proxy | [#117](https://github.com/petarnenov/ultra-factory/issues/117) | 🔄 in progress | — |
-| **RW-5.2 Story: Tailnet egress from the hub** | [#111](https://github.com/petarnenov/ultra-factory/issues/111) | **👀 in review** | — |
-| RW-5.3.1 Task: Mirror the hub host registry into the daemon's `remotes.json` | [#118](https://github.com/petarnenov/ultra-factory/issues/118) | 🔄 in progress | — |
-| **RW-5.3 Story: One host list for the hub UI and `ao spawn --host`** | [#112](https://github.com/petarnenov/ultra-factory/issues/112) | **🔄 in progress** | — |
+| RW-5.2.1 Task: Tailscale userspace in the hub image and supervisor | [#115](https://github.com/petarnenov/ultra-factory/issues/115) | ✅ done | [#147](https://github.com/petarnenov/ultra-factory/pull/147) |
+| RW-5.2.2 Task: Daemon tailnet dialer for remote hosts | [#116](https://github.com/petarnenov/ultra-factory/issues/116) | ✅ done | [#148](https://github.com/petarnenov/ultra-factory/pull/148) |
+| RW-5.2.3 Task: BFF tailnet dialer for probe, workers API and proxy | [#117](https://github.com/petarnenov/ultra-factory/issues/117) | ✅ done | [#151](https://github.com/petarnenov/ultra-factory/pull/151) |
+| **RW-5.2 Story: Tailnet egress from the hub** | [#111](https://github.com/petarnenov/ultra-factory/issues/111) | **✅ done** | — |
+| RW-5.3.1 Task: Mirror the hub host registry into the daemon's `remotes.json` | [#118](https://github.com/petarnenov/ultra-factory/issues/118) | ✅ done | [#152](https://github.com/petarnenov/ultra-factory/pull/152) |
+| **RW-5.3 Story: One host list for the hub UI and `ao spawn --host`** | [#112](https://github.com/petarnenov/ultra-factory/issues/112) | **✅ done** | — |
 | RW-5.4.1 Task: Agent credentials for orchestrators in the hub | [#119](https://github.com/petarnenov/ultra-factory/issues/119) | ✅ done | [#132](https://github.com/petarnenov/ultra-factory/pull/132) |
 | RW-5.4.2 Task: Wake-up and reconcile loop inside the hub | [#120](https://github.com/petarnenov/ultra-factory/issues/120) | ✅ done | [#136](https://github.com/petarnenov/ultra-factory/pull/136) |
 | RW-5.4.3 Task: Cutover from the Mac orchestrator and end-to-end check | [#121](https://github.com/petarnenov/ultra-factory/issues/121) | ⛔ needs-human | — |
