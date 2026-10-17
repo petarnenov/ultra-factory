@@ -115,7 +115,7 @@ func (c *commandContext) waitForStopped(ctx context.Context, pid int, runFilePat
 		if !alive && info != nil && info.PID == pid {
 			// Inside a private PID namespace the daemon's PID is invisible.
 			// While its run-file is still in place, its port is the truth.
-			if _, answered, err := c.probeRunFileOwner(ctx, *info); answered && err == nil {
+			if answered, err := c.probeRunFileOwner(ctx, *info); answered && err == nil {
 				alive = true
 			}
 		}

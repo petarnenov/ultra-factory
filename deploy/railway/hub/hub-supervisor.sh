@@ -10,8 +10,8 @@
 #     loopback-only SOCKS5 listener. Its auth key is piped to `tailscale up` and
 #     is not passed to any child environment or command line.
 #   - optionally, with AO_HUB_ORCHESTRATOR_TICK=1, the orchestrator wake-up
-#     loop (`ao-orchestrator-tick.sh loop`, RW-5.4.2). It sends the hub
-#     orchestrator a TICK with PR and CI state every 5 minutes.
+#     loop (`ao orchestrator tick loop`). It wakes the idle hub orchestrator
+#     with worker, PR and CI state every 5 minutes.
 #
 # If the daemon, the BFF, or an enabled tailscaled exits, the other processes
 # are stopped and this script exits with the first one's status, so Railway
@@ -69,7 +69,7 @@ readonly tick_enabled=${AO_HUB_ORCHESTRATOR_TICK:-0}
 # The first tick waits for the daemon to become ready.
 readonly tick_start_delay=${AO_HUB_TICK_START_DELAY:-60}
 readonly tick_restart_delay=${AO_HUB_TICK_RESTART_DELAY:-60}
-read -r -a tick_command <<<"${AO_HUB_TICK_COMMAND:-/usr/local/bin/ao-orchestrator-tick.sh loop}"
+read -r -a tick_command <<<"${AO_HUB_TICK_COMMAND:-ao orchestrator tick loop}"
 
 log() { printf 'ao-hub: %s\n' "$*" >&2; }
 die() {
@@ -219,8 +219,8 @@ bff_pid=
 tick_pid=
 tailscale_pid=
 
-# Each service, and the tick loop that runs `ao session ls --host` against the
-# remote hosts, gets the tailnet dial gate only after tailscale up succeeds. In
+# Each service, and the tick loop that reads the worker sessions of the remote
+# hosts, gets the tailnet dial gate only after tailscale up succeeds. In
 # disabled mode, inherited copies of both configuration variables are removed.
 run_child() {
 	if [[ $tailscale_enabled == 1 ]]; then

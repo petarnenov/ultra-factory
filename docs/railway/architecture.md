@@ -40,7 +40,7 @@ Browser ──HTTPS──▶ Railway edge (TLS, HSTS)
 │   ├─ 127.0.0.1:3001  primary listener, unauthenticated, never proxied    │
 │   └─ 127.0.0.1:3011  remote-host listener, bearer, loopback only         │
 │                                                                          │
-│  ao-orchestrator-tick.sh loop (optional, AO_HUB_ORCHESTRATOR_TICK=1)     │
+│  ao orchestrator tick loop (optional, AO_HUB_ORCHESTRATOR_TICK=1)        │
 │                                                                          │
 │  volume /data: ao/ (DB, worktrees, mobile/config.json), hub/hosts.json,  │
 │                hub/audit.jsonl, home/ (agent logins, npm prefix)         │

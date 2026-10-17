@@ -65,7 +65,7 @@ func (c *commandContext) runImport(cmd *cobra.Command, opts importOptions) error
 			return fmt.Errorf("inspect run-file: %w", err)
 		}
 		if info != nil {
-			if _, answered, err := c.probeRunFileOwner(cmd.Context(), *info); answered && err == nil {
+			if answered, err := c.probeRunFileOwner(cmd.Context(), *info); answered && err == nil {
 				live = info
 			}
 		}

@@ -153,7 +153,7 @@ test_tick_loop_restarts_without_stopping_the_hub() {
 # The tick loop is opt-in.
 test_tick_loop_is_off_by_default() {
 	seed && ! grep -q 'tick loop' "$work/seed.log" &&
-		AO_HUB_ORCHESTRATOR_TICK=1 seed && grep -q 'would start the tick loop: /usr/local/bin/ao-orchestrator-tick.sh loop' "$work/seed.log"
+		AO_HUB_ORCHESTRATOR_TICK=1 seed && grep -q 'would start the tick loop: ao orchestrator tick loop' "$work/seed.log"
 }
 
 test_tailnet_dry_run_is_opt_in() {

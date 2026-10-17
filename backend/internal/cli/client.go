@@ -165,7 +165,7 @@ func (c *commandContext) ensureLocalDaemon(ctx context.Context, runFilePath stri
 	if c.verifiedDaemon == key {
 		return nil
 	}
-	if _, answered, err := c.probeRunFileOwner(ctx, info); answered && err == nil {
+	if answered, err := c.probeRunFileOwner(ctx, info); answered && err == nil {
 		c.verifiedDaemon = key
 		return nil
 	}

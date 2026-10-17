@@ -19,7 +19,7 @@
 - **Two host lists.** The hub UI writes `/data/hub/hosts.json` (`hosts-store.ts`). `ao spawn --host`, `ao host ls` and the report puller read the desktop's `remotes.json` (`remotehost.FilePath`). A host added in the hub UI is invisible to an orchestrator running in the hub.
 - **Plain http is already acceptable over Tailscale.** `remotehost.UnattendedTransportAllowed` allows `http://` to `100.64.0.0/10` and `*.ts.net` without `AO_REMOTE_REPORTS_ALLOW_HTTP`, because WireGuard encrypts the traffic.
 - **One orchestrator is an operational rule, not enforced across machines.** `refuseOrchestratorForRemoteWorkers` / `refuseRemoteWorkerForLocalOrchestrators` (`service/session/service.go`, from `87c21b512`) only stop a machine from both running workers for another orchestrator and running its own orchestrator. Nothing stops the Mac orchestrator and a hub orchestrator from coordinating the same project at once, so the cutover has to retire the Mac one deliberately.
-- **The wake-up loop lives on the Mac.** `docs/backlog/railway/tools/orchestrator-tick.sh` runs from launchd on the Mac, so a hub orchestrator needs its own wake-up.
+- **The wake-up loop lives on the Mac.** `docs/backlog/railway/tools/orchestrator-tick.sh` runs from launchd on the Mac, so a hub orchestrator needs its own wake-up. (Since 2026-10-17 the script is replaced by `ao orchestrator tick`; see [the wake-up loop](../../../../../deploy/railway/README.md#orchestrator-wake-up-loop).)
 
 **Acceptance criteria**
 - [ ] From the hub web UI an operator adds IMac, Linux and Z600 by tailnet address. All three are online, and `ao host ls` inside the hub lists them.

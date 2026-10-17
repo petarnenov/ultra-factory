@@ -1,6 +1,8 @@
 # RW-5.4.2 · Task: Wake-up and reconcile loop inside the hub
 **Status:** ✅ done (#136)
 
+> Since 2026-10-17 the shell script this task describes is replaced by `ao orchestrator tick` (package `backend/internal/orchestratortick`); see [the wake-up loop](../../../../../../deploy/railway/README.md#orchestrator-wake-up-loop).
+
 **Type:** operations. **Estimate:** 1 pd. **Story:** RW-5.4.
 
 ## Goal

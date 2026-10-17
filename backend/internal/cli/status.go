@@ -104,7 +104,7 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 		// A PID that looks dead may only be invisible from a private PID
 		// namespace (an agent sandbox); the daemon answering on its port as
 		// the run-file's owner is live all the same.
-		if _, answered, err := c.probeRunFileOwner(ctx, *info); !answered || err != nil {
+		if answered, err := c.probeRunFileOwner(ctx, *info); !answered || err != nil {
 			st.State = stateStale
 			st.Error = "run-file points to a dead process"
 			if inAgentSession() {
@@ -186,12 +186,12 @@ func (c *commandContext) readProbe(ctx context.Context, port int, path string) (
 // answered is false when nothing answered as a daemon (transport, HTTP or
 // decode error, explained by err). When it answered, err is nil only if it is
 // the daemon that wrote info.
-func (c *commandContext) probeRunFileOwner(ctx context.Context, info runfile.Info) (probeResult, bool, error) {
+func (c *commandContext) probeRunFileOwner(ctx context.Context, info runfile.Info) (answered bool, err error) {
 	health, err := c.readProbe(ctx, info.Port, "healthz")
 	if err != nil {
-		return probeResult{}, false, err
+		return false, err
 	}
-	return health, true, verifyProbeOwner(health, info, "healthz")
+	return true, verifyProbeOwner(health, info, "healthz")
 }
 
 // verifyProbeOwner checks that a probe answer comes from the daemon that wrote

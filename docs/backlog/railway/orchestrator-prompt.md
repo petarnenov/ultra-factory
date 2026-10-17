@@ -148,7 +148,7 @@ After starting: issue → `status:in-progress` + `host:<h>`, a row in the tracke
 Exactly-once delivery of `ao report` from remote workers to the hub orchestrator is being verified in RW-5.4.3 (#121), and issue #63 remains open. Therefore:
 
 - **Do not wait for `--done`, `--needs-input` or `--stuck` from a remote worker.** Read the state yourself: `ao session ls --host <H>` for `IMac`, `Linux` and `Z600` over the tailnet, `gh pr list --base feat/railway-hosting`, and `gh pr checks <PR>`.
-- **Wake-up:** The hub tick loop from RW-5.4.2 runs `docs/backlog/railway/tools/orchestrator-tick.sh` every 5 minutes when `AO_HUB_ORCHESTRATOR_TICK=1`. When the orchestrator is idle and the state has changed, the loop sends it a message that starts with `TICK` and contains the current state. It is not from the user.
+- **Wake-up:** The hub runs `ao orchestrator tick loop` every 5 minutes when `AO_HUB_ORCHESTRATOR_TICK=1`. When the orchestrator is idle and the state has changed, the loop sends it a message that starts with `TICK` and contains the current state. It is not from the user.
 - **`VIOLATION:` lines in a `TICK` are fixed first**, before anything else in the loop. The wake-up script checks in code the rules that must always hold:
   - `feat/railway-hosting` contains `origin/main`;
   - a green, mergeable PR does not wait more than 10 min;
