@@ -188,8 +188,13 @@ func (h *hostClient) do(ctx context.Context, method, path string, in, out any) e
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 	limited := io.LimitReader(resp.Body, maxResponseBytes)
+	defer func() {
+		// Consume the response before closing so the next request can reuse
+		// the identity-checked connection, without exceeding the response cap.
+		_, _ = io.Copy(io.Discard, limited)
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var apiErr wireAPIError
 		_ = json.NewDecoder(limited).Decode(&apiErr)
