@@ -8,6 +8,7 @@ export function isTrayEnabled(platform: NodeJS.Platform): boolean {
 
 export type TrayLifecycleDeps = {
 	getWindow: () => BrowserWindow | null;
+	// When supplied, this is authoritative; null means unavailable and never falls back to the window.
 	getContents?: () => WebContents | null;
 	getTrayController: () => TrayController | null;
 	focusWindow: () => void;
@@ -26,7 +27,7 @@ export function createTrayLifecycle(deps: TrayLifecycleDeps): TrayLifecycle {
 	let pendingTarget: TrayOpenSessionTarget | null = null;
 
 	function getContents(): WebContents | null {
-		return deps.getContents?.() ?? deps.getWindow()?.webContents ?? null;
+		return deps.getContents ? deps.getContents() : deps.getWindow()?.webContents ?? null;
 	}
 
 	function isFromMainWindow(event: IpcMainEvent): boolean {
