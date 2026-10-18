@@ -30,7 +30,16 @@ func fakeBinary(t *testing.T, version string) string {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/usr/bin:/bin")
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	return binary
+}
+
+func fixturePlugin(binary string) *Plugin {
+	return &Plugin{binaryCandidates: func(ctx context.Context) ([]string, error) {
+		return []string{binary}, ctx.Err()
+	}}
 }
 
 func TestLaunchAndRestoreV2ArgumentsAndOverlay(t *testing.T) {
@@ -59,12 +68,12 @@ func TestLaunchAndRestoreV2ArgumentsAndOverlay(t *testing.T) {
 				var err error
 				if restore {
 					var ok bool
-					cmd, ok, err = New().GetRestoreCommand(context.Background(), ports.RestoreConfig{Config: cfg.Config, SystemPrompt: cfg.SystemPrompt, Permissions: cfg.Permissions, Prompt: cfg.Prompt, Session: ports.SessionRef{ID: cfg.SessionID, Metadata: map[string]string{ports.MetadataKeyAgentSessionID: "ses_native"}}})
+					cmd, ok, err = fixturePlugin(binary).GetRestoreCommand(context.Background(), ports.RestoreConfig{Config: cfg.Config, SystemPrompt: cfg.SystemPrompt, Permissions: cfg.Permissions, Prompt: cfg.Prompt, Session: ports.SessionRef{ID: cfg.SessionID, Metadata: map[string]string{ports.MetadataKeyAgentSessionID: "ses_native"}}})
 					if !ok {
 						t.Fatalf("restore not supported: %v", err)
 					}
 				} else {
-					cmd, err = New().GetLaunchCommand(context.Background(), cfg)
+					cmd, err = fixturePlugin(binary).GetLaunchCommand(context.Background(), cfg)
 				}
 				if err != nil {
 					t.Fatal(err)
@@ -135,7 +144,7 @@ func TestLaunchAndRestoreV2ArgumentsAndOverlay(t *testing.T) {
 func TestV2PromptFileAndNoOverlay(t *testing.T) {
 	binary := fakeBinary(t, "2.0.0")
 	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
-	cmd, err := New().GetLaunchCommand(context.Background(), ports.LaunchConfig{})
+	cmd, err := fixturePlugin(binary).GetLaunchCommand(context.Background(), ports.LaunchConfig{})
 	cmd = withoutDataHome(cmd)
 	if err != nil || !reflect.DeepEqual(cmd, []string{binary, "--standalone"}) {
 		t.Fatalf("empty launch=%#v %v", cmd, err)
@@ -144,7 +153,7 @@ func TestV2PromptFileAndNoOverlay(t *testing.T) {
 	if err := os.WriteFile(file, []byte("file instructions\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd, err = New().GetLaunchCommand(context.Background(), ports.LaunchConfig{SystemPromptFile: file, SessionID: "sess"})
+	cmd, err = fixturePlugin(binary).GetLaunchCommand(context.Background(), ports.LaunchConfig{SystemPromptFile: file, SessionID: "sess"})
 	cmd = withoutDataHome(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -159,9 +168,9 @@ func TestV2PromptFileAndNoOverlay(t *testing.T) {
 }
 
 func TestV2ClearsPreviousAOAgentModelAndPermissions(t *testing.T) {
-	fakeBinary(t, "2.0.0")
+	binary := fakeBinary(t, "2.0.0")
 	t.Setenv("OPENCODE_CONFIG_CONTENT", `{"agents":{"ao-sess":{"model":"old/model","permissions":[{"action":"*","resource":"*","effect":"allow"}],"description":"preserved"}}}`)
-	cmd, err := New().GetLaunchCommand(context.Background(), ports.LaunchConfig{SessionID: "sess", SystemPrompt: "new rules"})
+	cmd, err := fixturePlugin(binary).GetLaunchCommand(context.Background(), ports.LaunchConfig{SessionID: "sess", SystemPrompt: "new rules"})
 	cmd = withoutDataHome(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +256,7 @@ func TestV2RejectsFailuresWithoutSideEffects(t *testing.T) {
 		{"missing native", "1.18.33", "{invalid", "", false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			fakeBinary(t, tc.version)
+			binary := fakeBinary(t, tc.version)
 			t.Setenv("OPENCODE_CONFIG_CONTENT", tc.content)
 			dir := t.TempDir()
 			file := filepath.Join(dir, "system.md")
@@ -256,7 +265,7 @@ func TestV2RejectsFailuresWithoutSideEffects(t *testing.T) {
 			if tc.canceled {
 				cancel()
 			}
-			cmd, ok, err := New().GetRestoreCommand(ctx, ports.RestoreConfig{SystemPrompt: "rules", SystemPromptFile: file, Session: ports.SessionRef{ID: "sess", Metadata: map[string]string{ports.MetadataKeyAgentSessionID: tc.native}}})
+			cmd, ok, err := fixturePlugin(binary).GetRestoreCommand(ctx, ports.RestoreConfig{SystemPrompt: "rules", SystemPromptFile: file, Session: ports.SessionRef{ID: "sess", Metadata: map[string]string{ports.MetadataKeyAgentSessionID: tc.native}}})
 			if tc.wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
@@ -278,7 +287,7 @@ func TestV2RejectsFailuresWithoutSideEffects(t *testing.T) {
 				t.Fatal("caller environment mutated")
 			}
 			if tc.native != "" {
-				cmd, err = New().GetLaunchCommand(ctx, ports.LaunchConfig{SessionID: "sess", SystemPrompt: "rules", SystemPromptFile: file})
+				cmd, err = fixturePlugin(binary).GetLaunchCommand(ctx, ports.LaunchConfig{SessionID: "sess", SystemPrompt: "rules", SystemPromptFile: file})
 				if err == nil || cmd != nil {
 					t.Fatalf("launch failure returned %#v %v", cmd, err)
 				}
@@ -289,15 +298,18 @@ func TestV2RejectsFailuresWithoutSideEffects(t *testing.T) {
 
 func TestV2ResolvesAgainBetweenAttempts(t *testing.T) {
 	first := fakeBinary(t, "2.0.0")
-	plugin := New()
+	selected := first
+	plugin := &Plugin{binaryCandidates: func(ctx context.Context) ([]string, error) {
+		return []string{selected}, ctx.Err()
+	}}
 	cmd, err := plugin.GetLaunchCommand(context.Background(), ports.LaunchConfig{})
 	cmd = withoutDataHome(cmd)
 	if err != nil || cmd[0] != first {
 		t.Fatalf("first=%#v %v", cmd, err)
 	}
-	fakeBinary(t, "1.18.33")
+	selected = fakeBinary(t, "1.18.33")
 	if _, err := plugin.GetLaunchCommand(context.Background(), ports.LaunchConfig{}); err == nil {
-		t.Fatal("reused previous binary after PATH changed")
+		t.Fatal("reused previous binary after candidates changed")
 	}
 }
 
@@ -317,7 +329,7 @@ func TestV2AuthStatusUsesPrivateServerAndConnections(t *testing.T) {
 			if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			status, err := New().AuthStatus(context.Background())
+			status, err := fixturePlugin(binary).AuthStatus(context.Background())
 			if err != nil || status != tc.want {
 				t.Fatalf("auth=%q %v, want %q", status, err, tc.want)
 			}
@@ -328,7 +340,6 @@ func TestV2AuthStatusUsesPrivateServerAndConnections(t *testing.T) {
 func TestV2AuthStatusAllowsMigrationBeyondCommandTimeout(t *testing.T) {
 	parent := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", parent)
-	t.Setenv("HOME", t.TempDir())
 	legacy := filepath.Join(parent, "opencode")
 	if err := os.MkdirAll(legacy, 0o700); err != nil {
 		t.Fatal(err)
@@ -346,6 +357,7 @@ func TestV2AuthStatusAllowsMigrationBeyondCommandTimeout(t *testing.T) {
 	}
 	defer func() { _, _ = db.Exec("ROLLBACK") }()
 	binary := fakeBinary(t, "2.0.0")
+	t.Setenv("XDG_DATA_HOME", parent)
 	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 2.0.0; exit; fi\n" +
 		"[ \"$*\" = 'auth list --standalone --format json' ] || exit 99\n" +
 		"printf '%s\\n' '[{\"connections\":[{\"type\":\"credential\"}]}]'\n"
@@ -357,7 +369,7 @@ func TestV2AuthStatusAllowsMigrationBeyondCommandTimeout(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		status, err := New().AuthStatus(ctx)
+		status, err := fixturePlugin(binary).AuthStatus(ctx)
 		if err == nil && status != ports.AgentAuthStatusAuthorized {
 			err = fmt.Errorf("auth status = %q, want authorized", status)
 		}
