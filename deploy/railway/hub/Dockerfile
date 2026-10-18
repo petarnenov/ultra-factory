@@ -97,9 +97,20 @@ RUN export HOME=/root && \
     rm -rf /root/.npm /root/.codex /root/.claude /root/.claude.json && \
     printf '%s\n' 'export PATH="/data/home/.npm-global/bin:/opt/ao/npm-global/bin:$PATH"' \
         >/etc/profile.d/ao-hub-agents.sh
+
+# OpenCode 2 is its own package; its `opencode` bin would shadow the worker's
+# OpenCode 1, so it seeds a private prefix beside the daemon's v2 data home.
+ARG HUB_OPENCODE_V2_PACKAGE="@opencode/cli@2.0.32"
+ARG HUB_OPENCODE_V2_SEED=/opt/ao/opencode-v2-npm
+RUN export HOME=/root && \
+    npm install --global --prefix ${HUB_OPENCODE_V2_SEED} ${HUB_OPENCODE_V2_PACKAGE} && \
+    ${HUB_OPENCODE_V2_SEED}/bin/opencode --version && \
+    chown -R 10001:10001 ${HUB_OPENCODE_V2_SEED} && \
+    rm -rf /root/.npm
 USER 10001:10001
 ENV AO_HUB_NPM_SEED=/opt/ao/npm-global \
     NPM_CONFIG_PREFIX=/data/home/.npm-global \
+    AO_HUB_OPENCODE_V2_SEED=/opt/ao/opencode-v2-npm \
     PATH=/data/home/.npm-global/bin:/opt/ao/npm-global/bin:$PATH \
     AO_HARNESS_UPDATE_CHECKS=on
 

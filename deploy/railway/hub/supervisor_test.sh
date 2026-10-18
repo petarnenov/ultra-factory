@@ -88,6 +88,13 @@ sync_agents() {
 		AO_HUB_NPM_SEED="$work/seed" NPM_CONFIG_PREFIX="$work/prefix" bash "$supervisor" 2>"$work/sync.log"
 }
 
+opencode_v2_prefix=$work/home/.local/share/opencode-v2-home/npm
+
+sync_opencode() {
+	AO_HUB_SUPERVISOR_DRY_RUN=1 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_NPM_SEED= AO_HUB_OPENCODE_V2_SEED="$work/oc-seed" bash "$supervisor" 2>"$work/oc-sync.log"
+}
+
 test_seeds_agent_prefix() {
 	fake_package "$work/seed" "@acme/claude" 2.0.0 claude
 	fake_package "$work/seed" tool 1.0.0 tool
@@ -103,6 +110,17 @@ test_newer_image_replaces_older_copy() {
 	fake_package "$work/seed" tool 1.10.0 tool
 	sync_agents && [[ $("$work/prefix/bin/tool") == 1.10.0 && $("$work/prefix/bin/claude") == 2.5.0 ]] &&
 		grep -q 'agent CLI tool 1.0.0 -> 1.10.0' "$work/sync.log"
+}
+
+test_seeds_opencode_v2_into_private_prefix() {
+	fake_package "$work/oc-seed" "@opencode/cli" 2.0.32 opencode
+	sync_opencode && [[ $("$opencode_v2_prefix/bin/opencode") == 2.0.32 ]]
+}
+
+test_keeps_newer_opencode_v2_ui_update() {
+	fake_package "$opencode_v2_prefix" "@opencode/cli" 2.1.0 opencode
+	sync_opencode && [[ $("$opencode_v2_prefix/bin/opencode") == 2.1.0 ]] &&
+		! grep -q '@opencode/cli' "$work/oc-sync.log"
 }
 
 # A fake "daemon" that stays up, and a fake BFF that exits with status 3: the
@@ -274,6 +292,8 @@ check "never prints the generated password" test_never_logs_password
 check "seeds the image's agent CLIs into the volume prefix" test_seeds_agent_prefix
 check "keeps an agent CLI updated from the UI" test_keeps_newer_ui_update
 check "replaces an older copy with a newer image version" test_newer_image_replaces_older_copy
+check "seeds OpenCode 2 into the daemon's private npm prefix" test_seeds_opencode_v2_into_private_prefix
+check "keeps an OpenCode 2 copy updated from the UI" test_keeps_newer_opencode_v2_ui_update
 check "exits with the status of the first child that exits" test_exits_when_one_child_exits
 check "SIGTERM stops both processes and exits 0" test_sigterm_stops_both
 check "a tick loop that exits is restarted without stopping the hub" test_tick_loop_restarts_without_stopping_the_hub

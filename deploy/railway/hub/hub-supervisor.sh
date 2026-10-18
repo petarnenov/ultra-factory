@@ -28,8 +28,8 @@
 #   3. Seed or repair <AO_DATA_DIR>/mobile/config.json: the listener is enabled,
 #      loopback-only, on port 3011. The password is generated once and kept.
 #      It is the BFF's bearer for the daemon and is never printed.
-#   4. Sync the image's agent CLIs (AO_HUB_NPM_SEED) into the npm prefix on the
-#      volume (NPM_CONFIG_PREFIX), so harness updates made from the UI persist.
+#   4. Sync the image's agent CLIs (AO_HUB_NPM_SEED and the OpenCode 2 seed)
+#      into their volume prefixes, so harness updates from the UI persist.
 #   5. exec-style supervision of the two processes above.
 #
 # AO_HUB_SUPERVISOR_DRY_RUN=1 runs steps 2-4 and exits without starting the
@@ -173,13 +173,10 @@ package_version() {
 	node -p 'require(process.argv[1]).version' "$1/package.json" 2>/dev/null
 }
 
-# sync_agent_prefix copies each agent CLI the image installed under
-# AO_HUB_NPM_SEED into NPM_CONFIG_PREFIX on the volume when the volume lacks it
-# or has an older version, with the package's bin links. A version updated
-# from the UI (npm install -g into that prefix) is newer and is kept, so it
-# survives restarts; a newer image version replaces an older one.
+# sync_agent_prefix seeds the agent CLIs from $1 into the volume prefix $2 when
+# missing or older, with bin links; a newer copy from the UI is kept.
 sync_agent_prefix() {
-	local seed=${AO_HUB_NPM_SEED:-} dest=${NPM_CONFIG_PREFIX:-}
+	local seed=${1:-} dest=${2:-}
 	[[ -n $seed && -n $dest && -d $seed/lib/node_modules ]] || return 0
 	mkdir -p "$dest/lib/node_modules" "$dest/bin" || die "$dest is not writable by uid $(id -u)"
 	local dir pkg seed_version dest_version link target
@@ -211,6 +208,17 @@ sync_agent_prefix() {
 			fi
 		done
 	done
+}
+
+# opencode_v2_prefix is the daemon's private OpenCode 2 npm prefix: a sibling
+# of the user data home, so the v2 `opencode` bin never lands on PATH.
+opencode_v2_prefix() {
+	local parent=${XDG_DATA_HOME:-${HOME:-/data/home}/.local/share}
+	if [[ ${parent##*/} == opencode-v2-home ]]; then
+		printf '%s' "$parent"
+	else
+		printf '%s' "$parent/opencode-v2-home"
+	fi
 }
 
 stopping=0
@@ -330,7 +338,8 @@ supervise() {
 
 prepare_dirs
 seed_daemon_listener
-sync_agent_prefix
+sync_agent_prefix "${AO_HUB_NPM_SEED:-}" "${NPM_CONFIG_PREFIX:-}"
+sync_agent_prefix "${AO_HUB_OPENCODE_V2_SEED:-}" "$(opencode_v2_prefix)/npm"
 
 if [[ $dry_run == 1 ]]; then
 	log "dry run; would start: ${daemon_command[*]} and node $bff_main"

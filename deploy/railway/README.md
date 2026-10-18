@@ -235,6 +235,7 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `AO_HUB_WORKER_URL_MODE` | Optional `public` or `private`; default `public`. Hub → worker private DNS was verified for a manually added worker (2026-10-17); provisioning in `private` mode is not live-verified. |
 | `AO_HARNESS_UPDATE_CHECKS` | Image default `on` for the hub (the worker image keeps `off`), so Settings → Harness → This computer reports updates and offers Update. |
 | `NPM_CONFIG_PREFIX`, `AO_HUB_NPM_SEED` | Image defaults `/data/home/.npm-global` and `/opt/ao/npm-global`. The image installs Claude Code and Codex under the seed; the supervisor copies them into the volume prefix when it lacks them or has an older version. `PATH` searches the volume prefix first, so a harness update from the UI installs there and persists across restarts and image updates. |
+| `AO_HUB_OPENCODE_V2_SEED` | Image default `/opt/ao/opencode-v2-npm`. The image installs OpenCode 2 (`@opencode/cli`) under this seed; the supervisor copies it into the daemon's private OpenCode 2 npm prefix (`$HOME/.local/share/opencode-v2-home/npm`) when the volume lacks it or has an older version, so it never replaces the worker image's OpenCode 1. Updates from Settings → Harness install into that same prefix and persist across restarts and image updates. |
 | `ANTHROPIC_API_KEY` | Optional. Claude Code credential for an orchestrator in the hub, read by `claude` from the environment. See [Orchestrator agent credentials](#orchestrator-agent-credentials). |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Optional alternative to `ANTHROPIC_API_KEY` for Claude Code. Set at most one of the two. |
 | `OPENAI_API_KEY` | Optional. Codex API key; used only for the one-time `codex login --with-api-key` below, not read by AO's readiness probe. |
@@ -269,7 +270,7 @@ The hub image places durable state under the mounted volume:
 | `/data/ao` | Daemon database, worktrees, `running.json`, and `mobile/config.json` for the loopback-only listener credential. |
 | `/data/hub/hosts.json` | Host registry, including worker connection credentials; stored with restrictive permissions. |
 | `/data/hub/audit.jsonl` | Append-only security events; mode `0600`, no secrets. |
-| `/data/home` | Hub home directory, including any interactive agent logins (`.claude/.credentials.json`, `.codex/auth.json`) and the agent CLI prefix `.npm-global`. |
+| `/data/home` | Hub home directory, including any interactive agent logins (`.claude/.credentials.json`, `.codex/auth.json`), the agent CLI prefix `.npm-global`, and the private OpenCode 2 npm prefix `.local/share/opencode-v2-home/npm`. |
 | `/data/tailscale` | Tailscale node state when `TS_AUTHKEY` is set; directory mode `0700`, owned by uid `10001`. It contains the durable node identity, never the auth key. |
 
 ### Add a worker by address
@@ -305,8 +306,9 @@ volume, so never use **Remove** as a redeploy.
 ### Orchestrator agent credentials
 
 An orchestrator started in the hub runs one of its agent CLIs: `claude` and
-`codex` from the hub's updatable prefix (see `NPM_CONFIG_PREFIX` above), or
-`opencode` inherited from the worker image. It needs a
+`codex` from the hub's updatable prefix (see `NPM_CONFIG_PREFIX` above),
+`opencode` (OpenCode 1) inherited from the worker image, or OpenCode 2 from the
+private prefix the hub seeds (see `AO_HUB_OPENCODE_V2_SEED` above). It needs a
 provider credential for its harness and a GitHub token. The operator sets
 them; no credential goes into the repository, the image, build arguments, or
 logs. The hub supervisor does not log credential values. Unlike the worker
