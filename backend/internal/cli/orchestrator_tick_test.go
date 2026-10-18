@@ -217,7 +217,6 @@ func TestTickGitHubStateMapsMergeReadinessFacts(t *testing.T) {
 	      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
 	        {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-17T11:20:00Z"}
 	      ]}}}}]},
-	      "reviews": {"nodes": [{"state": "APPROVED", "submittedAt": "2026-10-17T11:21:00Z", "commit": {"oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "author": {"login": "reviewer", "__typename": "User"}}]},
 	      "reviewThreads": {"nodes": [{"isResolved": true, "isOutdated": false, "comments": {"nodes": [{"body": "fixed", "author": {"login": "reviewer", "__typename": "User"}}]}}]}
 	    }]},
 	    "merged": {"nodes": [{"number": 199, "headRefName": "rw/198", "headRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "body": "Closes #198", "mergedAt": "2026-10-17T11:00:00Z"}]},
@@ -236,7 +235,6 @@ func TestTickGitHubStateMapsMergeReadinessFacts(t *testing.T) {
 	}
 	if len(got.OpenPRs) != 1 || got.OpenPRs[0].HeadSHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
 		got.OpenPRs[0].ReviewDecision != "APPROVED" || len(got.OpenPRs[0].Labels) != 1 ||
-		len(got.OpenPRs[0].Reviews) != 1 || got.OpenPRs[0].Reviews[0].CommitID != got.OpenPRs[0].HeadSHA ||
 		len(got.OpenPRs[0].Threads) != 1 || !got.OpenPRs[0].Threads[0].Resolved {
 		t.Fatalf("open PR = %+v", got.OpenPRs)
 	}

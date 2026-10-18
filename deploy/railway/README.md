@@ -406,13 +406,14 @@ ships, is versioned and is tested with the rest of AO.
   cadence. `RW_TICK_MERGE_AUTHORIZED=1` permits a normal squash merge only when
   the fresh provider observation proves the exact current head has passing
   required checks, a current-head AO native review verdict of `up_to_date` for
-  the exact head, `MERGEABLE`, no unresolved review threads, and no hold label.
-  A GitHub `APPROVED` rollup or an approval comment is not a substitute for the
-  native verdict; provider `CHANGES_REQUESTED`/`REVIEW_REQUIRED` still block (`RW_TICK_HOLD_LABELS`, default
-  `needs-human do-not-merge status:blocked`). The merge request carries the
-  evaluated head SHA, so a head change between the check and the mutation is
-  refused rather than merged. Without the flag the exact missing authorization
-  is reported in the tick message and `status`.
+  the exact head, `MERGEABLE`, no unresolved review threads, and no hold label
+  (`RW_TICK_HOLD_LABELS`, default `needs-human do-not-merge status:blocked`).
+  A GitHub `APPROVED` rollup or an approval comment is not a substitute for
+  the native verdict; provider `CHANGES_REQUESTED`/`REVIEW_REQUIRED` still
+  block. The merge request carries the evaluated head SHA, so a head change
+  between the check and the mutation is refused rather than merged. Without
+  the flag the exact missing authorization is reported in the tick message
+  and `status`.
   `RW_TICK_CLOSE_COMPLETED=1` permits terminating a worker after at least one
   owned PR merged and every owned PR is terminal, the agent is not active, the
   branch push state is known and has no unpublished commits, and no durable
