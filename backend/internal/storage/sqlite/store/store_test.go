@@ -206,6 +206,34 @@ func TestTaskPreparationPromotionPreservesWorkspace(t *testing.T) {
 	}
 }
 
+func TestPromoteTaskPreparationPersistsTerminateOnPRMerge(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "mer")
+	prepared := sampleRecord("mer")
+	prepared.IsTaskPreparation = true
+	prepared.ProvisionState = domain.SessionProvisionProvisioning
+	prepared.Metadata.WorkspacePath = ""
+	prepared.TerminateOnPRMerge = false
+	created, err := s.CreateSession(ctx, prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	visible := sampleRecord("mer")
+	visible.TerminateOnPRMerge = true
+	if ok, err := s.PromoteTaskPreparation(ctx, created.ID, visible); err != nil || !ok {
+		t.Fatalf("promote preparation = %v, %v", ok, err)
+	}
+	got, ok, err := s.GetSession(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("get promoted session = %v, %v", ok, err)
+	}
+	if !got.TerminateOnPRMerge {
+		t.Fatalf("promoted session terminateOnPrMerge = %v, want true", got.TerminateOnPRMerge)
+	}
+}
+
 func TestTaskPreparationBaseWriteCannotOverwritePromotedSession(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
