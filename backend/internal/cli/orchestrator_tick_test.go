@@ -144,3 +144,153 @@ func TestTickRejectsAnInvalidConfiguration(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestTickHoldAndReleasePersistAnObligation(t *testing.T) {
+	setConfigEnv(t)
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	out, _, err := executeCLI(t, Deps{Now: func() time.Time { return now }}, "orchestrator", "tick", "hold", "uf-1", "--host", "Linux", "--reason", "deployment pending", "--until", "live check passes")
+	if err != nil || !strings.Contains(out, "hold Linux/uf-1: deployment pending") {
+		t.Fatalf("hold: %q %v", out, err)
+	}
+	out, _, err = executeCLI(t, Deps{Now: func() time.Time { return now }}, "orchestrator", "tick", "status")
+	if err != nil || !strings.Contains(out, "completion: Linux/uf-1") || !strings.Contains(out, "obligation: deployment pending (until live check passes)") {
+		t.Fatalf("status after hold: %q %v", out, err)
+	}
+	if out, _, err = executeCLI(t, Deps{Now: func() time.Time { return now }}, "orchestrator", "tick", "release", "uf-1", "--host", "Linux"); err != nil || out != "released Linux/uf-1\n" {
+		t.Fatalf("release: %q %v", out, err)
+	}
+	out, _, err = executeCLI(t, Deps{}, "orchestrator", "tick", "status")
+	if err != nil || strings.Contains(out, "obligation:") {
+		t.Fatalf("status after release: %q %v", out, err)
+	}
+}
+
+func TestTickKillVerifiesTheTerminatedFact(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "")
+	terminated := false
+	kills := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/sessions/uf-1" && r.Method == http.MethodGet:
+			_, _ = w.Write([]byte(`{"session":{"id":"uf-1","isTerminated":` + boolString(terminated) + `}}`))
+		case r.URL.Path == "/api/v1/sessions/uf-1/kill" && r.Method == http.MethodPost:
+			kills++
+			terminated = true
+			_, _ = w.Write([]byte(`{"sessionId":"uf-1","freed":false}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	writeRunFileFor(t, cfg, srv)
+	c := &commandContext{deps: Deps{ProcessAlive: func(int) bool { return true }}.withDefaults()}
+	if err := (tickDaemon{c: c}).Kill(context.Background(), "", "uf-1"); err != nil {
+		t.Fatal(err)
+	}
+	if kills != 1 {
+		t.Fatalf("kills = %d, want 1", kills)
+	}
+	if err := (tickDaemon{c: c}).Kill(context.Background(), "", "uf-1"); err != nil {
+		t.Fatal(err)
+	}
+	if kills != 1 {
+		t.Fatalf("an already terminated session was killed again: %d", kills)
+	}
+}
+
+func boolString(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
+}
+
+func TestTickGitHubStateMapsMergeReadinessFacts(t *testing.T) {
+	raw := `{
+	  "repository": {
+	    "open": {"nodes": [{
+	      "number": 201, "headRefName": "rw/190", "headRefOid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	      "isDraft": false, "mergeable": "MERGEABLE", "reviewDecision": "APPROVED",
+	      "labels": {"nodes": [{"name": "rw"}]},
+	      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
+	        {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-17T11:20:00Z"}
+	      ]}}}}]},
+	      "reviews": {"nodes": [{"state": "APPROVED", "submittedAt": "2026-10-17T11:21:00Z", "commit": {"oid": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "author": {"login": "reviewer", "__typename": "User"}}]},
+	      "reviewThreads": {"nodes": [{"isResolved": true, "isOutdated": false, "comments": {"nodes": [{"body": "fixed", "author": {"login": "reviewer", "__typename": "User"}}]}}]}
+	    }]},
+	    "merged": {"nodes": [{"number": 199, "headRefName": "rw/198", "headRefOid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "body": "Closes #198", "mergedAt": "2026-10-17T11:00:00Z"}]},
+	    "closed": {"nodes": [{"number": 197, "headRefName": "rw/197", "headRefOid": "cccccccccccccccccccccccccccccccccccccccc", "closedAt": "2026-10-17T10:00:00Z"}]},
+	    "issues": {"nodes": []},
+	    "ref": {"compare": {"aheadBy": 0, "commits": {"nodes": []}}}
+	  }
+	}`
+	var resp tickGitHubResponse
+	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
+		t.Fatal(err)
+	}
+	got, err := tickGitHubState(resp, orchestratortick.GitHubQuery{Repo: "o/r", Base: "feat/b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.OpenPRs) != 1 || got.OpenPRs[0].HeadSHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ||
+		got.OpenPRs[0].ReviewDecision != "APPROVED" || len(got.OpenPRs[0].Labels) != 1 ||
+		len(got.OpenPRs[0].Reviews) != 1 || got.OpenPRs[0].Reviews[0].CommitID != got.OpenPRs[0].HeadSHA ||
+		len(got.OpenPRs[0].Threads) != 1 || !got.OpenPRs[0].Threads[0].Resolved {
+		t.Fatalf("open PR = %+v", got.OpenPRs)
+	}
+	if len(got.MergedPRs) != 1 || got.MergedPRs[0].Head != "rw/198" || got.MergedPRs[0].HeadSHA == "" {
+		t.Fatalf("merged PRs = %+v", got.MergedPRs)
+	}
+	if len(got.ClosedPRs) != 1 || got.ClosedPRs[0].Head != "rw/197" {
+		t.Fatalf("closed PRs = %+v", got.ClosedPRs)
+	}
+}
+
+func TestTickDaemonWorkersCarryEveryOwnedPRAndBranchState(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/sessions":
+			if r.URL.Query().Get("active") != "true" {
+				http.NotFound(w, r)
+				return
+			}
+		case "/api/v1/sessions/uf-1/reviews":
+			_, _ = w.Write([]byte(`{"reviews":[{"prNumber":202,"targetSha":"sha-202","status":"up_to_date"}]}`))
+			return
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"sessions":[{
+		  "id":"uf-1","projectId":"ultra-factory","kind":"worker","branch":"rw/190",
+		  "activity":{"state":"idle"},"harness":"opencode",
+		  "branchState":{"commits":2,"remoteBranch":"origin/rw/190","unpushed":1},
+		  "prs":[{"number":201,"state":"merged"},{"number":202,"state":"open"}]
+		}]}`))
+	}))
+	defer srv.Close()
+	writeRunFileFor(t, cfg, srv)
+	c := &commandContext{deps: Deps{ProcessAlive: func(int) bool { return true }}.withDefaults()}
+	workers, err := (tickDaemon{c: c}).Workers(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workers) != 1 {
+		t.Fatalf("workers = %+v", workers)
+	}
+	w := workers[0]
+	if w.Kind != "worker" || len(w.PRs) != 2 || w.PRs[0].Number != 201 || w.PRs[1].State != "open" {
+		t.Fatalf("worker PRs = %+v", w)
+	}
+	if w.BranchState == nil || w.BranchState.Unpushed != 1 || !w.BranchState.Known {
+		t.Fatalf("branch state = %+v", w.BranchState)
+	}
+	if len(w.Reviews) != 1 || w.Reviews[0].PRNumber != 202 || w.Reviews[0].Status != "up_to_date" {
+		t.Fatalf("reviews = %+v", w.Reviews)
+	}
+}

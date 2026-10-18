@@ -5,9 +5,34 @@ import (
 	"time"
 )
 
+// WorkerPR is one pull request attributed to a worker session.
+type WorkerPR struct {
+	Number int
+	// State is the provider lifecycle state as the daemon last observed it:
+	// open, merged, closed, or empty when unknown.
+	State string
+}
+
+// WorkerBranchState is the session branch's durable push state. Known is
+// false when the daemon has not observed the branch yet; Unpushed commits are
+// work that only exists in the workspace.
+type WorkerBranchState struct {
+	Known    bool
+	Commits  int
+	Unpushed int
+}
+
+// WorkerReview is AO's current-head native review state for one worker PR.
+type WorkerReview struct {
+	PRNumber  int
+	TargetSHA string
+	Status    string
+}
+
 // Worker is one AO session on a host, as a tick needs it.
 type Worker struct {
 	ID         string
+	Kind       string
 	Branch     string
 	Activity   string
 	Harness    string
@@ -16,6 +41,9 @@ type Worker struct {
 	// means it has none.
 	PRNumber       int
 	CI             string
+	PRs            []WorkerPR
+	Reviews        []WorkerReview
+	BranchState    *WorkerBranchState
 	LastActivityAt time.Time
 	CreatedAt      time.Time
 }
@@ -35,24 +63,67 @@ type Check struct {
 	CompletedAt time.Time
 }
 
+// Review is one provider review of a pull request.
+type Review struct {
+	State     string
+	CommitID  string
+	Author    string
+	IsBot     bool
+	Submitted time.Time
+}
+
+// ReviewThread is one provider review thread on a pull request.
+type ReviewThread struct {
+	Resolved bool
+	Outdated bool
+	Author   string
+	IsBot    bool
+	Body     string
+}
+
 // PullRequest is an open pull request to the base branch.
 type PullRequest struct {
-	Number    int
-	Head      string
-	Mergeable string
-	Checks    []Check
+	Number         int
+	Head           string
+	HeadSHA        string
+	Title          string
+	Body           string
+	Labels         []string
+	Draft          bool
+	Mergeable      string
+	ReviewDecision string
+	Reviews        []Review
+	Threads        []ReviewThread
+	// AOReviewStatus is AO's native review state for this exact head, set by
+	// the cadence from the worker's review read model. Empty means AO has no
+	// recorded decision for this head.
+	AOReviewStatus string
+	Checks         []Check
+	UpdatedAt      time.Time
 }
 
 // MergedPR is a pull request already merged into the base branch.
 type MergedPR struct {
-	Number int
-	Body   string
+	Number   int
+	Head     string
+	HeadSHA  string
+	Body     string
+	MergedAt time.Time
+}
+
+// ClosedPR is a pull request closed without merging.
+type ClosedPR struct {
+	Number   int
+	Head     string
+	HeadSHA  string
+	ClosedAt time.Time
 }
 
 // GitHubState is what a tick reads from GitHub.
 type GitHubState struct {
 	OpenPRs   []PullRequest
 	MergedPRs []MergedPR
+	ClosedPRs []ClosedPR
 	// OpenIssues maps the open backlog issues to their titles.
 	OpenIssues map[int]string
 	// BehindMain counts the main commits the base branch lacks; BehindSHAs
@@ -88,6 +159,27 @@ type Daemon interface {
 	Session(ctx context.Context, id string) (SessionState, error)
 	Workers(ctx context.Context, host string) ([]Worker, error)
 	Send(ctx context.Context, sessionID, message string) error
+	// Kill terminates one host-qualified worker through the existing session
+	// lifecycle and verifies the resulting terminated fact. It never cleans or
+	// deletes the workspace.
+	Kill(ctx context.Context, host, sessionID string) error
+}
+
+// Merger applies one provider merge guarded by the reviewed head SHA.
+type Merger interface {
+	Merge(ctx context.Context, request MergeRequest) (MergeResult, error)
+}
+
+// MergeRequest pins a merge to the exact head the reconciler evaluated.
+type MergeRequest struct {
+	Repo            string
+	Number          int
+	ExpectedHeadSHA string
+}
+
+// MergeResult is the provider's resulting merge commit.
+type MergeResult struct {
+	MergeCommitSHA string
 }
 
 // GitHub reads the repository state a tick reports.

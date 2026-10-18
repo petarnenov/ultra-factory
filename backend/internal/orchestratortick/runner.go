@@ -34,6 +34,9 @@ type Result struct {
 	Violations []Violation
 	// Message is the text sent, or that would be sent in a dry run.
 	Message string
+	// Completions is the reconciled completion state of workers after this
+	// tick. It is durable only through Store.Completion/SaveCompletion.
+	Completions []CompletionNote
 }
 
 // Runner runs ticks.
@@ -41,6 +44,7 @@ type Runner struct {
 	Config Config
 	Daemon Daemon
 	GitHub GitHub
+	Merger Merger
 	Store  Store
 	Log    *slog.Logger
 	Now    func() time.Time
@@ -95,7 +99,7 @@ func (r *Runner) Tick(ctx context.Context) (Result, error) {
 	for i, v := range res.Violations {
 		texts[i] = v.Text
 	}
-	err := r.Store.SaveTick(Record{At: r.now(), Outcome: res.Outcome, Session: res.Session, Reason: res.Reason, Violations: texts})
+	err := r.Store.SaveTick(Record{At: r.now(), Outcome: res.Outcome, Session: res.Session, Reason: res.Reason, Violations: texts, Completions: CompletionLines(res.Completions)})
 	return res, err
 }
 
@@ -118,25 +122,35 @@ func (r *Runner) tick(ctx context.Context) Result {
 		}
 		return Result{Outcome: OutcomeDaemonDown, Reason: "the local AO daemon is not ready (" + detail + "); nobody can be woken → start the AO daemon"}
 	}
-	session, err := r.orchestrator(ctx)
-	if err != nil {
-		return Result{Outcome: OutcomeNoOrchestrator, Reason: err.Error() + "; nobody can be woken → spawn the orchestrator, or set RW_TICK_SESSION"}
-	}
-	state, err := r.Daemon.Session(ctx, session)
-	if err != nil {
-		return Result{Outcome: OutcomeNoOrchestrator, Session: session, Reason: "orchestrator not reachable: " + err.Error()}
-	}
-	if state.Activity == "active" || state.Status == "working" {
-		return Result{Outcome: OutcomeBusy, Session: session, Reason: fmt.Sprintf("status=%s activity=%s", state.Status, state.Activity)}
-	}
 
 	facts := r.Gather(ctx)
 	now := r.now()
+	var completions []CompletionNote
+	if !r.DryRun {
+		var completionErr error
+		completions, _, completionErr = r.reconcileCompletion(ctx, facts, now)
+		if completionErr != nil {
+			r.log().Error("completion state not recorded", "err", completionErr)
+		}
+	}
+
+	session, err := r.orchestrator(ctx)
+	if err != nil {
+		return Result{Outcome: OutcomeNoOrchestrator, Reason: err.Error() + "; nobody can be woken → spawn the orchestrator, or set RW_TICK_SESSION", Completions: completions}
+	}
+	state, err := r.Daemon.Session(ctx, session)
+	if err != nil {
+		return Result{Outcome: OutcomeNoOrchestrator, Session: session, Reason: "orchestrator not reachable: " + err.Error(), Completions: completions}
+	}
 	violations := Violations(cfg, facts, now)
-	snapshot := Snapshot(cfg, facts, violations)
+	if state.Activity == "active" || state.Status == "working" {
+		return Result{Outcome: OutcomeBusy, Session: session, Reason: fmt.Sprintf("status=%s activity=%s", state.Status, state.Activity), Violations: violations, Completions: completions}
+	}
+
+	snapshot := snapshotWithCompletion(cfg, facts, violations, completions)
 	fingerprint := Fingerprint(cfg, facts, violations)
-	if !InFlight(cfg, facts, violations) {
-		return Result{Outcome: OutcomeNothing, Session: session}
+	if !InFlight(cfg, facts, violations) && len(completions) == 0 {
+		return Result{Outcome: OutcomeNothing, Session: session, Violations: violations, Completions: completions}
 	}
 
 	last, sent, err := r.Store.LastSent()
@@ -146,19 +160,19 @@ func (r *Runner) tick(ctx context.Context) Result {
 	}
 	reason := decide(cfg, last, sent, fingerprint, violations, now)
 	if reason == "" {
-		return Result{Outcome: OutcomeUnchanged, Session: session, Reason: "nudged recently", Violations: violations}
+		return Result{Outcome: OutcomeUnchanged, Session: session, Reason: "nudged recently", Violations: violations, Completions: completions}
 	}
 	msg := Message(reason, snapshot, violations)
 	if r.DryRun {
-		return Result{Outcome: OutcomeDryRun, Session: session, Reason: reason, Violations: violations, Message: msg}
+		return Result{Outcome: OutcomeDryRun, Session: session, Reason: reason, Violations: violations, Message: msg, Completions: completions}
 	}
 	if err := r.Daemon.Send(ctx, session, msg); err != nil {
-		return Result{Outcome: OutcomeSendFailed, Session: session, Reason: err.Error(), Violations: violations}
+		return Result{Outcome: OutcomeSendFailed, Session: session, Reason: err.Error(), Violations: violations, Completions: completions}
 	}
 	if err := r.Store.SaveSent(Sent{Session: session, Fingerprint: fingerprint, At: now}); err != nil {
 		r.log().Error("sent but could not record it; the next tick will send again", "err", err)
 	}
-	return Result{Outcome: OutcomeSent, Session: session, Reason: reason, Violations: violations, Message: msg}
+	return Result{Outcome: OutcomeSent, Session: session, Reason: reason, Violations: violations, Message: msg, Completions: completions}
 }
 
 // decide returns why the orchestrator should be woken now, or "" when it
