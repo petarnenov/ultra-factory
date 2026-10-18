@@ -76,11 +76,8 @@ type ProjectConfig struct {
 	// after spawn.
 	AutoReview bool `json:"autoReview,omitempty"`
 
-	// TerminateOnPRMerge controls whether new worker sessions spawned for this
-	// project are terminated automatically after all of their PRs reach a
-	// terminal state with at least one merged and the agent has quiesced. The
-	// default (false) leaves sessions live for manual teardown, matching prior
-	// behavior. Users can still override the per-session toggle after spawn.
+	// TerminateOnPRMerge controls auto-teardown of spawned workers once all
+	// PRs reach a terminal state with one merged and the agent quiesces.
 	TerminateOnPRMerge bool `json:"terminateOnPrMerge,omitempty"`
 
 	// WorkersRequestReview changes what worker sessions are told about AO's
