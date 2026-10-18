@@ -20,10 +20,12 @@ import { Route as ShellSessionsIndexRouteImport } from './routes/_shell.sessions
 import { Route as ShellSessionsSessionIdRouteImport } from './routes/_shell.sessions.$sessionId'
 import { Route as ShellProjectsProjectIdRouteImport } from './routes/_shell.projects.$projectId'
 import { Route as ShellProjectsProjectIdSettingsRouteImport } from './routes/_shell.projects.$projectId_.settings'
+import { Route as ShellProjectsProjectIdCompletedRouteImport } from './routes/_shell.projects.$projectId_.completed'
 import { Route as ShellProjectsProjectIdAggregateRouteImport } from './routes/_shell.projects.$projectId_.aggregate'
 import { Route as ShellProjectsProjectIdSessionsSessionIdRouteImport } from './routes/_shell.projects.$projectId_.sessions.$sessionId'
 import { Route as ShellHostHostIdSessionSessionIdRouteImport } from './routes/_shell.host.$hostId.session.$sessionId'
 import { Route as ShellHostHostIdProjectProjectIdRouteImport } from './routes/_shell.host.$hostId.project.$projectId'
+import { Route as ShellHostHostIdProjectProjectIdCompletedRouteImport } from './routes/_shell.host.$hostId.project.$projectId_.completed'
 import { Route as ShellHostHostIdProjectProjectIdSessionSessionIdRouteImport } from './routes/_shell.host.$hostId.project.$projectId_.session.$sessionId'
 
 const ShellRoute = ShellRouteImport.update({
@@ -81,6 +83,12 @@ const ShellProjectsProjectIdSettingsRoute =
     path: '/projects/$projectId/settings',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellProjectsProjectIdCompletedRoute =
+  ShellProjectsProjectIdCompletedRouteImport.update({
+    id: '/projects/$projectId_/completed',
+    path: '/projects/$projectId/completed',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellProjectsProjectIdAggregateRoute =
   ShellProjectsProjectIdAggregateRouteImport.update({
     id: '/projects/$projectId_/aggregate',
@@ -105,6 +113,12 @@ const ShellHostHostIdProjectProjectIdRoute =
     path: '/host/$hostId/project/$projectId',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellHostHostIdProjectProjectIdCompletedRoute =
+  ShellHostHostIdProjectProjectIdCompletedRouteImport.update({
+    id: '/host/$hostId/project/$projectId_/completed',
+    path: '/host/$hostId/project/$projectId/completed',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellHostHostIdProjectProjectIdSessionSessionIdRoute =
   ShellHostHostIdProjectProjectIdSessionSessionIdRouteImport.update({
     id: '/host/$hostId/project/$projectId_/session/$sessionId',
@@ -123,10 +137,12 @@ export interface FileRoutesByFullPath {
   '/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
   '/sessions/': typeof ShellSessionsIndexRoute
   '/projects/$projectId/aggregate': typeof ShellProjectsProjectIdAggregateRoute
+  '/projects/$projectId/completed': typeof ShellProjectsProjectIdCompletedRoute
   '/projects/$projectId/settings': typeof ShellProjectsProjectIdSettingsRoute
   '/host/$hostId/project/$projectId': typeof ShellHostHostIdProjectProjectIdRoute
   '/host/$hostId/session/$sessionId': typeof ShellHostHostIdSessionSessionIdRoute
   '/projects/$projectId/sessions/$sessionId': typeof ShellProjectsProjectIdSessionsSessionIdRoute
+  '/host/$hostId/project/$projectId/completed': typeof ShellHostHostIdProjectProjectIdCompletedRoute
   '/host/$hostId/project/$projectId/session/$sessionId': typeof ShellHostHostIdProjectProjectIdSessionSessionIdRoute
 }
 export interface FileRoutesByTo {
@@ -139,10 +155,12 @@ export interface FileRoutesByTo {
   '/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
   '/sessions': typeof ShellSessionsIndexRoute
   '/projects/$projectId/aggregate': typeof ShellProjectsProjectIdAggregateRoute
+  '/projects/$projectId/completed': typeof ShellProjectsProjectIdCompletedRoute
   '/projects/$projectId/settings': typeof ShellProjectsProjectIdSettingsRoute
   '/host/$hostId/project/$projectId': typeof ShellHostHostIdProjectProjectIdRoute
   '/host/$hostId/session/$sessionId': typeof ShellHostHostIdSessionSessionIdRoute
   '/projects/$projectId/sessions/$sessionId': typeof ShellProjectsProjectIdSessionsSessionIdRoute
+  '/host/$hostId/project/$projectId/completed': typeof ShellHostHostIdProjectProjectIdCompletedRoute
   '/host/$hostId/project/$projectId/session/$sessionId': typeof ShellHostHostIdProjectProjectIdSessionSessionIdRoute
 }
 export interface FileRoutesById {
@@ -158,10 +176,12 @@ export interface FileRoutesById {
   '/_shell/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
   '/_shell/sessions/': typeof ShellSessionsIndexRoute
   '/_shell/projects/$projectId_/aggregate': typeof ShellProjectsProjectIdAggregateRoute
+  '/_shell/projects/$projectId_/completed': typeof ShellProjectsProjectIdCompletedRoute
   '/_shell/projects/$projectId_/settings': typeof ShellProjectsProjectIdSettingsRoute
   '/_shell/host/$hostId/project/$projectId': typeof ShellHostHostIdProjectProjectIdRoute
   '/_shell/host/$hostId/session/$sessionId': typeof ShellHostHostIdSessionSessionIdRoute
   '/_shell/projects/$projectId_/sessions/$sessionId': typeof ShellProjectsProjectIdSessionsSessionIdRoute
+  '/_shell/host/$hostId/project/$projectId_/completed': typeof ShellHostHostIdProjectProjectIdCompletedRoute
   '/_shell/host/$hostId/project/$projectId_/session/$sessionId': typeof ShellHostHostIdProjectProjectIdSessionSessionIdRoute
 }
 export interface FileRouteTypes {
@@ -177,10 +197,12 @@ export interface FileRouteTypes {
     | '/sessions/$sessionId'
     | '/sessions/'
     | '/projects/$projectId/aggregate'
+    | '/projects/$projectId/completed'
     | '/projects/$projectId/settings'
     | '/host/$hostId/project/$projectId'
     | '/host/$hostId/session/$sessionId'
     | '/projects/$projectId/sessions/$sessionId'
+    | '/host/$hostId/project/$projectId/completed'
     | '/host/$hostId/project/$projectId/session/$sessionId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -193,10 +215,12 @@ export interface FileRouteTypes {
     | '/sessions/$sessionId'
     | '/sessions'
     | '/projects/$projectId/aggregate'
+    | '/projects/$projectId/completed'
     | '/projects/$projectId/settings'
     | '/host/$hostId/project/$projectId'
     | '/host/$hostId/session/$sessionId'
     | '/projects/$projectId/sessions/$sessionId'
+    | '/host/$hostId/project/$projectId/completed'
     | '/host/$hostId/project/$projectId/session/$sessionId'
   id:
     | '__root__'
@@ -211,10 +235,12 @@ export interface FileRouteTypes {
     | '/_shell/sessions/$sessionId'
     | '/_shell/sessions/'
     | '/_shell/projects/$projectId_/aggregate'
+    | '/_shell/projects/$projectId_/completed'
     | '/_shell/projects/$projectId_/settings'
     | '/_shell/host/$hostId/project/$projectId'
     | '/_shell/host/$hostId/session/$sessionId'
     | '/_shell/projects/$projectId_/sessions/$sessionId'
+    | '/_shell/host/$hostId/project/$projectId_/completed'
     | '/_shell/host/$hostId/project/$projectId_/session/$sessionId'
   fileRoutesById: FileRoutesById
 }
@@ -301,6 +327,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellProjectsProjectIdSettingsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/projects/$projectId_/completed': {
+      id: '/_shell/projects/$projectId_/completed'
+      path: '/projects/$projectId/completed'
+      fullPath: '/projects/$projectId/completed'
+      preLoaderRoute: typeof ShellProjectsProjectIdCompletedRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/projects/$projectId_/aggregate': {
       id: '/_shell/projects/$projectId_/aggregate'
       path: '/projects/$projectId/aggregate'
@@ -327,6 +360,13 @@ declare module '@tanstack/react-router' {
       path: '/host/$hostId/project/$projectId'
       fullPath: '/host/$hostId/project/$projectId'
       preLoaderRoute: typeof ShellHostHostIdProjectProjectIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/host/$hostId/project/$projectId_/completed': {
+      id: '/_shell/host/$hostId/project/$projectId_/completed'
+      path: '/host/$hostId/project/$projectId/completed'
+      fullPath: '/host/$hostId/project/$projectId/completed'
+      preLoaderRoute: typeof ShellHostHostIdProjectProjectIdCompletedRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/host/$hostId/project/$projectId_/session/$sessionId': {
@@ -362,10 +402,12 @@ interface ShellRouteChildren {
   ShellIndexRoute: typeof ShellIndexRoute
   ShellProjectsProjectIdRoute: typeof ShellProjectsProjectIdRoute
   ShellProjectsProjectIdAggregateRoute: typeof ShellProjectsProjectIdAggregateRoute
+  ShellProjectsProjectIdCompletedRoute: typeof ShellProjectsProjectIdCompletedRoute
   ShellProjectsProjectIdSettingsRoute: typeof ShellProjectsProjectIdSettingsRoute
   ShellHostHostIdProjectProjectIdRoute: typeof ShellHostHostIdProjectProjectIdRoute
   ShellHostHostIdSessionSessionIdRoute: typeof ShellHostHostIdSessionSessionIdRoute
   ShellProjectsProjectIdSessionsSessionIdRoute: typeof ShellProjectsProjectIdSessionsSessionIdRoute
+  ShellHostHostIdProjectProjectIdCompletedRoute: typeof ShellHostHostIdProjectProjectIdCompletedRoute
   ShellHostHostIdProjectProjectIdSessionSessionIdRoute: typeof ShellHostHostIdProjectProjectIdSessionSessionIdRoute
 }
 
@@ -378,11 +420,14 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellIndexRoute: ShellIndexRoute,
   ShellProjectsProjectIdRoute: ShellProjectsProjectIdRoute,
   ShellProjectsProjectIdAggregateRoute: ShellProjectsProjectIdAggregateRoute,
+  ShellProjectsProjectIdCompletedRoute: ShellProjectsProjectIdCompletedRoute,
   ShellProjectsProjectIdSettingsRoute: ShellProjectsProjectIdSettingsRoute,
   ShellHostHostIdProjectProjectIdRoute: ShellHostHostIdProjectProjectIdRoute,
   ShellHostHostIdSessionSessionIdRoute: ShellHostHostIdSessionSessionIdRoute,
   ShellProjectsProjectIdSessionsSessionIdRoute:
     ShellProjectsProjectIdSessionsSessionIdRoute,
+  ShellHostHostIdProjectProjectIdCompletedRoute:
+    ShellHostHostIdProjectProjectIdCompletedRoute,
   ShellHostHostIdProjectProjectIdSessionSessionIdRoute:
     ShellHostHostIdProjectProjectIdSessionSessionIdRoute,
 }
