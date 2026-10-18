@@ -41,8 +41,9 @@ Build arguments:
 `.github/workflows/agent-pins.yml`, which opens a PR and runs the Hub image
 check when a pin drifts. The same workflow updates the hub's
 `HUB_AGENT_NPM_PACKAGES` and `HUB_OPENCODE_V2_PACKAGE` pins. To preview the
-change locally, run `node deploy/railway/scripts/update-agent-pins.mjs
---dry-run` from the repository root.
+change locally, run
+`node deploy/railway/scripts/update-agent-pins.mjs --dry-run` from the
+repository root.
 
 `gh` comes from GitHub's official apt repository. That repository serves only
 the latest release, so the `gh` version follows the build date.
