@@ -59,14 +59,12 @@ func (c *ReportsController) list(w http.ResponseWriter, r *http.Request) {
 		apispec.NotImplemented(w, r, "GET", "/api/v1/reports")
 		return
 	}
-	_ = reader
-	_ = pager
 	projectID := domain.ProjectID(r.URL.Query().Get("projectId"))
 	if projectID == "" {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "REPORT_PROJECT_REQUIRED", "Project id is required", nil)
 		return
 	}
-	limit := 0
+	limit := reportsvc.DefaultListProjectLimit
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed <= 0 {

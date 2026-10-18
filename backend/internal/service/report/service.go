@@ -457,6 +457,3 @@ func encodedReportBytes(r domain.ReportRecord) int {
 	}
 	return len(encoded) + 128
 }
-
-// ListDuePending returns one worker's pending, due reports.
-// It preserves local batching and settlement delays;

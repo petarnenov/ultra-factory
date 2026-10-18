@@ -155,3 +155,76 @@ func TestCreateShowsEachReportedArtifactAfterTheReportIsStored(t *testing.T) {
 		t.Fatalf("unknown session: err = %v, recorded %q", err, calls)
 	}
 }
+
+func TestListProjectPageWalksCursorAcrossStableTies(t *testing.T) {
+	at := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	st := &fakeStore{
+		ok:      true,
+		session: domain.SessionRecord{ID: "same-id", Harness: "codex", DisplayName: "local worker"},
+		reports: []domain.ReportRecord{
+			{ID: "local-newer", SessionID: "same-id", CreatedAt: at.Add(time.Minute)},
+			{ID: "local-a", SessionID: "same-id", CreatedAt: at},
+			{ID: "remote-b", SessionID: "same-id", HostID: "host-remote", HostLabel: "build box", CreatedAt: at},
+		},
+	}
+	s := New(Deps{Store: st})
+	first, err := s.ListProjectPage(context.Background(), "ao", ListProjectFilter{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Reports) != 2 || first.Reports[0].ID != "local-newer" || first.Reports[1].ID != "remote-b" || first.NextCursor == "" {
+		t.Fatalf("first page = %+v", first)
+	}
+	second, err := s.ListProjectPage(context.Background(), "ao", ListProjectFilter{Limit: 2, Cursor: first.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Reports) != 1 || second.Reports[0].ID != "local-a" || second.NextCursor != "" {
+		t.Fatalf("second page = %+v", second)
+	}
+	seen := map[string]bool{}
+	for _, page := range [][]domain.ReportRecord{first.Reports, second.Reports} {
+		for _, record := range page {
+			if seen[record.ID] {
+				t.Fatalf("duplicate report %s", record.ID)
+			}
+			seen[record.ID] = true
+		}
+	}
+}
+
+func TestListProjectPageUsesSelfHostNameAndKeepsRemoteLabel(t *testing.T) {
+	at := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	st := &fakeStore{
+		ok:      true,
+		session: domain.SessionRecord{ID: "worker", Harness: "codex", DisplayName: "local worker"},
+		reports: []domain.ReportRecord{
+			{ID: "local", SessionID: "worker", CreatedAt: at},
+			{ID: "remote", SessionID: "worker", HostID: "host-remote", HostLabel: "build box", CreatedAt: at},
+		},
+	}
+	s := New(Deps{Store: st, SelfHostID: "h_local", SelfHostName: "devbox"})
+	s.SetSelfHostName("devbox")
+	page, err := s.ListProjectPage(context.Background(), "ao", ListProjectFilter{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]domain.ReportRecord{}
+	for _, report := range page.Reports {
+		byID[report.ID] = report
+	}
+	if byID["local"].HostLabel != "devbox" {
+		t.Fatalf("local host label = %q", byID["local"].HostLabel)
+	}
+	if byID["remote"].HostLabel != "build box" {
+		t.Fatalf("remote host label = %q", byID["remote"].HostLabel)
+	}
+}
+
+func TestListProjectPageRejectsMalformedCursor(t *testing.T) {
+	st := &fakeStore{reports: []domain.ReportRecord{{ID: "r", CreatedAt: time.Now().UTC()}}}
+	_, err := New(Deps{Store: st}).ListProjectPage(context.Background(), "ao", ListProjectFilter{Cursor: "not-base64!!!"})
+	if err == nil {
+		t.Fatal("expected cursor error")
+	}
+}
