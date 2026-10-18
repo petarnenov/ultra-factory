@@ -26,6 +26,19 @@ assert_contains() {
 	esac
 }
 
+assert_json() {
+	local value
+	value="$(python3 -c '
+import json, sys
+
+doc = json.load(open(sys.argv[1]))
+for key in sys.argv[2].split("."):
+    doc = doc[key]
+print(doc)
+' "$1" "$2")"
+	assert_eq "$value" "$3" "$4"
+}
+
 # A fake daemon whose state follows the .ready/.port files next to it.
 make_daemon() {
 	local path="$1" commit="$2" built="${3:-2026-01-01T00:00:00Z}"
@@ -308,7 +321,8 @@ PY
 		out="$(run_update 1 rollback-unready apply --ready-timeout 4 --manifest-url "$tmp/manifest.json" 2>&1 || true)"
 		assert_contains "rolling back" "$out" "rollback message"
 		assert_eq "$("$install/daemon/ao" version | awk '{print $3}')" "aaaa111" "previous build restored"
-		assert_contains '"outcome": "rolled-back"' "$(cat "$HOME/.ao/self-update/state.json")" "rollback state"
+		assert_json "$HOME/.ao/self-update/state.json" outcome rolled-back "rollback state"
+		assert_json "$HOME/.ao/self-update/state.json" to.commit aaaa111 "rollback destination"
 		ok rollback-unready
 		;;
 	rollback)
@@ -322,6 +336,7 @@ PY
 		out="$(run_update 0 rollback rollback)"
 		assert_contains "outcome: rolled-back" "$out" "rollback outcome"
 		assert_eq "$("$install/daemon/ao" version | awk '{print $3}')" "aaaa111" "previous build restored"
+		assert_json "$HOME/.ao/self-update/state.json" to.commit aaaa111 "rollback destination"
 		ok rollback
 		;;
 	apply-binary)
@@ -357,6 +372,10 @@ PY
 		[[ -L "$release_root/current" ]] || fail "current is no longer a symlink"
 		[[ -x "$release_root/current/resources/tmux/bin/tmux" ]] || fail "tmux was not preserved"
 		[[ -d "$release_root/releases/20260101000000-1" ]] || fail "previous release was pruned too early"
+		out="$(run_update 0 apply-release rollback --ready-timeout 8)"
+		assert_contains "outcome: rolled-back" "$out" "release rollback"
+		assert_eq "$("$release_root/current/resources/daemon/ao" version | awk '{print $3}')" "aaaa111" "release rolled back"
+		assert_json "$HOME/.ao/self-update/state.json" to.commit aaaa111 "release rollback destination"
 		ok apply-release
 		;;
 	all)
