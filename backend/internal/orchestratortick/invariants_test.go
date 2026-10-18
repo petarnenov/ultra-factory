@@ -111,6 +111,14 @@ func TestCheckSummary(t *testing.T) {
 }
 
 func TestConfigFromEnv(t *testing.T) {
+	defaults, err := ConfigFromEnv(func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Interval != 3*time.Minute {
+		t.Fatalf("default interval = %s, want 3m", defaults.Interval)
+	}
+
 	env := map[string]string{
 		"RW_TICK_PROJECT": "p", "RW_TICK_HOSTS": "A  B", "RW_TICK_INTERVAL": "60",
 		"RW_TICK_RENUDGE_MINUTES": "5", "RW_TICK_PAUSED": "1", "RW_TICK_REPO": "o/r",

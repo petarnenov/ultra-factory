@@ -399,7 +399,8 @@ ships, is versioned and is tested with the rest of AO.
   `REPO`, `BASE`, `MAIN`, `ISSUE_LABEL`, `BRANCH_PREFIX`, `INTERVAL` and
   `TIMEOUT` (seconds), `RENUDGE_MINUTES`, `VIOLATION_RENUDGE_MINUTES`,
   `GREEN_PR_MAX_MINUTES`, `IDLE_WORKER_MAX_MINUTES`, `AGENT_MIX_SINCE`
-  (RFC 3339), `PAUSED`. An invalid value stops the command with an error.
+  (RFC 3339), `PAUSED`. `RW_TICK_INTERVAL` defaults to 180 seconds (3 minutes);
+  an explicit value overrides it. An invalid value stops the command with an error.
 - **Logs and state.** Each tick writes one structured (logfmt) line to stderr,
   which is the service log; violations are logged as warnings. State lives in
   `$AO_DATA_DIR/orchestrator-tick/` (`/data/ao/orchestrator-tick/`, mode
