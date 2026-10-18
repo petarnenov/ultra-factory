@@ -3096,7 +3096,8 @@ Task: Address the feedback below according to its wording. Visual adjustments ar
 			<OriginMessage message={{
 				...source,
 				origin: "automation",
-				text: `<ao-report-delivery id="report-batch:abc123">\\n${text}\\n</ao-report-delivery>`,
+				clientMessageId: "report-batch:abc123",
+				text: "<ao-report-delivery id=\"report-batch:abc123\">\n" + text + "\n</ao-report-delivery>",
 			}} />,
 		);
 

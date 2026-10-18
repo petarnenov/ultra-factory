@@ -729,7 +729,7 @@ export function HumanMessage({
  */
 export function OriginMessage({ message }: { message: ConversationMessage }) {
 	const [expanded, setExpanded] = useState(false);
-	if (isReportDeliveryEnvelope(message.text)) {
+	if (message.origin === "automation" && isReportDeliveryEnvelope(message.text)) {
 		return null;
 	}
 	const browserAnnotations = parseBrowserAnnotationMessage(message.text);

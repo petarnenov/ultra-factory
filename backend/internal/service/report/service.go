@@ -85,12 +85,26 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 	if err != nil {
 		return nil, err
 	}
+	type sessionSource struct {
+		found   bool
+		name    string
+		harness domain.AgentHarness
+	}
+	sources := map[domain.SessionID]sessionSource{}
 	for i := range reports {
 		if reports[i].HostID == "" {
 			reports[i].SourceProjectID = string(reports[i].ProjectID)
-			if session, found, lookupErr := s.store.GetSession(ctx, reports[i].SessionID); lookupErr == nil && found {
-				reports[i].SessionDisplayName = strings.TrimSpace(session.DisplayName)
-				reports[i].Agent = string(session.Harness)
+			source, cached := sources[reports[i].SessionID]
+			if !cached {
+				session, found, lookupErr := s.store.GetSession(ctx, reports[i].SessionID)
+				if lookupErr == nil && found {
+					source = sessionSource{found: true, name: strings.TrimSpace(session.DisplayName), harness: session.Harness}
+				}
+				sources[reports[i].SessionID] = source
+			}
+			if source.found {
+				reports[i].SessionDisplayName = source.name
+				reports[i].Agent = string(source.harness)
 			}
 		}
 	}
