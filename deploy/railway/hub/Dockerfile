@@ -1,23 +1,23 @@
 # syntax=docker/dockerfile:1
 
 # AO hub image for Railway: the public web UI, the hub BFF, and the daemon
-# that backs the hub's own board, in one service. The final stage extends the
-# worker image (deploy/railway/worker/Dockerfile), so the daemon, its agent
-# CLIs, and tini are the same as on a worker.
-#
-# Build context is the REPO ROOT. Build the worker image first, or point
-# AO_WORKER_IMAGE at a published tag:
-#   docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
-#   docker build -f deploy/railway/hub/Dockerfile -t ao-hub:dev .
-#   docker build -f deploy/railway/hub/Dockerfile \
-#     --build-arg AO_WORKER_IMAGE=ghcr.io/<owner>/ao-worker:<tag> -t ao-hub:dev .
-#
+# that backs the hub's own board, in one service.
+
+# The final stage extends the `ao-worker` named build context, which
+# deploy/railway/docker-bake.hcl wires to the worker target built from this
+# same checkout, so the daemon, its agent CLIs, and tini match the commit.
+
+# Build context is the REPO ROOT; from the repository root run:
+#   docker buildx bake -f deploy/railway/docker-bake.hcl hub
+# The base may also be any worker image:
+#   docker buildx build -f deploy/railway/hub/Dockerfile \
+#     --build-context ao-worker=docker-image://ao-worker:dev -t ao-hub:dev .
+
 # Runtime configuration is set on the service, never baked in. The operator
 # sets AO_WEB_PASSWORD_HASH (from `npm run hash-password`); see
 # packages/hub-bff/README.md for the rest. The hub's own daemon password is
 # generated on first start and stays in the volume.
 
-ARG AO_WORKER_IMAGE=ao-worker:dev
 ARG NODE_IMAGE=node:24-bookworm-slim
 ARG TARGETARCH
 
@@ -34,8 +34,8 @@ COPY packages ./packages
 RUN npm --prefix frontend run build:web && \
     test -f frontend/dist-web/index.html
 
-# ---- stage 2: the hub on top of the worker image ----
-FROM ${AO_WORKER_IMAGE} AS hub
+# ---- stage 2: the hub on top of the worker stage ----
+FROM ao-worker AS hub
 # AO_HUB_SPA_DIR must contain index.html; the BFF refuses to start otherwise.
 ENV AO_HUB_SPA_DIR=/opt/ao/hub/dist-web \
     AO_HUB_DATA_DIR=/data/hub \

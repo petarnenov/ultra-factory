@@ -11,7 +11,8 @@ and limits (RW-4.2).
 - Security controls and residual risk:
   [threat model](../../docs/railway/threat-model.md).
 - Image build details: [hub/Dockerfile](hub/Dockerfile),
-  [worker/README.md](worker/README.md). BFF routes and configuration:
+  [worker/README.md](worker/README.md), and the build graph that ties them
+  together, [docker-bake.hcl](docker-bake.hcl). BFF routes and configuration:
   [`packages/hub-bff/README.md`](../../packages/hub-bff/README.md).
 - Decisions: ADR [0005 (trusted proxy)](../../docs/adr/0005-trusted-proxy-remote-host.md),
   [0005 (report pull)](../../docs/adr/0005-daemon-pulls-remote-worker-reports.md),
@@ -509,11 +510,13 @@ done
 Copy each locally computed hash into the matching architecture's build arg.
 The build checks the pinned hash first, then the published hash, before
 extracting the archive. Rebuild the hub for `linux/amd64` and `linux/arm64`
-when bumping the version. From the repository root, with `ao-worker:dev`
-available, this negative check must fail at archive verification:
+when bumping the version. From the repository root, build a base image and run
+this negative check, which must fail at archive verification:
 
 ```bash
-docker build --platform linux/amd64 -f deploy/railway/hub/Dockerfile \
+docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
+docker buildx build --platform linux/amd64 -f deploy/railway/hub/Dockerfile \
+  --build-context ao-worker=docker-image://ao-worker:dev \
   --build-arg TAILSCALE_SHA256_AMD64=0000000000000000000000000000000000000000000000000000000000000000 \
   -t ao-hub:checksum-negative .
 ```
@@ -521,28 +524,29 @@ docker build --platform linux/amd64 -f deploy/railway/hub/Dockerfile \
 ### Automated image publish and deploy
 
 [`.github/workflows/hub-image.yml`](../../.github/workflows/hub-image.yml)
-builds, smoke-tests, and publishes the hub image on every push to
-`feat/railway-hosting` that touches its inputs (`backend/`, `frontend/`,
-`packages/`, `deploy/railway/`, or the workflow). That branch publishes
-`ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64 only, then the deploy job
-sets the Railway `hub` service image to that tag and waits for the deployment
-to reach `SUCCESS`, with a 60 s re-check after `SUCCESS` to catch a crash loop.
-Pushes to `main` and `hub-v*` tags still publish multi-arch images and never
-deploy. Every deploy restarts the hub, as in
+builds both images from the pushed commit in one build graph and smoke-tests
+the hub, on every push to `feat/railway-hosting` that touches its inputs
+(`backend/`, `frontend/`, `packages/`, `deploy/railway/`, or the workflow).
+The base is the worker target from that same commit
+([docker-bake.hcl](docker-bake.hcl)), not a published `ao-worker` tag, so the
+hub's daemon and tools can never lag the commit it was built from. That branch
+publishes `ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64 only, then the
+deploy job sets the Railway `hub` service image to that tag and waits for the
+deployment to reach `SUCCESS`, with a 60 s re-check after `SUCCESS` to catch a
+crash loop. Pushes to `main` and `hub-v*` tags still publish multi-arch images
+and never deploy. Every deploy restarts the hub, as in
 [Hub image update](#hub-image-update). To approve each deploy instead, add
 required reviewers to the `railway-hub` environment.
 
 One-time setup (operator):
 
-1. Set the repository variable `AO_WORKER_TAG` to a published `ao-worker` tag
-   that has a linux/amd64 image. The hub image extends it.
-2. In each GHCR package's settings (`ao-hub`, `ao-worker`), under **Manage
-   Actions access**, give this repository access: write for `ao-hub`, read for
-   `ao-worker`. Packages first pushed from a laptop are not linked to the
-   repository, and `GITHUB_TOKEN` cannot push or pull them otherwise.
-3. Keep `ao-hub` pullable by Railway: public, or registry credentials on the
+1. In each GHCR package's settings (`ao-hub`, `ao-worker`), under **Manage
+   Actions access**, give this repository write access. Packages first pushed
+   from a laptop are not linked to the repository, and `GITHUB_TOKEN` cannot
+   push them otherwise.
+2. Keep `ao-hub` pullable by Railway: public, or registry credentials on the
    service.
-4. Create a Railway project token for the hub's project and environment
+3. Create a Railway project token for the hub's project and environment
    (Project Settings → Tokens). In GitHub, create the `railway-hub`
    environment with the secrets `RAILWAY_TOKEN` (that token) and
    `RAILWAY_HUB_SERVICE_ID` (the `hub` service ID). Without them the deploy
