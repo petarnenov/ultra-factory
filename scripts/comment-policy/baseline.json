@@ -5493,6 +5493,10 @@
       "blocks": 8,
       "longLines": 14
     },
+    "backend/internal/adapters/agent/mimocode/assets/ao-activity.ts": {
+      "blocks": 0,
+      "longLines": 1
+    },
     "backend/internal/adapters/agent/opencode/assets/ao-activity.ts": {
       "blocks": 7,
       "longLines": 12
@@ -5735,7 +5739,7 @@
     },
     "frontend/scripts/feed.test.mjs": {
       "blocks": 1,
-      "longLines": 0
+      "longLines": 1
     },
     "frontend/scripts/mac-differential-v2-updater.test.mjs": {
       "blocks": 0,
@@ -5779,7 +5783,7 @@
     },
     "frontend/src/main.ts": {
       "blocks": 93,
-      "longLines": 48
+      "longLines": 51
     },
     "frontend/src/main/agent-browser-cdp-bridge.ts": {
       "blocks": 1,
@@ -5851,7 +5855,7 @@
     },
     "frontend/src/main/cloud-auth.ts": {
       "blocks": 13,
-      "longLines": 12
+      "longLines": 13
     },
     "frontend/src/main/cloud-cp-proxy.ts": {
       "blocks": 5,
@@ -5867,7 +5871,7 @@
     },
     "frontend/src/main/desktop-telemetry-controller.ts": {
       "blocks": 1,
-      "longLines": 0
+      "longLines": 1
     },
     "frontend/src/main/editor-handoff.ts": {
       "blocks": 6,
@@ -6066,8 +6070,8 @@
       "longLines": 1
     },
     "frontend/src/renderer/components/ArtifactFileView.tsx": {
-      "blocks": 2,
-      "longLines": 0
+      "blocks": 3,
+      "longLines": 1
     },
     "frontend/src/renderer/components/ArtifactSelectionAsk.tsx": {
       "blocks": 1,
@@ -6075,18 +6079,18 @@
     },
     "frontend/src/renderer/components/ArtifactsView.tsx": {
       "blocks": 1,
-      "longLines": 0
+      "longLines": 1
     },
     "frontend/src/renderer/components/AutomationsView.tsx": {
       "blocks": 2,
-      "longLines": 0
+      "longLines": 2
     },
     "frontend/src/renderer/components/BrowserPanel.test.tsx": {
       "blocks": 2,
       "longLines": 0
     },
     "frontend/src/renderer/components/BrowserPanel.tsx": {
-      "blocks": 7,
+      "blocks": 8,
       "longLines": 0
     },
     "frontend/src/renderer/components/CenterPane.test.tsx": {
@@ -6095,7 +6099,7 @@
     },
     "frontend/src/renderer/components/CenterPane.tsx": {
       "blocks": 4,
-      "longLines": 6
+      "longLines": 7
     },
     "frontend/src/renderer/components/CenterPanelShell.tsx": {
       "blocks": 1,
@@ -6187,11 +6191,11 @@
     },
     "frontend/src/renderer/components/CreateProjectFlow.tsx": {
       "blocks": 21,
-      "longLines": 1
+      "longLines": 3
     },
     "frontend/src/renderer/components/CuesDialog.test.tsx": {
       "blocks": 0,
-      "longLines": 1
+      "longLines": 2
     },
     "frontend/src/renderer/components/CuesDialog.tsx": {
       "blocks": 0,
@@ -6243,11 +6247,11 @@
     },
     "frontend/src/renderer/components/HarnessUpdateNotice.tsx": {
       "blocks": 2,
-      "longLines": 7
+      "longLines": 10
     },
     "frontend/src/renderer/components/HomePage.tsx": {
       "blocks": 1,
-      "longLines": 1
+      "longLines": 2
     },
     "frontend/src/renderer/components/ImageDiffView.test.tsx": {
       "blocks": 1,
@@ -6267,7 +6271,7 @@
     },
     "frontend/src/renderer/components/KeyboardShortcutsDialog.tsx": {
       "blocks": 1,
-      "longLines": 1
+      "longLines": 2
     },
     "frontend/src/renderer/components/LazyChunkBoundary.tsx": {
       "blocks": 2,
@@ -6295,7 +6299,7 @@
     },
     "frontend/src/renderer/components/NewTaskDialog.tsx": {
       "blocks": 0,
-      "longLines": 1
+      "longLines": 2
     },
     "frontend/src/renderer/components/NotificationCenter.test.tsx": {
       "blocks": 2,
@@ -6387,7 +6391,7 @@
     },
     "frontend/src/renderer/components/SessionArtifactsView.tsx": {
       "blocks": 4,
-      "longLines": 0
+      "longLines": 1
     },
     "frontend/src/renderer/components/SessionBranchSummary.tsx": {
       "blocks": 0,
@@ -6398,8 +6402,8 @@
       "longLines": 2
     },
     "frontend/src/renderer/components/SessionFileExplorer.tsx": {
-      "blocks": 3,
-      "longLines": 1
+      "blocks": 6,
+      "longLines": 3
     },
     "frontend/src/renderer/components/SessionFileTabs.tsx": {
       "blocks": 1,
@@ -6410,12 +6414,16 @@
       "longLines": 1
     },
     "frontend/src/renderer/components/SessionInspector.tsx": {
-      "blocks": 11,
+      "blocks": 12,
       "longLines": 9
     },
     "frontend/src/renderer/components/SessionInspectorRail.tsx": {
       "blocks": 2,
       "longLines": 2
+    },
+    "frontend/src/renderer/components/SessionInterfaceSwitch.tsx": {
+      "blocks": 0,
+      "longLines": 1
     },
     "frontend/src/renderer/components/SessionLinkPreviewCard.tsx": {
       "blocks": 1,
@@ -6427,7 +6435,7 @@
     },
     "frontend/src/renderer/components/SessionMemoryPanel.tsx": {
       "blocks": 14,
-      "longLines": 9
+      "longLines": 10
     },
     "frontend/src/renderer/components/SessionView.remote.test.tsx": {
       "blocks": 0,
@@ -6438,7 +6446,7 @@
       "longLines": 6
     },
     "frontend/src/renderer/components/SessionView.tsx": {
-      "blocks": 28,
+      "blocks": 30,
       "longLines": 9
     },
     "frontend/src/renderer/components/SessionsBoard.test.tsx": {
@@ -6446,7 +6454,7 @@
       "longLines": 3
     },
     "frontend/src/renderer/components/SessionsBoard.tsx": {
-      "blocks": 5,
+      "blocks": 6,
       "longLines": 2
     },
     "frontend/src/renderer/components/SessionsBoardAdapters.tsx": {
@@ -6459,7 +6467,7 @@
     },
     "frontend/src/renderer/components/SettingsDialog.tsx": {
       "blocks": 8,
-      "longLines": 10
+      "longLines": 11
     },
     "frontend/src/renderer/components/SettingsPageTestHarness.tsx": {
       "blocks": 0,
@@ -6482,7 +6490,7 @@
       "longLines": 1
     },
     "frontend/src/renderer/components/ShellTopbar.tsx": {
-      "blocks": 5,
+      "blocks": 6,
       "longLines": 8
     },
     "frontend/src/renderer/components/Sidebar.test.tsx": {
@@ -6490,8 +6498,8 @@
       "longLines": 12
     },
     "frontend/src/renderer/components/Sidebar.tsx": {
-      "blocks": 40,
-      "longLines": 34
+      "blocks": 43,
+      "longLines": 39
     },
     "frontend/src/renderer/components/SwitchAgentDialog.tsx": {
       "blocks": 8,
@@ -6507,14 +6515,14 @@
     },
     "frontend/src/renderer/components/TaskComposer.tsx": {
       "blocks": 9,
-      "longLines": 5
+      "longLines": 6
     },
     "frontend/src/renderer/components/TerminalPane.test.tsx": {
       "blocks": 3,
       "longLines": 1
     },
     "frontend/src/renderer/components/TerminalPane.tsx": {
-      "blocks": 37,
+      "blocks": 39,
       "longLines": 14
     },
     "frontend/src/renderer/components/TerminalSearch.tsx": {
@@ -6534,7 +6542,7 @@
       "longLines": 0
     },
     "frontend/src/renderer/components/TopbarOpenEditorButton.tsx": {
-      "blocks": 1,
+      "blocks": 2,
       "longLines": 0
     },
     "frontend/src/renderer/components/WindowTitlebar.test.tsx": {
@@ -6542,7 +6550,7 @@
       "longLines": 0
     },
     "frontend/src/renderer/components/WindowTitlebar.tsx": {
-      "blocks": 4,
+      "blocks": 5,
       "longLines": 5
     },
     "frontend/src/renderer/components/WorkspaceDiffView.test.tsx": {
@@ -6551,7 +6559,7 @@
     },
     "frontend/src/renderer/components/WorkspaceDiffView.tsx": {
       "blocks": 11,
-      "longLines": 5
+      "longLines": 6
     },
     "frontend/src/renderer/components/XtermTerminal.test.tsx": {
       "blocks": 6,
@@ -6574,7 +6582,7 @@
       "longLines": 8
     },
     "frontend/src/renderer/components/chat/ChatComposer.tsx": {
-      "blocks": 19,
+      "blocks": 20,
       "longLines": 34
     },
     "frontend/src/renderer/components/chat/ChatImage.tsx": {
@@ -6586,7 +6594,7 @@
       "longLines": 3
     },
     "frontend/src/renderer/components/chat/ChatMarkdown.tsx": {
-      "blocks": 12,
+      "blocks": 13,
       "longLines": 22
     },
     "frontend/src/renderer/components/chat/ChatProviderSignal.test.tsx": {
@@ -6614,16 +6622,16 @@
       "longLines": 2
     },
     "frontend/src/renderer/components/chat/ChatTimelineItems.tsx": {
-      "blocks": 47,
-      "longLines": 81
+      "blocks": 48,
+      "longLines": 82
     },
     "frontend/src/renderer/components/chat/ChatWorkspace.test.tsx": {
       "blocks": 5,
       "longLines": 22
     },
     "frontend/src/renderer/components/chat/ChatWorkspace.tsx": {
-      "blocks": 60,
-      "longLines": 110
+      "blocks": 63,
+      "longLines": 112
     },
     "frontend/src/renderer/components/chat/ChatWorkspaceProviderState.test.tsx": {
       "blocks": 1,
@@ -6639,11 +6647,11 @@
     },
     "frontend/src/renderer/components/chat/CloudSessionChatSurface.tsx": {
       "blocks": 1,
-      "longLines": 1
+      "longLines": 4
     },
     "frontend/src/renderer/components/chat/ComposerEditor.tsx": {
       "blocks": 4,
-      "longLines": 7
+      "longLines": 8
     },
     "frontend/src/renderer/components/chat/ComposerSuggestMenu.tsx": {
       "blocks": 3,
@@ -6690,7 +6698,7 @@
       "longLines": 0
     },
     "frontend/src/renderer/components/chat/MermaidBlock.tsx": {
-      "blocks": 5,
+      "blocks": 6,
       "longLines": 1
     },
     "frontend/src/renderer/components/chat/ModelMenuChoices.tsx": {
@@ -6735,7 +6743,7 @@
     },
     "frontend/src/renderer/components/chat/TurnPlan.tsx": {
       "blocks": 2,
-      "longLines": 9
+      "longLines": 10
     },
     "frontend/src/renderer/components/chat/TurnSettingsBar.test.tsx": {
       "blocks": 0,
@@ -6744,6 +6752,10 @@
     "frontend/src/renderer/components/chat/TurnSettingsBar.tsx": {
       "blocks": 12,
       "longLines": 21
+    },
+    "frontend/src/renderer/components/chat/TurnWorkSummary.tsx": {
+      "blocks": 0,
+      "longLines": 2
     },
     "frontend/src/renderer/components/chat/action-pill.ts": {
       "blocks": 1,
@@ -6798,7 +6810,7 @@
       "longLines": 1
     },
     "frontend/src/renderer/components/diffs/WorkspaceReviewPane.tsx": {
-      "blocks": 7,
+      "blocks": 11,
       "longLines": 6
     },
     "frontend/src/renderer/components/diffs/pierreTheme.ts": {
@@ -6834,7 +6846,7 @@
       "longLines": 1
     },
     "frontend/src/renderer/components/markdown/MarkdownFileView.tsx": {
-      "blocks": 5,
+      "blocks": 6,
       "longLines": 2
     },
     "frontend/src/renderer/components/markdown/MarkdownImage.tsx": {
@@ -6847,7 +6859,7 @@
     },
     "frontend/src/renderer/components/settings/AgentModelCombobox.tsx": {
       "blocks": 1,
-      "longLines": 3
+      "longLines": 4
     },
     "frontend/src/renderer/components/settings/AgentProviderGroup.tsx": {
       "blocks": 1,
@@ -6886,12 +6898,12 @@
       "longLines": 0
     },
     "frontend/src/renderer/components/settings/ConnectMobileContent.tsx": {
-      "blocks": 13,
+      "blocks": 19,
       "longLines": 0
     },
     "frontend/src/renderer/components/settings/ConnectMobileGetApp.tsx": {
       "blocks": 2,
-      "longLines": 0
+      "longLines": 1
     },
     "frontend/src/renderer/components/settings/ConnectMobileSetup.tsx": {
       "blocks": 4,
@@ -6942,7 +6954,7 @@
       "longLines": 0
     },
     "frontend/src/renderer/components/settings/PairingQr.tsx": {
-      "blocks": 3,
+      "blocks": 5,
       "longLines": 0
     },
     "frontend/src/renderer/components/settings/ProjectAgentRoleControls.tsx": {
@@ -6978,24 +6990,28 @@
       "longLines": 0
     },
     "frontend/src/renderer/components/settings/UpdatesSection.tsx": {
-      "blocks": 10,
-      "longLines": 4
+      "blocks": 14,
+      "longLines": 5
     },
     "frontend/src/renderer/components/settings/harness/CloudHarnessContent.tsx": {
       "blocks": 1,
       "longLines": 0
     },
+    "frontend/src/renderer/components/settings/harness/HarnessAccountTab.tsx": {
+      "blocks": 0,
+      "longLines": 1
+    },
     "frontend/src/renderer/components/settings/harness/HarnessHealthTab.tsx": {
       "blocks": 0,
-      "longLines": 2
+      "longLines": 3
     },
     "frontend/src/renderer/components/settings/harness/HarnessModelsPanel.tsx": {
       "blocks": 0,
-      "longLines": 8
+      "longLines": 9
     },
     "frontend/src/renderer/components/settings/harness/LocalHarnessContent.tsx": {
       "blocks": 6,
-      "longLines": 8
+      "longLines": 11
     },
     "frontend/src/renderer/components/settings/harness/describe-harness.ts": {
       "blocks": 0,
@@ -7062,7 +7078,7 @@
       "longLines": 1
     },
     "frontend/src/renderer/components/ui/sidebar.tsx": {
-      "blocks": 2,
+      "blocks": 3,
       "longLines": 2
     },
     "frontend/src/renderer/components/ui/switch.tsx": {
@@ -7110,7 +7126,7 @@
       "longLines": 1
     },
     "frontend/src/renderer/hooks/useBrowserView.ts": {
-      "blocks": 30,
+      "blocks": 31,
       "longLines": 7
     },
     "frontend/src/renderer/hooks/useCanResumeAgent.ts": {
@@ -7186,7 +7202,7 @@
       "longLines": 1
     },
     "frontend/src/renderer/hooks/useDiffHighlight.ts": {
-      "blocks": 4,
+      "blocks": 5,
       "longLines": 9
     },
     "frontend/src/renderer/hooks/useEditorHandoff.test.ts": {
@@ -7289,6 +7305,10 @@
       "blocks": 0,
       "longLines": 1
     },
+    "frontend/src/renderer/hooks/useRemoteHosts.ts": {
+      "blocks": 0,
+      "longLines": 1
+    },
     "frontend/src/renderer/hooks/useRemoteNotifications.ts": {
       "blocks": 0,
       "longLines": 1
@@ -7322,7 +7342,7 @@
       "longLines": 15
     },
     "frontend/src/renderer/hooks/useSessionBrowserLink.ts": {
-      "blocks": 3,
+      "blocks": 4,
       "longLines": 0
     },
     "frontend/src/renderer/hooks/useSessionHandoffMenu.ts": {
@@ -7675,7 +7695,7 @@
     },
     "frontend/src/renderer/lib/daemon-telemetry.ts": {
       "blocks": 1,
-      "longLines": 1
+      "longLines": 2
     },
     "frontend/src/renderer/lib/diff-highlight.test.ts": {
       "blocks": 0,
@@ -7703,7 +7723,7 @@
     },
     "frontend/src/renderer/lib/event-transport.ts": {
       "blocks": 13,
-      "longLines": 8
+      "longLines": 9
     },
     "frontend/src/renderer/lib/events-connection.ts": {
       "blocks": 1,
@@ -8010,8 +8030,8 @@
       "longLines": 1
     },
     "frontend/src/renderer/routes/_shell.tsx": {
-      "blocks": 29,
-      "longLines": 5
+      "blocks": 35,
+      "longLines": 7
     },
     "frontend/src/renderer/stores/coder-session-options-store.ts": {
       "blocks": 3,
@@ -8021,6 +8041,10 @@
       "blocks": 1,
       "longLines": 0
     },
+    "frontend/src/renderer/stores/locale-store.ts": {
+      "blocks": 0,
+      "longLines": 1
+    },
     "frontend/src/renderer/stores/session-git-action-store.ts": {
       "blocks": 0,
       "longLines": 2
@@ -8029,9 +8053,17 @@
       "blocks": 1,
       "longLines": 1
     },
+    "frontend/src/renderer/stores/sound-notifications-store.ts": {
+      "blocks": 0,
+      "longLines": 1
+    },
     "frontend/src/renderer/stores/terminal-reset-store.ts": {
       "blocks": 3,
       "longLines": 6
+    },
+    "frontend/src/renderer/stores/terminal-shell-store.ts": {
+      "blocks": 0,
+      "longLines": 1
     },
     "frontend/src/renderer/stores/ui-store.ts": {
       "blocks": 13,
@@ -8062,7 +8094,7 @@
       "longLines": 71
     },
     "frontend/src/renderer/types/terminal.ts": {
-      "blocks": 0,
+      "blocks": 1,
       "longLines": 1
     },
     "frontend/src/renderer/types/workspace.test.ts": {
@@ -8221,17 +8253,21 @@
       "blocks": 2,
       "longLines": 11
     },
-    "packages/mobile/app/(tabs)/index.tsx": {
-      "blocks": 4,
+    "packages/mobile/app/(tabs)/_layout.tsx": {
+      "blocks": 1,
       "longLines": 0
     },
+    "packages/mobile/app/(tabs)/index.tsx": {
+      "blocks": 5,
+      "longLines": 1
+    },
     "packages/mobile/app/(tabs)/prs.tsx": {
-      "blocks": 2,
+      "blocks": 3,
       "longLines": 0
     },
     "packages/mobile/app/_layout.tsx": {
-      "blocks": 12,
-      "longLines": 8
+      "blocks": 16,
+      "longLines": 9
     },
     "packages/mobile/app/notifications.tsx": {
       "blocks": 1,
@@ -8250,11 +8286,11 @@
       "longLines": 0
     },
     "packages/mobile/app/review/[sessionId].tsx": {
-      "blocks": 0,
-      "longLines": 1
+      "blocks": 1,
+      "longLines": 3
     },
     "packages/mobile/app/session/[id].tsx": {
-      "blocks": 3,
+      "blocks": 4,
       "longLines": 2
     },
     "packages/mobile/app/settings/index.tsx": {
@@ -8282,7 +8318,7 @@
       "longLines": 0
     },
     "packages/mobile/app/spawn.tsx": {
-      "blocks": 4,
+      "blocks": 6,
       "longLines": 1
     },
     "packages/mobile/babel.config.js": {
@@ -8303,6 +8339,10 @@
     },
     "packages/mobile/lib/BoardRowTransition.tsx": {
       "blocks": 1,
+      "longLines": 1
+    },
+    "packages/mobile/lib/EnvironmentMachineRow.tsx": {
+      "blocks": 0,
       "longLines": 1
     },
     "packages/mobile/lib/ManualConnectSheet.tsx": {
@@ -8433,9 +8473,17 @@
       "blocks": 3,
       "longLines": 2
     },
+    "packages/mobile/lib/chat/ChatAttachmentMenu.android.tsx": {
+      "blocks": 1,
+      "longLines": 0
+    },
     "packages/mobile/lib/chat/ChatAttachmentMenu.test.tsx": {
       "blocks": 1,
       "longLines": 0
+    },
+    "packages/mobile/lib/chat/ChatAttachmentMenu.tsx": {
+      "blocks": 0,
+      "longLines": 1
     },
     "packages/mobile/lib/chat/ChatComposer.quotes.test.tsx": {
       "blocks": 0,
@@ -8487,7 +8535,7 @@
     },
     "packages/mobile/lib/chat/ChatTimeline.tsx": {
       "blocks": 8,
-      "longLines": 8
+      "longLines": 9
     },
     "packages/mobile/lib/chat/ChatTurnSettingsControl.ios.tsx": {
       "blocks": 1,
@@ -8502,7 +8550,7 @@
       "longLines": 0
     },
     "packages/mobile/lib/chat/RequestCard.tsx": {
-      "blocks": 1,
+      "blocks": 2,
       "longLines": 0
     },
     "packages/mobile/lib/chat/ReviewerComposer.tsx": {
@@ -8534,7 +8582,7 @@
       "longLines": 0
     },
     "packages/mobile/lib/chat/composer-glass.ios.tsx": {
-      "blocks": 1,
+      "blocks": 2,
       "longLines": 5
     },
     "packages/mobile/lib/chat/composer-glass.tsx": {
@@ -8627,7 +8675,7 @@
     },
     "packages/mobile/lib/chat/sse.ts": {
       "blocks": 3,
-      "longLines": 3
+      "longLines": 4
     },
     "packages/mobile/lib/chat/timelineModel.ts": {
       "blocks": 4,
@@ -8966,7 +9014,7 @@
       "longLines": 0
     },
     "packages/mobile/lib/project-card.tsx": {
-      "blocks": 2,
+      "blocks": 3,
       "longLines": 0
     },
     "packages/mobile/lib/projectFilter.test.ts": {
@@ -9058,11 +9106,11 @@
       "longLines": 1
     },
     "packages/mobile/lib/session/KeyRow.tsx": {
-      "blocks": 1,
+      "blocks": 2,
       "longLines": 0
     },
     "packages/mobile/lib/session/TerminalSessionScreen.tsx": {
-      "blocks": 35,
+      "blocks": 38,
       "longLines": 38
     },
     "packages/mobile/lib/session/interfaceTransition.test.ts": {
@@ -9149,12 +9197,16 @@
       "blocks": 1,
       "longLines": 1
     },
+    "packages/mobile/lib/sidebar-navigation-shell.android.tsx": {
+      "blocks": 1,
+      "longLines": 0
+    },
     "packages/mobile/lib/sidebar-navigation-shell.source.test.ts": {
       "blocks": 1,
       "longLines": 0
     },
     "packages/mobile/lib/sidebar-navigation-shell.tsx": {
-      "blocks": 1,
+      "blocks": 2,
       "longLines": 0
     },
     "packages/mobile/lib/sidebar-navigation.ts": {
@@ -9166,7 +9218,7 @@
       "longLines": 0
     },
     "packages/mobile/lib/spawn-composer-controls.ios.tsx": {
-      "blocks": 3,
+      "blocks": 4,
       "longLines": 0
     },
     "packages/mobile/lib/spawn-prompt-input.android.tsx": {
@@ -9310,7 +9362,7 @@
       "longLines": 0
     },
     "packages/mobile/lib/usePRSummaries.ts": {
-      "blocks": 2,
+      "blocks": 3,
       "longLines": 0
     },
     "packages/mobile/lib/useReducedMotion.ts": {
@@ -9354,11 +9406,11 @@
       "longLines": 0
     },
     "packages/mobile/lib/voice/types.ts": {
-      "blocks": 3,
+      "blocks": 4,
       "longLines": 1
     },
     "packages/mobile/lib/voice/useVoiceInput.ts": {
-      "blocks": 8,
+      "blocks": 9,
       "longLines": 0
     },
     "packages/mobile/lib/worker-action-model.test.ts": {
@@ -9374,7 +9426,7 @@
       "longLines": 3
     },
     "packages/mobile/lib/worker-board-list.tsx": {
-      "blocks": 8,
+      "blocks": 9,
       "longLines": 2
     },
     "packages/mobile/lib/worker-controls-sheet.android.tsx": {
@@ -9394,11 +9446,11 @@
       "longLines": 0
     },
     "packages/mobile/lib/worker-dock.ios.tsx": {
-      "blocks": 2,
+      "blocks": 3,
       "longLines": 0
     },
     "packages/mobile/lib/worker-list-row.tsx": {
-      "blocks": 2,
+      "blocks": 3,
       "longLines": 2
     },
     "packages/mobile/lib/worker-rename-context-menu.android.tsx": {
@@ -9410,12 +9462,12 @@
       "longLines": 1
     },
     "packages/mobile/lib/worker-row-actions.ios.tsx": {
-      "blocks": 1,
+      "blocks": 2,
       "longLines": 0
     },
     "packages/mobile/lib/worker-row-interaction.android.tsx": {
-      "blocks": 3,
-      "longLines": 0
+      "blocks": 4,
+      "longLines": 1
     },
     "packages/mobile/lib/worker-row-interaction.tsx": {
       "blocks": 1,
@@ -9466,7 +9518,7 @@
       "longLines": 1
     },
     "packages/product-ui/src/SessionsBoardView.tsx": {
-      "blocks": 9,
+      "blocks": 11,
       "longLines": 3
     },
     "packages/product-ui/src/TaskComposerView.tsx": {
@@ -9515,7 +9567,7 @@
     },
     "scripts/ao-e2e-pod-gate.test.mjs": {
       "blocks": 2,
-      "longLines": 0
+      "longLines": 1
     },
     "test/e2e-pod/playwright.electron.config.ts": {
       "blocks": 0,

@@ -90,9 +90,6 @@ func run() (err error) {
 		if closeErr != nil {
 			return closeErr
 		}
-		if strings.HasPrefix(strings.TrimSpace(string(source)), "// Code generated ") {
-			return nil
-		}
 		comments, err := analyze(source)
 		if err != nil {
 			return fmt.Errorf("parse %s: %w", path, err)
@@ -112,6 +109,11 @@ func analyze(source []byte) ([]comment, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, group := range tree.Comments {
+		if group.Pos() < tree.Package && strings.Contains(group.Text(), "Code generated") && strings.Contains(group.Text(), "DO NOT EDIT") {
+			return []comment{}, nil
+		}
+	}
 	lineOffsets := []int{0}
 	for i, value := range source {
 		if value == '\n' {
@@ -120,6 +122,9 @@ func analyze(source []byte) ([]comment, error) {
 	}
 	comments := make([]comment, 0, len(tree.Comments))
 	for _, group := range tree.Comments {
+		if licenseNotice(group.Text()) {
+			continue
+		}
 		start, end := 0, 0
 		flush := func() {
 			if start == 0 {
@@ -157,11 +162,23 @@ func analyze(source []byte) ([]comment, error) {
 }
 
 func exempt(text string) bool {
-	trimmed := strings.TrimSpace(strings.TrimLeft(text, "/*"))
-	for _, prefix := range []string{"//go:", "// +build", "//go:build", "// Copyright", "//nolint:", "// lint:ignore ", "/* Copyright", "/* SPDX-License-Identifier:"} {
-		if strings.HasPrefix(strings.TrimSpace(text), prefix) {
+	trimmed := strings.TrimSpace(text)
+	for _, prefix := range []string{"//go:", "// +build", "//go:build", "//nolint:", "// lint:ignore "} {
+		if strings.HasPrefix(trimmed, prefix) {
 			return true
 		}
 	}
-	return strings.Contains(trimmed, "SPDX-License-Identifier:")
+	return false
+}
+
+func licenseNotice(text string) bool {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(strings.TrimLeft(raw, "/*"))
+		line = strings.TrimSpace(strings.TrimLeft(line, "*"))
+		if line == "" || line == "//" {
+			continue
+		}
+		return strings.HasPrefix(line, "Copyright") || strings.HasPrefix(line, "SPDX-License-Identifier:")
+	}
+	return false
 }

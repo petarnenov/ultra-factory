@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -14,29 +14,49 @@ function excludedPath(file) {
   return /(^|\/)(vendor|node_modules|gen|dist|out)\//.test(file) || /\.generated\./.test(file);
 }
 
-function lineAt(text, offset) {
-  let line = 1;
-  for (let i = 0; i < offset; i++) if (text.charCodeAt(i) === 10) line++;
-  return line;
+function lineStarts(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
+  return starts;
 }
 
-function countComment(text, start, end) {
-  const startLine = lineAt(text, start);
-  const endLine = lineAt(text, Math.max(start, end - 1));
-  const lines = endLine - startLine + 1;
-  let long = 0;
-  const physical = text.split(/\r?\n/);
-  for (let n = startLine; n <= endLine; n++) {
-    if ([...physical[n - 1]].length > 80) long++;
+function lineAt(starts, offset) {
+  let low = 0;
+  let high = starts.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (starts[middle] <= offset) low = middle + 1;
+    else high = middle;
   }
-  return { start: startLine, end: endLine, lines, long };
+  return low;
+}
+
+function countComment(widths, starts, start, end) {
+  const startLine = lineAt(starts, start);
+  const endLine = lineAt(starts, Math.max(start, end - 1));
+  let long = 0;
+  for (let line = startLine; line <= endLine; line++) if (widths[line - 1] > 80) long++;
+  return { start: startLine, end: endLine, lines: endLine - startLine + 1, long };
+}
+
+function isLicenseNotice(comment) {
+  const lines = comment.replace(/^\/\//, '').replace(/^\/\*/, '').replace(/\*\/$/, '').split(/\r?\n/);
+  for (const raw of lines) {
+    const line = raw.trim().replace(/^\*\s?/, '').trim();
+    if (!line) continue;
+    return line.startsWith('Copyright') || line.startsWith('SPDX-License-Identifier:');
+  }
+  return false;
+}
+
+function isDirectiveComment(comment) {
+  const trimmed = comment.trimStart();
+  return /^\/\/(?:go:|\+build\b| @ts-(?:check|nocheck|ignore|expect-error)\b| eslint-|nolint:|lint:ignore\b| prettier-ignore\b| cspell:| istanbul )/.test(trimmed)
+    || /^\/\*\s*(?:eslint-|prettier-ignore\b)/.test(trimmed);
 }
 
 export function isExemptComment(comment) {
-  const trimmed = comment.trimStart();
-  return /^\/\/(?:go:|\+build\b| Copyright\b| SPDX-License-Identifier:| @ts-(?:check|nocheck|ignore|expect-error)\b| eslint-|nolint:|lint:ignore\b| prettier-ignore\b| cspell:| istanbul )/.test(trimmed)
-    || /^\/\*.*(?:SPDX-License-Identifier:|Copyright\b)/s.test(trimmed)
-    || /^\/\*\s*(?:eslint-|prettier-ignore\b)/.test(trimmed);
+  return isDirectiveComment(comment) || isLicenseNotice(comment);
 }
 
 export function scanTS(source, file = 'source.ts') {
@@ -49,31 +69,62 @@ export function scanTS(source, file = 'source.ts') {
     for (const range of items ?? []) ranges.set(`${range.pos}:${range.end}`, range);
   };
   const visit = (node) => {
+    if (node.kind === ts.SyntaxKind.JsxText) return;
     collect(ts.getLeadingCommentRanges(source, node.getFullStart()));
     collect(ts.getTrailingCommentRanges(source, node.getEnd()));
-    ts.forEachChild(node, visit);
+    if (node.kind === ts.SyntaxKind.JsxExpression && !node.expression) {
+      const start = node.getStart(tree) + 1;
+      const text = source.slice(start, node.end - 1);
+      const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, text);
+      while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) {
+        const kind = scanner.getToken();
+        if (kind !== ts.SyntaxKind.SingleLineCommentTrivia && kind !== ts.SyntaxKind.MultiLineCommentTrivia) continue;
+        ranges.set(`${start + scanner.getTokenPos()}:${start + scanner.getTextPos()}`, {
+          pos: start + scanner.getTokenPos(), end: start + scanner.getTextPos(),
+        });
+      }
+    }
+    for (const child of node.getChildren(tree)) visit(child);
   };
   visit(tree);
+  const starts = lineStarts(source);
+  const widths = source.split(/\r?\n/).map((line) => [...line].length);
   const tokens = [...ranges.values()].sort((a, b) => a.pos - b.pos).map((range) => ({
     start: range.pos, end: range.end, text: source.slice(range.pos, range.end),
-    line: lineAt(source, range.pos),
+    line: lineAt(starts, range.pos),
   }));
-  const comments = [];
+  const groups = [];
   for (const token of tokens) {
-    if (isExemptComment(token.text)) continue;
-    const previous = comments.at(-1);
-    const gap = previous && source.slice(previous.endOffset, token.start);
-    if (previous && /^[ \t]*(?:\r?\n[ \t]*)?$/.test(gap)) {
-      previous.endOffset = token.end;
-      previous.end = lineAt(source, token.end - 1);
-      previous.text += `${gap}${token.text}`;
-      const combined = countComment(source, previous.startOffset, token.end);
-      previous.lines = combined.lines;
-      previous.long = Math.max(previous.long, combined.long);
-      continue;
+    const previousGroup = groups.at(-1);
+    const previousToken = previousGroup?.at(-1);
+    const gap = previousToken && source.slice(previousToken.end, token.start);
+    if (previousGroup && /^[ \t]*(?:\r?\n[ \t]*)?$/.test(gap)) previousGroup.push(token);
+    else groups.push([token]);
+  }
+  const comments = [];
+  for (const group of groups) {
+    const groupText = source.slice(group[0].start, group.at(-1).end);
+    if (isLicenseNotice(groupText)) continue;
+    let previous = null;
+    for (const token of group) {
+      if (isDirectiveComment(token.text)) {
+        previous = null;
+        continue;
+      }
+      const gap = previous && source.slice(previous.endOffset, token.start);
+      if (previous && /^[ \t]*(?:\r?\n[ \t]*)?$/.test(gap)) {
+        previous.endOffset = token.end;
+        previous.end = lineAt(starts, token.end - 1);
+        previous.text += `${gap}${token.text}`;
+        const combined = countComment(widths, starts, previous.startOffset, token.end);
+        previous.lines = combined.lines;
+        previous.long = Math.max(previous.long, combined.long);
+        continue;
+      }
+      previous = { ...countComment(widths, starts, token.start, token.end), text: token.text,
+        startOffset: token.start, endOffset: token.end };
+      comments.push(previous);
     }
-    comments.push({ ...countComment(source, token.start, token.end), text: token.text,
-      startOffset: token.start, endOffset: token.end });
   }
   return comments;
 }
@@ -94,12 +145,18 @@ function scanFile(file) {
   return scanTS(readFileSync(file, 'utf8'), file);
 }
 
-function changedLines(base) {
-  const diff = execFileSync('git', ['diff', '--unified=0', base, '--'], { encoding: 'utf8' });
+export function parseDiff(diff) {
   const changes = new Map();
-  let file;
+  let file = null;
   for (const line of diff.split('\n')) {
-    if (line.startsWith('+++ b/')) file = line.slice(6);
+    if (line.startsWith('+++ /dev/null')) {
+      file = null;
+      continue;
+    }
+    if (line.startsWith('+++ b/')) {
+      file = line.slice(6);
+      continue;
+    }
     if (line.startsWith('@@ ')) {
       const match = line.match(/-(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/);
       if (!file || !match) continue;
@@ -116,6 +173,11 @@ function changedLines(base) {
   return changes;
 }
 
+function changedLines(mergeBase) {
+  const diff = execFileSync('git', ['diff', '--no-renames', '--unified=0', mergeBase, '--'], { encoding: 'utf8' });
+  return parseDiff(diff);
+}
+
 function mapLine(line, hunk) {
   const delta = hunk.newCount - hunk.oldCount;
   if (line < hunk.oldStart) return line;
@@ -125,7 +187,8 @@ function mapLine(line, hunk) {
 
 if (isMain) {
   const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
-  const sourceFiles = tracked.filter((file) => extensions.has(path.extname(file)) && !excludedPath(file));
+  const sourceFiles = tracked.filter((file) => existsSync(file)
+    && extensions.has(path.extname(file)) && !excludedPath(file));
   const goComments = JSON.parse(execFileSync('go', ['run', '-C', 'backend', './cmd/commentpolicy', '..'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
   const tsComments = new Map(sourceFiles.filter((file) => !isGenerated(file))
     .map((file) => [file, scanFile(file)]));
@@ -146,10 +209,15 @@ if (isMain) {
 
   const diagnostics = new Map();
   const add = (file, message) => diagnostics.set(file, [...(diagnostics.get(file) ?? []), message]);
-  const base = process.env.COMMENT_POLICY_BASE || 'origin/main';
-  const changed = changedLines(base);
+  const configuredBase = process.env.COMMENT_POLICY_BASE || 'origin/main';
+  const mergeBase = execFileSync('git', ['merge-base', configuredBase, 'HEAD'], { encoding: 'utf8' }).trim();
+  const changed = changedLines(mergeBase);
   for (const [file, ranges] of changed) {
-    const comments = file.endsWith('.go') ? goComments[file] ?? [] : tsComments.get(file) ?? [];
+    if (!file.endsWith('.go') && !extensions.has(path.extname(file))) continue;
+    const hasComments = file.endsWith('.go')
+      ? Object.hasOwn(goComments, file) : tsComments.has(file);
+    if (!hasComments) continue;
+    const comments = file.endsWith('.go') ? goComments[file] : tsComments.get(file);
     const forced = [];
     if (ranges.deletions.length) {
       const oldSource = execFileSync('git', ['show', `${base}:${file}`], { encoding: 'utf8' });
