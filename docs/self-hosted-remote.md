@@ -128,6 +128,105 @@ Options:
 The archive does not install a service or tmux. The bundled Linux Node needs
 glibc 2.28 or newer.
 
+## Automatic updates
+
+A host can follow a rolling update channel instead of being upgraded by hand.
+Each channel is one GitHub **prerelease**, `daemon-channel-<channel>`, whose
+assets are replaced in place on every publish:
+
+- `ao-<os>-<arch>.tar.gz` — the `daemon/` and `acp-runtime/` layout
+  `make daemon-dist` produces, under a version-free name;
+- `SHA256SUMS` — SHA-256 for every asset, including the two scripts below;
+- `manifest.json` — channel, version, commit, and each asset's file name,
+  size, and SHA-256;
+- `ao-self-update.sh` and `install-self-update.sh` — the pull updater and the
+  installer, so a new host can bootstrap from the release alone:
+
+```bash
+curl -fsSLO https://github.com/<owner>/<repo>/releases/download/daemon-channel-main/install-self-update.sh
+curl -fsSLO https://github.com/<owner>/<repo>/releases/download/daemon-channel-main/ao-self-update.sh
+bash install-self-update.sh --install --channel main --repo <owner>/<repo>
+```
+
+Set a host up with the installer, which detects the install layout and the
+service that runs the daemon:
+
+```bash
+scripts/install-self-update.sh --install --channel main --repo <owner>/<repo>
+```
+
+It writes `~/.ao/self-update.json`, copies the updater to
+`~/.ao/bin/ao-self-update`, and enables a systemd user timer or a LaunchAgent
+that runs `ao-self-update apply` every hour (`--interval-minutes`). On systemd
+hosts run `loginctl enable-linger <user>` once so the timer also fires while
+logged out. Re-running it refreshes the config and the installed updater.
+
+| Layout | Install directory | What an update replaces |
+| --- | --- | --- |
+| `bundle` | `~/.local/share/ao` | `daemon/`, `acp-runtime/`, and `tmux/` when present |
+| `release` | `~/.ao/host`, through `current/resources` | a new `releases/<stamp>/`, then `current` moves to it |
+| `binary` | the directory holding `ao` | that single binary |
+
+Channel bundles carry only the daemon and the ACP runtime, so a host keeps the
+`tmux` it already has.
+
+`ao-self-update apply` does the following:
+
+1. Read the channel manifest; compare its commit with `ao version` of the
+   installed binary and stop when they already match. A channel build whose
+   `builtAt` predates the installed build is also left alone, so a host pointed
+   at a lagging channel is never downgraded; `--force` overrides that.
+2. Defer (exit 3) while a session is `active`, `waiting_input`, or `blocked`
+   and was last active within `graceMinutes`. `--force` skips this gate, and a
+   stopped daemon is never busy.
+3. Download this platform's asset, check its size and SHA-256, and extract it
+   under `~/.ao/self-update/staging`.
+4. Run the staged `ao version` and require the commit the manifest pins.
+5. Move the current build to `~/.ao/self-update/prev`, install the staged one,
+   and restart the service.
+6. Wait for `ao status --json` to report `ready` from that binary. If it does
+   not within `--ready-timeout` seconds (60), restore `prev`, restart again,
+   and exit 1 with the failed build kept under
+   `~/.ao/self-update/failed/<commit>`.
+
+```bash
+~/.ao/bin/ao-self-update status     # installed and available commits
+~/.ao/bin/ao-self-update check      # exit 10 when an update is waiting
+~/.ao/bin/ao-self-update apply      # update now
+~/.ao/bin/ao-self-update rollback   # put the previous build back
+```
+
+Exit codes: 0 for current or updated, 1 for failure, 3 for a deferred busy
+host, 4 for disabled, 10 for "update available" from `check`. Each run records
+its outcome in `~/.ao/self-update/state.json`.
+
+The updater only pulls. It opens no inbound port and needs no credential
+because the release assets of this repository are public. A channel release is
+always a prerelease and never touches `/releases/latest`, which stays reserved
+for the desktop app. Publishing happens on a push to `main` or `feat/**` that
+touches the daemon or the updater, or from a manual run of the `Daemon update
+channel` workflow.
+
+```json
+{
+  "channel": "main",
+  "repo": "<owner>/<repo>",
+  "enabled": true,
+  "layout": "bundle",
+  "installDir": "/home/ao/.local/share/ao",
+  "graceMinutes": 20,
+  "service": { "kind": "systemd", "unit": "ao-self-hosted.service" },
+  "env": { "AO_DATA_DIR": "/home/ao/.ao" }
+}
+```
+
+The installer writes that file and it can be edited by hand.
+`manifestUrl` replaces `repo` for a channel that is not a GitHub release.
+`busyStates` replaces the default deferral set. `service.kind` is `systemd`,
+`launchd`, or `command`, where `command` runs `service.restartCommand`.
+`env` is passed to every `ao` call the updater makes, which matters when the
+service sets `AO_DATA_DIR`, `AO_RUN_FILE`, or `AO_PORT`.
+
 ## Behind a reverse proxy
 
 The remote endpoint locks a source out for a minute after five wrong
