@@ -1,4 +1,7 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import readline from 'node:readline';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -145,10 +148,11 @@ function scanFile(file) {
   return scanTS(readFileSync(file, 'utf8'), file);
 }
 
-export function parseDiff(diff) {
+export async function parseDiff(lines) {
   const changes = new Map();
   let file = null;
-  for (const line of diff.split('\n')) {
+  const source = typeof lines === 'string' ? lines.split('\n') : lines;
+  for await (const line of source) {
     if (line.startsWith('+++ /dev/null')) {
       file = null;
       continue;
@@ -157,25 +161,43 @@ export function parseDiff(diff) {
       file = line.slice(6);
       continue;
     }
-    if (line.startsWith('@@ ')) {
-      const match = line.match(/-(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/);
-      if (!file || !match) continue;
-      const oldStart = Number(match[1]);
-      const oldCount = match[2] === undefined ? 1 : Number(match[2]);
-      const newStart = Number(match[3]);
-      const newCount = match[4] === undefined ? 1 : Number(match[4]);
-      const entry = changes.get(file) ?? { added: [], deletions: [] };
-      if (newCount > 0) entry.added.push([newStart, newStart + newCount - 1]);
-      if (oldCount > newCount) entry.deletions.push({ oldStart, oldEnd: oldStart + oldCount - 1, newStart, oldCount, newCount });
-      changes.set(file, entry);
-    }
+    if (!line.startsWith('@@ ')) continue;
+    const match = line.match(/-(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/);
+    if (!file || !match) continue;
+    const oldStart = Number(match[1]);
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const newStart = Number(match[3]);
+    const newCount = match[4] === undefined ? 1 : Number(match[4]);
+    const entry = changes.get(file) ?? { added: [], deletions: [] };
+    if (newCount > 0) entry.added.push([newStart, newStart + newCount - 1]);
+    if (oldCount > newCount) entry.deletions.push({ oldStart, oldEnd: oldStart + oldCount - 1, newStart, oldCount, newCount });
+    changes.set(file, entry);
   }
   return changes;
 }
 
-function changedLines(mergeBase) {
-  const diff = execFileSync('git', ['diff', '--no-renames', '--unified=0', mergeBase, '--'], { encoding: 'utf8' });
-  return parseDiff(diff);
+async function changedLines(mergeBase) {
+  // Stream Git's diff to a temporary file instead of one subprocess buffer.
+  // Large integration diffs previously surfaced as ENOBUFS before evaluation.
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'comment-policy-'));
+  try {
+    const diffFile = path.join(outputDir, 'changed-lines.diff');
+    let fileDescriptor;
+    try {
+      fileDescriptor = fs.openSync(diffFile, 'w');
+      execFileSync('git', ['diff', '--no-renames', '--unified=0', mergeBase, '--'], {
+        stdio: ['ignore', fileDescriptor, 'pipe'],
+      });
+    } finally {
+      if (fileDescriptor !== undefined) fs.closeSync(fileDescriptor);
+    }
+
+    const input = fs.createReadStream(diffFile, { encoding: 'utf8' });
+    const lines = readline.createInterface({ input, crlfDelay: Infinity });
+    return await parseDiff(lines);
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
 }
 
 function mapLine(line, hunk) {
@@ -222,7 +244,7 @@ if (isMain) {
   const add = (file, message) => diagnostics.set(file, [...(diagnostics.get(file) ?? []), message]);
   const configuredBase = process.env.COMMENT_POLICY_BASE || 'origin/main';
   const mergeBase = execFileSync('git', ['merge-base', configuredBase, 'HEAD'], { encoding: 'utf8' }).trim();
-  const changed = changedLines(mergeBase);
+  const changed = await changedLines(mergeBase);
   for (const [file, ranges] of changed) {
     if (!file.endsWith('.go') && !extensions.has(path.extname(file))) continue;
     const hasComments = file.endsWith('.go')
