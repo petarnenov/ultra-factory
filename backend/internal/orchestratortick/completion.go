@@ -106,7 +106,7 @@ func MergeBlockers(cfg Config, pr PullRequest) []string {
 
 func reviewBlocker(pr PullRequest) string {
 	// Provider protections and a human changes-requested decision win over
-	// AO's approval. REVIEW_REQUIRED is kept explicit because the provider
+	// AO's verdict. REVIEW_REQUIRED is kept explicit because the provider
 	// merge call would reject the PR anyway.
 	switch strings.ToUpper(strings.TrimSpace(pr.ReviewDecision)) {
 	case "CHANGES_REQUESTED":
@@ -114,36 +114,18 @@ func reviewBlocker(pr PullRequest) string {
 	case "REVIEW_REQUIRED":
 		return "review approval required"
 	}
-	switch strings.ToLower(strings.TrimSpace(pr.AOReviewStatus)) {
+	// The native verdict is a durable AO review run for this exact head. A
+	// GitHub APPROVED rollup, an approval comment, or an approval of an older
+	// commit is not a substitute for it.
+	status := strings.ToLower(strings.TrimSpace(pr.AOReviewStatus))
+	switch status {
 	case "up_to_date":
 		return ""
-	case "changes_requested":
-		return "AO review changes requested"
+	case "":
+		return "no current-head AO native approval"
+	default:
+		return "AO review is " + status
 	}
-	// A provider APPROVED rollup is not proof for the current head: GitHub
-	// keeps it after a push unless branch protection dismisses stale reviews.
-	// Require an approval review whose commit is the exact head, or AO's own
-	// current-head native approval above.
-	if !currentHeadApproved(pr) {
-		return "no current-head approval"
-	}
-	return ""
-}
-
-func currentHeadApproved(pr PullRequest) bool {
-	head := strings.ToLower(strings.TrimSpace(pr.HeadSHA))
-	if head == "" {
-		return false
-	}
-	for _, review := range pr.Reviews {
-		if !strings.EqualFold(strings.TrimSpace(review.State), "APPROVED") {
-			continue
-		}
-		if strings.EqualFold(strings.TrimSpace(review.CommitID), head) {
-			return true
-		}
-	}
-	return false
 }
 
 func unresolvedThreads(threads []ReviewThread) int {
