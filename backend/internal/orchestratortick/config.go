@@ -62,7 +62,7 @@ func DefaultConfig() Config {
 		Project:          "ultra-factory",
 		Hosts:            []string{"Linux", "IMac", "Z600"},
 		Repo:             "petarnenov/ultra-factory",
-		Base:             "feat/railway-hosting",
+		Base:             "dev",
 		MainBranch:       "main",
 		IssueLabel:       "rw",
 		BranchPrefix:     "rw/",

@@ -9,7 +9,7 @@ import (
 
 func TestBehindMainNamesTheMissingCommits(t *testing.T) {
 	got := texts(Violations(DefaultConfig(), Facts{GitHub: &GitHubState{BehindMain: 2, BehindSHAs: []string{"aaaaaaa", "bbbbbbb"}}}, now))
-	want := []string{"feat/railway-hosting is 2 commit(s) behind main (aaaaaaa,bbbbbbb) → git merge origin/main into feat/railway-hosting and push"}
+	want := []string{"dev is 2 commit(s) behind main (aaaaaaa,bbbbbbb) → git merge origin/main into dev and push"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q", got)
 	}
@@ -128,7 +128,7 @@ func TestConfigFromEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Project != "p" || !reflect.DeepEqual(cfg.Hosts, []string{"A", "B"}) || cfg.Interval != time.Minute ||
-		cfg.Renudge != 5*time.Minute || !cfg.Paused || cfg.Repo != "o/r" || cfg.Base != "feat/railway-hosting" {
+		cfg.Renudge != 5*time.Minute || !cfg.Paused || cfg.Repo != "o/r" || cfg.Base != "dev" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 	for name, bad := range map[string]map[string]string{

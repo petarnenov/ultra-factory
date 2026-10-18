@@ -1,6 +1,6 @@
 # AO on Railway: architecture
 
-Status: current for the `feat/railway-hosting` branch after RW-4.3.1. This page
+Status: current for the `dev` branch after RW-4.3.1. This page
 describes how the Railway deployment is put together and how requests flow
 through it. How to deploy and operate it is in the runbook,
 [`deploy/railway/README.md`](../../deploy/railway/README.md). Security controls
