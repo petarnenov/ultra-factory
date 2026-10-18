@@ -910,6 +910,14 @@ that touch `deploy/railway/`, `packages/hub-bff/`, `frontend/src/renderer/`, or
 the Railway e2e files. `AO_HUB_PROVIDER=fake` refuses to start together with
 Railway project or environment IDs; never set it on a Railway service.
 
+The workflow needs a host runner. The script drives the UI at
+`http://localhost:8080` and the hub publishes only on the daemon's loopback,
+so the Playwright client has to share the Docker host: a GitHub-hosted runner
+and a local machine both work, but a containerized runner that reuses the host
+daemon over the Docker socket (DooD) does not, because `localhost` there is the
+runner container rather than the host. Run `compose.e2e.sh` directly to
+validate locally.
+
 ## Logs and troubleshooting
 
 Use the selected Railway service's deployment logs. On the hub, the supervisor
