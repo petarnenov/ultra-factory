@@ -2,6 +2,7 @@ import type { AoBridge } from "../../preload";
 import type { DaemonStatus } from "../../shared/daemon-status";
 import { isWebBuild } from "./platform";
 import { usesPreviewWorkspaceData } from "./preview-mode";
+import { isHubSignedOut, redirectToHubLogin } from "./hub-login";
 import { createWebNotificationsBridge } from "./web-notifications";
 import { createWebRemotesBridge } from "./web-remotes";
 import { webKeybindings, webUiSettings } from "./web-settings";
@@ -26,10 +27,19 @@ function webDaemonPort(baseUrl: string): number {
 	return url.protocol === "https:" ? 443 : 80;
 }
 
+function webDaemonIsSameOrigin(baseUrl: string): boolean {
+	return new URL(baseUrl || window.location.href, window.location.href).origin === window.location.origin;
+}
+
 async function probeWebDaemon(): Promise<DaemonStatus> {
 	const baseUrl = webDaemonBaseUrl();
 	try {
 		const response = await fetch(`${baseUrl}/readyz`, { cache: "no-store" });
+		// Only the page's own origin has the hub's /login.
+		if (response.status === 401 && webDaemonIsSameOrigin(baseUrl) && isHubSignedOut(401, await response.json().catch(() => null))) {
+			redirectToHubLogin();
+			return { state: "error", message: "The hub session has ended. Sign in again." };
+		}
 		if (response.status !== 200) {
 			return { state: "error", message: `Daemon readiness check returned HTTP ${response.status}.` };
 		}

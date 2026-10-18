@@ -16,6 +16,12 @@ vi.mock("../hooks/useAgentReadinessQuery", () => ({
 	cacheAgentReadiness: vi.fn(),
 }));
 
+const hubLogin = vi.hoisted(() => ({ redirect: vi.fn() }));
+vi.mock("./hub-login", async (importOriginal) => ({
+	...await importOriginal<typeof import("./hub-login")>(),
+	redirectToHubLogin: hubLogin.redirect,
+}));
+
 const fetchMock = vi.fn<typeof fetch>();
 let savedBridge: typeof window.ao;
 
@@ -39,6 +45,7 @@ beforeEach(() => {
 	savedBridge = window.ao;
 	delete (window as { ao?: unknown }).ao;
 	fetchMock.mockReset();
+	hubLogin.redirect.mockReset();
 	vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -89,6 +96,42 @@ describe("web daemon bridge", () => {
 			state: "error",
 			message: "Daemon readiness check returned HTTP 503.",
 		});
+	});
+
+	it("sends a tab the hub signed out to /login", async () => {
+		fetchMock.mockResolvedValue(Response.json({ error: "unauthorized" }, { status: 401 }));
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.daemon.getStatus()).resolves.toMatchObject({ state: "error" });
+		expect(hubLogin.redirect).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not leave the page when the daemon behind the hub fails", async () => {
+		fetchMock.mockResolvedValue(new Response("bad gateway", { status: 502 }));
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.daemon.getStatus()).resolves.toEqual({
+			state: "error",
+			message: "Daemon readiness check returned HTTP 502.",
+		});
+		expect(hubLogin.redirect).not.toHaveBeenCalled();
+	});
+
+	it("does not leave the page for a 401 that is not the hub's sign-out", async () => {
+		fetchMock.mockResolvedValue(Response.json({ error: "invalid_token" }, { status: 401 }));
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.daemon.getStatus()).resolves.toMatchObject({ state: "error" });
+		expect(hubLogin.redirect).not.toHaveBeenCalled();
+	});
+
+	it("does not leave the page for a sign-out from another origin's API", async () => {
+		vi.stubEnv("VITE_AO_API_BASE_URL", "https://hub.example.test/");
+		fetchMock.mockResolvedValue(Response.json({ error: "unauthorized" }, { status: 401 }));
+		const aoBridge = await loadBridge();
+
+		await expect(aoBridge.daemon.getStatus()).resolves.toMatchObject({ state: "error" });
+		expect(hubLogin.redirect).not.toHaveBeenCalled();
 	});
 
 	it("does not mistake a static host's index.html for a ready daemon", async () => {
