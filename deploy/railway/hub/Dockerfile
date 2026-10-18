@@ -4,19 +4,13 @@
 # that backs the hub's own board, in one service.
 
 # The final stage extends the `ao-worker` named build context, which
-# deploy/railway/docker-bake.hcl wires to the worker target built from this
-# same checkout, so the daemon, its agent CLIs, and tini match the commit.
+# docker-bake.hcl wires to the worker built from this same checkout.
 
-# Build context is the REPO ROOT; from the repository root run:
-#   docker buildx bake -f deploy/railway/docker-bake.hcl hub
-# The base may also be any worker image:
-#   docker buildx build -f deploy/railway/hub/Dockerfile \
-#     --build-context ao-worker=docker-image://ao-worker:dev -t ao-hub:dev .
+# Build context is the REPO ROOT: docker buildx bake -f
+# deploy/railway/docker-bake.hcl hub. See deploy/railway/README.md.
 
-# Runtime configuration is set on the service, never baked in. The operator
-# sets AO_WEB_PASSWORD_HASH (from `npm run hash-password`); see
-# packages/hub-bff/README.md for the rest. The hub's own daemon password is
-# generated on first start and stays in the volume.
+# Runtime config is set on the service, never baked in: AO_WEB_PASSWORD_HASH
+# from `npm run hash-password`, plus the rest in packages/hub-bff/README.md.
 
 ARG NODE_IMAGE=node:24-bookworm-slim
 ARG TARGETARCH
@@ -77,17 +71,11 @@ COPY --chown=10001:10001 packages/hub-bff/src /opt/ao/hub/bff/src
 COPY --chown=10001:10001 packages/hub-bff/login /opt/ao/hub/bff/login
 COPY --chmod=0755 deploy/railway/hub/hub-supervisor.sh /usr/local/bin/ao-hub-supervisor.sh
 
-# The hub's own Claude Code and Codex, newer than the worker image's pins and
-# kept updatable from Settings -> Harness. The worker's copies live in the
-# root-owned /usr/local prefix, which the daemon (uid 10001) cannot update.
-# These go to a prefix owned by uid 10001; the supervisor copies them into
-# NPM_CONFIG_PREFIX on the volume, which PATH searches first, so an update
-# made from the UI persists across restarts and a newer image version still
-# replaces an older copy.
+# The hub's own Claude Code and Codex, updatable from Settings -> Harness.
+# They live in a uid-10001 prefix the supervisor copies onto the volume.
 ARG HUB_AGENT_NPM_PACKAGES="@anthropic-ai/claude-code@2.1.302 @openai/codex@0.163.0"
-# HOME=/root keeps npm's cache and the CLIs' --version state out of
-# /data/home, which belongs to the volume. Login shells reset PATH from
-# /etc/profile, so profile.d puts the updatable copies first there too.
+# HOME=/root keeps npm's cache out of /data/home; profile.d puts the
+# updatable copies first on PATH for login shells too.
 USER root
 RUN export HOME=/root && \
     npm install --global --prefix /opt/ao/npm-global ${HUB_AGENT_NPM_PACKAGES} && \
