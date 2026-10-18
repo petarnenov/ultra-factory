@@ -137,6 +137,25 @@ describe("SessionsBoardView", () => {
 		expect(screen.getByTestId("board-horizontal-scroll")).toHaveClass("board-horizontal-scrollbar");
 	});
 
+	it("uses host-qualified keys when the board combines equal session IDs", () => {
+		const sessions = [
+			{ ...baseSession, id: "same", title: "local task" },
+			{ ...baseSession, id: "same", title: "remote task" },
+		];
+		const view = render(
+			<SessionsBoardGridView
+				columns={boardKanbanColumnOrder.map((column) => getKanbanColumnView(column))}
+				labels={columnLabels}
+				sessionKey={(session) => session.title}
+				renderSessionCard={(session) => <div>{session.title}</div>}
+				sessions={sessions}
+			/>,
+		);
+		expect(screen.getByText("local task")).toBeInTheDocument();
+		expect(screen.getByText("remote task")).toBeInTheDocument();
+		view.unmount();
+	});
+
 	it("pins attention-required sessions first inside every lane without changing lanes", () => {
 		const columns = boardKanbanColumnOrder.map((column) => getKanbanColumnView(column));
 		const sessions: BoardSessionPresentation[] = columns.flatMap(({ column }, index) => [

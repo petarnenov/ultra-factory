@@ -4613,8 +4613,9 @@ func (m *Manager) SendSemantic(ctx context.Context, id domain.SessionID, message
 	if !ok {
 		return ErrNotFound
 	}
+	wrapped := domain.WrapReportDelivery(clientMessageID, message)
 	if domain.NormalizeSessionMode(rec.Mode) == domain.SessionModeChat {
-		handled, sendErr := m.sendChat(ctx, id, message, clientMessageID, ports.MessageDeliveryOptions{})
+		handled, sendErr := m.sendChat(ctx, id, wrapped, clientMessageID, ports.MessageDeliveryOptions{})
 		if !handled {
 			return ErrSemanticAcceptanceUnsupported
 		}
@@ -4626,7 +4627,6 @@ func (m *Manager) SendSemantic(ctx context.Context, id domain.SessionID, message
 	if semanticMessageAccepted(rec, clientMessageID) {
 		return nil
 	}
-	wrapped := domain.WrapReportDelivery(clientMessageID, message)
 	if err := m.send(ctx, id, wrapped, clientMessageID, ports.MessageDeliveryOptions{}); err != nil {
 		return err
 	}

@@ -74,6 +74,60 @@ func (s *Store) ListReportsBySession(ctx context.Context, id domain.SessionID) (
 	return s.reportsWithOutputs(ctx, rows)
 }
 
+func (s *Store) listRemoteReportsByProject(ctx context.Context, id domain.ProjectID) ([]domain.ReportRecord, error) {
+	rows, err := s.readDB.QueryContext(ctx, `SELECT host_id, remote_session_id, report_id, project_id, source_project_id, state, note, message,
+		agent, session_name, host_label, created_at, repeat_count
+		FROM remote_worker_reports WHERE project_id = ? ORDER BY created_at, host_id, remote_session_id, report_id`, string(id))
+	if err != nil {
+		return nil, fmt.Errorf("list remote project reports: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var reports []domain.ReportRecord
+	for rows.Next() {
+		var report domain.ReportRecord
+		var sessionID, projectID, sourceProjectID, state string
+		if err := rows.Scan(&report.HostID, &sessionID, &report.ID, &projectID, &sourceProjectID, &state, &report.Note, &report.Message,
+			&report.Agent, &report.SessionDisplayName, &report.HostLabel, &report.CreatedAt, &report.RepeatCount); err != nil {
+			return nil, fmt.Errorf("scan remote project report: %w", err)
+		}
+		report.SessionID = domain.SessionID(sessionID)
+		report.ProjectID = domain.ProjectID(projectID)
+		report.SourceProjectID = sourceProjectID
+		report.State = domain.ReportState(state)
+		report.Outputs, err = s.listRemoteReportOutputs(ctx, report.HostID, sessionID, report.ID)
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, report)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read remote project reports: %w", err)
+	}
+	return reports, nil
+}
+
+func (s *Store) listRemoteReportOutputs(ctx context.Context, hostID, sessionID, reportID string) (outputs []domain.ReportOutput, err error) {
+	rows, err := s.readDB.QueryContext(ctx, `SELECT kind, reference, label FROM remote_worker_report_outputs
+		WHERE host_id = ? AND remote_session_id = ? AND report_id = ? ORDER BY position`, hostID, sessionID, reportID)
+	if err != nil {
+		return nil, fmt.Errorf("list remote report outputs %s: %w", reportID, err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	for rows.Next() {
+		var output domain.ReportOutput
+		var kind string
+		if err := rows.Scan(&kind, &output.Reference, &output.Label); err != nil {
+			return nil, fmt.Errorf("scan remote report output %s: %w", reportID, err)
+		}
+		output.Kind = domain.ReportOutputKind(kind)
+		outputs = append(outputs, output)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read remote report outputs %s: %w", reportID, err)
+	}
+	return outputs, nil
+}
+
 // ListReportedPRURLs returns only a worker's structured created-PR outputs.
 func (s *Store) ListReportedPRURLs(ctx context.Context, id domain.SessionID) ([]string, error) {
 	urls, err := s.qr.ListReportedPRURLs(ctx, string(id))
@@ -90,7 +144,15 @@ func (s *Store) ListReportsByProject(ctx context.Context, id domain.ProjectID) (
 	if err != nil {
 		return nil, fmt.Errorf("list project reports: %w", err)
 	}
-	return s.reportsWithOutputs(ctx, rows)
+	local, err := s.reportsWithOutputs(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	remote, err := s.listRemoteReportsByProject(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return append(local, remote...), nil
 }
 
 // ListPendingReportSchedule returns the earliest pending work regardless of

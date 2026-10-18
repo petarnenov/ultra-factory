@@ -81,7 +81,7 @@ vi.mock("../lib/api-client", () => ({
 }));
 
 import { ProjectSettingsForm, type ProjectSettingsSaveState, type ProjectSettingsSection } from "./ProjectSettingsForm";
-import { workspaceQueryKey } from "../hooks/useWorkspaceQuery";
+import { useProjectIdentity, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import type { WorkspaceSummary } from "../types/workspace";
 
 async function beginEdit(label: string) {
@@ -107,6 +107,11 @@ function TestProjectSettings({
 			{saveState.replacementError && <span>{`Orchestrator restart failed: ${saveState.replacementError}`}</span>}
 		</>
 	);
+}
+
+function AggregateAssociationStatus({ projectId }: { projectId: string }) {
+	const identity = useProjectIdentity(undefined, projectId);
+	return <output>{identity.data?.aggregateProjects.map((project) => `${project.hostId}:${project.projectId}`).join(",") ?? "Loading"}</output>;
 }
 
 function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], section?: ProjectSettingsSection) {
@@ -213,6 +218,40 @@ beforeEach(() => {
 });
 
 describe("ProjectSettingsForm", () => {
+	it("refreshes aggregate board membership after saving project settings", async () => {
+		const project = {
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+		repo: "",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				orchestrator: { agent: "claude-code" },
+			} as Record<string, unknown>,
+		};
+		mockProject(project);
+		putMock.mockImplementation(async (_path: string, request: { body: { config: Record<string, unknown> } }) => {
+			project.config = request.body.config as typeof project.config;
+			return { data: { project }, error: undefined };
+		});
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+		render(
+			<QueryClientProvider client={queryClient}>
+				<TooltipProvider>
+					<ProjectSettingsForm projectId="proj-1" />
+					<AggregateAssociationStatus projectId="proj-1" />
+				</TooltipProvider>
+			</QueryClientProvider>,
+		);
+		await waitFor(() => expect(queryClient.getQueryData(["project-identity", "local", "proj-1"])).toBeDefined());
+		await userEvent.type(screen.getByRole("textbox", { name: "Host ID" }), "host-a");
+		await userEvent.type(screen.getByRole("textbox", { name: "Project ID" }), "project-a");
+		await userEvent.click(screen.getByRole("button", { name: "Add project" }));
+		await waitFor(() => expect(screen.getByText("host-a:project-a")).toBeInTheDocument(), { timeout: 2_000 });
+	});
+
 	it("saves a changed project setting without a submit action", async () => {
 		mockProject({
 			id: "proj-1",
@@ -228,11 +267,34 @@ describe("ProjectSettingsForm", () => {
 			},
 		});
 
-		renderSettings();
+		const queryClient = renderSettings();
+		queryClient.setQueryData(["project-identity", "local", "proj-1"], { aggregateProjects: [] });
 		await userEvent.click(await screen.findByRole("switch", { name: "Auto review PRs" }));
 		await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}", expect.objectContaining({
 			body: expect.objectContaining({ config: expect.objectContaining({ autoReview: true }) }),
 		})));
+		await waitFor(() => expect(queryClient.getQueryState(["project-identity", "local", "proj-1"])?.isInvalidated).toBe(true));
+	});
+
+	it("preserves host-qualified aggregate project references when another setting is saved", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				orchestrator: { agent: "claude-code" },
+				aggregateProjects: [{ hostId: "host-a", projectId: "project-a" }],
+			},
+		});
+		renderSettings();
+		await userEvent.click(await screen.findByRole("switch", { name: "Auto review PRs" }));
+		await waitFor(() => expect(putMock.mock.calls[0]?.[1].body.config.aggregateProjects).toEqual([
+			{ hostId: "host-a", projectId: "project-a" },
+		]));
 	});
 
 	it.each([

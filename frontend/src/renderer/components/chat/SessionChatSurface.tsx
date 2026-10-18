@@ -58,6 +58,7 @@ import type { AgentSwitchSummary, WorkspaceSession } from "../../types/workspace
 import { AgentSwitchProgressTrack } from "../AgentSwitchProgressTrack";
 import { useUiStore } from "../../stores/ui-store";
 import { ChatWorkspace } from "./ChatWorkspace";
+import { WorkerReportsPanel } from "./WorkerReportsPanel";
 import { startingConversationSnapshot } from "./OrchestratorStartingChat";
 import { hasProviderPermissionMode } from "./TurnSettingsBar";
 
@@ -625,6 +626,8 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 		<div className="relative h-full min-h-0">
 			{refreshError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{refreshError}</p> : null}
 			{sideChatContainer ? createPortal(sideChats.panel, sideChatContainer) : null}
+			<div className="flex h-full min-h-0 min-w-0 flex-col lg:flex-row">
+			<div className="min-h-0 min-w-0 flex-1">
 			<ChatWorkspace
 				onAddToSideChat={sideEnabled && (sideChats.activeId || sideCreationEnabled) ? attachToSide : undefined}
 				annotationNavigationRequest={annotationNavigationRequest}
@@ -764,6 +767,9 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 				cancelQueuedTurnPendingTurnId={commands.cancelQueuedTurnPendingTurnId}
 				editQueuedTurnPendingTurnId={commands.editQueuedTurnPendingTurnId}
 			/>
+			</div>
+			{session.kind === "orchestrator" ? <div className="h-[38%] min-h-36 min-w-0 shrink-0 border-t border-border lg:h-full lg:w-[min(34%,26rem)] lg:border-l lg:border-t-0"><WorkerReportsPanel ownerHostId={hostId} projectId={session.workspaceId} /></div> : null}
+			</div>
 			{shownSwitchPresentation ? (
 				<ChatAgentSwitchStatus
 					auxiliaryActive={Boolean(reviewerTarget || shellTarget)}

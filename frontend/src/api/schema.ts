@@ -3886,6 +3886,10 @@ export interface components {
             /** @enum {string} */
             status: "unknown" | "current" | "behind_latest" | "ahead_of_latest";
         };
+        AggregateProjectRef: {
+            hostId: string;
+            projectId: string;
+        };
         AppMemoryResponse: {
             /** @description False when there was no earlier sample to measure against: cpuPercent is unknown, not zero. */
             cpuMeasured: boolean;
@@ -5321,6 +5325,7 @@ export interface components {
             agentConfig?: components["schemas"]["AgentConfig"];
             agentRules?: string;
             agentRulesFile?: string;
+            aggregateProjects?: components["schemas"]["AggregateProjectRef"][];
             autoReview?: boolean;
             canonicalRepoURL?: string;
             containerReap?: components["schemas"]["ContainerReapConfig"];
@@ -5502,8 +5507,11 @@ export interface components {
             reference: string;
         };
         ReportResponse: {
+            agent?: string;
             /** Format: date-time */
             createdAt: string;
+            hostId?: string;
+            hostLabel?: string;
             id: string;
             message?: string;
             note?: string;
@@ -5512,6 +5520,8 @@ export interface components {
             /** Format: int64 */
             repeatCount: number;
             sessionId: string;
+            sessionName?: string;
+            sourceProjectId?: string;
             state?: string;
         };
         ResolveCommentsResponse: {
