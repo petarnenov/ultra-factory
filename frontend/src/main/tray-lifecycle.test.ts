@@ -120,6 +120,67 @@ describe("createTrayLifecycle pending-target flush", () => {
 		lifecycle.handleRendererReady(eventFrom(window.webContents));
 		expect(window.webContents.send).not.toHaveBeenCalled();
 	});
+
+	it("sends only the most recent target and consumes it once", () => {
+		const loadingWindow = fakeWindow(true);
+		const { lifecycle } = setup({ getWindow: () => loadingWindow as never });
+		lifecycle.openSession({ projectId: "p1", sessionId: "old" });
+		lifecycle.openSession({ projectId: "p2", sessionId: "new" });
+
+		lifecycle.handleRendererReady(eventFrom(loadingWindow.webContents));
+		lifecycle.handleRendererReady(eventFrom(loadingWindow.webContents));
+		expect(loadingWindow.webContents.send).toHaveBeenCalledTimes(1);
+		expect(loadingWindow.webContents.send).toHaveBeenCalledWith(TRAY_OPEN_SESSION_CHANNEL, {
+			projectId: "p2",
+			sessionId: "new",
+		});
+	});
+
+	it("uses explicitly supplied contents when provided", () => {
+		const window = fakeWindow();
+		const explicitContents = { isLoading: () => false, send: vi.fn() };
+		const { lifecycle, focusWindow } = setup({
+			getWindow: () => window as never,
+			getContents: () => explicitContents as never,
+		});
+		lifecycle.openSession({ projectId: "p1", sessionId: "s1" });
+		expect(explicitContents.send).toHaveBeenCalledOnce();
+		expect(window.webContents.send).not.toHaveBeenCalled();
+		expect(focusWindow).toHaveBeenCalledOnce();
+	});
+
+	it("does not fall back when supplied contents are unavailable and flushes only to that renderer", () => {
+		const window = fakeWindow();
+		const tray = fakeTrayController();
+		let rendererContents: FakeWebContents | null = null;
+		const focusWindow = vi.fn();
+		const lifecycle = createTrayLifecycle({
+			getWindow: () => window as never,
+			getContents: () => rendererContents as never,
+			getTrayController: () => tray as never,
+			focusWindow,
+		});
+		const target = { projectId: "p1", sessionId: "s1" };
+
+		lifecycle.openSession(target);
+		expect(focusWindow).toHaveBeenCalledOnce();
+		expect(window.webContents.send).not.toHaveBeenCalled();
+
+		lifecycle.handleSetAttentionState(eventFrom(window.webContents), { sessions: [] });
+		lifecycle.handleRendererReady(eventFrom(window.webContents));
+		expect(tray.setState).not.toHaveBeenCalled();
+		expect(window.webContents.send).not.toHaveBeenCalled();
+
+		rendererContents = { isLoading: () => false, send: vi.fn() };
+		lifecycle.handleRendererReady(eventFrom(window.webContents));
+		expect(rendererContents.send).not.toHaveBeenCalled();
+		lifecycle.handleRendererReady(eventFrom(rendererContents));
+		lifecycle.handleRendererReady(eventFrom(rendererContents));
+		expect(rendererContents.send).toHaveBeenCalledTimes(1);
+		expect(rendererContents.send).toHaveBeenCalledWith(TRAY_OPEN_SESSION_CHANNEL, target);
+		expect(window.webContents.send).not.toHaveBeenCalled();
+		expect(focusWindow).toHaveBeenCalledOnce();
+	});
 });
 
 describe("createTrayLifecycle clear and dispose", () => {

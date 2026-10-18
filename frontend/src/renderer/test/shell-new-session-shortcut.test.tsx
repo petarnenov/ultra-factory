@@ -188,6 +188,13 @@ vi.mock("../lib/host-clients", () => ({
 	subscribeConnectedHosts: () => () => undefined,
 }));
 
+const platform = vi.hoisted(() => ({ web: false }));
+vi.mock("../lib/platform", async (importOriginal) => Object.defineProperty(
+	{ ...await importOriginal<typeof import("../lib/platform")>() },
+	"isWebBuild",
+	{ get: () => platform.web, enumerable: true },
+));
+
 vi.mock("../lib/cloud-session", () => ({
 	useCloudSession: () => ({ status: "authenticated", session: { user: { id: "test-user" } } }),
 }));
@@ -498,6 +505,23 @@ describe("shell workspace startup", () => {
 		expect(shellMocks.navigate).not.toHaveBeenCalled();
 		await shellMocks.state.removeRemoteProject?.("box-a", "project-a");
 		expect(shellMocks.navigate).toHaveBeenCalledWith({ to: "/" });
+	});
+
+	it("leaves a remote host route on the desktop without Developer mode", async () => {
+		shellMocks.state.routeParams = { hostId: "box-a", sessionId: "remote-session" };
+		await renderShell();
+		expect(shellMocks.navigate).toHaveBeenCalledWith({ to: "/", replace: true });
+	});
+
+	it("keeps a remote host route open in the web build without Developer mode", async () => {
+		platform.web = true;
+		try {
+			shellMocks.state.routeParams = { hostId: "box-a", sessionId: "remote-session" };
+			await renderShell();
+			expect(shellMocks.navigate).not.toHaveBeenCalledWith({ to: "/", replace: true });
+		} finally {
+			platform.web = false;
+		}
 	});
 
 	it("resyncs Developer Mode when an attached daemon restarts on the same port", async () => {

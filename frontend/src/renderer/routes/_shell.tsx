@@ -398,7 +398,9 @@ function ShellLayout() {
 	const routeParams = useParams({ strict: false }) as { hostId?: string; projectId?: string; sessionId?: string };
 	const routeParamsRef = useRef(routeParams);
 	routeParamsRef.current = routeParams;
-	const remoteHostsEnabled = useUiStore((state) => state.developerMode && state.remoteHosts);
+	// Same gate as useRemoteHosts: the web build shows the hub's hosts without
+	// Developer mode, so their routes must stay open without it too.
+	const remoteHostsEnabled = useUiStore((state) => isWebBuild || (state.developerMode && state.remoteHosts));
 	const { status: accountStatus, session: cloudAccount } = useCloudSession();
 	useEffect(() => {
 		if (routeParams.hostId && shouldLeaveHostRoute({ remoteHostsEnabled, accountStatus, webBuild: isWebBuild })) void navigate({ to: "/", replace: true });
