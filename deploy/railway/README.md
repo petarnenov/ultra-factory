@@ -386,7 +386,7 @@ ships, is versioned and is tested with the rest of AO.
   not ready, are logged as errors and nothing is sent. An orchestrator in an
   active turn is never interrupted. Otherwise it reads, concurrently, the
   `rw/` worker sessions of `RW_TICK_HOSTS` (default `Linux IMac Z600`) and, in
-  one GitHub GraphQL query, the open and merged PRs to `feat/railway-hosting`
+  one GitHub GraphQL query, the open and merged PRs to `dev`
   with their checks, the open `rw` issues, and how far the branch is behind
   `main`. It checks five invariants (branch contains `main`, no green
   mergeable PR left open, no merged PR with an open task issue, no idle
