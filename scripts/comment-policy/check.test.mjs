@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapDeletedCommentRanges, parseDiff, scanTS, summary } from './check.mjs';
+import { mapDeletedCommentRanges, parseDiff, scanTS, scanPython, scanShell, scanDockerfile, summary } from './check.mjs';
 
 function stats(source, file = 'fixture.ts') {
   return summary(scanTS(source, file));
@@ -93,4 +93,54 @@ test('excludes anchored license notices only', () => {
 
 test('keeps semantic TypeScript directives out of ordinary comment debt', () => {
   assert.deepEqual(stats(`// @ts-expect-error ${'x'.repeat(90)}`), { blocks: 0, longLines: 0 });
+});
+
+
+test('ignores Python comment-like text inside strings and triple-quoted blocks', () => {
+  const source = 'value = "# one\n# two\n# three"\ntriple = """\n# inside\n# block\n"""\n';
+  assert.deepEqual(summary(scanPython(source)), { blocks: 0, longLines: 0 });
+});
+
+test('groups adjacent Python comments and checks line lengths', () => {
+  const source = `# one\n# ${'x'.repeat(79)}\n# three`;
+  assert.deepEqual(summary(scanPython(source)), { blocks: 1, longLines: 1 });
+});
+
+test('keeps Python directives and license notices out of ordinary debt', () => {
+  assert.deepEqual(summary(scanPython('# type: ignore\n# Copyright holder\n# extra\n')), { blocks: 0, longLines: 0 });
+});
+
+test('ignores shell comment-like text in quotes and heredoc bodies', () => {
+  const source = 'echo "# one\n# two\n# three"\ncat <<EOF\n# inside\nEOF\n# one\n# two\n# three\n';
+  assert.deepEqual(summary(scanShell(source)), { blocks: 1, longLines: 0 });
+});
+
+test('handles quoted heredoc delimiters and shell directives', () => {
+  const source = "#!/bin/bash\n# shellcheck disable=SC2086\ncat <<'EOF'\n# inside\nEOF\n# one\n# two\n# three\n";
+  assert.deepEqual(summary(scanShell(source)), { blocks: 1, longLines: 0 });
+});
+
+test('checks Dockerfile adjacent comments and line lengths', () => {
+  const source = `# one\n# ${'x'.repeat(79)}\n# three`;
+  assert.deepEqual(summary(scanDockerfile(source)), { blocks: 1, longLines: 1 });
+});
+
+test('shell multi-line quoted strings do not produce comment blocks', () => {
+  const source = 'msg="first\n# a\n# b\n# c"\n';
+  assert.deepEqual(summary(scanShell(source)), { blocks: 0, longLines: 0 });
+});
+
+test('shell here-strings do not consume following comments', () => {
+  const source = 'read -ra list <<<"$PROVIDERS"\n# one\n# two\n# three\n';
+  assert.deepEqual(summary(scanShell(source)), { blocks: 1, longLines: 0 });
+});
+
+test('shell parameter length expansion is not treated as a comment', () => {
+  const source = `echo \${#items[@]} ${'x'.repeat(75)}\n`;
+  assert.deepEqual(summary(scanShell(source)), { blocks: 0, longLines: 0 });
+});
+
+test('shell comments that merely mention heredocs do not start heredocs', () => {
+  const source = '# feed the config via <<EOF\n# one\n# two\n# three\n';
+  assert.deepEqual(summary(scanShell(source)), { blocks: 1, longLines: 0 });
 });
