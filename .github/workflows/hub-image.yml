@@ -11,10 +11,9 @@ name: Hub image
 #
 # Pull requests and manual runs smoke-test the result and publish nothing.
 # A push to main, feat/railway-hosting, or a hub-v* tag publishes
-# ghcr.io/<owner>/ao-hub. main and hub-v* publish linux/amd64 and linux/arm64;
-# feat/railway-hosting publishes linux/amd64 only, the platform Railway runs.
+# ghcr.io/<owner>/ao-hub for linux/amd64 and linux/arm64.
 #
-# After a feat/railway-hosting publish, the deploy job points the Railway hub
+# After a main publish, the deploy job points the Railway hub
 # service at the new sha-<short> tag and waits for the deployment. It runs in
 # the railway-hub environment and needs its secrets RAILWAY_TOKEN (a project
 # token for the hub's project and environment) and RAILWAY_HUB_SERVICE_ID;
@@ -74,15 +73,14 @@ jobs:
             publish=true
           fi
           echo "publish=$publish" >>"$GITHUB_OUTPUT"
-          # The integration branch feeds the Railway hub: amd64 only, then
-          # deploy. main and release tags stay multi-arch and never deploy.
-          if [ "$publish" = true ] && [ "$GITHUB_REF" = refs/heads/feat/railway-hosting ]; then
-            echo "platforms=linux/amd64" >>"$GITHUB_OUTPUT"
-            echo "deploy=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "platforms=linux/amd64,linux/arm64" >>"$GITHUB_OUTPUT"
-            echo "deploy=false" >>"$GITHUB_OUTPUT"
+          # main feeds the Railway hub and deploys it; release tags publish
+          # multi-arch images and never deploy.
+          deploy=false
+          if [ "$publish" = true ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            deploy=true
           fi
+          echo "platforms=linux/amd64,linux/arm64" >>"$GITHUB_OUTPUT"
+          echo "deploy=$deploy" >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   # Starts the hub the way Railway does (entrypoint, empty volume, operator
@@ -244,7 +242,7 @@ jobs:
             --set "worker.cache-from=type=gha,scope=worker-image" \
             --set "worker.cache-to=type=gha,mode=max,scope=worker-image"
 
-  # feat/railway-hosting only: point the Railway hub service at the image just
+  # main only: point the Railway hub service at the image just
   # published and wait for the deployment. The ao-hub package must be pullable
   # by Railway (public, or registry credentials on the service). Restarting
   # the hub stops its live agent processes and terminals and signs browsers
