@@ -18,6 +18,8 @@ import (
 // yet exist (tracker/SCM per-project config) are intentionally absent and land in
 // focused follow-up PRs alongside the code that reads them.
 type ProjectConfig struct {
+	// AggregateProjects explicitly links remote project identities to this local project board.
+	AggregateProjects []AggregateProjectRef `json:"aggregateProjects,omitempty"`
 	// CanonicalRepoURL explicitly trusts one upstream repository for PR claims.
 	// Numeric PR references use this repository when set; checkout/push stays on origin.
 	CanonicalRepoURL string `json:"canonicalRepoURL,omitempty"`
@@ -83,6 +85,12 @@ type ProjectConfig struct {
 	// the feature but check with the user or orchestrator before using it.
 	// Read at spawn, when the worker prompt is built.
 	WorkersRequestReview bool `json:"workersRequestReview,omitempty"`
+}
+
+// AggregateProjectRef identifies one project on one remote AO host.
+type AggregateProjectRef struct {
+	HostID    string `json:"hostId"`
+	ProjectID string `json:"projectId"`
 }
 
 // ContainerReapConfig is the project-level opt-out for #2652's Docker
@@ -211,6 +219,17 @@ func (c ProjectConfig) IsZero() bool {
 // Validate rejects values outside the typed vocabulary so a bad config is
 // refused when it is set (CLI/API) rather than surfacing at spawn.
 func (c ProjectConfig) Validate() error {
+	seenAggregateProjects := make(map[string]bool, len(c.AggregateProjects))
+	for _, ref := range c.AggregateProjects {
+		if strings.TrimSpace(ref.HostID) == "" || strings.TrimSpace(ref.ProjectID) == "" || ref.HostID != strings.TrimSpace(ref.HostID) || ref.ProjectID != strings.TrimSpace(ref.ProjectID) {
+			return fmt.Errorf("aggregateProjects: hostId and projectId must be non-empty and trimmed")
+		}
+		key := ref.HostID + "\x00" + ref.ProjectID
+		if seenAggregateProjects[key] {
+			return fmt.Errorf("aggregateProjects: duplicate hostId and projectId")
+		}
+		seenAggregateProjects[key] = true
+	}
 	if c.CanonicalRepoURL != "" {
 		if err := c.ValidateCanonicalRepository(c.CanonicalRepoURL); err != nil {
 			return err

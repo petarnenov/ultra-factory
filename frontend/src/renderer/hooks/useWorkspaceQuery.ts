@@ -587,12 +587,43 @@ export function useRemoteWorkspaces(options: WorkspaceSubscriptionOptions = {}) 
 /** A host-qualified project detail query for the board. It shares the remote
  * session query's key, so session mutations refresh both detail surfaces. */
 export function useRemoteProjectQuery(hostId: string, projectId: string) {
-	return useQuery({
+	return useQuery(remoteProjectQueryOptions(hostId, projectId));
+}
+
+export function remoteWorkspacesQueryOptions(hostId: string) {
+	return {
 		queryKey: remoteWorkspaceQueryKey(hostId),
 		queryFn: () => fetchRemoteWorkspaces(hostId),
+		enabled: Boolean(hostId),
+		retry: 1,
+		refetchInterval: workspaceRefetchInterval,
+	};
+}
+
+export function remoteProjectQueryOptions(hostId: string, projectId: string) {
+	return {
+		...remoteWorkspacesQueryOptions(hostId),
 		select: (workspaces) => workspaces.find((workspace) => workspace.id === projectId),
 		enabled: Boolean(hostId && projectId),
+	};
+}
+
+export function useProjectIdentity(hostId: string | undefined, projectId: string) {
+	return useQuery({
+		queryKey: ["project-identity", hostId ?? "local", projectId],
+		queryFn: async () => {
+			const client = hostId ? clientForHost(hostId) : apiClient;
+			const { data, error, response } = await client.GET("/api/v1/projects/{id}", { params: { path: { id: projectId } } });
+			if (error) {
+				if (hostId) recheckRemoteHost(hostId, response.status);
+				throw error;
+			}
+			if (data?.status !== "ok" || !data.project || "resolveError" in data.project) throw new Error("Project identity is unavailable");
+			return { repo: data.project.repo, workspaceRepos: data.project.workspaceRepos, aggregateProjects: data.project.config?.aggregateProjects ?? [] };
+		},
+		enabled: Boolean(projectId),
 		retry: 1,
+		staleTime: 60_000,
 	});
 }
 

@@ -80,6 +80,27 @@ func TestProjectConfigValidate(t *testing.T) {
 	}
 }
 
+func TestProjectConfigValidateAggregateProjects(t *testing.T) {
+	tests := []struct {
+		name string
+		refs []AggregateProjectRef
+		wantErr bool
+	}{
+		{name: "valid host-qualified project", refs: []AggregateProjectRef{{HostID: "host-a", ProjectID: "project-a"}}},
+		{name: "empty host", refs: []AggregateProjectRef{{ProjectID: "project-a"}}, wantErr: true},
+		{name: "empty project", refs: []AggregateProjectRef{{HostID: "host-a"}}, wantErr: true},
+		{name: "duplicate ref", refs: []AggregateProjectRef{{HostID: "host-a", ProjectID: "project-a"}, {HostID: "host-a", ProjectID: "project-a"}}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := (ProjectConfig{AggregateProjects: test.refs}).Validate()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestDefaultProjectConfig(t *testing.T) {
 	def := DefaultProjectConfig()
 

@@ -235,6 +235,27 @@ describe("ProjectSettingsForm", () => {
 		})));
 	});
 
+	it("preserves host-qualified aggregate project references when another setting is saved", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				orchestrator: { agent: "claude-code" },
+				aggregateProjects: [{ hostId: "host-a", projectId: "project-a" }],
+			},
+		});
+		renderSettings();
+		await userEvent.click(await screen.findByRole("switch", { name: "Auto review PRs" }));
+		await waitFor(() => expect(putMock.mock.calls[0]?.[1].body.config.aggregateProjects).toEqual([
+			{ hostId: "host-a", projectId: "project-a" },
+		]));
+	});
+
 	it.each([
 		{ field: "Worker agent", selectedAgent: "codex", selectedLabel: "Codex" },
 		{ field: "Orchestrator agent", selectedAgent: "claude-code", selectedLabel: "Claude Code" },

@@ -128,6 +128,8 @@ export type SessionsBoardGridViewProps<
 > = {
 	columns: KanbanColumnView[];
 	labels: BoardColumnLabels;
+	/** Stable card identity; defaults to the session ID for single-host boards. */
+	sessionKey?: (session: TSession) => string;
 	renderSessionCard: (session: TSession) => ReactNode;
 	sessions: TSession[];
 };
@@ -135,6 +137,7 @@ export type SessionsBoardGridViewProps<
 export function SessionsBoardGridView<TSession extends BoardSessionPresentation>({
 	columns,
 	labels,
+	sessionKey,
 	renderSessionCard,
 	sessions,
 }: SessionsBoardGridViewProps<TSession>) {
@@ -161,6 +164,7 @@ export function SessionsBoardGridView<TSession extends BoardSessionPresentation>
 						column={column}
 						key={column.column}
 						labels={labels}
+						sessionKey={sessionKey}
 						renderSessionCard={renderSessionCard}
 						sessions={byColumn.get(column.column) ?? []}
 					/>
@@ -173,11 +177,13 @@ export function SessionsBoardGridView<TSession extends BoardSessionPresentation>
 function BoardColumnView<TSession extends BoardSessionPresentation>({
 	column,
 	labels,
+	sessionKey,
 	renderSessionCard,
 	sessions,
 }: {
 	column: KanbanColumnView;
 	labels: BoardColumnLabels;
+	sessionKey?: (session: TSession) => string;
 	renderSessionCard: (session: TSession) => ReactNode;
 	sessions: TSession[];
 }) {
@@ -207,7 +213,7 @@ function BoardColumnView<TSession extends BoardSessionPresentation>({
 			<div className="board-scrollbar min-h-0 flex-1 overflow-y-auto pl-3 pr-2 pb-3 pt-3">
 				<div className="flex min-h-full flex-col gap-2.5">
 					{ordered.map((session) => (
-						<Fragment key={session.id}>{renderSessionCard(session)}</Fragment>
+						<Fragment key={sessionKey?.(session) ?? session.id}>{renderSessionCard(session)}</Fragment>
 					))}
 				</div>
 			</div>

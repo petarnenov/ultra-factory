@@ -144,6 +144,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 	const activeOrchestrator = newestActiveOrchestrator(workspace?.sessions ?? []);
 	const intake: TrackerIntakeConfig = config.trackerIntake ?? {};
 	const initialValues: ProjectSettingsDraft = {
+		aggregateProjects: config.aggregateProjects ?? [],
 		displayName: project.name,
 		defaultBranch: config.defaultBranch ?? DEFAULT_BRANCH_AUTO,
 		sessionPrefix: config.sessionPrefix ?? "",
@@ -208,6 +209,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 				}
 			: {
 					...config,
+					aggregateProjects: values.aggregateProjects?.length ? values.aggregateProjects : undefined,
 					defaultBranch: values.defaultBranch.trim() === DEFAULT_BRANCH_AUTO ? undefined : values.defaultBranch || undefined,
 					sessionPrefix: values.sessionPrefix || undefined,
 					worker: {
