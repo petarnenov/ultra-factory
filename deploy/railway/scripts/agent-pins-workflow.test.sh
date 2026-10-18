@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # Regression test for the pin workflow's branch-match decision.
-# A bot branch can already have the staged pins while HEAD is main.
-#
-# The workflow must report changed=true instead of closing the PR.
+# HEAD stays on main when the bot branch already has the staged pins.
 
 set -euo pipefail
 
