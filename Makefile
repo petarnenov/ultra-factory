@@ -9,10 +9,16 @@ SHELL := /bin/bash
 ARGS ?=
 NPM_DIRS := . frontend packages/cloud-client packages/product-ui packages/hub-bff
 
+DAEMON_CHANNEL ?= main
+DAEMON_UPDATE_CMD ?= apply
+# Default to the repository this checkout came from.
+DAEMON_REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's|^.*github\.com[:/]||; s|\.git$$||')
+
 .PHONY: help setup doctor \
 	dev dev-cloud dev-web daemon ao \
-	build build-backend build-daemon daemon-dist package dist \
-	test test-backend test-race test-frontend test-e2e test-e2e-renderer \
+	build build-backend build-daemon daemon-dist daemon-channel package dist \
+	daemon-update-install daemon-update \
+	test test-backend test-race test-frontend test-e2e test-e2e-renderer test-daemon-update \
 	lint vet typecheck check \
 	sqlc api api-spec api-ts \
 	cloud-check product-ui-check hub-bff-check shared-check \
@@ -71,6 +77,9 @@ build-daemon: ## Build the daemon binary bundled into the desktop app (dev)
 daemon-dist: ## Portable ao daemon + Node 24 LTS for macOS/Linux (arm64/amd64) in dist/daemon; DAEMON_PLATFORMS="linux/amd64", DAEMON_NODE=0
 	@bash scripts/build-daemon-dist.sh
 
+daemon-channel: ## Stage the daemon update channel in dist/daemon-channel (bundles, SHA256SUMS, manifest.json)
+	@bash scripts/build-daemon-channel.sh
+
 build: build-backend ## Build backend and package the desktop app
 	npm --prefix frontend run package
 
@@ -79,6 +88,14 @@ package: ## Package the desktop app for the current platform
 
 dist: ## Create desktop distributables (needs platform packaging tools)
 	npm --prefix frontend run make
+
+##@ Self-hosted host
+
+daemon-update-install: ## Install or refresh this host's self-update timer; DAEMON_CHANNEL=main, ARGS="--dry-run"
+	@bash scripts/install-self-update.sh --install --channel $(DAEMON_CHANNEL) --repo $(DAEMON_REPO) $(ARGS)
+
+daemon-update: ## Run this host's installed updater; DAEMON_UPDATE_CMD=apply|check|status|rollback
+	@$$HOME/.ao/bin/ao-self-update $(DAEMON_UPDATE_CMD) $(ARGS)
 
 ##@ Test and lint
 
@@ -98,6 +115,10 @@ test-e2e: ## Run frontend Playwright e2e tests
 
 test-e2e-renderer: ## Run the T0/P0 renderer Playwright subset
 	npm --prefix frontend run test:e2e:renderer
+
+test-daemon-update: ## Run the daemon self-update script tests
+	@bash scripts/ao-self-update.test.sh all
+	@bash scripts/install-self-update.test.sh all
 
 lint: ## Backend go test + golangci-lint (pinned)
 	npm run lint
