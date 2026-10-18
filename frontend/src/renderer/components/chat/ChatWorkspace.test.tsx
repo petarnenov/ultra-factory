@@ -2962,6 +2962,34 @@ describe("ChatWorkspace timeline", () => {
 });
 
 describe("automation reports", () => {
+	it("removes report delivery turns without leaving an empty timeline row", () => {
+		const source = chatFixture.items.find((item): item is ConversationMessage => item.kind === "message" && item.id === "m-4");
+		if (!source) throw new Error("Fixture needs an automation message");
+		const reportText = `Reports since your previous turn:
+
+[done] worker finished`;
+		const report: ConversationMessage = {
+			...source,
+			id: "worker-report-delivery",
+			turnId: undefined,
+			sequence: 1,
+			clientMessageId: "report-batch:abc123",
+			text: `<ao-report-delivery id="report-batch:abc123">
+${reportText}
+</ao-report-delivery>`,
+		};
+		const snapshot: ConversationSnapshot = {
+			...chatFixtureEmpty,
+			items: [report],
+			latestSequence: 1,
+		};
+
+		render(<ChatWorkspace snapshot={snapshot} />);
+
+		expect(screen.queryByText(/Reports since your previous turn/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("chat-timeline")).not.toBeInTheDocument();
+	});
+
 	it("keeps queued browser feedback visible while the agent is busy", () => {
 		const snapshot: ConversationSnapshot = {
 			...chatFixture,

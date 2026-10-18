@@ -766,7 +766,7 @@ export function OriginMessage({ message }: { message: ConversationMessage }) {
 	);
 }
 
-function isReportDeliveryEnvelope(text: string): boolean {
+export function isReportDeliveryEnvelope(text: string): boolean {
 	return /^<ao-report-delivery id="[A-Za-z0-9:_-]{1,128}">\s*[\s\S]*\s*<\/ao-report-delivery>\s*$/.test(text.trim());
 }
 
