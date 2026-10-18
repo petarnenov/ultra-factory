@@ -532,10 +532,12 @@ the hub, on every push to `main` that touches its inputs
 The base is the worker target from that same commit
 ([docker-bake.hcl](docker-bake.hcl)), not a published `ao-worker` tag, so the
 hub's daemon and tools can never lag the commit it was built from. It
-publishes `ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64 and linux/arm64,
-then the deploy job sets the Railway `hub` service image to that tag and waits
-for the deployment to reach `SUCCESS`, with a 60 s re-check after `SUCCESS` to
-catch a crash loop. `hub-v*` tags publish the same images and never deploy. Every deploy restarts the hub, as in
+publishes `ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64, the platform
+Railway runs, then the deploy job sets the Railway `hub` service image to that
+tag and waits for the deployment to reach `SUCCESS`, with a 60 s re-check
+after `SUCCESS` to catch a crash loop. Only pushes to `main` publish and
+deploy; pull requests and manual runs smoke-test without publishing. Every
+deploy restarts the hub, as in
 [Hub image update](#hub-image-update). To approve each deploy instead, add
 required reviewers to the `railway-hub` environment.
 

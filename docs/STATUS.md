@@ -269,7 +269,7 @@ Built on the branch:
   volume.
 - **Hub image** (`deploy/railway/hub`): daemon, web BFF, and web SPA under one
   supervisor, with both daemon listeners on loopback only. Published and
-  redeployed automatically by `hub-image.yml` on pushes to the branch.
+  redeployed automatically by `hub-image.yml` on pushes to `main`.
 - **Web build of the renderer** (`npm --prefix frontend run build:web`) with
   Electron-only capabilities turned off.
 - **Web BFF** (`packages/hub-bff`, ADR 0006): single-operator login, session

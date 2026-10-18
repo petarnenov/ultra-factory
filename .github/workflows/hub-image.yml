@@ -10,19 +10,18 @@ name: Hub image
 # commit being built. No published worker tag is involved.
 #
 # Pull requests and manual runs smoke-test the result and publish nothing.
-# A push to main, feat/railway-hosting, or a hub-v* tag publishes
-# ghcr.io/<owner>/ao-hub for linux/amd64 and linux/arm64.
+# A push to main publishes ghcr.io/<owner>/ao-hub for linux/amd64, the
+# platform Railway runs.
 #
-# After a main publish, the deploy job points the Railway hub
-# service at the new sha-<short> tag and waits for the deployment. It runs in
+# After a main publish, the deploy job points the Railway hub service at the
+# new sha-<short> tag and waits for the deployment. It runs in
 # the railway-hub environment and needs its secrets RAILWAY_TOKEN (a project
 # token for the hub's project and environment) and RAILWAY_HUB_SERVICE_ID;
 # without them it is skipped with a notice. See deploy/railway/README.md.
 
 on:
   push:
-    branches: [main, feat/railway-hosting]
-    tags: ["hub-v*"]
+    branches: [main]
     paths:
       - "backend/**"
       - "frontend/**"
@@ -41,9 +40,8 @@ on:
 permissions:
   contents: read
 
-# Pull requests cancel their older runs. A push to main and a hub-v* tag on the
-# same commit must not share a group, or the tag run could be cancelled.
-# Deploys have their own group (see the deploy job), so they never overlap.
+# Pull requests cancel their older runs. Deploys have their own group (see the
+# deploy job), so they never overlap.
 concurrency:
   group: hub-image-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -55,8 +53,8 @@ env:
   AO_COMMIT: ${{ github.sha }}
 
 jobs:
-  # Decides the mode once: publish (push to main, the integration branch, or a
-  # hub-v* tag, and not local-ci) or verify (everything else).
+  # Decides the mode once: publish (push to main, and not local-ci) or verify
+  # (everything else).
   plan:
     name: Plan
     runs-on: ubuntu-latest
@@ -73,13 +71,12 @@ jobs:
             publish=true
           fi
           echo "publish=$publish" >>"$GITHUB_OUTPUT"
-          # main feeds the Railway hub and deploys it; release tags publish
-          # multi-arch images and never deploy.
+          # main feeds the Railway hub: publish amd64, then deploy.
           deploy=false
           if [ "$publish" = true ] && [ "$GITHUB_REF" = refs/heads/main ]; then
             deploy=true
           fi
-          echo "platforms=linux/amd64,linux/arm64" >>"$GITHUB_OUTPUT"
+          echo "platforms=linux/amd64" >>"$GITHUB_OUTPUT"
           echo "deploy=$deploy" >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -183,8 +180,6 @@ jobs:
           docker network rm ao-hub-smoke || true
 
   # Publish only: build both images from this commit and push the hub to GHCR.
-  # linux/arm64 (main and hub-v*) runs under QEMU; the Go and ACP stages build
-  # on the build host, and only the runtime stages are emulated.
   publish:
     name: Build and publish
     needs: [plan, smoke]
@@ -206,8 +201,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      # sha-<short> on every build; hub-v<semver> only on hub-v* tags. The
-      # image never takes a moving tag.
+      # sha-<short> on every build. The image never takes a moving tag.
       - name: Tags
         id: tags
         run: |
@@ -215,11 +209,7 @@ jobs:
           image=ghcr.io/${owner,,}/ao-hub
           echo "image=$image:sha-${GITHUB_SHA::7}" >>"$GITHUB_OUTPUT"
           # Comma-separated: the TAGS variable docker-bake.hcl reads.
-          taglist="$image:sha-${GITHUB_SHA::7}"
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            taglist="$taglist,$image:$GITHUB_REF_NAME"
-          fi
-          echo "taglist=$taglist" >>"$GITHUB_OUTPUT"
+          echo "taglist=$image:sha-${GITHUB_SHA::7}" >>"$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR

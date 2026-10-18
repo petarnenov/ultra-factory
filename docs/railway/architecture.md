@@ -187,9 +187,9 @@ permissions are verified.
 5. **Drain.** `POST /hub/workers/:id/drain` marks a Railway worker as draining so
    the BFF refuses new work for it. It never calls Railway.
 
-The BFF's Railway client is separate from CI: on pushes to
-`feat/railway-hosting`, [`hub-image.yml`](../../.github/workflows/hub-image.yml)
-publishes the hub image and redeploys the `hub` service through Railway's
+The BFF's Railway client is separate from CI: on pushes to `main`,
+[`hub-image.yml`](../../.github/workflows/hub-image.yml) publishes the hub image
+and redeploys the `hub` service through Railway's
 `serviceInstanceUpdate` and `serviceInstanceDeployV2` operations. Every deploy
 restarts the hub.
 
