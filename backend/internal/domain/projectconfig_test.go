@@ -82,8 +82,8 @@ func TestProjectConfigValidate(t *testing.T) {
 
 func TestProjectConfigValidateAggregateProjects(t *testing.T) {
 	tests := []struct {
-		name string
-		refs []AggregateProjectRef
+		name    string
+		refs    []AggregateProjectRef
 		wantErr bool
 	}{
 		{name: "valid host-qualified project", refs: []AggregateProjectRef{{HostID: "host-a", ProjectID: "project-a"}}},
