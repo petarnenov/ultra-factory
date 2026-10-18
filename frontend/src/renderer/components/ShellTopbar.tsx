@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, CalendarClock, FileText, Folder, LayoutDashboard, Plus } from "lucide-react";
+import { Archive, CalendarClock, FileText, Folder, LayoutDashboard, ListChecks, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { NotificationCenter } from "./NotificationCenter";
 import { ProjectBoardActions } from "./ProjectBoardActions";
@@ -119,6 +119,7 @@ export function ShellTopbar({
 	const isSessionRoute = startingOrchestrator || Boolean(params.sessionId);
 	const isAutomationsRoute = location.pathname === "/automations";
 	const isArtifactsRoute = location.pathname === "/artifacts";
+	const isCompletedTasksRoute = !params.sessionId && location.pathname.endsWith("/completed");
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
 	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
 	const isInspectorOpen = useUiStore((state) =>
@@ -130,8 +131,8 @@ export function ShellTopbar({
 	// removed, or data still loading) shows an empty crumb — never the raw
 	// route slug. "Board" is the root-board crumb only.
 	const projectId = session?.workspaceId ?? params.projectId;
-	const isProjectBoardRoute = !isSessionRoute && Boolean(projectId);
-	const isRootBoardRoute = !isSessionRoute && !isProjectBoardRoute && !isAutomationsRoute && !isArtifactsRoute && !isStandaloneBoardRoute;
+	const isProjectBoardRoute = !isSessionRoute && !isCompletedTasksRoute && Boolean(projectId);
+	const isRootBoardRoute = !isSessionRoute && !isProjectBoardRoute && !isAutomationsRoute && !isArtifactsRoute && !isCompletedTasksRoute && !isStandaloneBoardRoute;
 	const project = workspaceScope?.project;
 	const supportsLocalCues = Boolean(!hostId && project && toProjectKind(project.kind));
 	const projectLabel = project?.name ?? session?.workspaceName ?? (projectId ? "" : t("shell.board"));
@@ -192,6 +193,15 @@ export function ShellTopbar({
 						<span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>
 							<FileText aria-hidden="true" className="size-icon-md" />
 							{t("artifacts.title")}
+						</span>
+					</div>
+				) : isCompletedTasksRoute ? (
+					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="completed-tasks-topbar-label">
+						<span className={cn(topbarProjectLabelClass, "inline-flex min-w-0 items-center gap-1.5")}>
+							<ListChecks aria-hidden="true" className="size-icon-md" />
+							{t("completedTasks.title")}
+							{projectLabel ? <span className="truncate text-muted-foreground">· {projectLabel}</span> : null}
+							{hostId ? <span className="truncate text-muted-foreground">· {labelForHost(hostId) ?? hostId}</span> : null}
 						</span>
 					</div>
 				) : (isProjectBoardRoute && boardActionsInPanel) ||

@@ -3539,3 +3539,123 @@ type SideChatLaunchState struct {
 type SideLabelRequest struct {
 	Label string `json:"label"`
 }
+
+// CompletedTaskProjectParam selects the project whose completed tasks are read.
+type CompletedTaskProjectParam struct {
+	ProjectID string `path:"projectId" description:"Project whose completed tasks are read."`
+}
+
+// CompletedTaskParams selects one completed task in a project.
+type CompletedTaskParams struct {
+	ProjectID string `path:"projectId" description:"Project on this daemon that owns the task."`
+	SessionID string `path:"sessionId" description:"Worker session identifier on this daemon."`
+}
+
+// ListCompletedTasksQuery filters and pages completed tasks.
+type ListCompletedTasksQuery struct {
+	Outcome string `query:"outcome,omitempty" enum:"merged,closed,cancelled,failed" description:"Only tasks with this outcome."`
+	Limit   int    `query:"limit,omitempty" description:"Page size, 1 to 200. Defaults to 50."`
+	Cursor  string `query:"cursor,omitempty" description:"Cursor from the previous page."`
+}
+
+// CompletedTaskPR is one PR attributed to a completed task.
+type CompletedTaskPR struct {
+	URL    string `json:"url"`
+	Number int    `json:"number"`
+	State  string `json:"state" enum:"draft,open,merged,closed"`
+}
+
+// CompletedTaskTokens are summed token counts. A null count was never
+// recorded. inputTokens includes cachedInputTokens; never add them.
+type CompletedTaskTokens struct {
+	InputTokens       *int64 `json:"inputTokens"`
+	CachedInputTokens *int64 `json:"cachedInputTokens"`
+	OutputTokens      *int64 `json:"outputTokens"`
+	Completeness      string `json:"completeness" enum:"complete,partial,unavailable"`
+}
+
+// CompletedTaskSummary is one completed task in a listing. Model and effort
+// are the session's final configured values; empty means the default.
+type CompletedTaskSummary struct {
+	HostID         string              `json:"hostId"`
+	SessionID      string              `json:"sessionId"`
+	ProjectID      string              `json:"projectId"`
+	Title          string              `json:"title"`
+	IssueID        string              `json:"issueId,omitempty"`
+	PRs            []CompletedTaskPR   `json:"prs"`
+	Outcome        string              `json:"outcome" enum:"merged,closed,cancelled,failed"`
+	CreatedAt      time.Time           `json:"createdAt"`
+	CompletedAt    *time.Time          `json:"completedAt"`
+	ElapsedSeconds *int64              `json:"elapsedSeconds"`
+	Harness        string              `json:"harness"`
+	Model          string              `json:"model"`
+	Effort         string              `json:"effort"`
+	Tokens         CompletedTaskTokens `json:"tokens"`
+}
+
+// ListCompletedTasksResponse is one page of a project's completed tasks.
+type ListCompletedTasksResponse struct {
+	HostID     string                 `json:"hostId"`
+	Tasks      []CompletedTaskSummary `json:"tasks"`
+	NextCursor string                 `json:"nextCursor,omitempty"`
+}
+
+// CompletedTaskConfigSegment is the effective configuration from since on.
+type CompletedTaskConfigSegment struct {
+	Source  string    `json:"source" enum:"session,conversation"`
+	Harness string    `json:"harness"`
+	Model   string    `json:"model"`
+	Effort  string    `json:"effort"`
+	Since   time.Time `json:"since"`
+}
+
+// CompletedTaskConfigHistory is the task's recorded configuration changes.
+type CompletedTaskConfigHistory struct {
+	Completeness string                       `json:"completeness" enum:"complete,partial,unavailable"`
+	Segments     []CompletedTaskConfigSegment `json:"segments"`
+}
+
+// CompletedTaskRun is one native run's usage for one model.
+type CompletedTaskRun struct {
+	BindingID         int64  `json:"bindingId"`
+	Harness           string `json:"harness"`
+	NativeRootID      string `json:"nativeRootId"`
+	Model             string `json:"model"`
+	EventCount        int64  `json:"eventCount"`
+	InputTokens       *int64 `json:"inputTokens"`
+	CachedInputTokens *int64 `json:"cachedInputTokens"`
+	OutputTokens      *int64 `json:"outputTokens"`
+	Completeness      string `json:"completeness" enum:"complete,partial,unavailable"`
+}
+
+// CompletedTaskStageVisit is one stay in a stage; leftAt is null while open.
+type CompletedTaskStageVisit struct {
+	Stage           string     `json:"stage" enum:"building,validating,needs_review,ready"`
+	EnteredAt       time.Time  `json:"enteredAt"`
+	LeftAt          *time.Time `json:"leftAt"`
+	DurationSeconds int64      `json:"durationSeconds"`
+}
+
+// CompletedTaskStageTotal is cumulative time and visits for one stage.
+type CompletedTaskStageTotal struct {
+	Stage         string `json:"stage" enum:"building,validating,needs_review,ready"`
+	Seconds       int64  `json:"seconds"`
+	Visits        int    `json:"visits"`
+	HasUnfinished bool   `json:"hasUnfinished"`
+}
+
+// CompletedTaskStages are polled stage observations: times are approximate
+// and stays shorter than the poll interval may be missing.
+type CompletedTaskStages struct {
+	Completeness string                    `json:"completeness" enum:"complete,partial,unavailable"`
+	Visits       []CompletedTaskStageVisit `json:"visits"`
+	Totals       []CompletedTaskStageTotal `json:"totals"`
+}
+
+// CompletedTaskReportResponse is one completed task's execution report.
+type CompletedTaskReportResponse struct {
+	CompletedTaskSummary
+	Config CompletedTaskConfigHistory `json:"config"`
+	Runs   []CompletedTaskRun         `json:"runs"`
+	Stages CompletedTaskStages        `json:"stages"`
+}

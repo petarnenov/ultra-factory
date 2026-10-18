@@ -44,6 +44,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/notify"
 	agentswitchobs "github.com/aoagents/agent-orchestrator/backend/internal/observe/agentswitch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/sentryobs"
+	"github.com/aoagents/agent-orchestrator/backend/internal/observe/stagehistory"
 	usagepipeline "github.com/aoagents/agent-orchestrator/backend/internal/observe/usage"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/presence"
@@ -68,6 +69,7 @@ import (
 	settingssvc "github.com/aoagents/agent-orchestrator/backend/internal/service/settings"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systemcheck"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systeminstall"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/taskreport"
 	usagesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/usage"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/skillassets"
@@ -969,6 +971,11 @@ func Run() error {
 		stop()
 		<-remoteReportsDone
 	}()
+	stageHistoryDone := stagehistory.New(stagehistory.Deps{Sessions: sessionSvc, Store: store, Logger: log}).Start(ctx)
+	defer func() {
+		stop()
+		<-stageHistoryDone
+	}()
 	var nativeSessions ports.AgentNativeSessionResolver
 	if codewhaleAgent, ok := agents.Agent(domain.HarnessCodewhale); ok {
 		nativeSessions, _ = codewhaleAgent.(ports.AgentNativeSessionResolver)
@@ -990,6 +997,7 @@ func Run() error {
 		Notifications:      notifier,
 		Reports:            reportSvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
+		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,

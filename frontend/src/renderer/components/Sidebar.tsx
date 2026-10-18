@@ -24,6 +24,7 @@ import {
 	FileText,
 	Folder,
 	FolderOpen,
+	ListChecks,
 	LogIn,
 	LogOut,
 	MoreVertical,
@@ -541,6 +542,10 @@ function useSelection() {
 		(projectId: string) => void navigate({ to: "/projects/$projectId/aggregate", params: { projectId } }),
 		[navigate],
 	);
+	const goCompletedTasks = useCallback(
+		(projectId: string) => void navigate({ to: "/projects/$projectId/completed", params: { projectId } }),
+		[navigate],
+	);
 	const goSession = useCallback(
 		(projectId: string, sessionId: string) => {
 			if (projectId === STANDALONE_WORKSPACE_ID) {
@@ -575,7 +580,8 @@ function useSelection() {
 		goProject,
 		goAggregateProject,
 		goSession,
-	}), [goArtifacts, goAutomations, goConnectMobile, goGlobalSettings, goHome, goProject, goAggregateProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
+		goCompletedTasks,
+	}), [goArtifacts, goAutomations, goCompletedTasks, goConnectMobile, goGlobalSettings, goHome, goProject, goAggregateProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
 }
 
 // Colour tracks the session's board section, preserving SCM state while the
@@ -1158,6 +1164,7 @@ export function Sidebar({
 												goProject: (projectId) => { onOpenRemoteProject(hostId, projectId); return undefined; },
 													goSession: (projectId, sessionId) => { void remoteNavigate(sessionNavigateTarget(projectId, sessionId, hostId)); },
 													goSettings: (projectId) => onConfigureRemoteProject(hostId, projectId),
+													goCompletedTasks: (projectId) => void remoteNavigate({ to: "/host/$hostId/project/$projectId/completed", params: { hostId, projectId } }),
 												};
 												return <ProjectItem
 													key={projectKey}
@@ -1424,7 +1431,7 @@ function projectItemPropsEqual(previous: ProjectItemProps, next: ProjectItemProp
 	const a = previous.selection;
 	const b = next.selection;
 	return a.goSession === b.goSession && a.goProject === b.goProject && a.goAggregateProject === b.goAggregateProject && a.goHome === b.goHome &&
-		a.goSettings === b.goSettings && projectSelectionKey(previous.workspace, a) === projectSelectionKey(next.workspace, b);
+		a.goSettings === b.goSettings && a.goCompletedTasks === b.goCompletedTasks && projectSelectionKey(previous.workspace, a) === projectSelectionKey(next.workspace, b);
 }
 
 const ProjectItem = memo(function ProjectItem({
@@ -1861,6 +1868,10 @@ const ProjectItem = memo(function ProjectItem({
 												{t("shell.openAggregateKanban")}
 											</DropdownMenuItem>
 										) : null}
+										{!workspace.cloudOrgId ? <DropdownMenuItem onSelect={() => selection.goCompletedTasks(workspace.id)}>
+											<ListChecks aria-hidden="true" />
+											{t("completedTasks.open")}
+										</DropdownMenuItem> : null}
 										<DropdownMenuItem
 											className="text-destructive focus:text-destructive [&_svg]:text-destructive focus:[&_svg]:text-destructive"
 											disabled={isRemoving}
@@ -1978,6 +1989,10 @@ const ProjectItem = memo(function ProjectItem({
 				{!isStandalone && <ContextMenuItem onSelect={() => selection.goSettings(workspace.id, workspace.cloudOrgId)}>
 					<Settings aria-hidden="true" />
 					{t("shell.projectSettings")}
+				</ContextMenuItem>}
+				{!isStandalone && !workspace.cloudOrgId && <ContextMenuItem onSelect={() => selection.goCompletedTasks(workspace.id)}>
+					<ListChecks aria-hidden="true" />
+					{t("completedTasks.open")}
 				</ContextMenuItem>}
 				{!isStandalone && <ContextMenuItem
 					className="text-destructive focus:text-destructive [&_svg]:text-destructive focus:[&_svg]:text-destructive"
