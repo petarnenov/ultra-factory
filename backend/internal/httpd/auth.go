@@ -114,8 +114,7 @@ func (l *lockout) blocked(src string) bool {
 }
 
 // fail records a failed attempt and reports whether this attempt locked src
-// out, so the transition into lockout can be logged once rather than per
-// failed request.
+// out, so entering lockout is logged once rather than per failed request.
 func (l *lockout) fail(src string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -164,10 +163,8 @@ const (
 	lockoutKeyFromForwardedFor   = "x-forwarded-for"
 )
 
-// lockoutKey derives the key failed attempts are counted against, starting
-// from the TCP peer. The key throttles guessing and nothing else: it is never
-// used for authorization or to decide that a request is local. See
-// docs/adr/0005-trusted-proxy-remote-host.md.
+// lockoutKey derives the key failed attempts count against, starting from the
+// TCP peer. It throttles guessing only, never authorization (ADR 0005).
 func lockoutKey(r *http.Request, peer string, trustedProxy bool) (key, from string) {
 	// Cloudflared connects from loopback, so use its visitor IP for lockout
 	// only. A LAN client must not be able to spoof its source with this header.
@@ -187,9 +184,7 @@ func lockoutKey(r *http.Request, peer string, trustedProxy bool) (key, from stri
 }
 
 // rightmostForwardedFor returns the last X-Forwarded-For entry across all
-// header lines, which is the one the nearest proxy appended. Exactly one
-// trusted hop is assumed: everything to its left is client-controlled, so an
-// unparseable last entry yields nil rather than falling back to an earlier one.
+// header lines, the one the nearest proxy appended; one trusted hop is assumed.
 func rightmostForwardedFor(lines []string) net.IP {
 	if len(lines) == 0 {
 		return nil
@@ -301,9 +296,8 @@ func isIdentityProbe(r *http.Request) bool {
 	return r.Method == http.MethodGet && r.URL.Path == identityProbePath
 }
 
-// trustedProxy is AO_REMOTE_TRUSTED_PROXY: when set, the lockout key is taken
-// from X-Forwarded-For (see lockoutKey). log, which may be nil, receives one
-// line each time a key becomes locked out.
+// trustedProxy is AO_REMOTE_TRUSTED_PROXY: when set, the lockout key comes from
+// X-Forwarded-For. log, which may be nil, gets one line per new lockout.
 func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter, trustedProxy bool, log *slog.Logger) func(http.Handler) http.Handler {
 	log = loggerOrDefault(log)
 	return func(next http.Handler) http.Handler {

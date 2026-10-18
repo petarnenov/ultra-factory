@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Export a consistent SQLite snapshot and the hub registry; never copy a live DB.
+# Export a consistent SQLite snapshot and the hub registry; never a live DB.
 set -euo pipefail
 umask 077
 
@@ -53,6 +53,6 @@ with tarfile.open(archive, 'r:gz') as backup:
     if sorted(m.name for m in members) != ['ao.db', 'hosts.json'] or not all(m.isfile() for m in members):
         raise SystemExit('Unexpected backup archive contents')
 PY
-# A hard link publishes atomically without overwriting a concurrently created file.
+# A hard link publishes atomically, without overwriting a concurrent file.
 ln "$staging/backup.tar.gz" "$output"
 printf 'Backup saved to %s\n' "$output"

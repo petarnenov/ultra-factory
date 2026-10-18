@@ -1,16 +1,5 @@
 // Package orchestratortick wakes an idle orchestrator with the state of its
-// workers, pull requests and CI, so a pass of its reconcile loop runs even
-// when nothing else would start one.
-//
-// A tick reads the local daemon, the AO hosts the workers run on and GitHub,
-// checks the invariants the orchestrator must keep true, and sends the
-// orchestrator one message when it is idle and the state changed, or when
-// nothing changed for longer than the re-nudge interval while work is in
-// flight. It never interrupts an active turn. Loop repeats the tick on an
-// interval until its context ends.
-//
-// The package has no I/O of its own: the daemon, GitHub and the state store
-// are interfaces, so every decision is testable without a network.
+// workers, PRs and CI, so a reconcile pass runs even when nothing else would.
 package orchestratortick
 
 import (
@@ -54,9 +43,8 @@ type Config struct {
 	IdleWorkerMax time.Duration
 	// AgentMixSince is when the claude-code + codex worker mix rule started.
 	AgentMixSince time.Time
-	// MergeAuthorized explicitly permits this cadence to merge a ready PR.
-	// It defaults to false: a project rule or prompt alone is not durable
-	// authorization.
+	// MergeAuthorized explicitly permits this cadence to merge a ready PR. It
+	// defaults to false: a project rule or prompt alone is not authorization.
 	MergeAuthorized bool
 	// CloseCompleted permits terminating a worker once all owned work and
 	// obligations are complete. It defaults to false.
@@ -89,9 +77,8 @@ func DefaultConfig() Config {
 	}
 }
 
-// ConfigFromEnv overlays the RW_TICK_* variables on DefaultConfig. Durations
-// keep the units the variables always had: RW_TICK_INTERVAL in seconds, the
-// *_MINUTES variables in minutes.
+// ConfigFromEnv overlays the RW_TICK_* variables on DefaultConfig, keeping the
+// units they always had: RW_TICK_INTERVAL in seconds, *_MINUTES in minutes.
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	cfg := DefaultConfig()
 	var errs []error

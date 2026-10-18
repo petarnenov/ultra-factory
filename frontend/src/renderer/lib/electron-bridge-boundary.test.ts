@@ -3,9 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 // The repo has no ESLint, so this source scan is the lint rule: renderer code
-// reaches the Electron preload only through ./bridge (aoBridge, with browser
-// stubs) or ./electron-bridge (the live window.ao read). Anything else would
-// crash or silently misbehave in the web build, which has no window.ao.
+// reaches the preload only through ./bridge or ./electron-bridge.
 const rendererDirectory = path.resolve(process.cwd(), "src/renderer");
 const allowedFiles = new Set(["lib/bridge.ts", "lib/electron-bridge.ts"]);
 const directAccess = /\bwindow\.ao\b/;

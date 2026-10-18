@@ -175,9 +175,8 @@ func (r *Runner) tick(ctx context.Context) Result {
 	return Result{Outcome: OutcomeSent, Session: session, Reason: reason, Violations: violations, Message: msg, Completions: completions}
 }
 
-// decide returns why the orchestrator should be woken now, or "" when it
-// should not: the state changed, or it did not change for longer than the
-// re-nudge interval (shorter while an invariant is violated).
+// decide returns why the orchestrator should be woken now, or "" when it should
+// not: the state changed, or the re-nudge interval elapsed while work is open.
 func decide(cfg Config, last Sent, sent bool, fingerprint string, violations []Violation, now time.Time) string {
 	if !sent || last.Fingerprint != fingerprint {
 		return "state changed"
@@ -255,9 +254,8 @@ func (r *Runner) Gather(ctx context.Context) Facts {
 	return facts
 }
 
-// Loop runs a tick now and then every Config.Interval until ctx ends. Each
-// tick is bounded by Config.TickTimeout; a failing or panicking tick is
-// logged and never ends the loop.
+// Loop runs a tick now and then every Config.Interval until ctx ends. Each tick
+// is bounded by Config.TickTimeout; a panicking tick is logged, never fatal.
 func (r *Runner) Loop(ctx context.Context) error {
 	log := r.log()
 	log.Info("tick loop started", "interval", r.Config.Interval.String(), "project", r.Config.Project, "hosts", strings.Join(r.Config.Hosts, " "))

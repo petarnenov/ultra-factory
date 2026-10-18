@@ -217,17 +217,8 @@ func Run() error {
 	browserAuthority := browsersvc.NewAuthority()
 	browserBroker := browserruntime.New(log, browserRuntimeToken)
 
-	// Fail fast only if a daemon is genuinely still serving the recorded port.
-	// CheckStale confirms the run-file's PID is alive, but that alone is not
-	// proof a predecessor owns the port: the file leaks when the daemon is hard
-	// killed without a graceful shutdown (the norm on Windows, where the desktop
-	// supervisor can only TerminateProcess it), and Windows reuses the recorded
-	// PID for unrelated processes. So a "live" PID is verified against an actual
-	// /healthz probe; a run-file left by a crashed/hard-killed/reused-PID
-	// predecessor is treated as stale and overwritten when the new server starts.
-	// The probe alone decides, without first requiring the PID to be visible: an
-	// agent sandbox with a private PID namespace cannot see a live predecessor's
-	// PID, and must not start a second daemon over it.
+	// Fail fast only if a daemon is genuinely still serving the recorded port:
+	// a live PID is verified with a /healthz probe, since Windows reuses PIDs.
 	if prev, err := runfile.Read(cfg.RunFilePath); err != nil {
 		return fmt.Errorf("inspect run-file: %w", err)
 	} else if prev != nil && runFileOwnerServing(&http.Client{Timeout: staleProbeTimeout}, config.LoopbackHost, prev) {

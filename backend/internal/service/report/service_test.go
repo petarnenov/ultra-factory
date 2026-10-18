@@ -159,8 +159,7 @@ func TestCreateShowsEachReportedArtifactAfterTheReportIsStored(t *testing.T) {
 }
 
 // A standalone worker has no project and so no orchestrator to receive its
-// report: Create rejects it as invalid input instead of failing the record's
-// invariants as an internal error.
+// report: Create rejects it as invalid input, not as an internal error.
 func TestCreateRejectsAWorkerWithoutAProject(t *testing.T) {
 	st := &fakeStore{ok: true, session: domain.SessionRecord{ID: "standalone-5", Kind: domain.KindWorker}}
 	_, err := New(Deps{Store: st}).Create(context.Background(), CreateInput{SessionID: "standalone-5", Message: "hi"})

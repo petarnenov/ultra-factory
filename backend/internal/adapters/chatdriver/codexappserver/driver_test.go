@@ -1135,8 +1135,7 @@ func TestProbeReportsMissingBinary(t *testing.T) {
 }
 
 // AO's own tools that load agent pages ask this before they use the network.
-// Every sandbox AO runs Codex in has network, workspace-write included (the
-// agent must reach the AO daemon on loopback), unless the caller disabled it.
+// Every sandbox has network, workspace-write included, unless disabled.
 func TestSandboxAllowsNetworkFollowsTheCodexSandbox(t *testing.T) {
 	for _, tc := range []struct {
 		name           string

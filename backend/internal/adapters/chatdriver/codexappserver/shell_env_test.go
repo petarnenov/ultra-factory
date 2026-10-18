@@ -9,8 +9,7 @@ import (
 )
 
 // A user's shell_environment_policy (inherit = "core") strips AO's variables
-// from the commands Codex runs; every thread open sets them explicitly, without
-// credentials.
+// from Codex's commands; every thread open sets them, without credentials.
 func TestThreadOpenForwardsAOShellEnv(t *testing.T) {
 	env := map[string]string{"AO_SESSION_ID": "ao-7", "AO_DATA_DIR": "/data", "AO_BROWSER_CAPABILITY": "secret", "HOME": "/home/u"}
 	for _, operation := range []string{"start", "resume", "fork"} {

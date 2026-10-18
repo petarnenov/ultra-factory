@@ -74,18 +74,8 @@ function explicitApiOrigins(): string[] {
 	return [url.origin, `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}`];
 }
 
-// CSP for the renderer. The daemon is loopback-only, so network access is
-// pinned to 127.0.0.1 (REST + SSE over http, terminal mux over ws), plus the
-// cloud control-plane websocket origins above. The policy is injected here
-// rather than written into index.html so the serve variant can differ: the
-// same directives apply in dev, relaxed only where the dev server itself
-// needs it. Enforcing CSP in dev keeps dev/packaged parity — a connect-src
-// gap then fails on the developer's screen, not weeks later in a packaged
-// build (that skew is exactly how the cloud-terminal block in #4666 shipped).
-//
-// The web build (VITE_AO_WEB=1) is served same-origin with the daemon behind a
-// proxy, so nothing points at 127.0.0.1: REST, SSE, and the /mux websocket all
-// stay on 'self' (CSP Level 3 matches same-origin ws:/wss: under 'self').
+// CSP for the renderer: pinned to 127.0.0.1 (REST/SSE over http, mux over ws)
+// plus the cloud websocket origins; the web build uses 'self' only instead.
 export function contentSecurityPolicy(
 	mode: "build" | "serve",
 	web: boolean = process.env.VITE_AO_WEB === "1",
@@ -135,14 +125,12 @@ function webContentSecurityPolicy(mode: "build" | "serve"): string {
 		"default-src 'self'",
 		mode === "serve" ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
 		"style-src 'self' 'unsafe-inline'",
-		// Repository avatars from self-hosted SCM instances, as in the desktop
-		// policy, minus the loopback daemon origins. Images only: every
-		// connection stays same-origin.
+		// Repository avatars from self-hosted SCM instances, as on the desktop,
+		// minus the loopback origins. Images only; connections stay self.
 		"img-src 'self' data: https:",
 		"font-src 'self' data:",
-		// No PostHog or cloud control-plane origins: the web bridge never
-		// bootstraps telemetry, and cloud terminals need the desktop main
-		// process's token, so neither ever connects from the web build.
+		// No PostHog or cloud control-plane origins: the web bridge bootstraps no
+		// telemetry, and cloud terminals need the desktop main process's token.
 		[
 			"connect-src",
 			"'self'",

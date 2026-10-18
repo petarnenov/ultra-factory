@@ -1,12 +1,5 @@
 // Package outbox is a local, file-based queue for messages the ao CLI could not
-// hand to the daemon because no daemon accepted the connection: worker reports
-// (`ao report`) and agent activity hooks. The CLI writes one JSON file per
-// message; the daemon delivers the queue through its own API router when it
-// starts and periodically while it runs, so a report sent while the daemon is
-// restarting is not lost.
-//
-// A message is queued only when the CLI knows it never reached a daemon, so
-// delivery from the queue cannot apply it a second time.
+// hand to a daemon: worker reports and activity hooks; the daemon drains it.
 package outbox
 
 import (
@@ -109,9 +102,7 @@ type Rejected struct {
 }
 
 // Dirs lists the outbox directories in the order the CLI tries them: the AO
-// data directory, then a per-user directory under the temporary directory for
-// agent sandboxes where the data directory is read-only. The daemon drains
-// both.
+// data directory, then a per-user temporary one for read-only sandboxes.
 func Dirs(dataDir string) []string {
 	var dirs []string
 	if dataDir != "" {
@@ -178,8 +169,7 @@ func writeIn(dir string, createdAt time.Time, data []byte) (string, error) {
 }
 
 // checkDir refuses a directory that is a symlink, belongs to another user, or
-// is open to other users: its files would be delivered with the daemon's
-// authority.
+// is open to others: its files would be delivered with the daemon's authority.
 func checkDir(dir string) error {
 	info, err := os.Lstat(dir)
 	if err != nil {
@@ -191,10 +181,8 @@ func checkDir(dir string) error {
 	return checkOwner(dir, info)
 }
 
-// Pending reads the queued entries of dirs, oldest first. Directories that do
-// not exist are skipped; unsafe directories are reported in errs and not read.
-// Files that are not valid entries are returned as rejected so the caller can
-// remove them.
+// Pending reads the queued entries of dirs, oldest first. Missing directories
+// are skipped, unsafe ones reported in errs, and invalid entries as rejected.
 func Pending(dirs []string) (items []Item, rejected []Rejected, errs []error) {
 	for _, dir := range dirs {
 		if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {

@@ -1,6 +1,5 @@
-// Package sockstest is a fake SOCKS5 proxy for tests of tailnet routing. It
-// records every connection and CONNECT target, and tunnels to a loopback
-// address that the test maps each requested name to.
+// Package sockstest is a fake SOCKS5 proxy for tests of tailnet routing: it
+// records every connection and CONNECT target, tunnelling to a loopback host.
 package sockstest
 
 import (
@@ -23,8 +22,7 @@ type Proxy struct {
 }
 
 // Start serves SOCKS5 on a loopback port until t ends. resolve maps a requested
-// host name to the loopback host that should receive the tunnel; nil keeps the
-// name as is.
+// host name to the loopback host that receives the tunnel; nil keeps the name.
 func Start(t *testing.T, resolve func(host string) string) *Proxy {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -120,7 +118,8 @@ func (p *Proxy) serve(client net.Conn, resolve func(string) string) {
 	}
 	upstream, err := net.Dial("tcp", net.JoinHostPort(target, port))
 	if err != nil {
-		_, _ = client.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0}) // connection refused
+		// connection refused
+		_, _ = client.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	defer func() { _ = upstream.Close() }()

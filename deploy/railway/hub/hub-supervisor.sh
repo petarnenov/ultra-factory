@@ -1,40 +1,49 @@
 #!/usr/bin/env bash
 # Supervisor of the AO hub image. It runs under tini and starts two required
 # processes plus the optional Tailscale daemon and orchestrator tick:
-#
+
 #   - `ao daemon`, the orchestrator. Its remote-host listener is enabled and
-#     bound to 127.0.0.1:3011 (loopbackOnly), reachable only by the BFF in this
-#     container. The loopback API on 3001 stays internal.
+#     bound to 127.0.0.1:3011 (loopbackOnly), reachable only by the BFF here;
+
+#     the loopback API on 3001 stays internal.
 #   - the hub BFF (packages/hub-bff), the only public listener, on $PORT.
+
 #   - optionally, when TS_AUTHKEY is set, tailscaled in userspace mode with a
-#     loopback-only SOCKS5 listener. Its auth key is piped to `tailscale up` and
-#     is not passed to any child environment or command line.
+#     loopback-only SOCKS5 listener. Its auth key is piped to `tailscale up`;
+
+#     it is not passed to any child environment or command line.
 #   - optionally, with AO_HUB_ORCHESTRATOR_TICK=1, the orchestrator wake-up
+
 #     loop (`ao orchestrator tick loop`). It wakes the idle hub orchestrator
 #     with worker, PR and CI state every 5 minutes.
-#
+
 # If the daemon, the BFF, or an enabled tailscaled exits, the other processes
 # are stopped and this script exits with the first one's status, so Railway
-# restarts the whole container. The
-# tick loop starts after AO_HUB_TICK_START_DELAY seconds and is not critical:
-# when it exits it is logged and restarted after
-# AO_HUB_TICK_RESTART_DELAY seconds, and the hub keeps running. SIGTERM or
-# SIGINT stops every child and exits 0.
-#
-#   1. As root (Railway with RAILWAY_RUN_UID=0): hand the root-owned volume to
-#      uid 10001 and re-run this script as that user, as the worker entrypoint
-#      does.
+
+# restarts the whole container. The tick loop starts after
+# AO_HUB_TICK_START_DELAY seconds and is not critical: when it exits it is
+
+# logged and restarted after AO_HUB_TICK_RESTART_DELAY seconds, and the hub
+# keeps running. SIGTERM or SIGINT stops every child and exits 0.
+
+#   1. As root (RAILWAY_RUN_UID=0): hand the root-owned volume to uid 10001 and
+#      re-run this script as that user, as the worker entrypoint does.
+
 #   2. Create AO_DATA_DIR, HOME, and AO_HUB_DATA_DIR (mode 0700).
-#   3. Seed or repair <AO_DATA_DIR>/mobile/config.json: the listener is enabled,
-#      loopback-only, on port 3011. The password is generated once and kept.
-#      It is the BFF's bearer for the daemon and is never printed.
+#   3. Seed or repair <AO_DATA_DIR>/mobile/config.json: the listener is
+
+#      enabled, loopback-only, on port 3011. The password is generated once and
+#      kept; it is the BFF's bearer for the daemon and is never printed.
+
 #   4. Sync the image's agent CLIs (AO_HUB_NPM_SEED and the OpenCode 2 seed)
 #      into their volume prefixes, so harness updates from the UI persist.
+
 #   5. exec-style supervision of the two processes above.
-#
+
 # AO_HUB_SUPERVISOR_DRY_RUN=1 runs steps 2-4 and exits without starting the
-# processes (see supervisor_test.sh). AO_HUB_DAEMON_COMMAND, AO_HUB_BFF_MAIN and
-# AO_HUB_TICK_COMMAND override the commands for tests.
+# processes; the AO_HUB_DAEMON_COMMAND, AO_HUB_BFF_MAIN and AO_HUB_TICK_COMMAND
+
+# overrides select the test commands (see supervisor_test.sh).
 set -euo pipefail
 
 readonly ao_uid=10001 ao_gid=10001
@@ -48,11 +57,8 @@ readonly tailscale_socket=$tailscale_dir/tailscaled.sock
 readonly tailscale_state=$tailscale_dir/tailscaled.state
 readonly tailscale_socks=127.0.0.1:1055
 readonly tailscale_authkey=${TS_AUTHKEY:-}
-# Railway's container interface (railnet0) has MTU 1316. With Tailscale's
-# default tunnel MTU of 1280, a full-size WireGuard packet is 1340 bytes
-# (IPv4), so large TCP segments from some peers never reach the hub while small
-# replies do. 1232 keeps the outer packet at or below 1316 for IPv4 and IPv6
-# underlays; the userspace netstack advertises the matching smaller TCP MSS.
+# 1232 keeps the WireGuard outer packet at or below Railway's 1316 MTU, so
+# large TCP segments survive; the netstack advertises the matching TCP MSS.
 readonly tailscale_mtu=${TS_DEBUG_MTU:-1232}
 readonly tailscale_enabled=$([[ -n $tailscale_authkey ]] && printf 1 || printf 0)
 # The key belongs only to this supervisor shell. Descendants receive a clean
@@ -77,9 +83,8 @@ die() {
 	exit 1
 }
 
-# Railway mounts volumes owned by root. With RAILWAY_RUN_UID=0 the script
-# starts as root, chowns the volume once, and drops to uid 10001 for everything
-# else, both processes included.
+# Railway mounts volumes as root. With RAILWAY_RUN_UID=0 the script starts
+# as root, chowns the volume once, then drops to uid 10001 for both processes.
 if [[ $(id -u) == 0 && $dry_run != 1 ]]; then
 	root_dirs=("$volume_root" "$data_dir" "$home_dir" "$hub_dir")
 	[[ $tailscale_enabled == 0 ]] || root_dirs+=("$tailscale_dir")
@@ -131,10 +136,7 @@ write_config() {
 }
 
 # seed_daemon_listener makes the daemon restore its remote-host listener on
-# boot (RestoreOnBoot) bound to loopback only. An existing password is kept so
-# a restart does not change the BFF's credential. The listener settings are
-# forced on every start: a config that exposes 0.0.0.0 or another port would
-# bypass the container boundary this image relies on.
+# loopback only, keeping an existing password; settings are forced every start.
 seed_daemon_listener() {
 	mkdir -p "${config%/*}"
 	chmod 0700 "${config%/*}"
@@ -227,9 +229,8 @@ bff_pid=
 tick_pid=
 tailscale_pid=
 
-# Each service, and the tick loop that reads the worker sessions of the remote
-# hosts, gets the tailnet dial gate only after tailscale up succeeds. In
-# disabled mode, inherited copies of both configuration variables are removed.
+# Services and the tick loop get the tailnet dial gate only after tailscale
+# up succeeds; in disabled mode inherited copies of both variables are removed.
 run_child() {
 	if [[ $tailscale_enabled == 1 ]]; then
 		exec env -u TS_AUTHKEY AO_REMOTE_TAILNET_SOCKS="$tailscale_socks" "$@"
@@ -301,9 +302,8 @@ supervise() {
 		log "started the orchestrator tick loop (pid $tick_pid, first tick in ${tick_start_delay}s)"
 	fi
 
-	# wait -n returns when the first child exits. A signal trapped above
-	# interrupts it with a status above 128 and sends SIGTERM to every child.
-	# An exit of the tick loop only restarts it.
+	# wait -n returns when the first child exits; a trapped signal interrupts it
+	# and SIGTERMs every child, while an exiting tick loop is only restarted.
 	while :; do
 		status=0
 		exited=

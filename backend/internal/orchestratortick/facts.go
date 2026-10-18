@@ -13,9 +13,8 @@ type WorkerPR struct {
 	State string
 }
 
-// WorkerBranchState is the session branch's durable push state. Known is
-// false when the daemon has not observed the branch yet; Unpushed commits are
-// work that only exists in the workspace.
+// WorkerBranchState is the session branch's durable push state: Known is false
+// until the daemon sees the branch, and Unpushed is work only in the workspace.
 type WorkerBranchState struct {
 	Known    bool
 	Commits  int
@@ -84,9 +83,8 @@ type PullRequest struct {
 	Mergeable      string
 	ReviewDecision string
 	Threads        []ReviewThread
-	// AOReviewStatus is AO's native review state for this exact head, set by
-	// the cadence from the worker's review read model. Empty means AO has no
-	// recorded decision for this head.
+	// AOReviewStatus is AO's native review state for this exact head, set by the
+	// cadence; empty means AO has no recorded decision for this head.
 	AOReviewStatus string
 	Checks         []Check
 	UpdatedAt      time.Time
@@ -149,9 +147,8 @@ type Daemon interface {
 	Session(ctx context.Context, id string) (SessionState, error)
 	Workers(ctx context.Context, host string) ([]Worker, error)
 	Send(ctx context.Context, sessionID, message string) error
-	// Kill terminates one host-qualified worker through the existing session
-	// lifecycle and verifies the resulting terminated fact. It never cleans or
-	// deletes the workspace.
+	// Kill terminates one host-qualified worker through the session lifecycle and
+	// verifies the terminated fact; it never cleans or deletes the workspace.
 	Kill(ctx context.Context, host, sessionID string) error
 }
 

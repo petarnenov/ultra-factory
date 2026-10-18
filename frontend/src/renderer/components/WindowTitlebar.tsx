@@ -25,10 +25,8 @@ import {
 } from "./ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-// Windows-only: macOS keeps its system menu bar and inset traffic lights; Linux
-// keeps the existing minimal chrome. Only Windows loses the native title bar and
-// needs the app to paint its own (see the win32 branch in main.ts).
-// The web build runs in a browser tab and paints no titlebar of its own.
+// Windows-only: macOS keeps its system menu bar and traffic lights, Linux its
+// minimal chrome. The web build runs in a browser tab and paints no titlebar.
 const isWindows =
   !isWebBuild &&
   typeof navigator !== "undefined" &&

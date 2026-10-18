@@ -429,22 +429,8 @@ func (d *Driver) Resume(ctx context.Context, cfg ports.ChatResumeConfig) (ports.
 	return conv, nil
 }
 
-// threadConfig is the config override sent with thread/start and
-// thread/resume. Codex layers it above config.toml for this thread only.
-//
-// AO's own "ao" server (html_preview, html_render) is pre-approved. AO answers
-// no mcpServer/elicitation/request, so a prompt could only fail the call.
-// Verified live on codex-cli 0.160.1: a tool not marked read-only raised that
-// request under on-request and was refused under never/read-only, and
-// default_tools_approval_mode "approve" removed both.
-//
-// Under the workspace-write sandbox it also grants network access (see
-// workspaceNetworkKey), unless the caller disabled network.
-//
-// shellEnv (agentlaunch.AgentShellEnv) is set for the commands the agent runs,
-// so a user's shell_environment_policy, such as inherit = "core", cannot strip
-// the AO variables ao report, ao send and the AO hooks need. Dotted keys add
-// to the user's `set` table instead of replacing it.
+// threadConfig is the config override sent with thread/start and resume.
+// AO's own server is pre-approved; shellEnv is set for the agent's commands.
 func threadConfig(effort string, servers []ports.ChatMCPServerConfig, sandbox string, disableNetwork bool, shellEnv map[string]string) map[string]any {
 	config := map[string]any{}
 	if effort != "" {
@@ -631,9 +617,8 @@ func approvalSettings(mode ports.PermissionMode) (policy, sandbox string) {
 	}
 }
 
-// approvalReviewer selects whether Codex asks the user directly or first lets
-// its built-in reviewer approve routine safe actions. Explicitly sending "user"
-// also resets a thread that previously used auto review.
+// approvalReviewer selects whether Codex asks the user directly or lets its
+// built-in reviewer approve safe actions; "user" also resets a thread.
 func approvalReviewer(mode ports.PermissionMode) string {
 	if ports.NormalizePermissionMode(mode) == ports.PermissionModeAuto {
 		return "auto_review"
@@ -641,19 +626,12 @@ func approvalReviewer(mode ports.PermissionMode) string {
 	return "user"
 }
 
-// workspaceNetworkKey is the Codex config override that gives the
-// workspace-write sandbox (accept-edits and auto) network access. Without it
-// the sandbox has its own network namespace, so the agent cannot reach the AO
-// daemon on loopback: `ao report`, `ao send` and every other ao command failed
-// with "daemon is not running", which led agents to restart a live daemon. It
-// is a dotted key so it sets only this field and keeps the user's other
-// sandbox_workspace_write settings, such as writable_roots.
+// workspaceNetworkKey gives the workspace-write sandbox (accept-edits, auto)
+// network access, so ao commands reach the daemon on loopback; a dotted key.
 const workspaceNetworkKey = "sandbox_workspace_write.network_access"
 
 // SandboxAllowsNetwork reports whether this thread's agent can reach the
-// network. Every sandbox AO runs Codex in has network (full access, the
-// read-only reviewer sandbox, and workspace-write through workspaceNetworkKey)
-// unless the caller disabled it.
+// network. Every sandbox AO runs Codex in has it unless the caller disabled it.
 func (c *conversation) SandboxAllowsNetwork(ports.PermissionMode) bool {
 	return !c.disableNetwork
 }

@@ -150,13 +150,8 @@ func (c *commandContext) doJSONPathWithHeaders(
 	return c.doJSONPathWithHeadersAndTimeout(ctx, method, path, body, out, headers, commandTimeout)
 }
 
-// ensureLocalDaemon decides whether the daemon recorded in the run-file is up
-// before a request is sent to its port. A visible live PID is enough. A PID
-// that looks dead is not: agents run commands in sandboxes with a private PID
-// namespace (Codex uses bwrap on Linux) where the daemon's PID is invisible,
-// and treating that as "stopped" lost their reports and hook events. Then the
-// daemon's own answer on its loopback port, which the sandbox shares, decides;
-// the result is cached for the rest of the invocation.
+// ensureLocalDaemon decides whether the daemon in the run-file is up before a
+// request, since a dead-looking PID is invisible inside an agent sandbox.
 func (c *commandContext) ensureLocalDaemon(ctx context.Context, runFilePath string, info runfile.Info) error {
 	if c.deps.ProcessAlive(info.PID) {
 		return nil
@@ -181,10 +176,8 @@ func inAgentSession() bool {
 	return strings.TrimSpace(os.Getenv("AO_SESSION_ID")) != ""
 }
 
-// sandboxedDaemonMessage explains an unreachable daemon to an agent. Neither the
-// run-file's PID nor its port is reachable, which inside an agent session most
-// often means a sandbox hides the daemon rather than that it stopped. Telling
-// the agent to start it made agents replace a live daemon with their own.
+// sandboxedDaemonMessage explains an unreachable daemon to an agent: a sandbox
+// hides it more often than it stopped, so never tell the agent to start one.
 func sandboxedDaemonMessage(info runfile.Info) string {
 	return fmt.Sprintf("AO daemon is not reachable from this agent session: its process (pid %d) is not visible and its port %d does not answer. "+
 		"It is most likely running outside your sandbox: run this command again outside the sandbox (request escalation). "+

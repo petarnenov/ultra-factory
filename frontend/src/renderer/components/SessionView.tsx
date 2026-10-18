@@ -1826,7 +1826,7 @@ export function SessionView({ sessionId, cloudOrgId, projectId, hostId }: Sessio
 	useSessionShortcut(
 		"copy-session-path",
 		() => {
-			// The web build has no unblocked source for the absolute path (see ShellTopbar).
+			// The web build has no unblocked source for the path (see ShellTopbar).
 			if (!session || session.cloud || hostId || !capabilities.editorHandoff) return;
 			aoBridge.editorHandoff.copyWorkspacePath(sessionId).then(
 				() => showGlobalToast(t("shortcut.sessionPathCopied")),

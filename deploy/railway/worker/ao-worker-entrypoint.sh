@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
-# Entrypoint of the AO worker image. It runs under tini on every container
-# start and then replaces itself with the given command, or with `ao daemon`
-# in the foreground when there is none:
-#
-#   1. As root (Railway with RAILWAY_RUN_UID=0): hand the root-owned volume to
-#      uid 10001 and re-run this script as that user.
-#   2. Create AO_DATA_DIR and HOME (mode 0700).
-#   3. On the first start, write <AO_DATA_DIR>/mobile/config.json so the daemon
-#      restores the remote-host listener on boot. Later starts keep the file.
-#   4. Arm or revoke the account token from AO_REMOTE_ACCOUNT_TOKEN.
-#   5. Configure git and gh from the environment.
-#   6. exec the daemon; a detached helper logs hostId and the listener once
-#      the daemon is ready.
-#
-# AO_ENTRYPOINT_DRY_RUN=1 runs steps 2-5 and prints the command instead of
-# running it (see entrypoint_test.sh). README.md documents every variable.
+# Entrypoint of the AO worker image: seeds the data dir, the listener config,
+# the account token and git/gh credentials, then execs the daemon under tini.
 set -euo pipefail
 
 readonly ao_uid=10001 ao_gid=10001
@@ -35,10 +21,8 @@ if (($# == 0)); then
 	set -- ao daemon
 fi
 
-# Railway mounts volumes owned by root, and build-time ownership does not
-# carry over to them (https://docs.railway.com/volumes). With RAILWAY_RUN_UID=0
-# the script starts as root, chowns the volume once, and drops to uid 10001
-# for everything else, the daemon included.
+# Railway mounts volumes owned by root, and build-time ownership does not carry
+# over. With RAILWAY_RUN_UID=0 it chowns the volume, then drops to uid 10001.
 if [[ $(id -u) == 0 && $dry_run != 1 ]]; then
 	for dir in "$volume_root" "$data_dir" "$home_dir"; do
 		if [[ -d $dir && $(stat -c %u "$dir") != "$ao_uid" ]]; then
@@ -85,9 +69,7 @@ write_config() {
 }
 
 # The daemon restores the listener from config.json on boot (RestoreOnBoot):
-# enabled, password, and lastPort as the port to bind. noPublicTunnel matches
-# what `ao remote-host enable` saves. An existing file always wins, so a
-# restart keeps the password that paired clients already hold.
+# enabled, password, lastPort, noPublicTunnel. An existing file always wins.
 seed_remote_host() {
 	local password port saved_password
 	if [[ -e $config ]]; then
@@ -121,10 +103,8 @@ seed_remote_host() {
 	fi
 }
 
-# AO_REMOTE_ACCOUNT_TOKEN is written as accountTokenHash (sha256 hex, the
-# digest the listener compares Bearer tokens against). The daemon's
-# POST /api/v1/remote-host/account-token cannot be used: it mints its own
-# random token and never accepts one from the caller.
+# AO_REMOTE_ACCOUNT_TOKEN becomes accountTokenHash (sha256 hex); the daemon's
+# account-token API is unusable here because it mints its own random token.
 apply_account_token() {
 	local hash
 	[[ -e $config ]] || return 0
@@ -146,9 +126,8 @@ apply_account_token() {
 	fi
 }
 
-# Credentials stay in the environment, where the CLIs read them: gh reads
-# GH_TOKEN/GITHUB_TOKEN, Claude Code reads CLAUDE_CODE_OAUTH_TOKEN,
-# ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN. Only git needs files in $HOME.
+# Credentials stay in the environment, where the CLIs read them (gh, Claude
+# Code); only git needs files in $HOME.
 configure_credentials() {
 	local name present=()
 	if [[ -n ${AO_GIT_USER_NAME:-} ]]; then

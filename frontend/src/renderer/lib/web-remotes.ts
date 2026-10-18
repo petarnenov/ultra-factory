@@ -1,14 +1,12 @@
 import type { AoBridge } from "../../preload";
 
 // The web build's remote hosts live in the hub BFF's registry (/hub/hosts), not
-// in ~/.ao/remotes.json. The BFF holds every credential and proxies each paired
-// host under the same-origin prefix /hosts/<id>, so the renderer never sees a
-// password and a host's base URL is that prefix instead of a loopback proxy.
+// in ~/.ao/remotes.json; the BFF holds credentials and proxies /hosts/<id>.
 
 type Remotes = AoBridge["remotes"];
 type RemoteHealth = Awaited<ReturnType<Remotes["add"]>>;
 
-// The fields of a /hub/hosts record that the renderer uses (hub-bff PublicHost).
+// The /hub/hosts fields the renderer uses (hub-bff PublicHost).
 type HubHost = {
 	id: string;
 	label: string;
@@ -80,8 +78,7 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 			if (!response.ok && response.status !== 404) throw await failure(response, "Could not remove host");
 		},
 		// Connecting is probing: the BFF already proxies every paired host, so an
-		// online host is usable at its prefix right away. Errors keep the desktop
-		// wording ("host <url> is <health>") that useRemoteHosts reads.
+		// online host is usable at its prefix right away, with desktop wording.
 		connect: async (url, hostId) => {
 			const saved = await findHost(url, hostId);
 			const response = await fetch(hostsUrl(`/${encodeURIComponent(saved.id)}/probe`), { method: "POST", credentials: "same-origin" });

@@ -37,7 +37,7 @@ if os.environ.get('BAD_OUTPUT'):
 command = sys.argv[9].replace('/data/', os.environ['TEST_DATA'] + '/')
 sys.exit(subprocess.call(command, shell=True))
 ''')
-        # A real SQLite online backup, with the same CLI arguments as production.
+        # A real SQLite online backup, with production's CLI arguments.
         self.fake('sqlite3', '''#!/usr/bin/env python3
 import sqlite3, sys
 assert sys.argv[1] == '-readonly'

@@ -26,9 +26,8 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	const setEnabled = useUiStore((state) => state.setRemoteHosts);
 	const { status, signIn } = useCloudSession();
 	const { settings } = useSettings();
-	// The web build signs in to the hub BFF, which owns the host registry and
-	// every credential, so it neither needs an AO Cloud account nor syncs hosts
-	// to one.
+	// The web build signs in to the hub BFF, which owns the registry and every
+	// credential, so it needs no AO Cloud account and syncs no hosts to one.
 	const signedIn = isWebBuild || status === "authenticated";
 	const cloudBaseUrl = isWebBuild ? "" : settings?.cloudControlPlaneUrl ?? "";
 	const { available: localAuthAvailable } = useCloudLocalAuth();
@@ -141,12 +140,12 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	);
 
 	return <>
-		{/* The web build always connects the hub's hosts, so the switch has nothing to turn off there. */}
+		{/* The web build connects the hub's hosts; the switch has nothing to do. */}
 		{isWebBuild ? null : <SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
 			<SettingsRow label={t("remote.enable")} description={t("remote.enableDescription")}>
 				<Switch aria-label={t("remote.enable")} checked={enabled} onCheckedChange={setEnabled} />
 			</SettingsRow>
-			{/* Tunnels and LAN addresses are the desktop's ways to reach a host; the hub reaches its hosts itself. */}
+			{/* Tunnels and LAN addresses are the desktop's ways to reach a host. */}
 			<p className="px-3 text-pretty text-xs leading-relaxed text-settings-muted">{t("remote.connectionDescription")}</p>
 		</SettingsSection>}
 

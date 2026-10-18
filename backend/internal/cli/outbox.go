@@ -12,9 +12,7 @@ import (
 )
 
 // undelivered reports whether err proves the request never reached a daemon:
-// the run-file check found none, or nothing accepted the connection. Only then
-// may the request be queued, because delivering it later cannot apply it twice.
-// A timeout or reset after the request was sent proves nothing.
+// no run-file, or nothing accepted the connection. A timeout proves nothing.
 func undelivered(err error) bool {
 	return errors.Is(err, errDaemonNotRunning) || errors.Is(err, syscall.ECONNREFUSED)
 }

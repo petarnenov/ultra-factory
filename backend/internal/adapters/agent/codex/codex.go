@@ -586,12 +586,8 @@ var fileExists = func(path string) bool {
 // dotted config key.
 var shellEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// appendShellEnvFlags forwards AO's session variables (ports.LaunchConfig.ShellEnv)
-// to the commands Codex runs. A user's shell_environment_policy, such as
-// inherit = "core", otherwise strips them, and ao report, ao send and the AO
-// hooks cannot tell AO which session they belong to. Dotted keys add to the
-// user's `set` table instead of replacing it. The values are on the command
-// line, which is why ShellEnv never holds credentials.
+// appendShellEnvFlags forwards AO's session variables to the commands Codex
+// runs, which a shell_environment_policy like inherit = "core" would strip.
 func appendShellEnvFlags(args *[]string, env map[string]string) error {
 	names := make([]string, 0, len(env))
 	for name := range env {

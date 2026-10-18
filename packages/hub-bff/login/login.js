@@ -1,6 +1,5 @@
-// Posts the operator password as JSON to the BFF. On success the BFF has set
-// the HttpOnly session cookie, so the page just navigates to the SPA, back to
-// the address a signed-out tab was on when the SPA sent it here.
+// Posts the operator password as JSON to the BFF. On success the session
+// cookie is set, so the page navigates back to the address it came from.
 const form = document.getElementById("login");
 const input = document.getElementById("password");
 const error = document.getElementById("error");
@@ -49,9 +48,8 @@ function showError(message) {
 	input.focus();
 }
 
-// Only an address on this origin is followed. Resolving it the way the
-// browser will rules out another site ("//host", "/\\host", or one hidden
-// behind a tab or newline the URL parser strips) and the login page itself.
+// Only an address on this origin is followed. Resolving it as the browser
+// will rules out another site, an escaped host, or the login page itself.
 function takeReturnTo() {
 	let target = null;
 	try {

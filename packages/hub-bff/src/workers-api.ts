@@ -46,9 +46,8 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 	let reconciling: Promise<void> | undefined;
 	let lastReconcile: string | undefined;
 	let orphans: RailwayService[] = [];
-	// First time each online Railway worker was seen with no active session,
-	// kept in memory only: a BFF restart restarts every idle clock, which errs
-	// toward warning later rather than earlier.
+	// First time each online Railway worker was seen with no active session. Kept
+	// in memory only: a BFF restart restarts every idle clock, warning later.
 	const idleSince = new Map<string, number>();
 	let checkingIdle: Promise<void> | undefined;
 
@@ -191,11 +190,8 @@ export function createWorkersApi(options: WorkersApiOptions): WorkersApi {
 		try { await reconciling; } finally { reconciling = undefined; }
 	}
 
-	// checkIdle reads each online Railway worker's active sessions. A worker
-	// with sessions, or whose session list cannot be read, has its idle clock
-	// cleared: a failed check is not evidence of idleness. Reporting only; the
-	// verified Railway API has no stop/start that keeps the volume, so nothing
-	// is stopped automatically.
+	// checkIdle reads each online Railway worker's active sessions and reports.
+	// A worker with sessions, or an unreadable list, keeps its idle clock clear.
 	async function checkIdle(): Promise<void> {
 		if (options.idleStopHours === undefined) return;
 		if (checkingIdle) return checkingIdle;

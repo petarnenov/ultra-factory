@@ -156,9 +156,8 @@ func TestProbedClientAllowsOnlyTheProbeConnection(t *testing.T) {
 	}
 	gate.Close()
 
-	// The probe's connection returns to the idle pool asynchronously after its
-	// body is read, so a request can race it and be refused (never sent). Retry
-	// until it is reused; no request may open a second connection.
+	// The probe's connection returns to the idle pool asynchronously, so a
+	// request can race it and be refused; retry, never open a second connection.
 	for _, path := range []string{"/api/v1/sessions", "/close"} {
 		deadline := time.Now().Add(5 * time.Second)
 		for {
@@ -177,7 +176,7 @@ func TestProbedClientAllowsOnlyTheProbeConnection(t *testing.T) {
 		t.Fatalf("connections opened = %d, want only the probe's", got)
 	}
 
-	// The "/close" response ended the probe's connection, so a new dial is refused.
+	// The "/close" response ended the probe's connection, so a dial is refused.
 	if _, err := client.Get(srv.URL + "/api/v1/sessions"); !errors.Is(err, ErrUnprobedConnection) {
 		t.Fatalf("err = %v, want ErrUnprobedConnection", err)
 	}

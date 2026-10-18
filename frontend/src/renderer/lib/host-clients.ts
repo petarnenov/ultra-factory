@@ -4,9 +4,8 @@ import { aoBridge } from "./bridge";
 import { apiClient } from "./api-client";
 import { LOCAL_HOST, type HostId } from "./hosts";
 
-// `base` is where the host's API answers. On the desktop it is an absolute
-// loopback proxy URL; in the web build it is the hub BFF's same-origin prefix
-// /hosts/<id>, which SSE and mux URLs append to as is.
+// `base` is where the host's API answers: a loopback proxy URL on the desktop,
+// or the BFF's same-origin /hosts/<id> prefix in the web build.
 type ConnectedHost = { hostId: HostId; label: string; url: string; base: string };
 const hosts = new Map<HostId, ConnectedHost>();
 const clients = new Map<HostId, ReturnType<typeof createClient<paths>>>();
@@ -44,9 +43,8 @@ export function labelForHost(hostId: HostId): string | undefined {
 	return hosts.get(hostId)?.label;
 }
 
-// The REST client resolves a same-origin prefix against the page origin, as the
-// local apiClient does for the web build, so requests never depend on a
-// relative Request URL.
+// The REST client resolves a same-origin prefix against the page origin, so
+// requests never depend on a relative Request URL.
 function clientBaseUrl(base: string): string {
 	return base.startsWith("/") && typeof window !== "undefined" ? `${window.location.origin}${base}` : base;
 }

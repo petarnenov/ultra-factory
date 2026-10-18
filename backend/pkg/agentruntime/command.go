@@ -195,12 +195,8 @@ func ClaudePermissionArgs(policy PermissionPolicy) []string {
 	}
 }
 
-// CodexPermissionArgs maps AO policy onto Codex approval flags.
-//
-// accept-edits and auto leave Codex in its workspace-write sandbox, which has
-// no network by default: its private network namespace hides the AO daemon on
-// loopback, so ao commands from the agent failed as "daemon is not running".
-// CodexWorkspaceNetworkArgs grants that sandbox network access.
+// CodexPermissionArgs maps AO policy onto Codex approval flags. accept-edits
+// and auto use the workspace-write sandbox, which needs network for the daemon.
 func CodexPermissionArgs(policy PermissionPolicy) []string {
 	switch NormalizePermissionPolicy(policy) {
 	case PermissionAcceptEdits:
@@ -213,8 +209,7 @@ func CodexPermissionArgs(policy PermissionPolicy) []string {
 }
 
 // CodexWorkspaceNetworkArgs gives Codex's workspace-write sandbox network
-// access. The dotted key sets only this field, keeping the user's other
-// sandbox_workspace_write settings such as writable_roots.
+// access; the dotted key keeps the user's other sandbox_workspace_write values.
 var CodexWorkspaceNetworkArgs = []string{"-c", "sandbox_workspace_write.network_access=true"}
 
 // CursorPermissionArgs maps AO policy onto Cursor agent flags.

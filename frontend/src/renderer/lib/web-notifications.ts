@@ -1,11 +1,8 @@
 import type { AoBridge } from "../../preload";
 import { shouldSignalAttention } from "../../main/notification-signals";
 
-// Browser counterpart of the notifications group that the Electron main process
-// owns (main.ts, notifications:show/setBadge). There is no dock, tray or system
-// beep here: the toast is a Web Notification, the badge is a document.title
-// prefix, and the sound goes through the same onPlaySound listeners that
-// main.tsx already wires to the bundled notification.mp3.
+// Browser counterpart of the Electron notifications group: the toast is a Web
+// Notification and the badge is a document.title prefix; no dock or beep.
 
 export type WebNotificationPermission = NotificationPermission | "unsupported";
 
@@ -21,11 +18,8 @@ export function webNotificationPermission(): WebNotificationPermission {
 	return notificationApi()?.permission ?? "unsupported";
 }
 
-/**
- * Asks the browser for permission. Only call it from a user action (the
- * Settings button): browsers block or ignore requests without a user gesture,
- * and a prompt on load is intrusive, so show() never asks on its own.
- */
+/** Asks the browser for permission from a user action only (the Settings
+ * button); a prompt on load is intrusive, and show() never asks on its own. */
 export async function requestWebNotificationPermission(): Promise<WebNotificationPermission> {
 	const api = notificationApi();
 	if (!api) return "unsupported";

@@ -122,7 +122,7 @@ export function ShellTopbar({
 	const isCompletedTasksRoute = !params.sessionId && location.pathname.endsWith("/completed");
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
 	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
-	// Without a Browser panel an orchestrator has no inspector or toggle, only Notifications.
+	// Without a Browser panel, an orchestrator has only Notifications.
 	const orchestratorWithoutInspector = isOrchestrator && !capabilities.browserPanel;
 	const isInspectorOpen = useUiStore((state) =>
 		currentSessionId ? inspectorIsOpen(state.inspectorSessions, sessionUiKey(currentSessionId, hostId)) : false,
@@ -288,9 +288,8 @@ export function ShellTopbar({
 						    have no local workspace to hand off to an editor: the local daemon
 						    has never heard of them, so querying it just surfaces its 404 as a
 						    confusing "Unknown session" error (see workspace.ts's `kind` doc). */}
-						{/* The web build has no editor handoff, and the absolute workspace path
-						    only comes from /api/v1/desktop, which the BFF does not pass (ADR 0006),
-						    so the whole control, Copy path included, is left out there. */}
+						{/* The web build has no editor handoff: /api/v1/desktop is not passed
+						    by the BFF (ADR 0006), so the control is left out. */}
 						{session && !hostId && project?.kind !== CLOUD_PROJECT_KIND && capabilities.editorHandoff ? (
 							// Keyed per session so a stale launch error does not carry over
 							// when switching sessions. The prefix keeps it distinct from the

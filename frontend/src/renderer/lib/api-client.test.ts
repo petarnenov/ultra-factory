@@ -511,8 +511,7 @@ describe("apiErrorDetails", () => {
 
 describe("web build (VITE_AO_WEB=1)", () => {
 	// The module reads its env at import time, so each case imports fresh copies
-	// of api-client and daemon-status under the stubbed env. DEV is forced off
-	// to match a production web bundle.
+	// under the stubbed env. DEV is forced off to match a production web bundle.
 	async function loadModules(env: Record<string, string>) {
 		vi.resetModules();
 		vi.stubEnv("DEV", false);

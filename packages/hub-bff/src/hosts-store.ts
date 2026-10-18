@@ -3,11 +3,8 @@ import { mkdir, readFile, rename, rm, stat, writeFile, chown } from "node:fs/pro
 import { BlockList, isIP } from "node:net";
 import path from "node:path";
 
-// The registry of daemons the BFF proxies to, persisted in
-// <AO_HUB_DATA_DIR>/hosts.json (ADR 0006). Each record keeps the field names of
-// the desktop's remotes.json (frontend/src/main/remotes-store.ts) and the CLI's
-// remoteEntry (backend/internal/cli/remote_target.go), so a record can move
-// between them, and adds the hub's own bookkeeping fields.
+// The daemons the BFF proxies to, persisted in <AO_HUB_DATA_DIR>/hosts.json
+// (ADR 0006). Records reuse the desktop and CLI field names, plus hub state.
 
 export type HostStatus = "draining" | "unknown" | "provisioning" | "online" | "unreachable" | "auth_failed" | "removing" | "failed";
 // "hub" marks the hub daemon's own entry, created from its mobile/config.json.
@@ -76,11 +73,8 @@ function isLoopbackHost(hostname: string): boolean {
 	return family !== 0 && loopback.check(host, family === 6 ? "ipv6" : "ipv4");
 }
 
-// normalizeHostUrl accepts only an http(s) origin, without credentials, path,
-// query, or fragment (the proxy forwards to origins only), and returns it
-// without a trailing slash. Manual hosts may not
-// point at loopback: on the hub that is the daemon itself, and the only
-// loopback upstream allowed is the hub entry built from mobile/config.json.
+// normalizeHostUrl accepts only an http(s) origin, with no credentials, path,
+// query or fragment, and no trailing slash. Only the hub may be loopback.
 export function normalizeHostUrl(raw: unknown, allowLoopback = false): string {
 	if (typeof raw !== "string" || !raw.trim()) throw new HostsValidationError("invalid_url", "url is required");
 	let url: URL;
@@ -144,8 +138,7 @@ export class HostsStore {
 	}
 
 	// open loads <dataDir>/hosts.json, creating nothing until the first write.
-	// It refuses a file readable by group or others, as the desktop does.
-	// allowLoopback is for tests whose fake hosts listen on 127.0.0.1.
+	// It refuses a file readable by group or others; allowLoopback is for tests.
 	static async open(dataDir: string, options: { allowLoopback?: boolean; now?: () => number } = {}): Promise<HostsStore> {
 		const store = new HostsStore(path.join(dataDir, "hosts.json"), options.allowLoopback ?? false, options.now ?? Date.now);
 		await store.#load();
@@ -205,7 +198,7 @@ export class HostsStore {
 		}
 	}
 
-	// Mutations are serialized so concurrent requests cannot lose each other's writes.
+	// Mutations are serialized, so concurrent requests cannot lose writes.
 	#mutate<T>(operation: (hosts: HostEntry[]) => Promise<T>): Promise<T> {
 		const run = this.#queue.then(() => operation(this.#hosts.map((h) => ({ ...h }))));
 		this.#queue = run.then(
@@ -234,9 +227,8 @@ export class HostsStore {
 		return entry && toPublic(entry);
 	}
 
-	// getHost and getHub implement the reverse proxy's ProxyHosts. They answer
-	// only for an entry whose identity has been confirmed, so a credential is
-	// never sent to an unpaired address (ADR 0006).
+	// getHost and getHub implement ProxyHosts. They answer only for a confirmed
+	// entry, so a credential is never sent to an unpaired address (ADR 0006).
 	getHost(id: string): Upstream | undefined {
 		const entry = this.get(id);
 		if (!entry?.hostId || !entry.password) return undefined;
@@ -282,7 +274,8 @@ export class HostsStore {
 		});
 	}
 
-	// createWorker writes its intent before any provider call, making provisioning recoverable after a crash.
+	// createWorker writes its intent before any provider call, so provisioning
+	// survives a crash.
 	async createWorker(input: { id: string; label: unknown; password: string; maxWorkers?: number }): Promise<PublicHost> {
 		const label = normalizeLabel(input.label);
 		return this.#mutate(async (hosts) => {
@@ -335,8 +328,7 @@ export class HostsStore {
 	}
 
 	// upsertHub writes the hub's own entry, refreshing its address and bearer
-	// from mobile/config.json, which the daemon may rotate. Changing either
-	// clears the confirmed host id so it is paired again before use.
+	// from mobile/config.json. Changing either clears the confirmed host id.
 	async upsertHub(hub: { url: string; password: string }): Promise<void> {
 		return this.#mutate(async (hosts) => {
 			const index = hosts.findIndex((h) => h.source === "hub");
@@ -365,8 +357,7 @@ export class HostsStore {
 			const entry = hosts[index];
 			const checkedAt = new Date(this.#now()).toISOString();
 			// Only the hub adopts the host id it reports: its address is the
-			// container's own loopback listener. A worker keeps the id it was
-			// added with, and a different answer is a failed probe.
+			// container's own loopback. A worker's answer must match its id.
 			const hostId = entry.source === "hub" && result.hostId ? result.hostId : entry.hostId;
 			const next: HostEntry = { ...entry, status: entry.status === "draining" ? "draining" : result.status, checkedAt, ...(hostId ? { hostId } : {}) };
 			if (next.status !== entry.status || next.hostId !== entry.hostId) {
@@ -380,11 +371,8 @@ export class HostsStore {
 	}
 }
 
-// readHubEntry derives the hub's own upstream from the daemon's
-// <AO_DATA_DIR>/mobile/config.json on the same volume (ADR 0006, variant B2):
-// the authenticated listener on loopback at its lastPort, with the account
-// token as the bearer when there is one. It returns undefined while the
-// listener is not enabled yet, for example before the daemon's first start.
+// readHubEntry derives the hub's upstream from mobile/config.json in the
+// daemon's data dir (ADR 0006, B2). Undefined until the listener is enabled.
 export async function readHubEntry(configPath: string): Promise<{ url: string; password: string; loopbackOnly: boolean } | undefined> {
 	let raw: string;
 	try {

@@ -19,10 +19,6 @@ var instanceID = sync.OnceValue(func() string {
 	return hex.EncodeToString(b[:])
 })
 
-// InstanceID is a random identifier generated once per daemon process. The
-// daemon writes it to running.json and reports it from /healthz and /readyz,
-// so a client can confirm that the daemon answering on the recorded port is
-// the one that wrote the run-file. Unlike a PID, it is meaningful from inside
-// a sandbox or container with its own PID namespace, where the daemon's PID is
-// not visible.
+// InstanceID is a random identifier generated once per daemon process, written
+// to running.json and reported by /healthz, so a client can confirm the owner.
 func InstanceID() string { return instanceID() }

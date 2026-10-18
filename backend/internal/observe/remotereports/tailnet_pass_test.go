@@ -21,8 +21,7 @@ import (
 )
 
 // A tailnet host is reached through the SOCKS proxy: every pass opens exactly
-// one connection (the identity probe's), reuses it for pulls and
-// acknowledgements, and delivers each report once.
+// one connection (the probe's) and reuses it for pulls and acknowledgements.
 func TestTailnetHostPassUsesOneSOCKSConnectionAndDeliversOnce(t *testing.T) {
 	ctx := context.Background()
 
@@ -107,8 +106,7 @@ func mustHost(t *testing.T, raw string) string {
 }
 
 // The host closes the connection that answered the identity probe. The pull
-// must not open a new one, so the saved bearer never reaches the host and the
-// report stays pending for a later pass (ADR 0008, Decision item 8).
+// must not open a new one, so the report stays pending (ADR 0008, item 8).
 func TestPassNeverSendsTheBearerOnAConnectionTheProbeDidNotMake(t *testing.T) {
 	ctx := context.Background()
 

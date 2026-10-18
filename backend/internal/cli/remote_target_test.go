@@ -620,8 +620,7 @@ func TestRemoteBaseURLKeepsHTTPS(t *testing.T) {
 }
 
 // A worker behind a TLS-terminating proxy is saved with an https URL. Both
-// `ao host ls` and a --host command must probe identity and then talk to it
-// over TLS, with the credential and expected host ID on every request.
+// `ao host ls` and --host must probe identity and then talk over TLS.
 func TestRemoteHTTPSHost(t *testing.T) {
 	setConfigEnv(t)
 	remote := newFakeRemoteHostTLS(t, "host-worker", "pw-worker")

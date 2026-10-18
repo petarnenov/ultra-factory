@@ -13,18 +13,15 @@ import (
 // request body: "Closes #12", "fixed #3", "resolves #40".
 var closingRef = regexp.MustCompile(`(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)`)
 
-// Violation is one invariant that does not hold. Text is the sentence shown to
-// the orchestrator, with the action that fixes it; Key identifies the
-// violation without the parts that change on their own as time passes, such
-// as "for 35 min", so an unchanged state is recognized as unchanged.
+// Violation is one invariant that does not hold: Text is the sentence shown to
+// the orchestrator, and Key identifies it without the parts that drift.
 type Violation struct {
 	Key  string
 	Text string
 }
 
 // Violations lists every invariant of the reconcile loop that does not hold.
-// The rules are checked in code because instructions of the form "after X,
-// remember Y" get skipped.
+// The rules are checked in code because "after X, remember Y" gets skipped.
 func Violations(cfg Config, facts Facts, now time.Time) []Violation {
 	var out []Violation
 	if facts.GitHub == nil {

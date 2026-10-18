@@ -11,9 +11,8 @@ func Snapshot(cfg Config, facts Facts, violations []Violation) string {
 	return snapshotWithCompletion(cfg, facts, violations, nil)
 }
 
-// snapshotWithCompletion renders the same state plus the durable completion
-// reconciliation result, so a remaining obligation is visible in the tick
-// message and in `ao orchestrator tick status`.
+// snapshotWithCompletion renders the state plus the durable completion result,
+// so a remaining obligation is visible in the tick message and tick status.
 func snapshotWithCompletion(cfg Config, facts Facts, violations []Violation, completions []CompletionNote) string {
 	out := render(cfg, facts, violations, func(v Violation) string { return v.Text })
 	if len(completions) == 0 {
@@ -28,10 +27,8 @@ func snapshotWithCompletion(cfg Config, facts Facts, violations []Violation, com
 	return b.String()
 }
 
-// Fingerprint renders the same state with each violation's stable key instead
-// of its text. Two ticks that see the same state have the same fingerprint even
-// though durations in the text have grown, which is how a tick decides that
-// nothing changed.
+// Fingerprint renders the state with each violation's stable key instead of its
+// text, so two ticks of the same state match even as durations grow.
 func Fingerprint(cfg Config, facts Facts, violations []Violation) string {
 	return render(cfg, facts, violations, func(v Violation) string { return v.Key })
 }

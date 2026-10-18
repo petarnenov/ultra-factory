@@ -37,9 +37,8 @@ type Obligation struct {
 	CreatedAt           time.Time `json:"createdAt"`
 }
 
-// CompletionAction is one idempotent provider or lifecycle mutation. The key
-// pins the action to the facts it was evaluated against, so a repeated tick
-// can verify or retry it without repeating a completed side effect.
+// CompletionAction is one idempotent provider or lifecycle mutation; the key
+// pins it to the facts it was evaluated against, so a retry stays safe.
 type CompletionAction struct {
 	Kind           string    `json:"kind"`
 	Status         string    `json:"status"`
@@ -59,9 +58,7 @@ const (
 )
 
 // SessionCompletion is the durable completion state of one host-qualified
-// worker. Remaining is the last reconciled explanation; it is not a derived
-// display status and never substitutes for the underlying PR, branch, or
-// activity facts.
+// worker. Remaining is the last reconciled explanation, not display status.
 type SessionCompletion struct {
 	Host        string                      `json:"host"`
 	Session     string                      `json:"session"`

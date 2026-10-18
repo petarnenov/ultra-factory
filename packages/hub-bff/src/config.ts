@@ -78,8 +78,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv): Promise<Config> {
 	if (providerMode === "fake" && (env.RAILWAY_PROJECT_ID || env.RAILWAY_ENVIRONMENT_ID)) throw new Error("AO_HUB_PROVIDER=fake cannot be used with Railway project or environment IDs");
 	if (providerMode === "fake" && (!env.AO_HUB_FAKE_WORKER_URL || !env.AO_HUB_FAKE_WORKER_PASSWORD)) throw new Error("AO_HUB_FAKE_WORKER_URL and AO_HUB_FAKE_WORKER_PASSWORD are required when AO_HUB_PROVIDER=fake");
 	// Railway injects RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID into every
-	// service, so the IDs alone are normal and leave worker management off. Only
-	// a token without both IDs is a misconfiguration.
+	// service, so both IDs are normal; only a token without them is a mistake.
 	if (env.RAILWAY_API_TOKEN && !(env.RAILWAY_PROJECT_ID && env.RAILWAY_ENVIRONMENT_ID)) throw new Error("RAILWAY_API_TOKEN needs RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID");
 
 	const tailnetSocks = parseTailnetSocks(env.AO_REMOTE_TAILNET_SOCKS);

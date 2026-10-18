@@ -365,13 +365,8 @@ var agentShellSecretEnv = map[string]bool{
 	"AO_BROWSER_RUNTIME_TOKEN_STDIN": true,
 }
 
-// AgentShellEnv selects the AO variables the commands an agent runs need to
-// reach AO as this session (ao report, ao hooks, ao send): every non-empty
-// AO_ variable of the session env except credentials. An agent that narrows
-// its command environment, such as Codex with
-// shell_environment_policy.inherit = "core", receives them explicitly. The
-// result goes onto a command line or into provider config, which is why
-// credentials are left out.
+// AgentShellEnv selects the AO variables an agent's commands need to reach AO
+// as this session: every non-empty AO_ variable except credentials.
 func AgentShellEnv(env map[string]string) map[string]string {
 	out := map[string]string{}
 	for key, value := range env {

@@ -34,10 +34,8 @@ export function parseRefKey(key: string): Ref {
 	};
 }
 
-/** Whether a host-scoped route must fall back to the home page. The desktop
- * reaches remote hosts through an AO Cloud account; the web build reaches them
- * through the hub BFF behind its own sign-in, so the cloud account does not
- * apply there. */
+/** Whether a host-scoped route must fall back to home. The desktop reaches
+ * hosts through AO Cloud; the web build uses the hub BFF's own sign-in. */
 export function shouldLeaveHostRoute({
 	remoteHostsEnabled,
 	accountStatus,

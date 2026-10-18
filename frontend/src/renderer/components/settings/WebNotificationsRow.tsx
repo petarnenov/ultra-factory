@@ -9,11 +9,8 @@ import {
 import { Button } from "../ui/button";
 import { SettingsRow } from "./SettingsRow";
 
-/**
- * Browser permission for Web Notifications. The prompt only ever starts from
- * this button, never on load. In Electron, toasts belong to the main process
- * and the row is not shown.
- */
+/** Browser notification permission: only this button asks, never on load.
+ * In Electron the row is not shown. */
 export function WebNotificationsRow({ webBuild = isWebBuild }: { webBuild?: boolean }) {
 	const { t } = useTranslation();
 	const [permission, setPermission] = useState<WebNotificationPermission>(() => webNotificationPermission());

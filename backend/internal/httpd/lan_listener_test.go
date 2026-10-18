@@ -103,8 +103,7 @@ func TestLANManagerAuthGatesSharedHandler(t *testing.T) {
 }
 
 // TestLANManagerStartAcceptsIPv6Loopback pins the dual-stack behavior of the
-// 0.0.0.0 bind (ADR 0007): switching Start to "tcp4" or an IPv4-only address
-// would silently break IPv6-only private networks such as Railway's.
+// 0.0.0.0 bind (ADR 0007): "tcp4" would break IPv6-only private networks.
 func TestLANManagerStartAcceptsIPv6Loopback(t *testing.T) {
 	probe, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
@@ -575,11 +574,8 @@ func TestLANListenerServesCodexModelRoutesFromRealRouter(t *testing.T) {
 	}
 }
 
-// TestMobileLANBehindTLSProxy covers a worker reached through a TLS-terminating
-// reverse proxy such as Railway's edge, which rewrites Host and adds
-// X-Forwarded-* headers. The identity probe must still answer without a
-// credential and carry only the host id and version, and the expected-host
-// guard must decide on X-AO-Expected-Host-ID alone, never on Host.
+// TestMobileLANBehindTLSProxy covers a worker behind a TLS-terminating proxy
+// that rewrites Host: the identity probe answers and the guard uses its header.
 func TestMobileLANBehindTLSProxy(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	router := NewRouterWithControl(config.Config{}, log, nil, APIDeps{HostID: "h_worker"}, ControlDeps{})

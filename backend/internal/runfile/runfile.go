@@ -20,10 +20,8 @@ import (
 type Info struct {
 	// PID is the daemon process id.
 	PID int `json:"pid"`
-	// InstanceID is the daemon's per-process random identifier
-	// (daemonmeta.InstanceID). /healthz and /readyz report the same value, so a
-	// client can match the answering daemon to this file without seeing its
-	// PID. Empty in run-files written by daemons that predate it.
+	// InstanceID is the daemon's per-process random identifier, also reported by
+	// /healthz, so a client can match the answering daemon without seeing its PID.
 	InstanceID string `json:"instanceId,omitempty"`
 	// Port is the loopback port the daemon bound.
 	Port int `json:"port"`

@@ -19,17 +19,15 @@ const (
 	// CompletionActionBlocked records a precondition failure. The next tick
 	// re-evaluates fresh facts; it never reuses a stale head or approval.
 	CompletionActionBlocked = "blocked"
-	// CompletionActionSuperseded marks an action that can never succeed for
-	// the facts it pinned (a head that advanced, or a PR closed unmerged).
-	// It is never retried or reported again.
+	// CompletionActionSuperseded marks an action that can never succeed for the
+	// facts it pinned (a head advanced, or a PR closed unmerged); never retried.
 	CompletionActionSuperseded = "superseded"
 )
 
 var headSHAPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$`)
 
 // CompletionNote is one worker's reconciled completion state for status and
-// reporting. It is derived from durable PR, branch, activity, and obligation
-// facts on every tick; it is not stored as display status.
+// reporting, derived from durable PR, branch and activity facts every tick.
 type CompletionNote struct {
 	Host      string
 	Session   string
@@ -70,9 +68,8 @@ func CompletionLines(notes []CompletionNote) []string {
 	return lines
 }
 
-// MergeBlockers lists every reason a pull request must not be merged now.
-// A missing durable merge authorization is reported separately from provider
-// readiness so the exact blocker stays visible.
+// MergeBlockers lists every reason a pull request must not be merged now: a
+// missing durable authorization is reported separately from provider readiness.
 func MergeBlockers(cfg Config, pr PullRequest) []string {
 	var out []string
 	switch {
@@ -105,18 +102,16 @@ func MergeBlockers(cfg Config, pr PullRequest) []string {
 }
 
 func reviewBlocker(pr PullRequest) string {
-	// Provider protections and a human changes-requested decision win over
-	// AO's verdict. REVIEW_REQUIRED is kept explicit because the provider
-	// merge call would reject the PR anyway.
+	// Provider protections and a human changes-requested decision win over AO's
+	// verdict; REVIEW_REQUIRED stays explicit, the provider would reject anyway.
 	switch strings.ToUpper(strings.TrimSpace(pr.ReviewDecision)) {
 	case "CHANGES_REQUESTED":
 		return "review changes requested"
 	case "REVIEW_REQUIRED":
 		return "review approval required"
 	}
-	// The native verdict is a durable AO review run for this exact head. A
-	// GitHub APPROVED rollup, an approval comment, or an approval of an older
-	// commit is not a substitute for it.
+	// The native verdict is a durable AO review run for this exact head; a GitHub
+	// APPROVED rollup or an approval of an older commit is not a substitute.
 	status := strings.ToLower(strings.TrimSpace(pr.AOReviewStatus))
 	switch status {
 	case "up_to_date":
@@ -167,12 +162,8 @@ func oneOf(value, fallback string) string {
 	return value
 }
 
-// ownedByWorker reports whether a PR belongs to a worker, either because the
-// daemon already attributed its number or because its source branch is the
-// worker branch or a stacked child of it.
-// applyWorkerReview attaches AO's current-head native review decision to a
-// fresh provider PR observation. The planner returns one state per PR, so the
-// first matching number and SHA is the whole decision.
+// ownedByWorker reports whether a PR belongs to a worker by number or branch.
+// applyWorkerReview attaches AO's current-head native review decision to it.
 func applyWorkerReview(worker Worker, pr PullRequest) PullRequest {
 	for _, review := range worker.Reviews {
 		if review.PRNumber == pr.Number && strings.EqualFold(strings.TrimSpace(review.TargetSHA), strings.TrimSpace(pr.HeadSHA)) {
@@ -348,8 +339,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	}
 
 	// Complete close actions only after the lifecycle operation proves the
-	// session terminated. Retrying a pending close is safe: Kill is an
-	// idempotent lifecycle operation that preserves the workspace.
+	// session terminated; Kill is idempotent and preserves the workspace.
 	for _, key := range sortedKeys(state.Sessions) {
 		session := state.Sessions[key]
 		action, ok := session.Actions["close"]
@@ -361,9 +351,8 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 			continue
 		}
 		if !r.Config.CloseCompleted || !closeEligible[key] {
-			// A queued close is only a request. The current tick must still
-			// prove the worker qualifies: an added obligation, renewed activity,
-			// another open PR, or turning the opt-in off cancels it.
+			// A queued close is only a request: the tick must still prove the worker
+			// qualifies, or an added obligation or renewed activity cancels it.
 			action.Status = CompletionActionSuperseded
 			action.LastError = "close no longer eligible on this tick"
 			action.UpdatedAt = now

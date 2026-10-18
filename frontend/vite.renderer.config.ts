@@ -82,8 +82,7 @@ const productUiReactBoundary: Plugin = {
 };
 
 // VITE_AO_WEB=1 selects the standalone web target (build:web, dev:web:real):
-// the real renderer served from a static host behind a proxy to the daemon, as
-// opposed to the Electron renderer or the VITE_NO_ELECTRON mock preview.
+// the real renderer behind a proxy to the daemon, not the mock preview.
 const isWebTarget = process.env.VITE_AO_WEB === "1";
 const devApiTarget = process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001";
 
@@ -121,10 +120,8 @@ export default defineConfig({
 			),
 		},
 	},
-	// Dev proxy for browser runs (VITE_NO_ELECTRON=1 preview, VITE_AO_WEB=1
-	// dev:web:real) — forwards /api, /mux and the daemon health probes to the
-	// daemon so the renderer can be tested against a running daemon from a
-	// plain browser without an Electron shell.
+	// Dev proxy for browser runs (preview, dev:web:real): forwards /api, /mux and
+	// the health probes so a plain browser can drive a running daemon.
 	server: {
 		proxy: {
 			"/api": { target: devApiTarget, changeOrigin: false },

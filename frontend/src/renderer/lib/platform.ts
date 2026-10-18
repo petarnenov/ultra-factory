@@ -46,7 +46,7 @@ export function usesFramedAppTopbar(): boolean {
  * Win/Linux as the ShellTopbar path. Fixed in PR #3421.
  */
 export function hidesShellTopbar(): boolean {
-	// The web build has no macOS traffic lights and uses the Linux shell on every OS.
+	// The web build has no macOS traffic lights and uses the Linux shell.
 	return isMacPlatform() && !isWebBuild;
 }
 
@@ -79,8 +79,7 @@ export type Capability =
 
 export function resolveCapabilities(options: { webBuild: boolean; electronBridge: boolean }): Readonly<Record<Capability, boolean>> {
 	// Every capability here needs the Electron supervisor, which the web build
-	// never has. They are listed separately so callers gate on the feature, not
-	// the build, and a later web implementation can flip one at a time.
+	// never has. Callers gate on the feature, not the build.
 	const desktop = options.electronBridge && !options.webBuild;
 	return Object.freeze({
 		browserPanel: desktop,
@@ -93,7 +92,6 @@ export function resolveCapabilities(options: { webBuild: boolean; electronBridge
 	});
 }
 
-// The mock preview (VITE_NO_ELECTRON) shows the desktop UI: the bridge.ts stubs
-// stand in for the preload, and the e2e suite drives desktop surfaces through it.
-// So it keeps the desktop capabilities; only the web build turns them off.
+// The mock preview (VITE_NO_ELECTRON) shows the desktop UI: bridge.ts stubs
+// stand in for the preload, so it keeps desktop capabilities.
 export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge || usesPreviewWorkspaceData });

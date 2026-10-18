@@ -43,8 +43,7 @@ type LANManager struct {
 type LANOption func(*LANManager)
 
 // WithTrustedProxy keys the lockout on the rightmost X-Forwarded-For entry
-// instead of the TCP peer when enabled. Only for a listener whose sole public
-// path is a single reverse proxy; see docs/adr/0005-trusted-proxy-remote-host.md.
+// instead of the TCP peer. Only for a listener behind one reverse proxy.
 func WithTrustedProxy(enabled bool) LANOption {
 	return func(m *LANManager) { m.trustedProxy = enabled }
 }
@@ -218,7 +217,8 @@ func (m *LANManager) PasswordHash() string {
 
 // Start binds the authenticated listener on every interface for Connect Mobile.
 func (m *LANManager) Start(port int) (int, error) {
-	// With network "tcp", Go opens 0.0.0.0 as a dual-stack socket (IPv4 and IPv6); keep it so IPv6-only private networks can reach it (ADR 0007).
+	// With network "tcp", Go opens 0.0.0.0 as a dual-stack socket; keep it so
+	// IPv6-only private networks can reach it (ADR 0007).
 	return m.start(port, "0.0.0.0")
 }
 

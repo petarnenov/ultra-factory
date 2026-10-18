@@ -4,11 +4,8 @@ import { BlockList, connect, isIP, type Socket } from "node:net";
 import { Readable, type Duplex } from "node:stream";
 import { connect as tlsConnect } from "node:tls";
 
-// The tailnet egress exception from ADR 0008. When AO_REMOTE_TAILNET_SOCKS is
-// set, tailnet destinations are dialed through the hub's loopback SOCKS5
-// (tailscaled in userspace mode). Every other destination keeps the direct
-// path it has today. Environment proxies are never read here, and a failed
-// SOCKS dial never falls back to a direct one.
+// The tailnet egress exception from ADR 0008: when AO_REMOTE_TAILNET_SOCKS
+// is set, tailnet destinations are dialed through the hub's loopback SOCKS5.
 
 export type TailnetSocks = { host: string; port: number };
 
@@ -22,9 +19,8 @@ const tailnet = new BlockList();
 tailnet.addSubnet("100.64.0.0", 10, "ipv4");
 tailnet.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
 
-// parseTailnetSocks validates AO_REMOTE_TAILNET_SOCKS ("127.0.0.1:1055" or
-// "[::1]:1055"). Only a loopback IP literal is accepted, so name resolution
-// cannot redirect the bearer to another proxy.
+// parseTailnetSocks validates AO_REMOTE_TAILNET_SOCKS. Only a loopback IP
+// literal is accepted, so name resolution cannot redirect the bearer.
 export function parseTailnetSocks(value: string | undefined): TailnetSocks | undefined {
 	if (value === undefined || value === "") return undefined;
 	const match = /^(?:\[([^\]]+)\]|([^:[\]]+)):(\d{1,5})$/.exec(value);
@@ -38,9 +34,8 @@ export function parseTailnetSocks(value: string | undefined): TailnetSocks | und
 	return { host, port };
 }
 
-// isTailnetDestination decides routing from the name as written, never from
-// a resolved address: an IP literal in 100.64.0.0/10 or fd7a:115c:a1e0::/48,
-// or a hostname ending in .ts.net (one trailing dot allowed).
+// isTailnetDestination decides routing from the name as written: an IP in
+// 100.64.0.0/10 or fd7a:115c:a1e0::/48, or a name ending in .ts.net.
 export function isTailnetDestination(hostname: string): boolean {
 	let name = hostname.toLowerCase();
 	if (name.startsWith("[") && name.endsWith("]")) name = name.slice(1, -1);
@@ -74,9 +69,8 @@ export function tailnetAgent(url: URL): HttpAgent | undefined {
 	return url.protocol === "https:" ? agents.https : agents.http;
 }
 
-// fetchViaTailnet runs a fetch-shaped request over the tailnet agent, or
-// returns undefined so the caller keeps its global fetch. Like fetch with
-// redirect: "manual", a redirect is returned as-is and never followed.
+// fetchViaTailnet runs a fetch-shaped call over the tailnet agent, or returns
+// undefined, so the caller keeps its global fetch. Redirects are not followed.
 export function fetchViaTailnet(url: string, init: { headers: Record<string, string>; signal: AbortSignal }): Promise<Response> | undefined {
 	const target = new URL(url);
 	const agent = tailnetAgent(target);

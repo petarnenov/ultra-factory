@@ -374,9 +374,8 @@ func applyTurnSettings(params map[string]any, settings ports.ChatTurnSettings, r
 	}
 }
 
-// turnSandboxPolicy converts a thread-level sandbox name into the tagged object
-// turn/start expects. workspace-write carries network access, as thread/start
-// grants it through workspaceNetworkKey.
+// turnSandboxPolicy converts a thread-level sandbox name to the tagged object
+// turn/start expects; workspace-write carries network via workspaceNetworkKey.
 func turnSandboxPolicy(sandbox string, disableNetwork bool) map[string]any {
 	switch sandbox {
 	case "workspace-write":

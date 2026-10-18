@@ -169,11 +169,8 @@ type Config struct {
 	// TrackerIntake gates the issue-intake observer daemon-wide
 	// (AO_TRACKER_INTAKE).
 	TrackerIntake bool
-	// RemoteTrustedProxy makes the remote-host listener key its lockout on the
-	// rightmost X-Forwarded-For entry instead of the TCP peer
-	// (AO_REMOTE_TRUSTED_PROXY, default off). Only for a worker whose sole
-	// public path is a single reverse proxy; never used for authorization. See
-	// docs/adr/0005-trusted-proxy-remote-host.md.
+	// RemoteTrustedProxy (AO_REMOTE_TRUSTED_PROXY) makes the remote-host listener
+	// key its lockout on the rightmost X-Forwarded-For entry, not the TCP peer.
 	RemoteTrustedProxy bool
 	// Client identifies which client this deployment serves (AO_CLIENT). It is
 	// reported to clients through the settings API and gates nothing in the
@@ -200,35 +197,8 @@ func (c Config) Addr() string {
 	return net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 }
 
-// Load resolves configuration from the environment, applying defaults. It
-// returns an error only for values that are present but malformed (e.g. a
-// non-numeric AO_PORT); missing values fall back to defaults.
-//
-// Recognised variables:
-//
-//	AO_PORT              bind port           (default 3001)
-//	AO_REQUEST_TIMEOUT   per-request timeout (Go duration > 0, default 60s)
-//	AO_SHUTDOWN_TIMEOUT  shutdown deadline   (Go duration > 0, default 10s)
-//	AO_RUN_FILE          running.json path   (default ~/.ao/running.json)
-//	AO_DATA_DIR          durable state dir   (default ~/.ao/data)
-//	AO_AGENT             compatibility agent id (default claude-code)
-//	AO_APP_RUN_ID        desktop-app launch id, set by the Electron supervisor
-//	                     (default: a fresh id minted per daemon boot)
-//	AO_ALLOWED_ORIGINS   CORS origins, comma-separated (default DefaultAllowedOrigins)
-//	AO_TELEMETRY_EVENTS  local event capture off|on (default off)
-//	AO_TELEMETRY_METRICS local metric capture off|on (default off)
-//	AO_TELEMETRY_REMOTE  remote exporter off|posthog (default off)
-//	AO_TELEMETRY_POSTHOG_KEY   PostHog project key
-//	AO_TELEMETRY_POSTHOG_HOST  PostHog host (default DefaultTelemetryPostHogHost)
-//	AO_GITLAB_ALLOWED_HOSTS    comma-separated self-managed GitLab hosts (each may include :port)
-//	AO_GITLAB_HOST_TOKENS      host=token,host=token per-host token overrides
-//	AO_CLIENT                  client identity reported to clients (trimmed, default empty)
-//	AO_CLOUD_OFFERING          cloud offering flag off|on (default off)
-//	AO_LOCAL_OFFERING          local offering off|on (default on)
-//	AO_CLOUD_CONTROL_PLANE_URL cloud control plane base URL (trimmed, must be http(s))
-//	AO_REMOTE_TRUSTED_PROXY    trust X-Forwarded-For for remote-host lockout keys off|on (default off)
-//
-// The bind host is not configurable: the daemon is loopback-only by design.
+// Load resolves configuration from the environment, applying defaults; it
+// errors only for malformed values. docs/backend-code-structure.md lists them.
 func Load() (Config, error) {
 	cfg := Config{
 		Host:            LoopbackHost,

@@ -9,9 +9,8 @@ import { webKeybindings, webUiSettings } from "./web-settings";
 import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
 
-// The web build has no Electron supervisor. The daemon (or the proxy in front
-// of it) answers on the API base URL, so readiness comes from its /readyz probe
-// and starting or stopping the daemon belongs to whoever runs it.
+// The web build has no Electron supervisor: the daemon (or the proxy in front
+// of it) answers on the API base URL, so readiness comes from its /readyz.
 const WEB_DAEMON_POLL_MS = 5_000;
 const WEB_DAEMON_READY_POLL_MS = 30_000;
 
@@ -61,10 +60,8 @@ async function unsupportedWebDaemonControl(): Promise<DaemonStatus> {
 	return { ...(await probeWebDaemon()), supported: false };
 }
 
-// Browsers allow clipboard reads only in a secure context, after a user
-// gesture and with permission. Paste is a user action, so a denial is told to
-// the user in a toast and resolves to empty text instead of failing the caller.
-// ui-store imports this module, hence the lazy import.
+// Browsers allow clipboard reads only in a secure context, after user gesture.
+// A denial is toasted and resolves to empty text instead of failing the caller.
 async function readWebClipboardText(): Promise<string> {
 	try {
 		if (!navigator.clipboard?.readText) throw new Error("Clipboard API is unavailable");
@@ -82,10 +79,8 @@ async function readWebClipboardText(): Promise<string> {
 
 type WebDaemonListener = Parameters<AoBridge["daemon"]["onStatus"]>[0];
 
-// Every onStatus subscriber (daemon status hook, event and notification
-// transports, failure telemetry) shares one /readyz loop. A loop per
-// subscriber multiplied the probes in every tab, and after a hub sign-out
-// each of them kept hitting the BFF with 401s.
+// Every onStatus subscriber (status hook, transports, failure telemetry)
+// shares one /readyz loop: a loop each multiplied the probes in every tab.
 const webDaemonListeners = new Set<WebDaemonListener>();
 let webDaemonTimer: ReturnType<typeof setTimeout> | undefined;
 let webDaemonLoop = 0;
@@ -434,9 +429,8 @@ export const aoBridge: AoBridge =
 			list: async () => [],
 			getActive: async () => null,
 		},
-		// The web build reads the hub BFF's host registry. The mock preview has no
-		// BFF and no access to ~/.ao/remotes.json, so it reports no hosts and the UI
-		// shows local only.
+		// The web build reads the hub BFF's host registry; the mock preview has
+		// no BFF and no ~/.ao/remotes.json, so it reports none and shows local.
 		remotes: isWebBuild ? createWebRemotesBridge(webDaemonBaseUrl) : {
 			list: async () => [],
 			importAccountHost: async () => undefined,

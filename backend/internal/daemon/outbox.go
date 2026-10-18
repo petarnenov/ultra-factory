@@ -41,8 +41,7 @@ func runOutboxDrainer(ctx context.Context, dirs []string, handler http.Handler, 
 }
 
 // drainOutbox delivers queued messages, oldest first, through the daemon's own
-// API router, so they pass the same validation as a live request. Accepted
-// (2xx) and rejected (4xx) entries are removed; others stay for the next pass.
+// router; accepted and rejected entries are removed, others stay for a retry.
 func drainOutbox(ctx context.Context, dirs []string, handler http.Handler, sessions outboxSessions, now func() time.Time, log *slog.Logger) {
 	items, rejected, errs := outbox.Pending(dirs)
 	for _, err := range errs {
@@ -77,9 +76,7 @@ func drainOutbox(ctx context.Context, dirs []string, handler http.Handler, sessi
 }
 
 // staleOutboxActivity explains why a queued activity signal must not be
-// applied: it is too old, its session is gone, or newer activity has already
-// been applied. A late signal must never move a session back to an older
-// state.
+// applied: too old, session gone, or newer activity already applied.
 func staleOutboxActivity(ctx context.Context, e outbox.Entry, sessions outboxSessions, now time.Time) string {
 	if e.Kind != outbox.KindActivity {
 		return ""

@@ -200,7 +200,7 @@ it("does not forward an unauthenticated identity probe", async () => {
 	expect(received).toHaveLength(0);
 });
 
-// Pass path separately: URL-based clients normalize dot segments before sending.
+// Pass path separately: URL clients normalize dot segments before sending.
 async function rawGet(path: string): Promise<number | undefined> {
 	return new Promise((resolve, reject) => {
 		const req = httpRequest(address, { path, headers: { Cookie: cookie } }, (res) => {

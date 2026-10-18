@@ -51,11 +51,8 @@ export function WorkerStatusBadge({ host }: { host: Pick<HubHost, "status" | "la
 	);
 }
 
-/**
- * Settings → Workers (web build only): the hub's hosts with their live status.
- * The add (RW-3.3.2) and remove (RW-3.3.3) dialogs plug in through
- * `addWorkerAction` and `rowActions`; `onOpenHost` opens a host's view.
- */
+/** Settings → Workers (web build only): the hub's hosts with live status. The
+ * add/remove dialogs plug in through `addWorkerAction` and `rowActions`. */
 export function WorkersSettings({
 	titleHidden,
 	addWorkerAction,
@@ -123,8 +120,7 @@ function IdleWarning({ hours }: { hours: number }) {
 }
 
 // Adopt and Delete need the orphan's volume id and credentials, which the
-// verified Railway services query does not return (hub-bff
-// docs/railway-api-notes.md), so both stay disabled and send nothing.
+// Railway services query does not return, so both stay disabled.
 function OrphansSection({ orphans }: { orphans: HubOrphan[] }) {
 	const { t } = useTranslation();
 	return (

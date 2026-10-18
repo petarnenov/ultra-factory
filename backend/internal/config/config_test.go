@@ -531,8 +531,7 @@ func TestLoadTrackerIntakeRejectsGarbage(t *testing.T) {
 }
 
 // AO_REMOTE_TRUSTED_PROXY trusts X-Forwarded-For for lockout keys, so it is
-// never on unless set explicitly, and a typo fails boot instead of silently
-// picking either mode.
+// never on unless set, and a typo fails boot instead of picking a mode.
 func TestLoadRemoteTrustedProxy(t *testing.T) {
 	for _, tc := range []struct {
 		raw  string

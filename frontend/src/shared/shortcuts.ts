@@ -123,12 +123,8 @@ const binding = (
 	...modifiers,
 });
 
-// Browsers reserve some desktop chords, so the page never receives them (or
-// cannot cancel them): ⌘/Ctrl+N, ⌘/Ctrl+T, ⌘/Ctrl+W and their Shift variants,
-// Ctrl+Tab, Ctrl+PageUp/PageDown, ⌘⇧[ / ⌘⇧] and ⌘⌥←/→ (switch tab), ⌘/Ctrl+1–9
-// (select tab). The web build uses Alt alternatives for those commands.
-// Alt+Shift+letter is not a readline key, and `code` keeps the match on macOS,
-// where ⌥ turns the letter into another character (⌥⇧N types "˜").
+// Browsers reserve some desktop chords (⌘/Ctrl+N/T/W, Ctrl+Tab, ⌘/Ctrl+1-9,
+// ⌘⇧[ / ⌘⇧], ⌘⌥←/→), so the web build uses Alt alternatives for those commands.
 export function webShortcutBindings(id: AppShortcutId): readonly ShortcutBinding[] | undefined {
 	switch (id) {
 		case "new-session":

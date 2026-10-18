@@ -1,7 +1,5 @@
-// The hub BFF keeps sessions in memory, so a redeploy (or the session's
-// lifetime running out) signs an open tab out without a page load. The BFF
-// only redirects navigations to /login; this sends a signed-out tab there and
-// remembers where it was, so packages/hub-bff/login/login.js can return to it.
+// The hub BFF keeps sessions in memory, so a redeploy signs an open tab out
+// without a page load; this sends it to /login, remembering where it was.
 
 /** Shared with packages/hub-bff/login/login.js, which reads and clears it. */
 export const HUB_RETURN_TO_KEY = "ao.hub.returnTo";

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Checks hub-supervisor.sh without Docker, the daemon, or the BFF: the
-# daemon-listener seed and repair, the fail-fast rule when either child exits,
-# and SIGTERM shutdown. Run: bash deploy/railway/hub/supervisor_test.sh
+# Checks hub-supervisor.sh without Docker, the daemon, or the BFF: the listener
+# seed and repair, fail-fast when either child exits, and SIGTERM shutdown.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

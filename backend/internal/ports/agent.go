@@ -689,9 +689,8 @@ type LaunchConfig struct {
 	SystemPrompt     string
 	SystemPromptFile string
 	WorkspacePath    string
-	// ShellEnv holds the AO variables the commands the agent runs must see
-	// (agentlaunch.AgentShellEnv). The process environment already has them;
-	// an adapter whose agent narrows its command environment forwards them.
+	// ShellEnv holds the AO variables the agent's commands must see
+	// (agentlaunch.AgentShellEnv), which a narrowing adapter forwards explicitly.
 	ShellEnv map[string]string
 }
 

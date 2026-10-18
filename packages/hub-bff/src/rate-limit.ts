@@ -1,11 +1,8 @@
 import { isIP } from "node:net";
 import type { IncomingMessage } from "node:http";
 
-// clientKey identifies the caller for login throttling with the rule of
-// ADR 0005: the rightmost X-Forwarded-For entry across all header lines, which
-// is the one Railway's edge appended. Everything to its left is
-// client-controlled. An unparseable rightmost entry falls back to the TCP peer,
-// never to an earlier entry. The key is used for throttling and nothing else.
+// clientKey identifies the caller for login throttling: the rightmost
+// X-Forwarded-For value (ADR 0005), or the TCP peer when unparseable.
 export function clientKey(req: IncomingMessage): string {
 	const lines = req.headersDistinct["x-forwarded-for"];
 	if (lines && lines.length > 0) {

@@ -1,17 +1,7 @@
 # syntax=docker/dockerfile:1
 
-# AO worker image for Railway: the `ao` daemon, everything systemcheck marks
-# Required (git, tmux), Node for Claude Code Chat, gh, the agent CLIs, and
-# tini and jq for the entrypoint.
-#
-# Build context is the REPO ROOT:
-#   docker build -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
-#   docker buildx build --platform linux/amd64,linux/arm64 \
-#     -f deploy/railway/worker/Dockerfile -t ao-worker:dev .
-#
-# The layout mirrors `make daemon-dist` (scripts/build-daemon-dist.sh):
-# /opt/ao/daemon/ao sits beside /opt/ao/acp-runtime, so the daemon finds the
-# Claude ACP adapter without AO_ACP_RUNTIME_DIR.
+# AO worker image for Railway: the `ao` daemon, systemcheck's required tools,
+# Node for Claude Code Chat, gh, the agent CLIs, tini and jq. Build from root.
 
 ARG GO_IMAGE=golang:1.27.1-bookworm
 # The ACP adapter needs Node 22+ on glibc 2.28+; Alpine (musl) does not work.
@@ -38,10 +28,7 @@ RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,tar
       -o /out/ao ./cmd/ao
 
 # ---- stage 2: AO's patched Claude ACP adapter ----
-# The adapter is platform-independent JavaScript, so it builds once on the
-# build host with the same script and patches as the desktop app and
-# daemon-dist. The script also downloads a Node runtime for the build host;
-# it is dropped here because the final image already ships Node.
+# Platform-independent JS, built with the desktop's script and patches.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS acp
 WORKDIR /src/frontend
 COPY frontend/acp-runtime ./acp-runtime
@@ -137,7 +124,6 @@ EXPOSE 3011
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3001/healthz || exit 1
 
-# tini forwards SIGTERM to the daemon and reaps orphaned children (exited git
-# helpers otherwise stay as zombies under a PID 1 daemon). -s keeps reaping
-# when the runtime adds its own init, as `docker run --init` does.
+# tini forwards SIGTERM and reaps orphaned children; -s keeps reaping when the
+# runtime adds its own init, as `docker run --init` does.
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/ao-worker-entrypoint.sh"]

@@ -489,8 +489,7 @@ func firstNonEmptyHeader(a, b string) string {
 }
 
 // Query runs one GraphQL query and decodes its data into out, with the same
-// authentication, token refresh and error classification as the provider's
-// own requests.
+// authentication and error classification as the provider's own requests.
 func (c *Client) Query(ctx context.Context, query string, variables map[string]any, out any) error {
 	data, err := c.doGraphQL(ctx, query, variables)
 	if err != nil {

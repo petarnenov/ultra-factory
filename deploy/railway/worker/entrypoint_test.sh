@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Tests the pre-seed logic of ao-worker-entrypoint.sh with
-# AO_ENTRYPOINT_DRY_RUN=1: nothing is exec'd and no daemon starts.
-# Needs bash, git, jq, and coreutils. Run: deploy/railway/worker/entrypoint_test.sh
+# Tests ao-worker-entrypoint.sh's pre-seed logic with AO_ENTRYPOINT_DRY_RUN=1:
+# Nothing is exec'd and no daemon starts. Run this file to see all cases.
 set -euo pipefail
 
 script="$(cd "$(dirname "$0")" && pwd)/ao-worker-entrypoint.sh"
@@ -22,9 +21,8 @@ fail() {
 	failures=$((failures + 1))
 }
 
-# run <case> [VAR=value ...] [-- command...]: runs the entrypoint in a clean
-# environment with its own HOME and AO_DATA_DIR. Sets $data, $home, $config,
-# $out (combined output), and $status.
+# run <case> [VAR=value ...] [-- command...]: runs the entrypoint with its own
+# HOME and AO_DATA_DIR, and sets $data, $home, $config, $out and $status.
 run() {
 	local case=$1
 	shift
@@ -103,7 +101,7 @@ run token
 [[ $(field '.accountTokenHash // "unset"') == unset ]] || fail "token: hash kept after the variable was unset"
 [[ $out == *"account token revoked"* ]] || fail "token: no revocation log: $out"
 
-# A token the daemon issued (hash with the token beside it) is not ours to revoke.
+# A token the daemon issued (hash with the token beside it) is not ours.
 cp "$tmp/issued.json" "$config"
 run token
 [[ $(field .accountTokenHash) == old && $(field .accountToken) == old-token ]] || fail "token: daemon-issued token was revoked"

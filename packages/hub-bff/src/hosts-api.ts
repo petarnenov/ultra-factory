@@ -20,14 +20,8 @@ export type HostsApi = (req: IncomingMessage, res: ServerResponse, pathname: str
 
 const HOSTS_API_PREFIX = "/hub/hosts";
 
-// createHostsApi serves the authenticated host registry routes. The caller has
-// already checked the session and, for state-changing methods, the Origin.
-// Responses never include a host's password or token.
-//
-//	GET    /hub/hosts            list hosts with their last status
-//	POST   /hub/hosts            {label,url,password}: probe identity, check the bearer, save
-//	DELETE /hub/hosts/:id        remove the record (nothing in Railway is deleted)
-//	POST   /hub/hosts/:id/probe  probe now and return the host
+// createHostsApi serves the authenticated host registry routes: list, add,
+// remove, and probe a host. Responses never include a password or token.
 export function createHostsApi(options: HostsApiOptions): HostsApi {
 	const { store, monitor, log, audit } = options;
 

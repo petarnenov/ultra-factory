@@ -434,9 +434,8 @@ func (d tickDaemon) Send(ctx context.Context, sessionID, message string) error {
 	return quiet.sendMessage(ctx, sendOptions{session: sessionID, message: message})
 }
 
-// Kill terminates a worker through the existing host-scoped session lifecycle
-// and verifies the terminated fact. The daemon's kill path preserves a dirty
-// worktree, artifacts, branches, and unpublished changes.
+// Kill terminates a worker through the host-scoped session lifecycle and
+// verifies the terminated fact; a dirty worktree and artifacts are preserved.
 func (d tickDaemon) Kill(ctx context.Context, host, sessionID string) error {
 	hc := &commandContext{deps: d.c.deps, hostSelector: host}
 	sess, err := hc.fetchScopedSession(ctx, sessionID, "")

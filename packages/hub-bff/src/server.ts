@@ -14,12 +14,11 @@ import { SESSION_ABSOLUTE_MS, SessionStore } from "./sessions.ts";
 export const SESSION_COOKIE = "ao_hub_session";
 export const LOGIN_ATTEMPTS_PER_MINUTE = 5;
 const MAX_LOGIN_BODY_BYTES = 4096;
-// Each scrypt check takes ~128 MiB. The login throttle is per client, so many
-// distinct addresses at once could exhaust a small container's memory. Above
-// this many concurrent checks, login answers 503 without calling scrypt.
+// Each scrypt check takes ~128 MiB. Many distinct addresses at once could
+// exhaust a small container, so above this many concurrent checks login 503s.
 export const MAX_CONCURRENT_PASSWORD_CHECKS = 2;
 
-// Reserve daemon paths so unknown hosts and routes never fall through to the SPA.
+// Reserve daemon paths so unknown hosts and routes never reach the SPA.
 const PROXY_PREFIXES = ["/api/", "/mux", "/hosts/", "/readyz"];
 const HOSTS_API_PREFIX = "/hub/hosts";
 const WORKERS_API_PREFIX = "/hub/workers";
@@ -36,9 +35,8 @@ const LOGIN_ASSETS: Record<string, { file: string; type: string }> = {
 const LOGIN_CSP =
 	"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
-// The SPA's policy. It mirrors the web build's CSP meta tag
-// (frontend/vite.renderer.csp.ts, webContentSecurityPolicy "build"), which
-// a test pins. The header-only directives cannot be set from a meta tag.
+// The SPA's policy, mirroring the CSP meta tag pinned by a test in
+// frontend/vite.renderer.csp.ts. Header-only directives cannot use a meta tag.
 export const SPA_CSP = [
 	"default-src 'self'",
 	"script-src 'self'",
@@ -150,7 +148,7 @@ export function createBff(options: BffOptions): Server {
 			return sendJson(res, 401, { error: "unauthorized" });
 		}
 
-		// GET lists the operator's sessions; DELETE ends all of them ("logout everywhere").
+		// GET lists sessions; DELETE ends all of them ("logout everywhere").
 		if (pathname === SESSIONS_PATH) {
 			if (method === "GET" || method === "HEAD") return sendJson(res, 200, { sessions: sessions.list(sessionId) });
 			if (method === "DELETE") {

@@ -9,12 +9,8 @@ import {
 import { coerceUiSettings } from "../../shared/ui-locale";
 import { isMacPlatform } from "./platform";
 
-// In Electron the main process keeps UI settings and keybinding overrides in
-// ~/.ao. The web build has no main process, so the browser stub keeps them in
-// this browser's localStorage instead. That is per-browser UI preference, not
-// daemon app state. Storage can be missing, blocked, full or hold garbage, so
-// every read falls back to the defaults and a failed write only loses
-// persistence across reloads.
+// In Electron the main process keeps UI settings in ~/.ao; the web stub uses
+// localStorage. Missing or blocked storage falls back to the defaults.
 
 export const UI_SETTINGS_STORAGE_KEY = "ao.uiSettings";
 export const KEYBINDINGS_STORAGE_KEY = "ao.keybindings";

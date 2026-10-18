@@ -1,8 +1,7 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, type ScryptOptions } from "node:crypto";
 
-// Operator password hashes use scrypt from node:crypto, encoded in the PHC-style
-// form `$scrypt$ln=<log2 N>,r=<r>,p=<p>$<salt>$<hash>` (unpadded base64url).
-// See README.md for why scrypt and not argon2 or bcrypt.
+// Operator password hashes use scrypt from node:crypto, encoded PHC-style as
+// `$scrypt$ln=..,r=..,p=..$<salt>$<hash>` (unpadded base64url). See README.md.
 const PREFIX = "scrypt";
 const KEY_LENGTH = 32;
 const SALT_LENGTH = 16;

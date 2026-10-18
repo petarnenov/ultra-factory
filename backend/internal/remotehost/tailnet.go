@@ -16,18 +16,15 @@ import (
 	"time"
 )
 
-// TailnetSOCKSEnv names the loopback SOCKS5 listener that the hub's Tailscale
-// node exposes in userspace-networking mode (ADR 0008). Only destinations on
-// the tailnet are dialed through it; every other destination dials directly.
+// TailnetSOCKSEnv names the loopback SOCKS5 listener the hub's Tailscale node
+// exposes in userspace mode (ADR 0008); only tailnet destinations use it.
 const TailnetSOCKSEnv = "AO_REMOTE_TAILNET_SOCKS"
 
 // tailnetIPv6 is Tailscale's IPv6 range (ADR 0008, Decision item 3).
 var tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
 
-// IsTailnetHost reports whether host, as written in a URL, is a tailnet
-// destination: an IP literal in 100.64.0.0/10 or fd7a:115c:a1e0::/48, or a
-// name ending in .ts.net. The name is lowercased and loses one trailing dot.
-// The decision never uses the resolved address.
+// IsTailnetHost reports whether host, as written, is a tailnet destination: an
+// IP in 100.64.0.0/10 or fd7a:115c:a1e0::/48, or a .ts.net name; no DNS.
 func IsTailnetHost(host string) bool {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if ip := net.ParseIP(host); ip != nil {
@@ -37,10 +34,8 @@ func IsTailnetHost(host string) bool {
 	return strings.HasSuffix(host, ".ts.net")
 }
 
-// TailnetSOCKSAddress reads and validates TailnetSOCKSEnv. An unset value
-// returns "" and no error. A set value must be host:port where host is an IP
-// literal in 127.0.0.0/8 or ::1, so the proxy cannot be redirected by name
-// resolution. The daemon refuses to start on an error.
+// TailnetSOCKSAddress reads and validates TailnetSOCKSEnv: unset returns "".
+// A set value must be host:port with a 127.0.0.0/8 or ::1 literal host.
 func TailnetSOCKSAddress() (string, error) {
 	raw := strings.TrimSpace(os.Getenv(TailnetSOCKSEnv))
 	if raw == "" {
@@ -68,8 +63,7 @@ type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 var defaultDial dialFunc = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
 
 // routeTailnet sends tailnet destinations through the SOCKS5 proxy named by
-// TailnetSOCKSEnv and leaves every other destination to inner. A tailnet
-// destination never falls back to a direct dial (ADR 0008, item 5).
+// TailnetSOCKSEnv, others to inner; a tailnet host never falls back (ADR 0008).
 func routeTailnet(inner dialFunc) dialFunc {
 	socks, err := TailnetSOCKSAddress()
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -139,7 +133,8 @@ func socks5Handshake(conn net.Conn, host, port string) error {
 			return errors.New("host name longer than 255 bytes")
 		}
 		// len(host) is bounded above, so the conversion cannot truncate.
-		request = append(append(request, 3, byte(len(host))), host...) // #nosec G115 -- length checked above.
+		// #nosec G115 -- length checked above.
+		request = append(append(request, 3, byte(len(host))), host...)
 	}
 	request = binary.BigEndian.AppendUint16(request, uint16(n))
 	if _, err := conn.Write(request); err != nil {
@@ -179,10 +174,8 @@ func socks5Handshake(conn net.Conn, host, port string) error {
 // make. The bearer may only travel on a connection that answered the probe.
 var ErrUnprobedConnection = errors.New("remote host connection was not made by the identity probe; the pass stops and retries on the next poll")
 
-// ProbeGate allows one connection to be dialed through a client: the identity
-// probe's. After the probe, any new connection fails, so a bearer request can
-// reach only a host that answered the probe on the same connection (ADR 0008,
-// Decision item 8). Requests that reuse an idle connection still work.
+// ProbeGate allows exactly one connection through: the identity probe's. After
+// that a bearer request only rides a connection that answered the probe.
 type ProbeGate struct {
 	mu        sync.Mutex
 	dialsLeft int
@@ -216,9 +209,8 @@ func (g *ProbeGate) guard(inner dialFunc) dialFunc {
 	}
 }
 
-// ProbedClient is DirectClient with a ProbeGate on its transport. Use it for a
-// host's pass: ReadIdentity runs first, then the gate is closed. A custom
-// RoundTripper, which DirectClient keeps as is, is not gated.
+// ProbedClient is DirectClient with a ProbeGate on its transport, for a host's
+// pass: ReadIdentity runs first, then the gate closes (ADR 0008, item 8).
 func ProbedClient(base *http.Client, timeout time.Duration) (http.Client, *ProbeGate) {
 	gate := &ProbeGate{dialsLeft: 1}
 	return directClient(base, timeout, gate), gate

@@ -10,7 +10,7 @@ import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
-/** A non-terminated session as the worker (or the BFF's 409 body) reports it. */
+/** A non-terminated session as the worker (or the BFF's 409 body). */
 export type WorkerSession = { id: string; displayName?: string; activity?: { state?: string } };
 
 type DeleteError = { error?: string; message?: string; sessions?: WorkerSession[]; worker?: HubHost };
@@ -24,12 +24,8 @@ async function fetchWorkerSessions(hostId: string, signal: AbortSignal): Promise
 	return (body.sessions ?? []).filter((session) => session.isTerminated === false);
 }
 
-/**
- * The "Remove" row action for Settings → Workers (web build only). A Railway
- * worker is deleted through DELETE /hub/workers/:id (service and volume), after
- * the operator types its label; a manual host only loses its registry record
- * through DELETE /hub/hosts/:id.
- */
+/** "Remove" row action (web): a Railway worker is deleted with its service,
+ * a manual host only loses its registry record. */
 export function RemoveWorkerDialog({ host }: { host: HubHost }) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();

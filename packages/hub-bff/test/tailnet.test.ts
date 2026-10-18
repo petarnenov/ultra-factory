@@ -123,7 +123,7 @@ describe("tailnet routing predicate", () => {
 	});
 });
 
-// A fake host daemon: identity, an authenticated read, a session list, SSE and /mux.
+// A fake host daemon: identity, an authenticated read, sessions, SSE, /mux.
 async function fakeHost() {
 	const seen: IncomingMessage[] = [];
 	const server = createServer((req, res) => {

@@ -489,9 +489,8 @@ func reqForwarded(peer, auth string, xff ...string) *http.Request {
 	return r
 }
 
-// Trusted-proxy mode (docs/adr/0005) changes only which key a failure counts
-// against. The rightmost X-Forwarded-For entry is the one the nearest proxy
-// appended; anything to its left is client-controlled and must never be used.
+// Trusted-proxy mode (ADR 0005) changes only which key a failure counts
+// against: the rightmost X-Forwarded-For entry the nearest proxy appended.
 func TestAuthTrustedProxyLockoutKey(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -528,10 +527,8 @@ func TestAuthTrustedProxyLockoutKey(t *testing.T) {
 	}
 }
 
-// Behind a single proxy every request shares the proxy's peer address. Without
-// trusted-proxy mode one attacker locks out every client; with it, each client
-// keeps its own lockout, rotating the spoofable leftmost entry buys the attacker
-// nothing, and the identity probe stays exempt ahead of the lockout.
+// Behind a single proxy every request shares the peer address: without
+// trusted-proxy mode one attacker locks every client out; with it, no.
 func TestAuthTrustedProxyLockoutIsPerForwardedClient(t *testing.T) {
 	const edge = "10.0.0.1:443"
 	for _, tc := range []struct {
@@ -577,9 +574,8 @@ func TestAuthTrustedProxyLockoutIsPerForwardedClient(t *testing.T) {
 	}
 }
 
-// The transition into lockout is logged once with the derived key, the TCP
-// peer, and where the key came from. The rest of the forwarded chain and the
-// presented credential never reach the log.
+// Entering lockout is logged once with the derived key, the TCP peer and where
+// the key came from; the forwarded chain and credential never reach the log.
 func TestAuthLockoutLogsTransitionOnce(t *testing.T) {
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, nil))
@@ -614,8 +610,7 @@ func TestAuthLockoutLogsTransitionOnce(t *testing.T) {
 }
 
 // The flag reaches the LAN stack through the daemon-facing constructor, and
-// starting a listener in that mode warns so a misconfigured desktop shows up
-// in the logs.
+// starting a listener in that mode warns, so a mistake shows up in the logs.
 func TestAuthTrustedProxyThroughLANManager(t *testing.T) {
 	for _, trustedProxy := range []bool{false, true} {
 		t.Run(fmt.Sprintf("trustedProxy=%t", trustedProxy), func(t *testing.T) {

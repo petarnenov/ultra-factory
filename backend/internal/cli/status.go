@@ -101,9 +101,8 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 	st.Uptime = formatUptime(c.deps.Now().Sub(info.StartedAt))
 
 	if !c.deps.ProcessAlive(info.PID) {
-		// A PID that looks dead may only be invisible from a private PID
-		// namespace (an agent sandbox); the daemon answering on its port as
-		// the run-file's owner is live all the same.
+		// A PID that looks dead may only be invisible from a private namespace
+		// (an agent sandbox); the daemon answering on its port is live.
 		if answered, err := c.probeRunFileOwner(ctx, *info); !answered || err != nil {
 			st.State = stateStale
 			st.Error = "run-file points to a dead process"
@@ -180,12 +179,8 @@ func (c *commandContext) readProbe(ctx context.Context, port int, path string) (
 	return body, nil
 }
 
-// probeRunFileOwner asks the daemon on info's loopback port who it is. Callers
-// use it when info.PID looks dead: an agent sandbox or container with its own
-// PID namespace cannot see the daemon's PID but shares its loopback network.
-// answered is false when nothing answered as a daemon (transport, HTTP or
-// decode error, explained by err). When it answered, err is nil only if it is
-// the daemon that wrote info.
+// probeRunFileOwner asks the daemon on info's loopback port who it is, used
+// when the PID looks dead but its loopback network is shared; err explains.
 func (c *commandContext) probeRunFileOwner(ctx context.Context, info runfile.Info) (answered bool, err error) {
 	health, err := c.readProbe(ctx, info.Port, "healthz")
 	if err != nil {
@@ -195,9 +190,7 @@ func (c *commandContext) probeRunFileOwner(ctx context.Context, info runfile.Inf
 }
 
 // verifyProbeOwner checks that a probe answer comes from the daemon that wrote
-// the run-file: the service name, the PID the daemon reports for itself (the
-// same value it wrote, whatever PID namespace the caller is in) and, when the
-// run-file has one, its instance id.
+// the run-file: service name, self-reported PID, and its instance id.
 func verifyProbeOwner(probe probeResult, info runfile.Info, path string) error {
 	if probe.Service != daemonmeta.ServiceName {
 		return fmt.Errorf("%s: response is not from AO daemon", path)

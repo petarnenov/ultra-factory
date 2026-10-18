@@ -119,14 +119,8 @@ func BaseURL(raw string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
-// DirectClient returns a copy of base with redirects disabled, so a bearer
-// credential can never be replayed to whatever a 3xx points at, and with
-// environment proxies disabled, so it never crosses an HTTP(S)_PROXY (agent
-// sandboxes set one) that could answer the identity probe and read the
-// plaintext bearer. The desktop's Node fetch connects directly as well.
-//
-// Tailnet destinations dial through the SOCKS5 proxy named by TailnetSOCKSEnv
-// when it is set (see routeTailnet). Nothing else changes.
+// DirectClient returns a copy of base with redirects and environment proxies
+// disabled, so a bearer is never replayed or read by a proxy (ADR 0008).
 func DirectClient(base *http.Client, timeout time.Duration) http.Client {
 	return directClient(base, timeout, nil)
 }

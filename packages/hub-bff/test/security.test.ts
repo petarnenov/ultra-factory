@@ -86,10 +86,8 @@ describe("BFF security headers", () => {
 	});
 
 	it("keeps the SPA policy aligned with the web build's CSP meta tag", async () => {
-		// The build injects this policy as a <meta> tag (RW-2.1.2). The header adds
-		// only the directives a meta tag cannot carry. Both must stay identical so
-		// the browser enforces one policy, not two that drift apart. The import is
-		// a runtime path, so the hub-bff typecheck does not pull in the frontend.
+		// The build injects this as a <meta> tag (RW-2.1.2); the header adds only
+		// the meta-impossible directives. Both stay identical.
 		const cspModule = path.join(import.meta.dirname, "..", "..", "..", "frontend", "vite.renderer.csp.ts");
 		const { contentSecurityPolicy } = (await import(pathToFileURL(cspModule).href)) as {
 			contentSecurityPolicy: (mode: "build" | "serve", web: boolean) => string;

@@ -9,13 +9,8 @@ import {
 	type ShortcutChord,
 } from "../../shared/shortcuts";
 
-// In Electron the main process catches application shortcuts in
-// before-input-event and sends them to the renderer over IPC
-// (main/app-shortcuts.ts). The web build has no main process, so this module
-// plays that role inside the page: it holds the listeners the
-// aoBridge.app.on*Shortcut stub registers and fires them from a global keydown
-// handler. The handler is installed only when isWebBuild, so Electron never
-// sees the chords twice.
+// In Electron the main process catches application shortcuts and sends them
+// over IPC; here the aoBridge stub's listeners fire from a global keydown.
 
 type Emitter<Args extends unknown[]> = {
 	on: (listener: (...args: Args) => void) => () => void;
@@ -142,10 +137,8 @@ export type WebShortcutOptions = {
 	web?: boolean;
 };
 
-/**
- * Listens for keydown in the window capture phase, ahead of xterm and text
- * fields, and fires the listeners of the matching command. Returns a disposer.
- */
+/** Listens for keydown in the window capture phase, ahead of xterm and text
+ * fields, and fires the listeners of the matching command. */
 export function installWebShortcuts({ isMac, getOverrides, target = window, web }: WebShortcutOptions): () => void {
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (recording || event.isComposing || event.defaultPrevented) return;
