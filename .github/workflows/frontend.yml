@@ -15,6 +15,8 @@ on:
       - "packages/product-ui/**"
       - ".github/workflows/frontend.yml"
 
+# A newer commit on the same PR cancels that PR's older in-flight run; push
+# runs on main keep their own group and are never cancelled.
 concurrency:
   group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -63,18 +65,25 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-      - name: Check npm lockfile compatibility
-        run: npm ci --ignore-scripts --dry-run --no-audit --no-fund
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
           cache: npm
           cache-dependency-path: |
             frontend/package-lock.json
             frontend/src/docs/package-lock.json
             packages/cloud-client/package-lock.json
             packages/product-ui/package-lock.json
+
+      - name: Check npm lockfile compatibility
+        run: npm ci --ignore-scripts --dry-run --no-audit --no-fund
+
+      # npm ci fetches the Electron binary through @electron/get, which keeps
+      # its zip outside node_modules; caching it avoids a ~100 MB download.
+      - name: Cache Electron binary downloads
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
 
       - name: Install frontend dependencies
         run: |
@@ -111,6 +120,14 @@ jobs:
           npm test
           npm pack --dry-run
         working-directory: packages/product-ui
+
+      # prepare-agent-browser.mjs verifies the pinned binary's sha256, so a
+      # restored cache can never serve the wrong build (it re-downloads).
+      - name: Cache pinned agent-browser runtime
+        uses: actions/cache@v5
+        with:
+          path: frontend/agent-browser
+          key: agent-browser-${{ runner.os }}-${{ hashFiles('frontend/scripts/prepare-agent-browser.mjs') }}
 
       - name: Prepare pinned agent-browser runtime
         run: npm run browser-runtime:prepare -- --quiet

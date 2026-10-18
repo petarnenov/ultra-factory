@@ -15,8 +15,10 @@ on:
 permissions:
   contents: read
 
+# A newer commit on the same PR cancels that PR's older in-flight run; push
+# runs on main keep their own group and are never cancelled.
 concurrency:
-  group: go-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -279,7 +281,9 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
-          cache: false
+          # sqlc runs through `go run ...@v1.31.1`, so the cached module and
+          # build caches are what keep it from recompiling sqlc from scratch.
+          cache-dependency-path: backend/go.sum
 
       - uses: actions/setup-node@v5
         with:
@@ -301,11 +305,15 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
-          cache: false
+          # `go generate` compiles cmd/genspec; the module and build caches are
+          # the difference between recompiling it and reusing the last run.
+          cache-dependency-path: backend/go.sum
 
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
