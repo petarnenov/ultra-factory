@@ -136,10 +136,17 @@ assets are replaced in place on every publish:
 
 - `ao-<os>-<arch>.tar.gz` — the `daemon/` and `acp-runtime/` layout
   `make daemon-dist` produces, under a version-free name;
-- `SHA256SUMS` — SHA-256 for every asset, including the updater itself;
+- `SHA256SUMS` — SHA-256 for every asset, including the two scripts below;
 - `manifest.json` — channel, version, commit, and each asset's file name,
   size, and SHA-256;
-- `ao-self-update.sh` — the pull updater.
+- `ao-self-update.sh` and `install-self-update.sh` — the pull updater and the
+  installer, so a new host can bootstrap from the release alone:
+
+```bash
+curl -fsSLO https://github.com/<owner>/<repo>/releases/download/daemon-channel-main/install-self-update.sh
+curl -fsSLO https://github.com/<owner>/<repo>/releases/download/daemon-channel-main/ao-self-update.sh
+bash install-self-update.sh --install --channel main --repo <owner>/<repo>
+```
 
 Set a host up with the installer, which detects the install layout and the
 service that runs the daemon:

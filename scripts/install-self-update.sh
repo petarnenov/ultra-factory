@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Install the AO daemon self-update timer on a self-hosted host.
-#
-# Detects how this host installed its daemon (flat bundle, release directory,
-# or a single binary) and which service runs it, writes ~/.ao/self-update.json,
-# copies ao-self-update.sh next to the state it manages, and enables a systemd
-# user timer or a launchd agent. See docs/self-hosted-remote.md.
+# Install the daemon self-update timer: detect the host, write the config,
+# copy the updater, and enable the timer. See docs/self-hosted-remote.md.
 set -euo pipefail
 
 usage() {
@@ -129,8 +125,82 @@ except ValueError:
 	printf '%s\n' "$exe"
 }
 
+# discover_service reads the unit or agent that runs the daemon, which names
+# both the service and its binary even when ao is not on PATH.
+discover_systemd() {
+	local file exec exe args
+	for file in "$HOME"/.config/systemd/user/*.service; do
+		[[ -f "$file" ]] || continue
+		exec="$(grep -h '^ExecStart=' "$file" 2>/dev/null | head -1 || true)"
+		exec="${exec#ExecStart=}"
+		exec="${exec#-}"
+		exec="${exec//%h/$HOME}"
+		exe="${exec%% *}"
+		args="${exec#"$exe"}"
+		[[ "$(basename "$exe")" == ao ]] || continue
+		case " $args " in *" daemon "*) ;; *) continue ;; esac
+		[[ -x "$exe" ]] || continue
+		unit="$(basename "$file" .service)"
+		service_binary="$exe"
+		return 0
+	done
+	return 1
+}
+
+discover_launchd() {
+	local found
+	found="$(python3 -c '
+import glob, os, plistlib, re, sys
+
+exec_line = re.compile(r"^\s*exec\s+(\S+)\s+daemon\b", re.M)
+
+
+def from_program(program):
+    if os.path.basename(program) == "ao":
+        return program
+    try:
+        with open(program) as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    found = exec_line.search(text)
+    if found and os.path.basename(found.group(1)) == "ao":
+        return found.group(1)
+    return ""
+
+
+for path in sorted(glob.glob(os.path.expanduser("~/Library/LaunchAgents/*.plist"))):
+    try:
+        with open(path, "rb") as handle:
+            doc = plistlib.load(handle)
+    except Exception:
+        continue
+    args = [str(value) for value in doc.get("ProgramArguments") or []]
+    if not args:
+        continue
+    binary = args[0] if args[1:] and args[1] == "daemon" else from_program(args[0])
+    if not binary or os.path.basename(binary) != "ao":
+        continue
+    label = doc.get("Label") or os.path.basename(path)[: -len(".plist")]
+    print("%s\t%s" % (label, binary))
+    sys.exit(0)
+sys.exit(1)
+')" || return 1
+	label="${found%%$'\t'*}"
+	service_binary="${found#*$'\t'}"
+	return 0
+}
+
+discover_service() {
+	case "$(uname -s)" in
+		Linux) discover_systemd ;;
+		Darwin) discover_launchd ;;
+		*) return 1 ;;
+	esac
+}
+
 detect_layout() {
-	local exe="$1" candidate releases_root
+	local exe="$1" candidate stamp_dir releases_dir root_dir
 	exe="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$exe")"
 	binary_name="$(basename "$exe")"
 	if [[ "$(basename "$(dirname "$exe")")" != daemon ]]; then
@@ -139,12 +209,14 @@ detect_layout() {
 		return 0
 	fi
 	candidate="$(dirname "$(dirname "$exe")")"
-	if [[ "$(basename "$candidate")" == resources && "$(basename "$(dirname "$candidate")")" == releases ]]; then
-		releases_root="$(dirname "$(dirname "$candidate")")"
-		if [[ -L "$releases_root/current" ]]; then
+	if [[ "$(basename "$candidate")" == resources ]]; then
+		stamp_dir="$(dirname "$candidate")"
+		releases_dir="$(dirname "$stamp_dir")"
+		root_dir="$(dirname "$releases_dir")"
+		if [[ "$(basename "$releases_dir")" == releases && -L "$root_dir/current" ]]; then
 			layout="release"
-			release_root="$releases_root"
-			install_dir="$releases_root/current/resources"
+			release_root="$root_dir"
+			install_dir="$root_dir/current/resources"
 			return 0
 		fi
 	fi
@@ -424,6 +496,12 @@ if [[ "$command_name" == disable ]]; then
 fi
 
 binary="$(installed_binary)"
+if [[ -z "$binary" && -z "$unit" && -z "$label" ]]; then
+	if discover_service; then
+		binary="$service_binary"
+		log "found the daemon through the service that runs it"
+	fi
+fi
 if [[ -z "$layout" || -z "$install_dir" ]]; then
 	[[ -n "$binary" ]] || die "no ao daemon found; pass --install-dir and --layout"
 	detect_layout "$binary"
@@ -437,7 +515,13 @@ esac
 if [[ "$layout" == release && -z "$release_root" ]]; then
 	die "the release layout needs --release-root"
 fi
-[[ -n "$binary" ]] && detect_service "$binary"
+if [[ -z "$unit" && -z "$label" ]]; then
+	if [[ -n "$binary" ]]; then
+		detect_service "$binary"
+	else
+		discover_service || die "no service runs the daemon; pass --unit or --label"
+	fi
+fi
 
 case "$(uname -s)" in
 	Linux) service_kind=systemd ;;
@@ -445,6 +529,7 @@ case "$(uname -s)" in
 	*) die "unsupported platform: $(uname -s)" ;;
 esac
 
+log "plan: layout=$layout installDir=$install_dir service=$service_kind $unit$label channel=$channel"
 env_json="$(collect_env_json)"
 write_config "$env_json"
 install_updater
