@@ -255,12 +255,12 @@ func (s *Store) PromoteTaskPreparation(ctx context.Context, id domain.SessionID,
 	defer s.writeMu.Unlock()
 	activity := normalActivity(rec.Activity, rec.UpdatedAt)
 	rows, err := s.qw.PromoteTaskPreparation(ctx, gen.PromoteTaskPreparationParams{
-		IssueID:             rec.IssueID,
-		Kind:                rec.Kind,
-		Harness:             rec.Harness,
-		AutoReviewEnabled:   rec.AutoReviewEnabled,
-		TerminateOnPRMerge:  rec.TerminateOnPRMerge,
-		DisplayName:         rec.DisplayName,
+		IssueID:            rec.IssueID,
+		Kind:               rec.Kind,
+		Harness:            rec.Harness,
+		AutoReviewEnabled:  rec.AutoReviewEnabled,
+		TerminateOnPRMerge: rec.TerminateOnPRMerge,
+		DisplayName:        rec.DisplayName,
 		ActivityState:      activity.State,
 		ActivityLastAt:     activity.LastActivityAt,
 		SessionMode:        domain.NormalizeSessionMode(rec.Mode),
