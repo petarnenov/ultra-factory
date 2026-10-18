@@ -47,10 +47,8 @@ export function compareCompletedTasks(a: CompletedTask, b: CompletedTask): numbe
 	return Date.parse(b.createdAt) - Date.parse(a.createdAt);
 }
 
-/**
- * Reads completed tasks from every explicitly associated project. Each host
- * answers on its own, so one unreachable host leaves the others readable.
- */
+// Reads every associated project separately, so one unreachable host
+// leaves the others readable.
 export function useCompletedTasks(refs: CompletedTaskProjectRef[], outcome: CompletedTaskOutcome | undefined, pages: number) {
 	const results = useQueries({
 		queries: refs.map((ref) => ({

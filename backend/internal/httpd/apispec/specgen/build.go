@@ -842,7 +842,7 @@ func reportOperations() []operation {
 func completedTaskOperations() []operation {
 	return []operation{{
 		method: http.MethodGet, path: "/api/v1/projects/{projectId}/completed-tasks", id: "listCompletedTasks", tag: "projects",
-		summary:    "List a project's completed worker tasks on this host, newest completion first",
+		summary:    "List a project's completed worker tasks",
 		pathParams: []any{controllers.CompletedTaskProjectParam{}, controllers.ListCompletedTasksQuery{}},
 		resps: []respUnit{
 			{http.StatusOK, controllers.ListCompletedTasksResponse{}},

@@ -28,9 +28,8 @@ type ConfigChange struct {
 	RecordedAt time.Time
 }
 
-// UsageRun aggregates one native run root's usage events for one model.
-// InputTokens already include CachedInputTokens. Known counts say how many
-// events reported each counter; fewer than EventCount means a partial sum.
+// UsageRun sums one run root's usage for one model. InputTokens include
+// cached input; a known count below EventCount means a partial sum.
 type UsageRun struct {
 	BindingID             int64
 	Harness               AgentHarness

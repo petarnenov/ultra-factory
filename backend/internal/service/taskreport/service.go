@@ -1,7 +1,5 @@
-// Package taskreport builds completed-task reports for a project's workers on
-// this host from durable facts: PR facts, termination, recorded configuration
-// changes, usage events, and observed stage transitions. Nothing it derives is
-// persisted, and facts that were never recorded are reported as unavailable.
+// Package taskreport derives completed-task reports from durable facts. It
+// persists nothing, and facts never recorded are reported as unavailable.
 package taskreport
 
 import (
@@ -523,9 +521,8 @@ func configHistory(createdAt time.Time, changes []domain.ConfigChange) ConfigHis
 	return out
 }
 
-// stageHistory turns transitions into visits. A visit ends when the next
-// transition begins; archive only closes the previous visit. The last open
-// visit runs to now and makes the history partial.
+// stageHistory turns transitions into visits; archive only ends the last
+// one. An open last visit runs to now and makes the history partial.
 func stageHistory(createdAt time.Time, transitions []domain.StageTransition, now time.Time) StageHistory {
 	out := StageHistory{Completeness: Unavailable, Visits: []StageVisit{}, Totals: []StageTotal{}}
 	if len(transitions) == 0 {

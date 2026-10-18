@@ -10,10 +10,8 @@ export function validateCompletedTasksSearch(search: Record<string, unknown>): C
 	return typeof search.task === "string" && search.task ? { task: search.task } : {};
 }
 
-/**
- * The project's own host is its only member today. Further host-qualified
- * members join `refs` once project association is configured explicitly.
- */
+// The project's own host is its only member until host-qualified project
+// association (#194) is configured; those members then join `refs`.
 export function CompletedTasksRoute({ hostId = LOCAL_HOST, projectId, task }: { hostId?: HostId; projectId: string; task?: string }) {
 	const navigate = useNavigate();
 	const refs = useMemo<CompletedTaskProjectRef[]>(() => [{ hostId, projectId }], [hostId, projectId]);

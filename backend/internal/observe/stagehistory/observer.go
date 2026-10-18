@@ -1,6 +1,5 @@
-// Package stagehistory records when worker sessions enter each derived Kanban
-// column so completed-task reports can show stage durations. The log is
-// append-only history; current status is still derived on every read.
+// Package stagehistory logs when workers enter derived Kanban columns, as
+// report history only; current status is still derived on every read.
 package stagehistory
 
 import (
@@ -64,9 +63,8 @@ func (o *Observer) Start(ctx context.Context) <-chan struct{} {
 	return observe.StartPollLoop(ctx, o.interval, o.Poll, o.logger, "stage history observer")
 }
 
-// Poll appends a transition for every worker whose derived column differs
-// from its latest recorded one. A session already terminated before it was
-// ever observed gets no row: its archive time is unknown, not now.
+// Poll appends a row when a worker's column differs from its latest one. A
+// worker first seen terminated gets none: its archive time is unknown.
 func (o *Observer) Poll(ctx context.Context) error {
 	sessions, err := o.sessions.List(ctx, sessionsvc.ListFilter{})
 	if err != nil {

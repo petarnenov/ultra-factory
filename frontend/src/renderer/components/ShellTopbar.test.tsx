@@ -279,6 +279,24 @@ describe("ShellTopbar Artifacts identity", () => {
 	});
 });
 
+describe("ShellTopbar completed tasks identity", () => {
+	it("identifies the project completed tasks route without board actions", () => {
+		locationMock.pathname = "/projects/ao/completed";
+		paramsMock.projectId = "ao";
+		render(
+			<QueryClientProvider client={new QueryClient()}>
+				<TooltipProvider>
+					<ShellTopbar />
+				</TooltipProvider>
+			</QueryClientProvider>,
+		);
+
+		expect(screen.getByTestId("completed-tasks-topbar-label")).toHaveTextContent("Completed tasks");
+		expect(screen.queryByTestId("board-topbar-label")).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "New task" })).not.toBeInTheDocument();
+	});
+});
+
 describe("ShellTopbar status pill", () => {
 	it("matches the session action edge inset to the toolbar spacing", () => {
 		renderTopbar(sessionWith());

@@ -179,8 +179,8 @@ type ListSessionUsageRunsRow struct {
 	KnownOutputCount      int64
 }
 
-// One row per native run root and model. Input tokens already include cached
-// input; cached and uncached are its parts, so they are never added to it.
+// One row per run root and model. Input tokens already include cached
+// input, so cached tokens are never added to them.
 func (q *Queries) ListSessionUsageRuns(ctx context.Context, sessionID domain.SessionID) ([]ListSessionUsageRunsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listSessionUsageRuns, sessionID)
 	if err != nil {

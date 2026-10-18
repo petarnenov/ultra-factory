@@ -3241,12 +3241,12 @@ paths:
     get:
       operationId: listCompletedTasks
       parameters:
-      - description: Project on this daemon whose completed worker tasks are read.
+      - description: Project whose completed tasks are read.
         in: path
         name: projectId
         required: true
         schema:
-          description: Project on this daemon whose completed worker tasks are read.
+          description: Project whose completed tasks are read.
           type: string
       - description: Only tasks with this outcome.
         in: query
@@ -3265,11 +3265,11 @@ paths:
         schema:
           description: Page size, 1 to 200. Defaults to 50.
           type: integer
-      - description: Opaque cursor from a previous page's nextCursor.
+      - description: Cursor from the previous page.
         in: query
         name: cursor
         schema:
-          description: Opaque cursor from a previous page's nextCursor.
+          description: Cursor from the previous page.
           type: string
       responses:
         "200":
@@ -3302,8 +3302,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Not Implemented
-      summary: List a project's completed worker tasks on this host, newest completion
-        first
+      summary: List a project's completed worker tasks
       tags:
       - projects
   /api/v1/projects/{projectId}/completed-tasks/{sessionId}:

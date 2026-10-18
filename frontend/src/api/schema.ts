@@ -1233,7 +1233,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List a project's completed worker tasks on this host, newest completion first */
+        /** List a project's completed worker tasks */
         get: operations["listCompletedTasks"];
         put?: never;
         post?: never;
@@ -11097,12 +11097,12 @@ export interface operations {
                 outcome?: "merged" | "closed" | "cancelled" | "failed";
                 /** @description Page size, 1 to 200. Defaults to 50. */
                 limit?: number;
-                /** @description Opaque cursor from a previous page's nextCursor. */
+                /** @description Cursor from the previous page. */
                 cursor?: string;
             };
             header?: never;
             path: {
-                /** @description Project on this daemon whose completed worker tasks are read. */
+                /** @description Project whose completed tasks are read. */
                 projectId: string;
             };
             cookie?: never;

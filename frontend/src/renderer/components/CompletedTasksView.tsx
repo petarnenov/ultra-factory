@@ -61,10 +61,8 @@ function CompletenessNote({ value }: { value: Completeness }) {
 	);
 }
 
-/**
- * Completed work for one project across its explicitly associated hosts. The
- * daemon of each host derives the reports; this view only lists and renders.
- */
+// Completed work across a project's associated hosts. Each host's daemon
+// derives its reports; this view only lists and renders them.
 export function CompletedTasksView({
 	refs,
 	selected,
@@ -78,7 +76,8 @@ export function CompletedTasksView({
 	const showPageTitle = hidesShellTopbar();
 	return (
 		<div className="flex min-h-0 flex-1 flex-col bg-background">
-			<header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center gap-2 border-b border-border-strong pr-2">
+			{!showPageTitle && !selected ? <h1 className="sr-only">{t("completedTasks.title")}</h1> : null}
+			{showPageTitle || selected ? <header className="workspace-topbar-container center-panel-titlebar flex h-toolbar shrink-0 items-center gap-2 border-b border-border-strong pr-2">
 				{selected ? (
 					<Button variant="ghost" size="icon-sm" aria-label={t("completedTasks.back")} title={t("completedTasks.back")} onClick={() => onSelect(null)}>
 						<ArrowLeft className="size-icon-md" aria-hidden="true" />
@@ -88,7 +87,7 @@ export function CompletedTasksView({
 					{showPageTitle ? <ListChecks className="size-icon-md" aria-hidden="true" /> : null}
 					{t("completedTasks.title")}
 				</h1>
-			</header>
+			</header> : null}
 			<ScrollArea.Root asChild type="hover" scrollHideDelay={500}>
 				<main className="relative min-h-0 flex-1 overflow-hidden">
 					<ScrollArea.Viewport className="h-full w-full overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60" tabIndex={0}>
@@ -203,7 +202,7 @@ function CompletedTaskRow({
 	const partialTokens = task.tokens.completeness === "partial";
 	return (
 		<TableRow>
-			<TableCell className="max-w-0 w-[40%]">
+			<TableCell className="max-w-0 w-[32%]">
 				<button
 					type="button"
 					className="block w-full truncate rounded-sm text-left text-[13px] font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
@@ -219,17 +218,17 @@ function CompletedTaskRow({
 				</p>
 			</TableCell>
 			<TableCell>{t(`completedTasks.outcome.${task.outcome}`)}</TableCell>
-			<TableCell className="tabular-nums">{formatTime(t, task.completedAt, locale)}</TableCell>
-			<TableCell className="text-right tabular-nums">{formatDuration(t, task.elapsedSeconds)}</TableCell>
-			<TableCell className="text-right tabular-nums" title={partialTokens ? t("completedTasks.completenessHint.partial") : undefined}>
+			<TableCell className={cn("tabular-nums", !task.completedAt && "text-muted-foreground")}>{formatTime(t, task.completedAt, locale)}</TableCell>
+			<TableCell className={cn("text-right tabular-nums", task.elapsedSeconds == null && "text-muted-foreground")}>{formatDuration(t, task.elapsedSeconds)}</TableCell>
+			<TableCell className={cn("text-right tabular-nums", task.tokens.inputTokens === null && "text-muted-foreground")} title={partialTokens ? t("completedTasks.completenessHint.partial") : undefined}>
 				{formatCount(t, task.tokens.inputTokens, locale)}
 				{partialTokens && task.tokens.inputTokens !== null ? "+" : ""}
 			</TableCell>
-			<TableCell className="text-right tabular-nums" title={partialTokens ? t("completedTasks.completenessHint.partial") : undefined}>
+			<TableCell className={cn("text-right tabular-nums", task.tokens.outputTokens === null && "text-muted-foreground")} title={partialTokens ? t("completedTasks.completenessHint.partial") : undefined}>
 				{formatCount(t, task.tokens.outputTokens, locale)}
 				{partialTokens && task.tokens.outputTokens !== null ? "+" : ""}
 			</TableCell>
-			<TableCell className="max-w-0 truncate text-muted-foreground">{agentLabel(t, task)}</TableCell>
+			<TableCell className="max-w-0 w-[22%] truncate text-muted-foreground" title={agentLabel(t, task)}>{agentLabel(t, task)}</TableCell>
 		</TableRow>
 	);
 }
@@ -252,7 +251,7 @@ function Section({ title, completeness, children }: { title: string; completenes
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
 	return (
-		<div className="grid grid-cols-[140px_minmax(0,1fr)] gap-3 py-1 text-xs">
+		<div className="grid grid-cols-[200px_minmax(0,1fr)] gap-3 py-1 text-xs">
 			<dt className="text-muted-foreground">{label}</dt>
 			<dd className="min-w-0 text-foreground">{children}</dd>
 		</div>
@@ -377,7 +376,7 @@ export function ReportBody({ report, selection }: { report: CompletedTaskReport;
 						<TableBody>
 							{report.runs.map((run) => (
 								<TableRow key={`${run.bindingId}-${run.model}`}>
-									<TableCell className="max-w-0 truncate font-mono" title={run.nativeRootId}>
+									<TableCell className="max-w-0 w-[40%] truncate font-mono" title={run.nativeRootId}>
 										{run.harness} · {run.nativeRootId}
 									</TableCell>
 									<TableCell className="font-mono">{run.model}</TableCell>
@@ -418,7 +417,7 @@ export function ReportBody({ report, selection }: { report: CompletedTaskReport;
 						<h4 className="mt-3 mb-1 text-xs font-medium text-foreground">{t("completedTasks.report.timeline")}</h4>
 						<ol className="text-xs">
 							{report.stages.visits.map((visit, index) => (
-								<li key={`${visit.enteredAt}-${index}`} className="grid grid-cols-[140px_minmax(0,1fr)_auto] gap-3 border-b border-border py-1 last:border-b-0">
+								<li key={`${visit.enteredAt}-${index}`} className="grid grid-cols-[200px_minmax(0,1fr)_auto] gap-3 border-b border-border py-1 last:border-b-0">
 									<span>{t(`completedTasks.stage.${visit.stage}`)}</span>
 									<span className="tabular-nums text-muted-foreground">
 										{formatTime(t, visit.enteredAt, locale)} – {visit.leftAt ? formatTime(t, visit.leftAt, locale) : t("completedTasks.report.ongoing")}

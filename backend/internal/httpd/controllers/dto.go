@@ -3538,7 +3538,7 @@ type SideLabelRequest struct {
 
 // CompletedTaskProjectParam selects the project whose completed tasks are read.
 type CompletedTaskProjectParam struct {
-	ProjectID string `path:"projectId" description:"Project on this daemon whose completed worker tasks are read."`
+	ProjectID string `path:"projectId" description:"Project whose completed tasks are read."`
 }
 
 // CompletedTaskParams selects one completed task in a project.
@@ -3551,7 +3551,7 @@ type CompletedTaskParams struct {
 type ListCompletedTasksQuery struct {
 	Outcome string `query:"outcome,omitempty" enum:"merged,closed,cancelled,failed" description:"Only tasks with this outcome."`
 	Limit   int    `query:"limit,omitempty" description:"Page size, 1 to 200. Defaults to 50."`
-	Cursor  string `query:"cursor,omitempty" description:"Opaque cursor from a previous page's nextCursor."`
+	Cursor  string `query:"cursor,omitempty" description:"Cursor from the previous page."`
 }
 
 // CompletedTaskPR is one PR attributed to a completed task.

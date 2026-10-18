@@ -1,10 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
--- Completed-task reports need the configuration a task ran with over time,
--- not only its final value. Triggers record every committed change to the
--- session's harness, model, or effort and to a Chat conversation's per-turn
--- model and reasoning-effort overrides. Rows written before this migration do
--- not exist; reports show that history as unavailable rather than guessing.
+-- Harness, model, and effort changes over a task's life. Sessions created
+-- before this migration have no rows; reports show that as unavailable.
 CREATE TABLE session_config_history (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id  TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
@@ -31,8 +28,8 @@ BEGIN
     VALUES (NEW.id, 'session', NEW.harness, NEW.model, NEW.effort);
 END;
 
--- A NULL conversation override means "use the session's configuration"; it is
--- stored as an empty string so the report falls back to the session row.
+-- A NULL Chat override means "use the session value"; it is stored as an
+-- empty string so the report falls back to the session row.
 CREATE TRIGGER conversation_config_history_update
 AFTER UPDATE OF model, reasoning_effort ON conversations
 WHEN NEW.current_session_id IS NOT NULL
@@ -43,10 +40,8 @@ BEGIN
     FROM sessions s WHERE s.id = NEW.current_session_id;
 END;
 
--- session_stage_transitions is an append-only observation log of the derived
--- Kanban column. The stage-history observer appends a row when the column it
--- derives differs from the session's latest row. It is history for reports
--- only: current status is still derived from durable facts on every read.
+-- Append-only log of observed Kanban columns, for reports only. Current
+-- status is still derived from durable facts on every read.
 CREATE TABLE session_stage_transitions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,

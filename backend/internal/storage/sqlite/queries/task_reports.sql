@@ -22,8 +22,8 @@ WHERE session_id = ?
 ORDER BY id;
 
 -- name: ListSessionUsageRuns :many
--- One row per native run root and model. Input tokens already include cached
--- input; cached and uncached are its parts, so they are never added to it.
+-- One row per run root and model. Input tokens already include cached
+-- input, so cached tokens are never added to them.
 SELECT
     ub.id AS binding_id,
     ub.harness,
