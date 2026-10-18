@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -64,7 +65,7 @@ func (e Entry) Validate() error {
 	if e.Version != Version {
 		return fmt.Errorf("unsupported outbox entry version %d", e.Version)
 	}
-	if e.Method != "POST" {
+	if e.Method != http.MethodPost {
 		return fmt.Errorf("unsupported outbox method %q", e.Method)
 	}
 	if !sessionIDPattern.MatchString(e.SessionID) {
@@ -83,7 +84,7 @@ func (e Entry) Validate() error {
 		}
 	case KindActivity:
 		m := activityPathPattern.FindStringSubmatch(e.Path)
-		if m == nil || m[1] != e.SessionID {
+		if len(m) < 2 || m[1] != e.SessionID {
 			return fmt.Errorf("invalid activity path %q", e.Path)
 		}
 		if e.ObservedAt.IsZero() {
