@@ -1107,3 +1107,62 @@ func TestSpawnModelFlagWiring(t *testing.T) {
 		t.Fatalf("spawn request model = %q, want gpt-5.6-sol", req.Model)
 	}
 }
+
+// TestSpawnTerminateOnPRMergeFlagWiring asserts the spawn flag override.
+// It sends explicit true/false and preserves omission.
+func TestSpawnTerminateOnPRMergeFlagWiring(t *testing.T) {
+	for _, tc := range []struct {
+		flag string
+		want *bool
+	}{
+		{flag: "--terminate-on-pr-merge", want: boolPtr(true)},
+		{flag: "--terminate-on-pr-merge=false", want: boolPtr(false)},
+		{flag: "", want: nil},
+	} {
+		t.Run(tc.flag, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			var req spawnRequest
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
+					_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo"}}`)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agents/readiness/ensure":
+					_, _ = io.WriteString(w, authorizedAgentsJSON("codex"))
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Fatal(err)
+					}
+					_, _ = io.WriteString(w, `{"session":{"id":"demo-20","status":"idle"}}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			writeRunFileFor(t, cfg, srv)
+
+			args := []string{"spawn", "--project", "demo", "--agent", "codex", "--name", "worker"}
+			if tc.flag != "" {
+				args = append(args, tc.flag)
+			}
+			_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, args...)
+			if err != nil {
+				t.Fatalf("spawn failed: %v stderr=%s", err, errOut)
+			}
+			if tc.want == nil {
+				if req.TerminateOnPRMerge != nil {
+					t.Fatalf("spawn request terminateOnPrMerge = %v, want nil", *req.TerminateOnPRMerge)
+				}
+				return
+			}
+			if req.TerminateOnPRMerge == nil {
+				t.Fatal("spawn request did not send terminateOnPrMerge")
+			}
+			if *req.TerminateOnPRMerge != *tc.want {
+				t.Fatalf("spawn request terminateOnPrMerge = %v, want %v", *req.TerminateOnPRMerge, *tc.want)
+			}
+		})
+	}
+}
+
+func boolPtr(v bool) *bool { return &v }

@@ -15548,6 +15548,8 @@ components:
           items:
             type: string
           type: array
+        terminateOnPrMerge:
+          type: boolean
         trackerIntake:
           $ref: '#/components/schemas/TrackerIntakeConfig'
         worker:
@@ -17811,6 +17813,10 @@ components:
           enum:
           - artifact
           type: string
+        terminateOnPrMerge:
+          type:
+          - "null"
+          - boolean
         trackerProvider:
           enum:
           - github

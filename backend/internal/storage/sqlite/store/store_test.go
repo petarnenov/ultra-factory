@@ -193,6 +193,7 @@ func TestTaskPreparationPromotionPreservesWorkspace(t *testing.T) {
 	visible := sampleRecord("mer")
 	visible.Harness = domain.HarnessCodex
 	visible.Metadata.Effort = "high"
+	visible.TerminateOnPRMerge = true
 	if ok, err := s.PromoteTaskPreparation(ctx, created.ID, visible); err != nil || !ok {
 		t.Fatalf("promote preparation = %v, %v", ok, err)
 	}
@@ -200,8 +201,36 @@ func TestTaskPreparationPromotionPreservesWorkspace(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("get promoted session = %v, %v", ok, err)
 	}
-	if got.IsTaskPreparation || got.Harness != domain.HarnessCodex || got.Metadata.Effort != "high" || got.Metadata.Branch != "ao/mer-1/root" || got.Metadata.WorkspacePath != "/prepared" {
+	if got.IsTaskPreparation || got.Harness != domain.HarnessCodex || got.Metadata.Effort != "high" || got.Metadata.Branch != "ao/mer-1/root" || got.Metadata.WorkspacePath != "/prepared" || !got.TerminateOnPRMerge {
 		t.Fatalf("promoted session = %+v", got)
+	}
+}
+
+func TestPromoteTaskPreparationPersistsTerminateOnPRMerge(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "mer")
+	prepared := sampleRecord("mer")
+	prepared.IsTaskPreparation = true
+	prepared.ProvisionState = domain.SessionProvisionProvisioning
+	prepared.Metadata.WorkspacePath = ""
+	prepared.TerminateOnPRMerge = false
+	created, err := s.CreateSession(ctx, prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	visible := sampleRecord("mer")
+	visible.TerminateOnPRMerge = true
+	if ok, err := s.PromoteTaskPreparation(ctx, created.ID, visible); err != nil || !ok {
+		t.Fatalf("promote preparation = %v, %v", ok, err)
+	}
+	got, ok, err := s.GetSession(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("get promoted session = %v, %v", ok, err)
+	}
+	if !got.TerminateOnPRMerge {
+		t.Fatalf("promoted session terminateOnPrMerge = %v, want true", got.TerminateOnPRMerge)
 	}
 }
 
