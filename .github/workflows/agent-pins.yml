@@ -21,6 +21,7 @@ on:
       - "deploy/railway/worker/README.md"
       - "deploy/railway/scripts/update-agent-pins.mjs"
       - "deploy/railway/scripts/update-agent-pins.test.mjs"
+      - "deploy/railway/scripts/agent-pins-workflow.test.sh"
       - ".github/workflows/agent-pins.yml"
 
 permissions:
@@ -48,6 +49,9 @@ jobs:
 
       - name: Run the pin update tests
         run: node --test deploy/railway/scripts/update-agent-pins.test.mjs
+
+      - name: Test the branch-match decision
+        run: bash deploy/railway/scripts/agent-pins-workflow.test.sh
 
   update:
     name: Open the pin PR
@@ -119,6 +123,7 @@ jobs:
           echo "changed=true" >>"$GITHUB_OUTPUT"
           if [ "$EXISTS" = true ] && \
             git diff --cached --quiet "origin/$BRANCH" -- "${paths[@]}"; then
+            # changed=true is set above: HEAD stays on main on this path.
             echo "The pin branch already has these versions; nothing to push."
             exit 0
           fi
@@ -138,6 +143,8 @@ jobs:
           CHANGED: ${{ steps.commit.outputs.changed }}
         run: |
           set -euo pipefail
+          # HEAD is still origin/main on the branch-match skip, so use the
+          # commit step's changed output instead of a commit diff.
           if [ "$CHANGED" != true ]; then
             number=$(gh pr list --head "$BRANCH" --state open \
               --json number --jq '.[0].number // empty')
