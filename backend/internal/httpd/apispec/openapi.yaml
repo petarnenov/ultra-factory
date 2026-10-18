@@ -3237,6 +3237,121 @@ paths:
       summary: Speculatively create the next task's worktree
       tags:
       - projects
+  /api/v1/projects/{projectId}/completed-tasks:
+    get:
+      operationId: listCompletedTasks
+      parameters:
+      - description: Project on this daemon whose completed worker tasks are read.
+        in: path
+        name: projectId
+        required: true
+        schema:
+          description: Project on this daemon whose completed worker tasks are read.
+          type: string
+      - description: Only tasks with this outcome.
+        in: query
+        name: outcome
+        schema:
+          description: Only tasks with this outcome.
+          enum:
+          - merged
+          - closed
+          - cancelled
+          - failed
+          type: string
+      - description: Page size, 1 to 200. Defaults to 50.
+        in: query
+        name: limit
+        schema:
+          description: Page size, 1 to 200. Defaults to 50.
+          type: integer
+      - description: Opaque cursor from a previous page's nextCursor.
+        in: query
+        name: cursor
+        schema:
+          description: Opaque cursor from a previous page's nextCursor.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCompletedTasksResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List a project's completed worker tasks on this host, newest completion
+        first
+      tags:
+      - projects
+  /api/v1/projects/{projectId}/completed-tasks/{sessionId}:
+    get:
+      operationId: getCompletedTask
+      parameters:
+      - description: Project on this daemon that owns the task.
+        in: path
+        name: projectId
+        required: true
+        schema:
+          description: Project on this daemon that owns the task.
+          type: string
+      - description: Worker session identifier on this daemon.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Worker session identifier on this daemon.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletedTaskReportResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Get one completed task's execution and usage report
+      tags:
+      - projects
   /api/v1/projects/{projectId}/cues:
     get:
       operationId: listProjectCues
@@ -12596,6 +12711,328 @@ components:
       - incomplete
       - estimatedCost
       type: object
+    CompletedTaskConfigHistory:
+      properties:
+        completeness:
+          enum:
+          - complete
+          - partial
+          - unavailable
+          type: string
+        segments:
+          items:
+            $ref: '#/components/schemas/CompletedTaskConfigSegment'
+          type: array
+      required:
+      - completeness
+      - segments
+      type: object
+    CompletedTaskConfigSegment:
+      properties:
+        effort:
+          type: string
+        harness:
+          type: string
+        model:
+          type: string
+        since:
+          format: date-time
+          type: string
+        source:
+          enum:
+          - session
+          - conversation
+          type: string
+      required:
+      - source
+      - harness
+      - model
+      - effort
+      - since
+      type: object
+    CompletedTaskPR:
+      properties:
+        number:
+          type: integer
+        state:
+          enum:
+          - draft
+          - open
+          - merged
+          - closed
+          type: string
+        url:
+          type: string
+      required:
+      - url
+      - number
+      - state
+      type: object
+    CompletedTaskReportResponse:
+      properties:
+        completedAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        config:
+          $ref: '#/components/schemas/CompletedTaskConfigHistory'
+        createdAt:
+          format: date-time
+          type: string
+        effort:
+          type: string
+        elapsedSeconds:
+          type:
+          - "null"
+          - integer
+        harness:
+          type: string
+        hostId:
+          type: string
+        issueId:
+          type: string
+        model:
+          type: string
+        outcome:
+          enum:
+          - merged
+          - closed
+          - cancelled
+          - failed
+          type: string
+        projectId:
+          type: string
+        prs:
+          items:
+            $ref: '#/components/schemas/CompletedTaskPR'
+          type: array
+        runs:
+          items:
+            $ref: '#/components/schemas/CompletedTaskRun'
+          type: array
+        sessionId:
+          type: string
+        stages:
+          $ref: '#/components/schemas/CompletedTaskStages'
+        title:
+          type: string
+        tokens:
+          $ref: '#/components/schemas/CompletedTaskTokens'
+      required:
+      - hostId
+      - sessionId
+      - projectId
+      - title
+      - prs
+      - outcome
+      - createdAt
+      - completedAt
+      - elapsedSeconds
+      - harness
+      - model
+      - effort
+      - tokens
+      - config
+      - runs
+      - stages
+      type: object
+    CompletedTaskRun:
+      properties:
+        bindingId:
+          format: int64
+          type: integer
+        cachedInputTokens:
+          type:
+          - "null"
+          - integer
+        completeness:
+          enum:
+          - complete
+          - partial
+          - unavailable
+          type: string
+        eventCount:
+          format: int64
+          type: integer
+        harness:
+          type: string
+        inputTokens:
+          type:
+          - "null"
+          - integer
+        model:
+          type: string
+        nativeRootId:
+          type: string
+        outputTokens:
+          type:
+          - "null"
+          - integer
+      required:
+      - bindingId
+      - harness
+      - nativeRootId
+      - model
+      - eventCount
+      - inputTokens
+      - cachedInputTokens
+      - outputTokens
+      - completeness
+      type: object
+    CompletedTaskStageTotal:
+      properties:
+        hasUnfinished:
+          type: boolean
+        seconds:
+          format: int64
+          type: integer
+        stage:
+          enum:
+          - building
+          - validating
+          - needs_review
+          - ready
+          type: string
+        visits:
+          type: integer
+      required:
+      - stage
+      - seconds
+      - visits
+      - hasUnfinished
+      type: object
+    CompletedTaskStageVisit:
+      properties:
+        durationSeconds:
+          format: int64
+          type: integer
+        enteredAt:
+          format: date-time
+          type: string
+        leftAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        stage:
+          enum:
+          - building
+          - validating
+          - needs_review
+          - ready
+          type: string
+      required:
+      - stage
+      - enteredAt
+      - leftAt
+      - durationSeconds
+      type: object
+    CompletedTaskStages:
+      properties:
+        completeness:
+          enum:
+          - complete
+          - partial
+          - unavailable
+          type: string
+        totals:
+          items:
+            $ref: '#/components/schemas/CompletedTaskStageTotal'
+          type: array
+        visits:
+          items:
+            $ref: '#/components/schemas/CompletedTaskStageVisit'
+          type: array
+      required:
+      - completeness
+      - visits
+      - totals
+      type: object
+    CompletedTaskSummary:
+      properties:
+        completedAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        createdAt:
+          format: date-time
+          type: string
+        effort:
+          type: string
+        elapsedSeconds:
+          type:
+          - "null"
+          - integer
+        harness:
+          type: string
+        hostId:
+          type: string
+        issueId:
+          type: string
+        model:
+          type: string
+        outcome:
+          enum:
+          - merged
+          - closed
+          - cancelled
+          - failed
+          type: string
+        projectId:
+          type: string
+        prs:
+          items:
+            $ref: '#/components/schemas/CompletedTaskPR'
+          type: array
+        sessionId:
+          type: string
+        title:
+          type: string
+        tokens:
+          $ref: '#/components/schemas/CompletedTaskTokens'
+      required:
+      - hostId
+      - sessionId
+      - projectId
+      - title
+      - prs
+      - outcome
+      - createdAt
+      - completedAt
+      - elapsedSeconds
+      - harness
+      - model
+      - effort
+      - tokens
+      type: object
+    CompletedTaskTokens:
+      properties:
+        cachedInputTokens:
+          type:
+          - "null"
+          - integer
+        completeness:
+          enum:
+          - complete
+          - partial
+          - unavailable
+          type: string
+        inputTokens:
+          type:
+          - "null"
+          - integer
+        outputTokens:
+          type:
+          - "null"
+          - integer
+      required:
+      - inputTokens
+      - cachedInputTokens
+      - outputTokens
+      - completeness
+      type: object
     ConsumeCodexAccountResetCreditRequest:
       properties:
         idempotencyKey:
@@ -14767,6 +15204,20 @@ components:
           type: array
       required:
       - sessions
+      type: object
+    ListCompletedTasksResponse:
+      properties:
+        hostId:
+          type: string
+        nextCursor:
+          type: string
+        tasks:
+          items:
+            $ref: '#/components/schemas/CompletedTaskSummary'
+          type: array
+      required:
+      - hostId
+      - tasks
       type: object
     ListCuesResponse:
       properties:

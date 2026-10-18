@@ -467,6 +467,20 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersAcknowledgeReportsResponse":       "AcknowledgeReportsResponse",
 	"ControllersCreateRemoteWorkerLinkRequest":    "CreateRemoteWorkerLinkRequest",
 	"ControllersRemoteWorkerLinkResponse":         "RemoteWorkerLinkResponse",
+	"ControllersCompletedTaskProjectParam":        "CompletedTaskProjectParam",
+	"ControllersCompletedTaskParams":              "CompletedTaskParams",
+	"ControllersListCompletedTasksQuery":          "ListCompletedTasksQuery",
+	"ControllersCompletedTaskPR":                  "CompletedTaskPR",
+	"ControllersCompletedTaskTokens":              "CompletedTaskTokens",
+	"ControllersCompletedTaskSummary":             "CompletedTaskSummary",
+	"ControllersListCompletedTasksResponse":       "ListCompletedTasksResponse",
+	"ControllersCompletedTaskConfigSegment":       "CompletedTaskConfigSegment",
+	"ControllersCompletedTaskConfigHistory":       "CompletedTaskConfigHistory",
+	"ControllersCompletedTaskRun":                 "CompletedTaskRun",
+	"ControllersCompletedTaskStageVisit":          "CompletedTaskStageVisit",
+	"ControllersCompletedTaskStageTotal":          "CompletedTaskStageTotal",
+	"ControllersCompletedTaskStages":              "CompletedTaskStages",
+	"ControllersCompletedTaskReportResponse":      "CompletedTaskReportResponse",
 	"ControllersClearNotificationsResponse":       "ClearNotificationsResponse",
 	"ControllersUsageHookMetadata":                "UsageHookMetadata",
 	"ControllersListUsageSessionsQuery":           "ListUsageSessionsQuery",
@@ -676,6 +690,7 @@ func operations() []operation {
 	ops = append(ops, reviewOperations()...)
 	ops = append(ops, notificationOperations()...)
 	ops = append(ops, reportOperations()...)
+	ops = append(ops, completedTaskOperations()...)
 	ops = append(ops, usageOperations()...)
 	ops = append(ops, pushOperations()...)
 	ops = append(ops, importOperations()...)
@@ -816,6 +831,32 @@ func reportOperations() []operation {
 		resps: []respUnit{
 			{http.StatusCreated, controllers.CreateReportResponse{}},
 			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}}
+}
+
+// completedTaskOperations declares the project's completed-task reports.
+func completedTaskOperations() []operation {
+	return []operation{{
+		method: http.MethodGet, path: "/api/v1/projects/{projectId}/completed-tasks", id: "listCompletedTasks", tag: "projects",
+		summary:    "List a project's completed worker tasks on this host, newest completion first",
+		pathParams: []any{controllers.CompletedTaskProjectParam{}, controllers.ListCompletedTasksQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.ListCompletedTasksResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodGet, path: "/api/v1/projects/{projectId}/completed-tasks/{sessionId}", id: "getCompletedTask", tag: "projects",
+		summary:    "Get one completed task's execution and usage report",
+		pathParams: []any{controllers.CompletedTaskParams{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.CompletedTaskReportResponse{}},
 			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusInternalServerError, envelope.APIError{}},
 			{http.StatusNotImplemented, envelope.APIError{}},

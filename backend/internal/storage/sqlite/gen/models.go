@@ -763,6 +763,16 @@ type SessionCleanupFact struct {
 	FailureCode          string
 }
 
+type SessionConfigHistory struct {
+	ID         int64
+	SessionID  string
+	Source     string
+	Harness    string
+	Model      string
+	Effort     string
+	RecordedAt time.Time
+}
+
 type SessionInterfaceTransition struct {
 	ID                   string
 	SessionID            domain.SessionID
@@ -789,6 +799,13 @@ type SessionInterfaceTransitionMessage struct {
 	ClientMessageID string
 	SenderSessionID string
 	AuthoredByUser  bool
+}
+
+type SessionStageTransition struct {
+	ID        int64
+	SessionID string
+	Stage     string
+	EnteredAt time.Time
 }
 
 type SessionWorktree struct {

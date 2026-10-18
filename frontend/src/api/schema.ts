@@ -1226,6 +1226,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/completed-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a project's completed worker tasks on this host, newest completion first */
+        get: operations["listCompletedTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}/completed-tasks/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one completed task's execution and usage report */
+        get: operations["getCompletedTask"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{projectId}/cues": {
         parameters: {
             query?: never;
@@ -4249,6 +4283,112 @@ export interface components {
              */
             totalTokens: number;
         };
+        CompletedTaskConfigHistory: {
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unavailable";
+            segments: components["schemas"]["CompletedTaskConfigSegment"][];
+        };
+        CompletedTaskConfigSegment: {
+            effort: string;
+            harness: string;
+            model: string;
+            /** Format: date-time */
+            since: string;
+            /** @enum {string} */
+            source: "session" | "conversation";
+        };
+        CompletedTaskPR: {
+            number: number;
+            /** @enum {string} */
+            state: "draft" | "open" | "merged" | "closed";
+            url: string;
+        };
+        CompletedTaskReportResponse: {
+            /** Format: date-time */
+            completedAt: null | string;
+            config: components["schemas"]["CompletedTaskConfigHistory"];
+            /** Format: date-time */
+            createdAt: string;
+            effort: string;
+            elapsedSeconds: null | number;
+            harness: string;
+            hostId: string;
+            issueId?: string;
+            model: string;
+            /** @enum {string} */
+            outcome: "merged" | "closed" | "cancelled" | "failed";
+            projectId: string;
+            prs: components["schemas"]["CompletedTaskPR"][];
+            runs: components["schemas"]["CompletedTaskRun"][];
+            sessionId: string;
+            stages: components["schemas"]["CompletedTaskStages"];
+            title: string;
+            tokens: components["schemas"]["CompletedTaskTokens"];
+        };
+        CompletedTaskRun: {
+            /** Format: int64 */
+            bindingId: number;
+            cachedInputTokens: null | number;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unavailable";
+            /** Format: int64 */
+            eventCount: number;
+            harness: string;
+            inputTokens: null | number;
+            model: string;
+            nativeRootId: string;
+            outputTokens: null | number;
+        };
+        CompletedTaskStageTotal: {
+            hasUnfinished: boolean;
+            /** Format: int64 */
+            seconds: number;
+            /** @enum {string} */
+            stage: "building" | "validating" | "needs_review" | "ready";
+            visits: number;
+        };
+        CompletedTaskStageVisit: {
+            /** Format: int64 */
+            durationSeconds: number;
+            /** Format: date-time */
+            enteredAt: string;
+            /** Format: date-time */
+            leftAt: null | string;
+            /** @enum {string} */
+            stage: "building" | "validating" | "needs_review" | "ready";
+        };
+        CompletedTaskStages: {
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unavailable";
+            totals: components["schemas"]["CompletedTaskStageTotal"][];
+            visits: components["schemas"]["CompletedTaskStageVisit"][];
+        };
+        CompletedTaskSummary: {
+            /** Format: date-time */
+            completedAt: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            effort: string;
+            elapsedSeconds: null | number;
+            harness: string;
+            hostId: string;
+            issueId?: string;
+            model: string;
+            /** @enum {string} */
+            outcome: "merged" | "closed" | "cancelled" | "failed";
+            projectId: string;
+            prs: components["schemas"]["CompletedTaskPR"][];
+            sessionId: string;
+            title: string;
+            tokens: components["schemas"]["CompletedTaskTokens"];
+        };
+        CompletedTaskTokens: {
+            cachedInputTokens: null | number;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unavailable";
+            inputTokens: null | number;
+            outputTokens: null | number;
+        };
         ConsumeCodexAccountResetCreditRequest: {
             idempotencyKey: string;
         };
@@ -5044,6 +5184,11 @@ export interface components {
         };
         ListCompactSessionUsageResponse: {
             sessions: components["schemas"]["CompactSessionUsageResponse"][];
+        };
+        ListCompletedTasksResponse: {
+            hostId: string;
+            nextCursor?: string;
+            tasks: components["schemas"]["CompletedTaskSummary"][];
         };
         ListCuesResponse: {
             cues: components["schemas"]["CueResponse"][];
@@ -10914,6 +11059,124 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PrepareTaskResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listCompletedTasks: {
+        parameters: {
+            query?: {
+                /** @description Only tasks with this outcome. */
+                outcome?: "merged" | "closed" | "cancelled" | "failed";
+                /** @description Page size, 1 to 200. Defaults to 50. */
+                limit?: number;
+                /** @description Opaque cursor from a previous page's nextCursor. */
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Project on this daemon whose completed worker tasks are read. */
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListCompletedTasksResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getCompletedTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project on this daemon that owns the task. */
+                projectId: string;
+                /** @description Worker session identifier on this daemon. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletedTaskReportResponse"];
                 };
             };
             /** @description Not Found */
