@@ -36,7 +36,7 @@ Behind the desktop app, Orchestrator.inc's local daemon watches agent activity a
 
 ## Install
 
-Download the latest Orchestrator.inc desktop app for your platform. Orchestrator.inc checks for updates automatically.
+Download the latest Orchestrator.inc desktop app for your platform from the [download page](https://orchestrator.inc/download/) or [GitHub Releases](https://github.com/OrchestratorInc/agent-orchestrator/releases). The desktop app is the canonical install path: it owns the local daemon and checks for updates automatically.
 
 | Platform              | Download                                                                                                                      |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -50,7 +50,22 @@ Download the latest Orchestrator.inc desktop app for your platform. Orchestrator
 On macOS, if the app will not open and says the developer cannot be verified, right-click it and choose **Open**, then **Open** again.
 If that still does not open it, please [open an issue](https://github.com/OrchestratorInc/agent-orchestrator/issues/new?template=bug_report.yml) with Gatekeeper diagnostics. See the [installation guide](https://docs.orchestrator.inc/installation) for what to include.
 
-Open Orchestrator.inc and point it at the repository you want Orchestrator.inc to manage. The desktop app runs the daemon for you, so no CLI is required. See the [installation guide](https://docs.orchestrator.inc/installation) for agent CLI setup and troubleshooting.
+Open Orchestrator.inc and point it at the repository you want Orchestrator.inc to manage. The desktop app starts and supervises the local daemon for you, so no `ao` command is required. See the [installation guide](https://docs.orchestrator.inc/installation) for agent CLI setup and troubleshooting.
+
+On macOS you can also install and update Orchestrator.inc with the Homebrew cask:
+
+```bash
+brew install --cask agentwrapper/tap/agent-orchestrator
+```
+
+### Legacy npm CLI
+
+New users should install the desktop app. The npm package `@aoagents/ao` is frozen at `0.10.0`, the final npm release: it stays available as a legacy bridge for users who already have `ao` on their `PATH`, and it receives no new product features. Running `ao start` from that install fetches and opens the desktop build.
+
+```bash
+npm install -g @aoagents/ao
+ao start
+```
 
 <img src="docs/assets/readme/tui.png" alt="Orchestrator.inc workspace showing a coding agent's native terminal UI" width="100%" />
 
@@ -94,6 +109,17 @@ Each card keeps the task, agent, branch, activity, pull request, and status toge
 5. **Close the feedback loop.** Inspect any worker directly, make project-level decisions with the orchestrator, and return actionable failures or review comments to the agent that owns the work.
 
 Orchestrator.inc works with the coding agents and source-control workflow you already use. Agents keep their native strengths; Orchestrator.inc supplies the project context, isolated execution, coordination, and operational view that make them work as a system.
+
+## Connect from your phone or another machine
+
+**Connect Mobile** pairs the desktop app with Orchestrator Mobile for iPhone, iPad, and Android. Pairing turns on a separate authenticated LAN listener; the primary daemon listener stays loopback-only. Where available, Orchestrator.inc also manages a `cloudflared` connector so a paired phone can reach the desktop from outside the local network. See the [Connect Mobile guide](https://docs.orchestrator.inc/configuration/remote-access) for pairing, remote access, and the current Tailscale limits.
+
+The same authenticated listener lets another Orchestrator.inc install connect to this desktop. Use the CLI bundled with the desktop app, or an install with `ao` on `PATH`:
+
+```bash
+ao remote-host status            # show the current address and password
+ao remote-host enable --tunnel   # add HTTPS access beyond the LAN
+```
 
 ## Product highlights
 
@@ -189,6 +215,8 @@ Orchestrator.inc works with the coding agents and source-control workflow you al
   </tr>
   <tr valign="middle">
     <td valign="middle" nowrap><picture><source media="(prefers-color-scheme: dark)" srcset="frontend/src/renderer/assets/agents/codewhale-dark.svg" /><img src="frontend/src/renderer/assets/agents/codewhale-light.svg" alt="Codewhale" width="24" height="24" align="middle" /></picture> &nbsp; <b>Codewhale</b></td>
+    <td valign="middle" nowrap><picture><source media="(prefers-color-scheme: dark)" srcset="frontend/src/renderer/assets/agents/command-code-dark.svg" /><img src="frontend/src/renderer/assets/agents/command-code-light.svg" alt="Command Code" width="24" height="24" align="middle" /></picture> &nbsp; <b>Command Code</b></td>
+    <td valign="middle" nowrap><picture><source media="(prefers-color-scheme: dark)" srcset="frontend/src/renderer/assets/agents/openhands-dark.svg" /><img src="frontend/src/renderer/assets/agents/openhands-light.svg" alt="OpenHands" width="24" height="24" align="middle" /></picture> &nbsp; <b>OpenHands</b></td>
   </tr>
 </table>
 
@@ -206,12 +234,34 @@ For help describing a problem, join the [bug-triaging channel on Discord](https:
 
 ## Develop and contribute
 
-Contributions are welcome across code, docs, triage, examples, and tests.
+Contributions are welcome across code, docs, triage, examples, and tests. Local development needs Go 1.27.1+, Node.js 24, and npm 10.
 
 ```bash
 git clone https://github.com/OrchestratorInc/agent-orchestrator.git
 cd agent-orchestrator
+make setup     # check prerequisites, install npm and Go dependencies, run doctor
 ```
+
+The root `Makefile` wraps the common tasks. `make help` lists every target:
+
+```bash
+make dev             # Electron desktop app in dev mode, with a freshly built daemon
+make dev-web         # renderer only, in a browser
+make daemon          # run the loopback daemon from source
+make ao ARGS=status  # run the ao CLI from source
+make test            # backend Go tests plus frontend Vitest unit tests
+make check           # lint, vet, typecheck, and frontend tests before a PR
+make api             # regenerate the OpenAPI spec and frontend TypeScript types
+make sqlc            # regenerate sqlc storage code
+```
+
+Repository layout:
+
+- `backend/`: Go daemon, Cobra `ao` CLI, HTTP API, services, and SQLite storage.
+- `frontend/`: Electron + React desktop app and its Playwright end-to-end tests.
+- `packages/mobile/`: React Native mobile companion app.
+- `packages/ao/`: frozen legacy npm CLI package.
+- `docs/`: architecture, CLI, ADRs, runbooks, and status notes.
 
 Start with the [development guide](docs/development.md) for prerequisites, local setup, and test commands. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and use [GitHub Issues](https://github.com/OrchestratorInc/agent-orchestrator/issues) for bugs and feature requests.
 
@@ -220,6 +270,7 @@ Start with the [development guide](docs/development.md) for prerequisites, local
 | Document                                                         | Start here when you need                                                                     |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | [Product documentation](https://docs.orchestrator.inc)                  | Installation, agent setup, and day-to-day product usage.                                     |
+| [docs/README.md](docs/README.md)                                 | Index of repository documentation and which concern each doc covers.                         |
 | [docs/documentation-map.md](docs/documentation-map.md)           | Which docs are human-facing, which are machine-readable contracts, and which wins on drift.  |
 | [docs/architecture.md](docs/architecture.md)                     | Backend mental model, lifecycle, persistence, CDC, status derivation, and daemon boundaries. |
 | [docs/backend-code-structure.md](docs/backend-code-structure.md) | Package ownership and where each backend concern belongs.                                    |
