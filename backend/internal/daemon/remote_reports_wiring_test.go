@@ -52,6 +52,10 @@ func (s *wiringRemoteStore) RecordDeliveredRemoteReports(context.Context, string
 	return nil
 }
 
+func (s *wiringRemoteStore) RecordRemoteReportHistory(context.Context, string, domain.SessionID, []domain.ReportRecord) error {
+	return nil
+}
+
 func (s *wiringRemoteStore) polls() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()

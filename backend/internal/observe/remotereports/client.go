@@ -61,6 +61,9 @@ type wireReport struct {
 	Outputs     []wireReportOutput `json:"outputs,omitempty"`
 	CreatedAt   time.Time          `json:"createdAt"`
 	RepeatCount int64              `json:"repeatCount"`
+	Agent       string             `json:"agent,omitempty"`
+	SessionName string             `json:"sessionName,omitempty"`
+	ProjectID   string             `json:"projectId,omitempty"`
 }
 
 type wireAPIError struct {
@@ -132,6 +135,7 @@ func acceptReport(wire wireReport) (domain.ReportRecord, bool) {
 	return domain.ReportRecord{
 		ID: wire.ID, State: state, Note: wire.Note, Message: wire.Message,
 		Outputs: outputs, CreatedAt: wire.CreatedAt, RepeatCount: repeat,
+		Agent: wire.Agent, SessionDisplayName: wire.SessionName, SourceProjectID: wire.ProjectID,
 	}, true
 }
 

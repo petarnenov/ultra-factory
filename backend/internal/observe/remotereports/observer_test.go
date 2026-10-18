@@ -84,6 +84,10 @@ func (m *memStore) RecordDeliveredRemoteReports(_ context.Context, host string, 
 	return nil
 }
 
+func (m *memStore) RecordRemoteReportHistory(context.Context, string, domain.SessionID, []domain.ReportRecord) error {
+	return nil
+}
+
 func (m *memStore) linkCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

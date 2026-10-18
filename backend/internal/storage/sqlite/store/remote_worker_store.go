@@ -95,3 +95,46 @@ func (s *Store) RecordDeliveredRemoteReports(ctx context.Context, hostID string,
 	}
 	return nil
 }
+
+// RecordRemoteReportHistory retains delivered report content under the full
+// remote identity. Replays are idempotent even when hosts reuse report IDs.
+func (s *Store) RecordRemoteReportHistory(ctx context.Context, hostID string, remoteSessionID domain.SessionID, reports []domain.ReportRecord) error {
+	if len(reports) == 0 {
+		return nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remote report history transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, report := range reports {
+		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO remote_worker_reports
+			(host_id, remote_session_id, report_id, project_id, source_project_id, state, note, message, agent, session_name, host_label, created_at, repeat_count)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			hostID, string(remoteSessionID), report.ID, string(report.ProjectID), report.SourceProjectID, string(report.State), report.Note, report.Message,
+			report.Agent, report.SessionDisplayName, report.HostLabel, report.CreatedAt, report.RepeatCount)
+		if err != nil {
+			return fmt.Errorf("record remote report history %s/%s/%s: %w", hostID, remoteSessionID, report.ID, err)
+		}
+		inserted, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("check remote report history %s/%s/%s: %w", hostID, remoteSessionID, report.ID, err)
+		}
+		if inserted == 0 {
+			continue
+		}
+		for position, output := range report.Outputs {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO remote_worker_report_outputs
+				(host_id, remote_session_id, report_id, position, kind, reference, label) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				hostID, string(remoteSessionID), report.ID, position, string(output.Kind), output.Reference, output.Label); err != nil {
+				return fmt.Errorf("record remote report output %s/%s/%s: %w", hostID, remoteSessionID, report.ID, err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit remote report history: %w", err)
+	}
+	return nil
+}

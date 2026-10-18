@@ -85,6 +85,15 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 	if err != nil {
 		return nil, err
 	}
+	for i := range reports {
+		if reports[i].HostID == "" {
+			reports[i].SourceProjectID = string(reports[i].ProjectID)
+			if session, found, lookupErr := s.store.GetSession(ctx, reports[i].SessionID); lookupErr == nil && found {
+				reports[i].SessionDisplayName = strings.TrimSpace(session.DisplayName)
+				reports[i].Agent = string(session.Harness)
+			}
+		}
+	}
 	sort.SliceStable(reports, func(i, j int) bool {
 		if reports[i].CreatedAt.Equal(reports[j].CreatedAt) {
 			return reports[i].ID < reports[j].ID
@@ -156,6 +165,13 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 	reports, err := reader.ListReportsBySession(ctx, sessionID)
 	if err != nil {
 		return nil, false, err
+	}
+	if session, found, lookupErr := s.store.GetSession(ctx, sessionID); lookupErr == nil && found {
+		for i := range reports {
+			reports[i].Agent = string(session.Harness)
+			reports[i].SessionDisplayName = strings.TrimSpace(session.DisplayName)
+			reports[i].SourceProjectID = string(session.ProjectID)
+		}
 	}
 	now := s.now().UTC()
 	budget := 0

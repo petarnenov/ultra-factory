@@ -15927,8 +15927,14 @@ components:
       type: object
     ReportResponse:
       properties:
+        agent:
+          type: string
         createdAt:
           format: date-time
+          type: string
+        hostId:
+          type: string
+        hostLabel:
           type: string
         id:
           type: string
@@ -15946,6 +15952,10 @@ components:
           format: int64
           type: integer
         sessionId:
+          type: string
+        sessionName:
+          type: string
+        sourceProjectId:
           type: string
         state:
           type: string
