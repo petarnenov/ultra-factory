@@ -183,6 +183,21 @@ updating through their container images, which now build the hub from the same
 commit as the worker. The two mechanisms share the definition of "the commit a
 build came from" but nothing else; neither is a fallback for the other.
 
+### 7. The one workflow allowed to touch releases
+
+`frontend/release-workflows.test.ts` forbids every public workflow from
+mutating releases or release tags, because a second publisher of the desktop
+app once made a release unreadable and left the update feed ambiguous. That
+rule protects the desktop feed, which a daemon channel is not part of, so
+`daemon-channel.yml` is the single exemption.
+
+The exemption is checked, not declared. The guard stops applying its blanket
+rule to that one file, and a second test requires the file to create and edit
+releases only as prereleases, to use `daemon-channel-<channel>` tags, and never
+to touch `latest` or a `desktop-v*` tag. `release-latest-guard.yml` keeps
+asserting that `/releases/latest` is a stable desktop release, so a stray
+channel publish cannot take the feed over.
+
 ## Consequences
 
 - A host's daemon commit is published, verifiable, and recorded, so "which
@@ -229,3 +244,6 @@ build came from" but nothing else; neither is a fallback for the other.
   installed path.
 - The channel's manifest, `SHA256SUMS`, and asset names were generated and
   read back by the updater, not just written.
+- `frontend/release-workflows.test.ts` fails if any public workflow except
+  `daemon-channel.yml` mutates releases or tags, and fails if that one stops
+  being a prerelease-only, `daemon-channel-*`-tagged publisher.
