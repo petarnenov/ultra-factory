@@ -22,16 +22,18 @@ import (
 )
 
 type memStore struct {
-	mu        sync.Mutex
-	links     []domain.RemoteWorkerLink
-	delivered map[string]map[string]bool
-	recorded  []string
-	recordErr error
-	listCalls int
+	mu         sync.Mutex
+	links      []domain.RemoteWorkerLink
+	delivered  map[string]map[string]bool
+	recorded   []string
+	recordErr  error
+	historyErr error
+	history    map[string]map[string]domain.ReportRecord
+	listCalls  int
 }
 
 func newMemStore(links ...domain.RemoteWorkerLink) *memStore {
-	return &memStore{links: links, delivered: map[string]map[string]bool{}}
+	return &memStore{links: links, delivered: map[string]map[string]bool{}, history: map[string]map[string]domain.ReportRecord{}}
 }
 
 func linkKey(host string, session domain.SessionID) string { return host + "/" + string(session) }
@@ -84,7 +86,19 @@ func (m *memStore) RecordDeliveredRemoteReports(_ context.Context, host string, 
 	return nil
 }
 
-func (m *memStore) RecordRemoteReportHistory(context.Context, string, domain.SessionID, []domain.ReportRecord) error {
+func (m *memStore) RecordRemoteReportHistory(_ context.Context, host string, session domain.SessionID, reports []domain.ReportRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.historyErr != nil {
+		return m.historyErr
+	}
+	key := linkKey(host, session)
+	if m.history[key] == nil {
+		m.history[key] = map[string]domain.ReportRecord{}
+	}
+	for _, report := range reports {
+		m.history[key][report.ID] = report
+	}
 	return nil
 }
 
@@ -367,6 +381,71 @@ func TestPollNeverDeliversAReportTwiceButAcknowledgesItAgain(t *testing.T) {
 	}
 	if acks := host.acks(); len(acks) != 2 || acks[1][0] != "rpt_1" {
 		t.Fatalf("acks = %v, want the second pass to acknowledge rpt_1 again", acks)
+	}
+}
+
+func TestPollHistoryUsesHostSessionAndReportIdentity(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	first := newFakeHost(t, "host-a", "pw-a")
+	second := newFakeHost(t, "host-b", "pw-b")
+	first.pending["worker-1"] = reportsJSON(needsInput("rpt_same", now))
+	second.pending["worker-1"] = reportsJSON(needsInput("rpt_same", now.Add(time.Second)))
+	store := newMemStore(link("host-a", "worker-1"), link("host-b", "worker-1"))
+	deliverer := &fakeDeliverer{}
+	observer := newTestObserver(store, deliverer, first, second)
+
+	for i := 0; i < 2; i++ {
+		if err := observer.Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(deliverer.calls) != 1 || len(deliverer.calls[0].reports) != 2 {
+		t.Fatalf("deliveries = %+v, want both host reports in one turn", deliverer.calls)
+	}
+	for _, host := range []string{"host-a", "host-b"} {
+		if got := store.history[linkKey(host, "worker-1")]["rpt_same"]; got.ID != "rpt_same" {
+			t.Fatalf("history for %s = %+v", host, got)
+		}
+	}
+}
+
+func TestPollRecordsHistoryBeforeFailedDeliveryAndDoesNotSettleRemoteReport(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["worker-1"] = reportsJSON(needsInput("rpt_1", now))
+	store := newMemStore(link("host-build", "worker-1"))
+	deliverer := &fakeDeliverer{err: fmt.Errorf("orchestrator unavailable")}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.history[linkKey("host-build", "worker-1")]["rpt_1"]; got.ID != "rpt_1" {
+		t.Fatalf("history = %+v, report should be visible despite failed delivery", got)
+	}
+	if len(store.recorded) != 0 || len(host.acks()) != 0 {
+		t.Fatalf("recorded=%v acks=%v, failed delivery must remain pending", store.recorded, host.acks())
+	}
+}
+
+func TestPollHistoryFailureDoesNotBlockDeliveryBookkeeping(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["worker-1"] = reportsJSON(needsInput("rpt_1", now))
+	store := newMemStore(link("host-build", "worker-1"))
+	store.historyErr = errors.New("disk full")
+	deliverer := &fakeDeliverer{}
+	observer := newTestObserver(store, deliverer, host)
+
+	for i := 0; i < 2; i++ {
+		if err := observer.Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(deliverer.calls) != 1 || len(store.recorded) != 1 {
+		t.Fatalf("deliveries=%d recorded=%v, history error must not cause redelivery", len(deliverer.calls), store.recorded)
+	}
+	if acks := host.acks(); len(acks) != 2 {
+		t.Fatalf("acks=%v, report acknowledgement should be retried", acks)
 	}
 }
 

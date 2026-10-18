@@ -32,7 +32,7 @@ describe("WorkerReportsPanel", () => {
 		const longNote = "detail ".repeat(200);
 		reports.data = [{ id: "local-1", projectId: "p", sessionId: "worker", state: "stuck", note: longNote, outputs: [], createdAt: "2026-10-18T10:00:00Z", repeatCount: 1 }] as never[];
 		render(<WorkerReportsPanel projectId="p" />);
-		expect(screen.getByText(/This machine · Agent unavailable · worker/)).toBeInTheDocument();
+		expect(screen.getByText(/Machine unavailable · Agent unavailable · worker/)).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "worker" })).toHaveAttribute("href", "ao://sessions/p/worker");
 		expect(screen.getByText(/detail detail detail/)).toBeInTheDocument();
 	});

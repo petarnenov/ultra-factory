@@ -729,6 +729,9 @@ export function HumanMessage({
  */
 export function OriginMessage({ message }: { message: ConversationMessage }) {
 	const [expanded, setExpanded] = useState(false);
+	if (isReportDeliveryEnvelope(message.text)) {
+		return null;
+	}
 	const browserAnnotations = parseBrowserAnnotationMessage(message.text);
 	if (browserAnnotations) {
 		return <BrowserAnnotationOrigin message={message} annotations={browserAnnotations} />;
@@ -761,6 +764,10 @@ export function OriginMessage({ message }: { message: ConversationMessage }) {
 			{longReport ? <AutomationExpandButton expanded={expanded} onClick={() => setExpanded((current) => !current)} /> : null}
 		</AutomationMessageFrame>
 	);
+}
+
+function isReportDeliveryEnvelope(text: string): boolean {
+	return /^<ao-report-delivery id="[A-Za-z0-9:_-]{1,128}">\s*[\s\S]*\s*<\/ao-report-delivery>\s*$/.test(text.trim());
 }
 
 function AutomationMessageFrame({

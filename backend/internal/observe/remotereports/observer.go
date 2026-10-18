@@ -234,6 +234,13 @@ func (o *Observer) Poll(ctx context.Context) error {
 		}
 	}
 	for _, projectID := range projects {
+		for _, item := range byProject[projectID] {
+			if len(item.fresh) > 0 {
+				if err := o.store.RecordRemoteReportHistory(ctx, item.link.HostID, item.link.RemoteSessionID, item.fresh); err != nil {
+					o.log.Error("remote reports: record report history failed", "host", item.host.label, "session", item.link.RemoteSessionID, "err", err)
+				}
+			}
+		}
 		o.settle(ctx, projectID, byProject[projectID], pass)
 	}
 	return ctx.Err()
@@ -362,12 +369,6 @@ func (o *Observer) settle(ctx context.Context, projectID domain.ProjectID, items
 	}
 	at := o.now().UTC()
 	for _, item := range items {
-		if len(item.fresh) > 0 {
-			if err := o.store.RecordRemoteReportHistory(ctx, item.link.HostID, item.link.RemoteSessionID, item.fresh); err != nil {
-				o.log.Error("remote reports: record report history failed", "host", item.host.label, "session", item.link.RemoteSessionID, "err", err)
-				return
-			}
-		}
 		ids := make([]string, len(item.fresh))
 		for i, report := range item.fresh {
 			ids[i] = report.ID
