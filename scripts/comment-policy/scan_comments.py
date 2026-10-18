@@ -3,7 +3,7 @@
 
 Python mode uses the standard-library tokenizer so comment-like text inside
 strings, triple-quoted strings, and docstrings is not mistaken for comments.
-Shell and Dockerfile modes use a small quote- and heredoc-aware lexer.
+Shell and Dockerfile modes use a quote- and heredoc-aware lexer.
 """
 
 import argparse
@@ -24,6 +24,7 @@ def is_exempt(text):
     directives = (
         "type:", "pyright:", "mypy:", "noqa", "pylint:", "flake8:", "ruff:",
         "fmt:", "isort:", "shellcheck", "hadolint", "coding=", "coding:",
+        "syntax=", "escape=",
     )
     return any(lowered.startswith(item) for item in directives)
 
@@ -31,7 +32,7 @@ def is_exempt(text):
 def is_license_notice(text):
     for raw in text.splitlines():
         line = raw.strip()
-        if not line or line.startswith("#"):
+        if line.startswith("#"):
             line = line.lstrip("#").strip()
         if not line:
             continue
@@ -63,16 +64,16 @@ def group_entries(entries, source_lines):
         )
         current = []
 
-    for line_number, kind, source_line, comment_text in entries:
+    for line_number, _kind, _source_line, comment_text in entries:
         if is_exempt(comment_text):
             flush()
             previous_line = None
             continue
         if current and line_number == previous_line + 1:
-            current.append((line_number, kind, source_line, comment_text))
+            current.append((line_number, "full", "", comment_text))
         else:
             flush()
-            current.append((line_number, kind, source_line, comment_text))
+            current.append((line_number, "full", "", comment_text))
         previous_line = line_number
     flush()
     return groups
@@ -80,10 +81,9 @@ def group_entries(entries, source_lines):
 
 def scan_python(source):
     entries = []
-    reader = io.StringIO(source).readline
     tokens = []
     try:
-        for token in tokenize.generate_tokens(reader):
+        for token in tokenize.generate_tokens(io.StringIO(source).readline):
             tokens.append(token)
     except tokenize.TokenError:
         pass
@@ -91,68 +91,127 @@ def scan_python(source):
     for token in tokens:
         if token.type == tokenize.COMMENT:
             entries.append((token.start[0], "full", token.line, token.string.strip()))
-    source_lines = source.splitlines()
-    # Keep enough entries for short files without a trailing newline.
-    if not source_lines:
-        source_lines = [""]
+    source_lines = source.splitlines() or [""]
     return group_entries(entries, source_lines)
 
 
-HEREDOC_RE = re.compile(
-    r'<<-?\s*(?:"([^"]+)"|\'([^\']+)\'|([A-Za-z_][A-Za-z0-9_]*))'
-)
-
-
-def find_hash_comment(line):
-    quote = None
+def find_heredoc_marker(text):
+    """Return a heredoc terminator found in unquoted shell code, if any."""
     index = 0
-    length = len(line)
+    quote = None
+    length = len(text)
     while index < length:
-        char = line[index]
+        char = text[index]
         if quote == "'":
             if char == "'":
                 quote = None
+            index += 1
+            continue
+        if quote == '"':
+            if char == "\\" and index + 1 < length:
+                index += 2
+                continue
+            if char == '"':
+                quote = None
+            index += 1
+            continue
+        if char == "'":
+            quote = "'"
+            index += 1
+            continue
+        if char == '"':
+            quote = '"'
+            index += 1
+            continue
+        if char == "\\" and index + 1 < length:
+            index += 2
+            continue
+        if text.startswith("<<", index) and not text.startswith("<<<", index) and not (index > 0 and text[index - 1] == "<"):
+            cursor = index + 2
+            if cursor < length and text[cursor] == "-":
+                cursor += 1
+            while cursor < length and text[cursor].isspace():
+                cursor += 1
+            if cursor < length and text[cursor] != "<":
+                for pattern in (r'"[^"]*"', r"'[^']*'", r"[A-Za-z_][A-Za-z0-9_]*"):
+                    match = re.match(pattern, text[cursor:])
+                    if match:
+                        terminator = match.group(0).strip("\"'")
+                        if not in_arithmetic(text, index):
+                            return terminator
+                        break
+        index += 1
+    return None
+
+
+def in_arithmetic(text, position):
+    for match in re.finditer(r"\$\(\((.*?)\)\)", text, re.S):
+        if match.start() < position < match.end():
+            return True
+    return False
+
+
+def find_comment_index(raw, quote_state):
+    index = 0
+    quote = quote_state
+    length = len(raw)
+    while index < length:
+        char = raw[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            index += 1
         elif quote == '"':
-            if char == "\\":
-                index += 1
+            if char == "\\" and index + 1 < length:
+                index += 2
             elif char == '"':
                 quote = None
+                index += 1
+            else:
+                index += 1
         else:
             if char == "'":
                 quote = "'"
+                index += 1
             elif char == '"':
                 quote = '"'
-            elif char == "\\" and index + 1 < length:
                 index += 1
+            elif char == "\\" and index + 1 < length:
+                index += 2
             elif char == "#" and (
                 index == 0
-                or line[index - 1].isspace()
-                or line[index - 1] in ";&|(){}"
+                or raw[index - 1].isspace()
+                or raw[index - 1] in ";&|(){}"
+            ) and not (
+                index >= 2 and raw[index - 1] == "{" and raw[index - 2] == "$"
             ):
-                return line[:index], True
-        index += 1
-    return line, False
+                return index, quote
+            else:
+                index += 1
+    return -1, quote
 
 
 def scan_hash(source, language):
     lines = source.splitlines()
     entries = []
     heredoc = None
+    quote_state = None
     for index, raw in enumerate(lines, 1):
         if heredoc is not None:
             if raw.strip() == heredoc:
                 heredoc = None
             continue
-        code, is_comment = find_hash_comment(raw)
-        marker_match = HEREDOC_RE.search(code)
-        if marker_match:
-            heredoc = next(value for value in marker_match.groups() if value)
-        if raw.lstrip().startswith("#"):
-            entries.append((index, "full", raw, raw.strip()))
-        elif is_comment and code.strip():
-            comment_start = raw.find("#", len(code))
-            comment_text = raw[comment_start:].strip() if comment_start >= 0 else raw.strip()
-            entries.append((index, "inline", raw, comment_text))
+        if quote_state is None:
+            marker = find_heredoc_marker(raw)
+            if marker:
+                heredoc = marker
+        comment_index, quote_state = find_comment_index(raw, quote_state)
+        stripped = raw.lstrip()
+        starts_with_hash = stripped.startswith("#")
+        if starts_with_hash and comment_index == len(raw) - len(stripped):
+            entries.append((index, "full", raw, stripped))
+        elif comment_index >= 0:
+            entries.append((index, "inline", raw, raw[comment_index:].strip()))
     source_lines = lines if lines else [""]
     return group_entries(entries, source_lines)
 

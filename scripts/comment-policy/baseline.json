@@ -9582,8 +9582,8 @@
       "longLines": 1
     },
     "cloud/scripts/bake-coder-azure-image.sh": {
-      "blocks": 4,
-      "longLines": 3
+      "blocks": 2,
+      "longLines": 1
     },
     "cloud/scripts/cloud-local-up.sh": {
       "blocks": 3,
@@ -9594,8 +9594,8 @@
       "longLines": 0
     },
     "cloud/scripts/deploy-staging.sh": {
-      "blocks": 4,
-      "longLines": 4
+      "blocks": 8,
+      "longLines": 5
     },
     "cloud/scripts/lib/deploy-common.sh": {
       "blocks": 3,
@@ -9606,7 +9606,7 @@
       "longLines": 1
     },
     "cloud/scripts/promote-production.sh": {
-      "blocks": 3,
+      "blocks": 6,
       "longLines": 0
     },
     "cloud/scripts/provision-coder-azure-template.sh": {
@@ -9615,7 +9615,7 @@
     },
     "cloud/scripts/provision-coder-azure.sh": {
       "blocks": 4,
-      "longLines": 6
+      "longLines": 5
     },
     "cloud/scripts/publish-coder-devkit.sh": {
       "blocks": 2,
@@ -9626,7 +9626,7 @@
       "longLines": 4
     },
     "cloud/scripts/publish-freestyle-snapshot.sh": {
-      "blocks": 2,
+      "blocks": 9,
       "longLines": 0
     },
     "cloud/scripts/publish-nodeops-template.sh": {

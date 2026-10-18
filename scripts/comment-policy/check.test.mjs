@@ -124,3 +124,18 @@ test('checks Dockerfile adjacent comments and line lengths', () => {
   const source = `# one\n# ${'x'.repeat(79)}\n# three`;
   assert.deepEqual(summary(scanDockerfile(source)), { blocks: 1, longLines: 1 });
 });
+
+test('shell multi-line quoted strings do not produce comment blocks', () => {
+  const source = 'msg="first\n# a\n# b\n# c"\n';
+  assert.deepEqual(summary(scanShell(source)), { blocks: 0, longLines: 0 });
+});
+
+test('shell here-strings do not consume following comments', () => {
+  const source = 'read -ra list <<<"$PROVIDERS"\n# one\n# two\n# three\n';
+  assert.deepEqual(summary(scanShell(source)), { blocks: 1, longLines: 0 });
+});
+
+test('shell parameter length expansion is not treated as a comment', () => {
+  const source = `echo \${#items[@]} ${'x'.repeat(75)}\n`;
+  assert.deepEqual(summary(scanShell(source)), { blocks: 0, longLines: 0 });
+});
