@@ -119,9 +119,7 @@ jobs:
             gh release create "$tag" --title "Daemon channel $CHANNEL" --prerelease --notes "$notes"
           fi
 
-          gh release upload "$tag" dist/daemon-channel/ao-*.tar.gz \
-            dist/daemon-channel/SHA256SUMS dist/daemon-channel/manifest.json \
-            dist/daemon-channel/ao-self-update.sh --clobber
+          gh release upload "$tag" dist/daemon-channel/* --clobber
           echo "::notice::published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag at $commit"
 
       - uses: actions/upload-artifact@v6
