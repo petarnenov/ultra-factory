@@ -148,10 +148,11 @@ function scanFile(file) {
   return scanTS(readFileSync(file, 'utf8'), file);
 }
 
-export function parseDiff(diff) {
+export async function parseDiff(lines) {
   const changes = new Map();
   let file = null;
-  for (const line of diff.split('\n')) {
+  const source = typeof lines === 'string' ? lines.split('\n') : lines;
+  for await (const line of source) {
     if (line.startsWith('+++ /dev/null')) {
       file = null;
       continue;
@@ -160,18 +161,17 @@ export function parseDiff(diff) {
       file = line.slice(6);
       continue;
     }
-    if (line.startsWith('@@ ')) {
-      const match = line.match(/-(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/);
-      if (!file || !match) continue;
-      const oldStart = Number(match[1]);
-      const oldCount = match[2] === undefined ? 1 : Number(match[2]);
-      const newStart = Number(match[3]);
-      const newCount = match[4] === undefined ? 1 : Number(match[4]);
-      const entry = changes.get(file) ?? { added: [], deletions: [] };
-      if (newCount > 0) entry.added.push([newStart, newStart + newCount - 1]);
-      if (oldCount > newCount) entry.deletions.push({ oldStart, oldEnd: oldStart + oldCount - 1, newStart, oldCount, newCount });
-      changes.set(file, entry);
-    }
+    if (!line.startsWith('@@ ')) continue;
+    const match = line.match(/-(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/);
+    if (!file || !match) continue;
+    const oldStart = Number(match[1]);
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const newStart = Number(match[3]);
+    const newCount = match[4] === undefined ? 1 : Number(match[4]);
+    const entry = changes.get(file) ?? { added: [], deletions: [] };
+    if (newCount > 0) entry.added.push([newStart, newStart + newCount - 1]);
+    if (oldCount > newCount) entry.deletions.push({ oldStart, oldEnd: oldStart + oldCount - 1, newStart, oldCount, newCount });
+    changes.set(file, entry);
   }
   return changes;
 }
@@ -192,32 +192,9 @@ async function changedLines(mergeBase) {
       if (fileDescriptor !== undefined) fs.closeSync(fileDescriptor);
     }
 
-    const changes = new Map();
-    let file = null;
     const input = fs.createReadStream(diffFile, { encoding: 'utf8' });
     const lines = readline.createInterface({ input, crlfDelay: Infinity });
-    for await (const line of lines) {
-      if (line.startsWith('+++ /dev/null')) {
-        file = null;
-        continue;
-      }
-      if (line.startsWith('+++ b/')) {
-        file = line.slice(6);
-        continue;
-      }
-      if (!line.startsWith('@@ ')) continue;
-      const match = line.match(/-(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/);
-      if (!file || !match) continue;
-      const oldStart = Number(match[1]);
-      const oldCount = match[2] === undefined ? 1 : Number(match[2]);
-      const newStart = Number(match[3]);
-      const newCount = match[4] === undefined ? 1 : Number(match[4]);
-      const entry = changes.get(file) ?? { added: [], deletions: [] };
-      if (newCount > 0) entry.added.push([newStart, newStart + newCount - 1]);
-      if (oldCount > newCount) entry.deletions.push({ oldStart, oldEnd: oldStart + oldCount - 1, newStart, oldCount, newCount });
-      changes.set(file, entry);
-    }
-    return changes;
+    return await parseDiff(lines);
   } finally {
     fs.rmSync(outputDir, { recursive: true, force: true });
   }
