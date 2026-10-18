@@ -9576,6 +9576,134 @@
     "test/e2e-pod/real-app.spec.ts": {
       "blocks": 4,
       "longLines": 14
+    },
+    "cloud/Dockerfile": {
+      "blocks": 3,
+      "longLines": 1
+    },
+    "cloud/scripts/bake-coder-azure-image.sh": {
+      "blocks": 2,
+      "longLines": 1
+    },
+    "cloud/scripts/cloud-local-up.sh": {
+      "blocks": 3,
+      "longLines": 4
+    },
+    "cloud/scripts/deploy-dev.sh": {
+      "blocks": 1,
+      "longLines": 0
+    },
+    "cloud/scripts/deploy-staging.sh": {
+      "blocks": 8,
+      "longLines": 5
+    },
+    "cloud/scripts/lib/deploy-common.sh": {
+      "blocks": 3,
+      "longLines": 0
+    },
+    "cloud/scripts/lib/deployment.py": {
+      "blocks": 3,
+      "longLines": 1
+    },
+    "cloud/scripts/promote-production.sh": {
+      "blocks": 6,
+      "longLines": 0
+    },
+    "cloud/scripts/provision-coder-azure-template.sh": {
+      "blocks": 2,
+      "longLines": 2
+    },
+    "cloud/scripts/provision-coder-azure.sh": {
+      "blocks": 4,
+      "longLines": 5
+    },
+    "cloud/scripts/publish-coder-devkit.sh": {
+      "blocks": 2,
+      "longLines": 4
+    },
+    "cloud/scripts/publish-coder-workspace.sh": {
+      "blocks": 10,
+      "longLines": 4
+    },
+    "cloud/scripts/publish-freestyle-snapshot.sh": {
+      "blocks": 9,
+      "longLines": 0
+    },
+    "cloud/scripts/publish-nodeops-template.sh": {
+      "blocks": 3,
+      "longLines": 0
+    },
+    "cloud/scripts/test-cloud-local.sh": {
+      "blocks": 2,
+      "longLines": 0
+    },
+    "cloud/scripts/tests/test_deployment.py": {
+      "blocks": 1,
+      "longLines": 0
+    },
+    "cloud/scripts/verify-image-contract.sh": {
+      "blocks": 1,
+      "longLines": 0
+    },
+    "cloud/scripts/workos-copy-environment.py": {
+      "blocks": 1,
+      "longLines": 0
+    },
+    "docs/backlog/railway/tools/orchestrator-tick.sh": {
+      "blocks": 2,
+      "longLines": 3
+    },
+    "frontend/native/repair-installer/guard.sh": {
+      "blocks": 0,
+      "longLines": 1
+    },
+    "frontend/scripts/verify-mac-artifact.sh": {
+      "blocks": 7,
+      "longLines": 0
+    },
+    "packages/build-binaries.sh": {
+      "blocks": 1,
+      "longLines": 0
+    },
+    "packages/mobile/scripts/generate-icons.sh": {
+      "blocks": 1,
+      "longLines": 4
+    },
+    "packages/mobile/scripts/icon-build/from-desktop.py": {
+      "blocks": 3,
+      "longLines": 3
+    },
+    "packages/mobile/scripts/preview-icon.sh": {
+      "blocks": 1,
+      "longLines": 3
+    },
+    "scripts/bootstrap-self-hosted.sh": {
+      "blocks": 0,
+      "longLines": 1
+    },
+    "scripts/build-daemon-dist.sh": {
+      "blocks": 1,
+      "longLines": 3
+    },
+    "scripts/doctor.sh": {
+      "blocks": 1,
+      "longLines": 0
+    },
+    "scripts/setup-self-hosted.sh": {
+      "blocks": 1,
+      "longLines": 2
+    },
+    "test/cli/Dockerfile": {
+      "blocks": 3,
+      "longLines": 4
+    },
+    "test/cli/install-check.sh": {
+      "blocks": 2,
+      "longLines": 2
+    },
+    "test/e2e-pod/boot-real.sh": {
+      "blocks": 7,
+      "longLines": 6
     }
   }
 }

@@ -5,6 +5,7 @@ import readline from 'node:readline';
 import { createRequire } from 'node:module';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
@@ -12,10 +13,56 @@ const ts = requireFrontend('typescript');
 const baselinePath = 'scripts/comment-policy/baseline.json';
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 const extensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
+const tsExtensions = extensions;
 
 function excludedPath(file) {
   return /(^|\/)(vendor|node_modules|gen|dist|out)\//.test(file) || /\.generated\./.test(file);
 }
+
+const scanCommentsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'scan_comments.py');
+
+function hashLanguageFor(file) {
+  const base = path.basename(file).toLowerCase();
+  if (base === 'dockerfile' || base.startsWith('dockerfile.')) return 'dockerfile';
+  if (path.extname(file) === '.py') return 'python';
+  return 'shell';
+}
+
+function isHashSource(file) {
+  return path.extname(file) === '.py' || path.extname(file) === '.sh'
+    || path.extname(file) === '.bash' || path.basename(file).toLowerCase() === 'dockerfile'
+    || path.basename(file).toLowerCase().startsWith('dockerfile.');
+}
+
+export function scanHashLanguage(source, language) {
+  const output = execFileSync('python3', [scanCommentsPath, language, '--stdin'],
+    { input: source, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return JSON.parse(output);
+}
+
+function scanSourceForFile(file, source) {
+  if (file.endsWith('.go')) {
+    return JSON.parse(execFileSync('go', ['run', '-C', 'backend', './cmd/commentpolicy', '--stdin'],
+      { input: source, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+  }
+  if (isHashSource(file)) return scanHashLanguage(source, hashLanguageFor(file));
+  return scanTS(source, file);
+}
+
+export function scanPython(source) {
+  return scanHashLanguage(source, 'python');
+}
+
+export function scanShell(source) {
+  return scanHashLanguage(source, 'shell');
+}
+
+export function scanDockerfile(source) {
+  return scanHashLanguage(source, 'dockerfile');
+}
+
+export const scanHashComments = scanHashLanguage;
+export const scanHashSource = scanHashLanguage;
 
 function lineStarts(text) {
   const starts = [0];
@@ -220,17 +267,24 @@ export function mapDeletedCommentRanges(oldComments, deletions) {
 
 if (isMain) {
   const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
-  const sourceFiles = tracked.filter((file) => existsSync(file)
-    && extensions.has(path.extname(file)) && !excludedPath(file));
+  const sourceFiles = tracked.filter((file) => existsSync(file) && !excludedPath(file)
+    && (extensions.has(path.extname(file)) || isHashSource(file)));
   const goComments = JSON.parse(execFileSync('go', ['run', '-C', 'backend', './cmd/commentpolicy', '..'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
-  const tsComments = new Map(sourceFiles.filter((file) => !isGenerated(file))
-    .map((file) => [file, scanFile(file)]));
+  const tsSourceFiles = sourceFiles.filter((file) => !isHashSource(file) && !isGenerated(file));
+  const hashSourceFiles = sourceFiles.filter((file) => isHashSource(file) && !isGenerated(file));
+  const tsComments = new Map(tsSourceFiles.map((file) => [file, scanFile(file)]));
+  const hashComments = new Map(hashSourceFiles.map((file) => [file, scanHashLanguage(readFileSync(file, 'utf8'), hashLanguageFor(file))]));
   const inventories = {};
   for (const [file, comments] of Object.entries(goComments)) {
     const counts = summary(comments);
     if (counts.blocks || counts.longLines) inventories[file] = counts;
   }
   for (const [file, comments] of tsComments) {
+    const counts = summary(comments);
+    if (counts.blocks || counts.longLines) inventories[file] = counts;
+  }
+
+  for (const [file, comments] of hashComments) {
     const counts = summary(comments);
     if (counts.blocks || counts.longLines) inventories[file] = counts;
   }
@@ -246,17 +300,17 @@ if (isMain) {
   const mergeBase = execFileSync('git', ['merge-base', configuredBase, 'HEAD'], { encoding: 'utf8' }).trim();
   const changed = await changedLines(mergeBase);
   for (const [file, ranges] of changed) {
-    if (!file.endsWith('.go') && !extensions.has(path.extname(file))) continue;
+    if (!file.endsWith('.go') && !extensions.has(path.extname(file)) && !isHashSource(file)) continue;
     const hasComments = file.endsWith('.go')
-      ? Object.hasOwn(goComments, file) : tsComments.has(file);
+      ? Object.hasOwn(goComments, file) : isHashSource(file)
+        ? hashComments.has(file) : tsComments.has(file);
     if (!hasComments) continue;
-    const comments = file.endsWith('.go') ? goComments[file] : tsComments.get(file);
+    const comments = file.endsWith('.go') ? goComments[file] : isHashSource(file)
+      ? hashComments.get(file) : tsComments.get(file);
     const forced = [];
     if (ranges.deletions.length) {
       const oldSource = execFileSync('git', ['show', `${mergeBase}:${file}`], { encoding: 'utf8' });
-      const oldComments = file.endsWith('.go')
-        ? JSON.parse(execFileSync('go', ['run', '-C', 'backend', './cmd/commentpolicy', '--stdin'], { input: oldSource, encoding: 'utf8' }))
-        : scanTS(oldSource, file);
+      const oldComments = scanSourceForFile(file, oldSource);
       forced.push(...mapDeletedCommentRanges(oldComments, ranges.deletions));
     }
     for (const comment of comments) {
