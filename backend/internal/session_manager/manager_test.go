@@ -5280,9 +5280,9 @@ func TestSpawn_TerminateOnPRMergeOverrideWinsOverProjectDefault(t *testing.T) {
 
 	falseValue := false
 	s, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
-		ProjectID:             "mer",
-		Kind:                  domain.KindWorker,
-		TerminateOnPRMerge:    &falseValue,
+		ProjectID:          "mer",
+		Kind:               domain.KindWorker,
+		TerminateOnPRMerge: &falseValue,
 	})
 	if err != nil {
 		t.Fatal(err)
