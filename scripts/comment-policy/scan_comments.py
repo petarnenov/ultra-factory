@@ -201,11 +201,12 @@ def scan_hash(source, language):
             if raw.strip() == heredoc:
                 heredoc = None
             continue
-        if quote_state is None:
-            marker = find_heredoc_marker(raw)
+        quote_before = quote_state
+        comment_index, quote_state = find_comment_index(raw, quote_state)
+        if quote_before is None:
+            marker = find_heredoc_marker(raw[:comment_index] if comment_index >= 0 else raw)
             if marker:
                 heredoc = marker
-        comment_index, quote_state = find_comment_index(raw, quote_state)
         stripped = raw.lstrip()
         starts_with_hash = stripped.startswith("#")
         if starts_with_hash and comment_index == len(raw) - len(stripped):
