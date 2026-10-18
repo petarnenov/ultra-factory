@@ -377,7 +377,9 @@ EOF
 	systemctl --user daemon-reload
 	systemctl --user enable --now ao-self-update.timer
 	log "enabled ao-self-update.timer every ${interval_minutes}m"
-	log "keep it running after logout with: sudo loginctl enable-linger $(id -un)"
+	if ! loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q 'Linger=yes'; then
+		log "the timer stops at logout; run: sudo loginctl enable-linger $(id -un)"
+	fi
 }
 
 install_launchd() {
