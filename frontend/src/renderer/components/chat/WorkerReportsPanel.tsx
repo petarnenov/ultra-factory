@@ -3,9 +3,10 @@ import { useWorkerReports } from "../../hooks/useWorkerReports";
 import { artifactLink } from "../../lib/session-links";
 import { useSessionLinkNavigation } from "../../lib/use-session-link-navigation";
 import { labelForHost } from "../../lib/host-clients";
+import type { MessageKey } from "../../i18n/messages";
 import { Badge } from "../ui/badge";
 
-const statusKeys: Record<string, string> = {
+const statusKeys: Record<string, MessageKey> = {
 	checkpoint: "reports.status.checkpoint",
 	done: "reports.status.done",
 	needs_input: "reports.status.needsInput",
