@@ -59,9 +59,17 @@ export function useCompletedTasks(refs: CompletedTaskProjectRef[], outcome: Comp
 		})),
 	});
 	const tasks: HostedCompletedTask[] = [];
+	const seenTasks = new Set<string>();
 	const sources: CompletedTaskSource[] = refs.map((ref, index) => {
 		const result = results[index];
-		for (const task of result?.data?.tasks ?? []) tasks.push({ ...task, ref });
+		for (const task of result?.data?.tasks ?? []) {
+			// Completed-task identity is host-qualified; the same session must
+			// not duplicate merely because it was listed by more than one ref.
+			const taskKey = `${ref.hostId}:${task.sessionId}`;
+			if (seenTasks.has(taskKey)) continue;
+			seenTasks.add(taskKey);
+			tasks.push({ ...task, ref });
+		}
 		if (result?.data) return { ref, status: "ready" };
 		if (result?.error) return { ref, status: "error", error: result.error.message };
 		return { ref, status: "loading" };
