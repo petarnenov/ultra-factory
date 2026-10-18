@@ -399,8 +399,31 @@ ships, is versioned and is tested with the rest of AO.
   `REPO`, `BASE`, `MAIN`, `ISSUE_LABEL`, `BRANCH_PREFIX`, `INTERVAL` and
   `TIMEOUT` (seconds), `RENUDGE_MINUTES`, `VIOLATION_RENUDGE_MINUTES`,
   `GREEN_PR_MAX_MINUTES`, `IDLE_WORKER_MAX_MINUTES`, `AGENT_MIX_SINCE`
-  (RFC 3339), `PAUSED`. `RW_TICK_INTERVAL` defaults to 180 seconds (3 minutes);
-  an explicit value overrides it. An invalid value stops the command with an error.
+  (RFC 3339), `PAUSED`, `HOLD_LABELS`, `MERGE_AUTHORIZED`, `CLOSE_COMPLETED`.
+  `RW_TICK_INTERVAL` defaults to 180 seconds (3 minutes); an explicit value
+  overrides it. An invalid value stops the command with an error.
+- **Completion reconciliation.** Two explicit durable opt-ins extend the same
+  cadence. `RW_TICK_MERGE_AUTHORIZED=1` permits a normal squash merge only when
+  the fresh provider observation proves the exact current head has passing
+  required checks, a current-head approval, `MERGEABLE`, no unresolved review
+  threads, and no hold label (`RW_TICK_HOLD_LABELS`, default
+  `needs-human do-not-merge status:blocked`). The merge request carries the
+  evaluated head SHA, so a head change between the check and the mutation is
+  refused rather than merged. Without the flag the exact missing authorization
+  is reported in the tick message and `status`.
+  `RW_TICK_CLOSE_COMPLETED=1` permits terminating a worker after at least one
+  owned PR merged and every owned PR is terminal, the agent is not active, the
+  branch push state is known and has no unpublished commits, and no durable
+  obligation remains. The lifecycle kill preserves worktrees, branches, and
+  artifacts; it never force-cleans. A worker that must deploy or verify live
+  stays open through an obligation recorded with
+  `ao orchestrator tick hold <session> --host <H> --reason <why> --until
+  <condition>`, and `ao orchestrator tick release <session> --host <H>` clears
+  it. Merge and close actions are recorded in
+  `$AO_DATA_DIR/orchestrator-tick/completion.json`; completed actions are not
+  replayed, and a failed close or merge remains actionable for the next tick.
+  Pause is checked before any action, so a stopped campaign never merges,
+  closes, or restarts work from an older queued tick.
 - **Logs and state.** Each tick writes one structured (logfmt) line to stderr,
   which is the service log; violations are logged as warnings. State lives in
   `$AO_DATA_DIR/orchestrator-tick/` (`/data/ao/orchestrator-tick/`, mode
@@ -422,6 +445,8 @@ ao orchestrator tick snapshot           # the state a tick would report; sends n
 ao orchestrator tick run --dry-run      # a whole tick that prints the message instead of sending it
 ao orchestrator tick pause "redeploy"   # sets the maintenance flag
 ao orchestrator tick resume             # clears it
+ao orchestrator tick hold uf-41 --host Linux --reason "deployment pending" --until "live check passes"
+ao orchestrator tick release uf-41 --host Linux
 ```
 
 The flag is on the volume, so it survives a redeploy; resume after the hub is

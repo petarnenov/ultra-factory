@@ -25,6 +25,8 @@ type fakeDaemon struct {
 	workerErr     map[string]error
 	sendErr       error
 	sent          []string
+	killErr       error
+	killed        []string
 }
 
 func (d *fakeDaemon) Status(context.Context) (DaemonStatus, error) { return d.status, d.statusErr }
@@ -48,6 +50,17 @@ func (d *fakeDaemon) Send(_ context.Context, id, msg string) error {
 		return d.sendErr
 	}
 	d.sent = append(d.sent, id+"\n"+msg)
+	return nil
+}
+
+func (d *fakeDaemon) Kill(_ context.Context, host, id string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.killErr != nil {
+		return d.killErr
+	}
+	d.killed = append(d.killed, host+"/"+id)
+	d.sessions[id] = SessionState{Terminated: true}
 	return nil
 }
 

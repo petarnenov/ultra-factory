@@ -8,7 +8,24 @@ import (
 // Snapshot renders the state a tick reports, with one "VIOLATION:" line per
 // violated invariant.
 func Snapshot(cfg Config, facts Facts, violations []Violation) string {
-	return render(cfg, facts, violations, func(v Violation) string { return v.Text })
+	return snapshotWithCompletion(cfg, facts, violations, nil)
+}
+
+// snapshotWithCompletion renders the same state plus the durable completion
+// reconciliation result, so a remaining obligation is visible in the tick
+// message and in `ao orchestrator tick status`.
+func snapshotWithCompletion(cfg Config, facts Facts, violations []Violation, completions []CompletionNote) string {
+	out := render(cfg, facts, violations, func(v Violation) string { return v.Text })
+	if len(completions) == 0 {
+		return out
+	}
+	var b strings.Builder
+	b.WriteString(out)
+	b.WriteString("[completion]\n")
+	for _, line := range CompletionLines(completions) {
+		fmt.Fprintf(&b, "  %s\n", line)
+	}
+	return b.String()
 }
 
 // Fingerprint renders the same state with each violation's stable key instead

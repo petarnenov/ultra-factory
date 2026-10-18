@@ -54,6 +54,16 @@ type Config struct {
 	IdleWorkerMax time.Duration
 	// AgentMixSince is when the claude-code + codex worker mix rule started.
 	AgentMixSince time.Time
+	// MergeAuthorized explicitly permits this cadence to merge a ready PR.
+	// It defaults to false: a project rule or prompt alone is not durable
+	// authorization.
+	MergeAuthorized bool
+	// CloseCompleted permits terminating a worker once all owned work and
+	// obligations are complete. It defaults to false.
+	CloseCompleted bool
+	// HoldLabels prevent an otherwise ready PR from merging. Matching is
+	// case-insensitive.
+	HoldLabels []string
 	// Paused skips every tick, like the maintenance flag in the store.
 	Paused bool
 }
@@ -75,6 +85,7 @@ func DefaultConfig() Config {
 		GreenPRMax:       10 * time.Minute,
 		IdleWorkerMax:    30 * time.Minute,
 		AgentMixSince:    time.Date(2026, 10, 16, 15, 45, 0, 0, time.UTC),
+		HoldLabels:       []string{"needs-human", "do-not-merge", "status:blocked"},
 	}
 }
 
@@ -125,6 +136,11 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 			cfg.AgentMixSince = t
 		}
 	}
+	if v := strings.TrimSpace(getenv("RW_TICK_HOLD_LABELS")); v != "" {
+		cfg.HoldLabels = strings.Fields(v)
+	}
+	cfg.MergeAuthorized = strings.TrimSpace(getenv("RW_TICK_MERGE_AUTHORIZED")) == "1"
+	cfg.CloseCompleted = strings.TrimSpace(getenv("RW_TICK_CLOSE_COMPLETED")) == "1"
 	cfg.Paused = strings.TrimSpace(getenv("RW_TICK_PAUSED")) == "1"
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, err

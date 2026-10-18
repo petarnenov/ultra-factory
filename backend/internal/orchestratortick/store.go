@@ -20,11 +20,60 @@ type Sent struct {
 
 // Record is the outcome of the last tick, for `ao orchestrator tick status`.
 type Record struct {
-	At         time.Time `json:"at"`
-	Outcome    Outcome   `json:"outcome"`
-	Session    string    `json:"session,omitempty"`
-	Reason     string    `json:"reason,omitempty"`
-	Violations []string  `json:"violations,omitempty"`
+	At          time.Time `json:"at"`
+	Outcome     Outcome   `json:"outcome"`
+	Session     string    `json:"session,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	Violations  []string  `json:"violations,omitempty"`
+	Completions []string  `json:"completions,omitempty"`
+}
+
+// Obligation is one durable reason to keep a worker open after its owned PRs
+// reached a terminal state. Completing it means removing the obligation.
+type Obligation struct {
+	ID                  string    `json:"id"`
+	Reason              string    `json:"reason"`
+	CompletionCondition string    `json:"completionCondition"`
+	CreatedAt           time.Time `json:"createdAt"`
+}
+
+// CompletionAction is one idempotent provider or lifecycle mutation. The key
+// pins the action to the facts it was evaluated against, so a repeated tick
+// can verify or retry it without repeating a completed side effect.
+type CompletionAction struct {
+	Kind           string    `json:"kind"`
+	Status         string    `json:"status"`
+	PR             int       `json:"pr,omitempty"`
+	HeadSHA        string    `json:"headSha,omitempty"`
+	MergeCommitSHA string    `json:"mergeCommitSha,omitempty"`
+	Attempts       int       `json:"attempts,omitempty"`
+	LastError      string    `json:"lastError,omitempty"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// Action statuses.
+const (
+	CompletionActionPending   = "pending"
+	CompletionActionCompleted = "completed"
+	CompletionActionFailed    = "failed"
+)
+
+// SessionCompletion is the durable completion state of one host-qualified
+// worker. Remaining is the last reconciled explanation; it is not a derived
+// display status and never substitutes for the underlying PR, branch, or
+// activity facts.
+type SessionCompletion struct {
+	Host        string                      `json:"host"`
+	Session     string                      `json:"session"`
+	Obligations []Obligation                `json:"obligations,omitempty"`
+	Actions     map[string]CompletionAction `json:"actions,omitempty"`
+	Remaining   []string                    `json:"remaining,omitempty"`
+	UpdatedAt   time.Time                   `json:"updatedAt"`
+}
+
+// CompletionState is the durable completion reconciliation state.
+type CompletionState struct {
+	Sessions map[string]SessionCompletion `json:"sessions,omitempty"`
 }
 
 // Store keeps a tick's state between runs.
@@ -38,6 +87,8 @@ type Store interface {
 	SaveSent(Sent) error
 	LastTick() (Record, bool, error)
 	SaveTick(Record) error
+	Completion() (CompletionState, bool, error)
+	SaveCompletion(CompletionState) error
 }
 
 // FileStore keeps the state as files in Dir (mode 0700), each replaced
@@ -45,9 +96,10 @@ type Store interface {
 type FileStore struct{ Dir string }
 
 const (
-	pausedFile   = "paused"
-	lastSentFile = "last-sent.json"
-	lastTickFile = "last-tick.json"
+	pausedFile     = "paused"
+	lastSentFile   = "last-sent.json"
+	lastTickFile   = "last-tick.json"
+	completionFile = "completion.json"
 )
 
 // Paused implements Store.
@@ -95,6 +147,24 @@ func (s FileStore) LastTick() (Record, bool, error) {
 
 // SaveTick implements Store.
 func (s FileStore) SaveTick(v Record) error { return s.writeJSON(lastTickFile, v) }
+
+// Completion implements Store.
+func (s FileStore) Completion() (CompletionState, bool, error) {
+	var v CompletionState
+	ok, err := s.readJSON(completionFile, &v)
+	if v.Sessions == nil {
+		v.Sessions = map[string]SessionCompletion{}
+	}
+	return v, ok, err
+}
+
+// SaveCompletion implements Store.
+func (s FileStore) SaveCompletion(v CompletionState) error {
+	if v.Sessions == nil {
+		v.Sessions = map[string]SessionCompletion{}
+	}
+	return s.writeJSON(completionFile, v)
+}
 
 func (s FileStore) readJSON(name string, v any) (bool, error) {
 	b, err := os.ReadFile(filepath.Join(s.Dir, name))
