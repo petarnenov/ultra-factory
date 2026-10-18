@@ -165,7 +165,7 @@ func (s *Service) ListProjectPage(ctx context.Context, projectID domain.ProjectI
 				report.CreatedAt.Before(cursorTime) ||
 				(report.CreatedAt.Equal(cursorTime) && report.HostID < cursorHost) ||
 				(report.CreatedAt.Equal(cursorTime) && report.HostID == cursorHost && string(report.SessionID) < cursorSession) ||
-				(report.CreatedAt.Equal(cursorTime) && report.HostID == cursorHost && string(report.SessionID) == cursorSession && strings.Compare(string(report.ID), cursorID) < 0) {
+				(report.CreatedAt.Equal(cursorTime) && report.HostID == cursorHost && string(report.SessionID) == cursorSession && strings.Compare(report.ID, cursorID) < 0) {
 				reports = append(reports, report)
 			}
 		}

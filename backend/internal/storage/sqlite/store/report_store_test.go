@@ -279,14 +279,14 @@ func TestListReportsByProjectPageCursorAcrossHostsAndTies(t *testing.T) {
 		t.Fatalf("first page = %+v", first)
 	}
 	first = first[:2]
-	second, err := s.ListReportsByProjectPage(ctx, "ao", first[1].CreatedAt, first[1].HostID, string(first[1].SessionID), string(first[1].ID), 2)
+	second, err := s.ListReportsByProjectPage(ctx, "ao", first[1].CreatedAt, first[1].HostID, string(first[1].SessionID), first[1].ID, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(second) != 2 {
 		t.Fatalf("second page = %+v", second)
 	}
-	third, err := s.ListReportsByProjectPage(ctx, "ao", second[1].CreatedAt, second[1].HostID, string(second[1].SessionID), string(second[1].ID), 2)
+	third, err := s.ListReportsByProjectPage(ctx, "ao", second[1].CreatedAt, second[1].HostID, string(second[1].SessionID), second[1].ID, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestListReportsByProjectPageCursorAcrossHostsAndTies(t *testing.T) {
 	seen := map[string]bool{}
 	for _, page := range [][]domain.ReportRecord{first, second} {
 		for _, report := range page {
-			key := report.HostID + "/" + string(report.SessionID) + "/" + string(report.ID)
+			key := report.HostID + "/" + string(report.SessionID) + "/" + report.ID
 			if seen[key] {
 				t.Fatalf("duplicate report %s", key)
 			}
