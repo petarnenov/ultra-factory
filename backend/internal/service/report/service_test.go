@@ -49,6 +49,27 @@ func TestListProjectIsReadOnlyAndOrdered(t *testing.T) {
 	}
 }
 
+func TestListProjectAddsLocalAgentAndPreservesRemoteIdentity(t *testing.T) {
+	st := &fakeStore{
+		ok:      true,
+		session: domain.SessionRecord{ID: "same-id", Harness: "codex", DisplayName: "local worker"},
+		reports: []domain.ReportRecord{
+			{ID: "local", SessionID: "same-id"},
+			{ID: "remote", SessionID: "same-id", HostID: "host-remote", HostLabel: "build box", Agent: "claude-code", SessionDisplayName: "remote worker"},
+		},
+	}
+	got, err := New(Deps{Store: st}).ListProject(context.Background(), "ao")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Agent != "codex" || got[0].SessionDisplayName != "local worker" {
+		t.Fatalf("local source = %+v", got[0])
+	}
+	if got[1].HostID != "host-remote" || got[1].HostLabel != "build box" || got[1].Agent != "claude-code" || got[1].SessionDisplayName != "remote worker" {
+		t.Fatalf("remote source was overwritten by colliding local session: %+v", got[1])
+	}
+}
+
 func TestCreateDerivesOwnershipAndFixedDeliveryDeadlines(t *testing.T) {
 	now := time.Date(2026, 9, 7, 1, 2, 3, 0, time.UTC)
 	tests := []struct {

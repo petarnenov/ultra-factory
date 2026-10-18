@@ -123,6 +123,9 @@ type ReportRecord struct {
 	// SessionDisplayName it is presentation only and never persisted; empty
 	// means the worker runs on this daemon.
 	HostLabel          string
+	HostID             string
+	Agent              string
+	SourceProjectID    string
 	State              ReportState
 	Note               string
 	Message            string

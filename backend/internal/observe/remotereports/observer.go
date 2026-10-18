@@ -41,6 +41,7 @@ type Store interface {
 	DeleteRemoteWorkerLink(context.Context, string, domain.SessionID) error
 	ListDeliveredRemoteReports(context.Context, string, domain.SessionID) (map[string]bool, error)
 	RecordDeliveredRemoteReports(context.Context, string, domain.SessionID, []string, time.Time) error
+	RecordRemoteReportHistory(context.Context, string, domain.SessionID, []domain.ReportRecord) error
 }
 
 // Deliverer submits pulled reports to a project's active orchestrator.
@@ -233,6 +234,13 @@ func (o *Observer) Poll(ctx context.Context) error {
 		}
 	}
 	for _, projectID := range projects {
+		for _, item := range byProject[projectID] {
+			if len(item.fresh) > 0 {
+				if err := o.store.RecordRemoteReportHistory(ctx, item.link.HostID, item.link.RemoteSessionID, item.fresh); err != nil {
+					o.log.Error("remote reports: record report history failed", "host", item.host.label, "session", item.link.RemoteSessionID, "err", err)
+				}
+			}
+		}
 		o.settle(ctx, projectID, byProject[projectID], pass)
 	}
 	return ctx.Err()
@@ -315,9 +323,13 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 			continue
 		}
 		report.SessionID = link.RemoteSessionID
+		if report.SourceProjectID == "" {
+			report.SourceProjectID = string(report.ProjectID)
+		}
 		report.ProjectID = link.ProjectID
 		report.SessionDisplayName = link.DisplayName
 		report.HostLabel = client.label
+		report.HostID = link.HostID
 		item.fresh = append(item.fresh, report)
 	}
 	return item, nil

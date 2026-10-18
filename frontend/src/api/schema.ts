@@ -5502,8 +5502,11 @@ export interface components {
             reference: string;
         };
         ReportResponse: {
+            agent?: string;
             /** Format: date-time */
             createdAt: string;
+            hostId?: string;
+            hostLabel?: string;
             id: string;
             message?: string;
             note?: string;
@@ -5512,6 +5515,8 @@ export interface components {
             /** Format: int64 */
             repeatCount: number;
             sessionId: string;
+            sessionName?: string;
+            sourceProjectId?: string;
             state?: string;
         };
         ResolveCommentsResponse: {

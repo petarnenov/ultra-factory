@@ -85,6 +85,29 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 	if err != nil {
 		return nil, err
 	}
+	type sessionSource struct {
+		found   bool
+		name    string
+		harness domain.AgentHarness
+	}
+	sources := map[domain.SessionID]sessionSource{}
+	for i := range reports {
+		if reports[i].HostID == "" {
+			reports[i].SourceProjectID = string(reports[i].ProjectID)
+			source, cached := sources[reports[i].SessionID]
+			if !cached {
+				session, found, lookupErr := s.store.GetSession(ctx, reports[i].SessionID)
+				if lookupErr == nil && found {
+					source = sessionSource{found: true, name: strings.TrimSpace(session.DisplayName), harness: session.Harness}
+				}
+				sources[reports[i].SessionID] = source
+			}
+			if source.found {
+				reports[i].SessionDisplayName = source.name
+				reports[i].Agent = string(source.harness)
+			}
+		}
+	}
 	sort.SliceStable(reports, func(i, j int) bool {
 		if reports[i].CreatedAt.Equal(reports[j].CreatedAt) {
 			return reports[i].ID < reports[j].ID
@@ -156,6 +179,13 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 	reports, err := reader.ListReportsBySession(ctx, sessionID)
 	if err != nil {
 		return nil, false, err
+	}
+	if session, found, lookupErr := s.store.GetSession(ctx, sessionID); lookupErr == nil && found {
+		for i := range reports {
+			reports[i].Agent = string(session.Harness)
+			reports[i].SessionDisplayName = strings.TrimSpace(session.DisplayName)
+			reports[i].SourceProjectID = string(session.ProjectID)
+		}
 	}
 	now := s.now().UTC()
 	budget := 0

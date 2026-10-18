@@ -10451,6 +10451,27 @@ func TestSendSemanticTUIRequiresCorrelatedPromptAcceptance(t *testing.T) {
 	}
 }
 
+func TestSendSemanticChatCarriesReportDeliveryEnvelope(t *testing.T) {
+	const deliveryID = "report-batch:abc123"
+	launcher := &recordingLauncher{live: true}
+	m, st, _ := newChatManager(launcher)
+	st.sessions["s1"] = domain.SessionRecord{ID: "s1", Harness: domain.HarnessCodex, Mode: domain.SessionModeChat}
+
+	if err := m.SendSemantic(context.Background(), "s1", "Reports since your previous turn:\n\n[done] worker finished", deliveryID); err != nil {
+		t.Fatalf("SendSemantic: %v", err)
+	}
+	if len(launcher.relayed) != 1 {
+		t.Fatalf("relayed messages = %d, want one", len(launcher.relayed))
+	}
+	got := launcher.relayed[0]
+	if id, ok := domain.ReportDeliveryID(got); !ok || id != deliveryID {
+		t.Fatalf("chat report delivery envelope = %q, %v", got, ok)
+	}
+	if launcher.relayIDs[0] != deliveryID {
+		t.Fatalf("client message id = %q, want %q", launcher.relayIDs[0], deliveryID)
+	}
+}
+
 func TestSendSemanticTUIDoesNotAcceptPaneWrite(t *testing.T) {
 	st := newFakeStore()
 	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{

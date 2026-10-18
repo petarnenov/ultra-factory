@@ -2962,6 +2962,56 @@ describe("ChatWorkspace timeline", () => {
 });
 
 describe("automation reports", () => {
+	it("removes report delivery turns without leaving an empty timeline row", () => {
+		const source = chatFixture.items.find((item): item is ConversationMessage => item.kind === "message" && item.id === "m-4");
+		if (!source) throw new Error("Fixture needs an automation message");
+		const reportText = `Reports since your previous turn:
+
+[done] worker finished`;
+		const report: ConversationMessage = {
+			...source,
+			id: "worker-report-delivery",
+			turnId: undefined,
+			sequence: 1,
+			clientMessageId: "report-batch:abc123",
+			text: `<ao-report-delivery id="report-batch:abc123">
+${reportText}
+</ao-report-delivery>`,
+		};
+		const snapshot: ConversationSnapshot = {
+			...chatFixtureEmpty,
+			items: [report],
+			latestSequence: 1,
+		};
+
+		render(<ChatWorkspace snapshot={snapshot} />);
+
+		expect(screen.queryByText(/Reports since your previous turn/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("chat-timeline")).not.toBeInTheDocument();
+	});
+
+	it("removes a raw report relay turn using its durable client message ID", () => {
+		const source = chatFixture.items.find((item): item is ConversationMessage => item.kind === "message" && item.id === "m-4");
+		if (!source) throw new Error("Fixture needs an automation message");
+		const snapshot: ConversationSnapshot = {
+			...chatFixtureEmpty,
+			items: [{
+				...source,
+				id: "worker-report-relay",
+				turnId: undefined,
+				sequence: 1,
+				clientMessageId: "report-batch:abc123",
+				text: "Reports since your previous turn:\n\n[done] worker finished",
+			}],
+			latestSequence: 1,
+		};
+
+		render(<ChatWorkspace snapshot={snapshot} />);
+
+		expect(screen.queryByText(/Reports since your previous turn/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("chat-timeline")).not.toBeInTheDocument();
+	});
+
 	it("keeps queued browser feedback visible while the agent is busy", () => {
 		const snapshot: ConversationSnapshot = {
 			...chatFixture,
@@ -3089,10 +3139,26 @@ Task: Address the feedback below according to its wording. Visual adjustments ar
 		expect(container.querySelector(".chat-md")).toHaveClass("whitespace-pre-wrap");
 	});
 
-	it("renders automation formatting and opens labeled session links in app", async () => {
+	it("hides standalone report delivery turns from the human conversation", () => {
+		const source = chatFixture.items.find((item) => item.id === "m-4") as ConversationMessage;
+		const text = "Reports since your previous turn:\n\n- **checkpoint**: [Open worker](ao://sessions/proj/sess)\n\n> Ready for review";
+		const { container } = render(
+			<OriginMessage message={{
+				...source,
+				origin: "automation",
+				clientMessageId: "report-batch:abc123",
+				text: "<ao-report-delivery id=\"report-batch:abc123\">\n" + text + "\n</ao-report-delivery>",
+			}} />,
+		);
+
+		expect(container).toBeEmptyDOMElement();
+		expect(screen.queryByText(/Reports since your previous turn/)).not.toBeInTheDocument();
+	});
+
+	it("renders ordinary automation formatting and opens labeled session links in app", async () => {
 		const source = chatFixture.items.find((item) => item.id === "m-4") as ConversationMessage;
 		const onSessionLinkOpen = vi.fn();
-		const text = "Reports since your previous turn:\n\n- **checkpoint**: [Open worker](ao://sessions/proj/sess)\n\n> Ready for review";
+		const text = "Review update:\n\n- **checkpoint**: [Open worker](ao://sessions/proj/sess)\n\n> Ready for review";
 		const { container } = render(
 			<ChatLinkProvider onSessionLinkOpen={onSessionLinkOpen}>
 				<OriginMessage message={{ ...source, origin: "automation", text }} />

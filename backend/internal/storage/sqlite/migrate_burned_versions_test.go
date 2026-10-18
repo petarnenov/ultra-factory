@@ -203,6 +203,7 @@ var shippedMigrations = map[int64]string{
 	198: "0198_harness_defaults.sql",
 	199: "0199_remote_worker_links.sql",
 	200: "0200_remote_spawned_sessions.sql",
+	201: "0201_remote_report_history.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they
