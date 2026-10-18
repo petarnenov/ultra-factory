@@ -99,11 +99,6 @@ function ReportSessionLink({ href, hostId, label }: { href: string; hostId?: str
 	return <a className="mt-1 inline-block break-all underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={href} onClick={(event) => { event.preventDefault(); navigate(href); }}>{label}</a>;
 }
 
-function ReportArtifactLink({ href, hostId, label }: { href: string; hostId?: string; label: string }) {
-	const navigate = useSessionLinkNavigation(hostId);
-	return <a className="break-all underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={href} onClick={(event) => { event.preventDefault(); navigate(href); }}>{label}</a>;
-}
-
 function ReportOutputs({ hostId, projectId, sessionId, outputs }: {
 	hostId?: string;
 	projectId: string;
