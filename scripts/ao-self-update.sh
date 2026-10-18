@@ -490,6 +490,35 @@ rollback_target() {
 	esac
 }
 
+# previous_binary names the binary in the prev slot, per layout.
+previous_binary() {
+	case "$layout" in
+		binary) printf '%s/%s\n' "$prev_dir" "$binary_name" ;;
+		bundle) printf '%s/daemon/ao\n' "$prev_dir" ;;
+		release)
+			local target
+			target="$(cat "$state_dir/prev.target" 2>/dev/null || true)"
+			[[ -n "$target" ]] || return 1
+			case "$target" in
+				/*) printf '%s/resources/daemon/ao\n' "$target" ;;
+				*) printf '%s/%s/resources/daemon/ao\n' "$release_root" "$target" ;;
+			esac
+			;;
+	esac
+}
+
+# record_previous fills the report target from the prev slot, so a rollback
+# records where it landed instead of an empty destination.
+record_previous() {
+	local bin out
+	bin="$(previous_binary 2>/dev/null || true)"
+	[[ -n "$bin" && -x "$bin" ]] || return 0
+	out="$(run_ao "$bin" version 2>/dev/null || true)"
+	[[ -n "$out" ]] || return 0
+	target_version="$(printf '%s' "$out" | awk '{print $1}')"
+	target_commit="$(printf '%s' "$out" | awk '{print $3}')"
+}
+
 record_state() {
 	local outcome="$1"
 	python3 - "$state_dir/state.json" "$outcome" "$channel" "$installed_version" "$installed_commit" "$target_version" "$target_commit" <<'PY'
@@ -655,6 +684,8 @@ case "$command_name" in
 			rollback_target
 			restart_service || true
 			if wait_ready; then
+				target_version="$installed_version"
+				target_commit="$installed_commit"
 				record_state rolled-back
 				warn "rolled back to $installed_version ($installed_commit)"
 			else
@@ -682,6 +713,7 @@ case "$command_name" in
 	rollback)
 		require_enabled
 		installed_facts
+		record_previous
 		rollback_target
 		if ! "$dry_run" && service_active; then
 			restart_service || true
