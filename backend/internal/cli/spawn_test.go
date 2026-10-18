@@ -1108,8 +1108,8 @@ func TestSpawnModelFlagWiring(t *testing.T) {
 	}
 }
 
-// TestSpawnTerminateOnPRMergeFlagWiring asserts `ao spawn --terminate-on-pr-merge`
-// sends an explicit true override, while `=false` sends an explicit false.
+// TestSpawnTerminateOnPRMergeFlagWiring asserts the spawn flag override.
+// It sends explicit true/false and preserves omission.
 func TestSpawnTerminateOnPRMergeFlagWiring(t *testing.T) {
 	for _, tc := range []struct {
 		flag string
