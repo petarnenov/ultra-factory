@@ -29,8 +29,6 @@ services:
       dockerfile: deploy/railway/hub/Dockerfile
       additional_contexts:
         ao-worker: service:worker-1
-      args:
-        AO_WORKER_IMAGE: ao-worker
     depends_on:
       worker-1:
         condition: service_healthy

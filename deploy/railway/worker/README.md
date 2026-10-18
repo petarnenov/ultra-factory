@@ -72,6 +72,11 @@ smoke job, which starts the `linux/amd64` image on an empty volume with
 `make ci-local` runs the same jobs locally without the GitHub Actions cache
 and never logs in or pushes.
 
+The hub image extends this Dockerfile through the `ao-worker` named build
+context in [`docker-bake.hcl`](docker-bake.hcl), so a hub built from a commit
+carries that commit's daemon and tools without waiting for a published worker
+tag. See [the runbook](README.md#automated-image-publish-and-deploy).
+
 To cut a release, push a tag from a commit on `main`:
 
 ```bash
