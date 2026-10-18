@@ -4,6 +4,16 @@
 
 set -euo pipefail
 
+repo_root=$(git rev-parse --show-toplevel)
+workflow="$repo_root/.github/workflows/agent-pins.yml"
+
+# Keep this decision in sync with the gate in agent-pins.yml.
+grep -F 'if [ "$CHANGED" != true ]; then' "$workflow" >/dev/null
+if grep -F 'git diff --quiet origin/main HEAD' "$workflow" >/dev/null; then
+  echo "the PR gate must use CHANGED, not a commit diff" >&2
+  exit 1
+fi
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 

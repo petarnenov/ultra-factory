@@ -124,6 +124,7 @@ jobs:
           if [ "$EXISTS" = true ] && \
             git diff --cached --quiet "origin/$BRANCH" -- "${paths[@]}"; then
             # changed=true is set above: HEAD stays on main on this path.
+            # Keep in sync with agent-pins-workflow.test.sh.
             echo "The pin branch already has these versions; nothing to push."
             exit 0
           fi
