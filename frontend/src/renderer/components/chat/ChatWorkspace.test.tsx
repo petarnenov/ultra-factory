@@ -3105,6 +3105,28 @@ Task: Address the feedback below according to its wording. Visual adjustments ar
 		expect(screen.queryByText(/Reports since your previous turn/)).not.toBeInTheDocument();
 	});
 
+	it("renders ordinary automation formatting and opens labeled session links in app", async () => {
+		const source = chatFixture.items.find((item) => item.id === "m-4") as ConversationMessage;
+		const onSessionLinkOpen = vi.fn();
+		const text = "Review update:\n\n- **checkpoint**: [Open worker](ao://sessions/proj/sess)\n\n> Ready for review";
+		const { container } = render(
+			<ChatLinkProvider onSessionLinkOpen={onSessionLinkOpen}>
+				<OriginMessage message={{ ...source, origin: "automation", text }} />
+			</ChatLinkProvider>,
+		);
+
+		expect(screen.getByText("checkpoint").tagName).toBe("STRONG");
+		expect(screen.getByRole("listitem")).toHaveTextContent("checkpoint: Open worker");
+		expect(screen.getByText("Ready for review").closest("blockquote")).not.toBeNull();
+		const link = screen.getByRole("link", { name: "Open worker" });
+		expect(link).toHaveAttribute("href", "ao://sessions/proj/sess");
+		expect(link).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
+		expect(container.querySelector(".cursor-chat-origin-message")).toHaveClass("border-l-logo-accent/60");
+
+		await userEvent.click(link);
+		expect(onSessionLinkOpen).toHaveBeenCalledWith("ao://sessions/proj/sess");
+	});
+
 	it("keeps short automation reports safe without dropping Markdown structure", () => {
 		const source = chatFixture.items.find((item) => item.id === "m-4") as ConversationMessage;
 		const { container } = render(
