@@ -1,0 +1,137 @@
+name: Agent CLI pins
+
+# Resolves npm latest for the agent CLIs pinned in the Railway worker and hub
+# Dockerfiles. The hub image inherits the worker image, so one PR covers both.
+
+# The schedule runs weekly; workflow_dispatch runs it on demand. Pull requests
+# only run the resolver tests.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/scripts/agent-cli-pins.mjs"
+      - ".github/scripts/agent-cli-pins.test.mjs"
+      - ".github/workflows/agent-cli-pins.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-cli-pins-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'update' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test the pin resolver
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Run resolver tests
+        run: node --test .github/scripts/agent-cli-pins.test.mjs
+
+  update:
+    name: Resolve latest pins
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Resolve npm latest
+        run: |
+          args=(--summary "$RUNNER_TEMP/pins.md")
+          if [ "${LOCAL_CI_LOCAL:-}" != true ]; then
+            args=(--write "${args[@]}")
+          fi
+          node .github/scripts/agent-cli-pins.mjs "${args[@]}"
+
+      - name: Check for pin changes
+        id: changes
+        run: |
+          if [ "${LOCAL_CI_LOCAL:-}" = true ]; then
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::local-ci: skipping pin change detection."
+            exit 0
+          fi
+          files=(deploy/railway/worker/Dockerfile deploy/railway/hub/Dockerfile deploy/railway/worker/README.md)
+          if git diff --quiet -- "${files[@]}"; then
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+            echo "::notice::Agent CLI pins are current."
+          else
+            echo "changed=true" >>"$GITHUB_OUTPUT"
+            git diff --stat -- "${files[@]}"
+          fi
+
+      - name: Open or update the pull request
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          # GITHUB_TOKEN-opened PRs do not trigger checks; set the optional
+          # token so the bump PR gets the image workflows.
+          GH_TOKEN: ${{ secrets.AGENT_CLI_PINS_TOKEN || github.token }}
+          HAS_TOKEN: ${{ secrets.AGENT_CLI_PINS_TOKEN != '' }}
+        run: |
+          if [ "${LOCAL_CI_LOCAL:-}" = true ]; then
+            echo "::notice::local-ci: skipping PR creation."
+            exit 0
+          fi
+
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::notice::AGENT_CLI_PINS_TOKEN is unset; using GITHUB_TOKEN."
+            echo "::notice::CI will not run on the PR; allow Actions to create PRs."
+          fi
+
+          branch=automation/agent-cli-pins
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add deploy/railway/worker/Dockerfile deploy/railway/hub/Dockerfile deploy/railway/worker/README.md
+          git commit -m "chore: refresh Railway agent CLI pins"
+
+          # The workflow owns this branch, so a newer weekly run replaces it.
+          git fetch origin "+refs/heads/$branch:refs/remotes/origin/$branch" || true
+          lease=$(git rev-parse --verify "refs/remotes/origin/$branch" 2>/dev/null || true)
+          if [ -n "$lease" ]; then
+            git push --force-with-lease="refs/heads/$branch:$lease" origin "HEAD:refs/heads/$branch"
+          else
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+
+          {
+            cat "$RUNNER_TEMP/pins.md"
+            echo
+            echo "Tracking issue: #234"
+            if [ "$HAS_TOKEN" != "true" ]; then
+              echo
+              echo "> Opened with GITHUB_TOKEN, so CI did not run automatically."
+              echo "> Set AGENT_CLI_PINS_TOKEN to get image checks on future bumps."
+            fi
+          } >"$RUNNER_TEMP/pr-body.md"
+
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')" ]; then
+            echo "::notice::Updated the open agent CLI pin PR."
+            exit 0
+          fi
+
+          if ! gh pr create --base main --head "$branch" \
+            --title "chore: refresh Railway agent CLI pins" \
+            --body-file "$RUNNER_TEMP/pr-body.md"; then
+            echo "::error::Could not create the PR. Set AGENT_CLI_PINS_TOKEN."
+            exit 1
+          fi
