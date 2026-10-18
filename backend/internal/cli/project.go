@@ -123,6 +123,9 @@ type projectConfig struct {
 	Orchestrator      roleOverride         `json:"orchestrator,omitempty"`
 	TrackerIntake     trackerIntakeConfig  `json:"trackerIntake,omitempty"`
 	AutoReview        bool                 `json:"autoReview,omitempty"`
+	// TerminateOnPRMerge controls whether sessions spawned for this project are
+	// terminated automatically after their PR set completes through a merge.
+	TerminateOnPRMerge bool `json:"terminateOnPrMerge,omitempty"`
 	// WorkersRequestReview must round-trip through set-config so a CLI edit
 	// of another field never silently turns it off.
 	WorkersRequestReview bool             `json:"workersRequestReview,omitempty"`
@@ -136,26 +139,28 @@ type setConfigRequest struct {
 }
 
 type projectSetConfigOptions struct {
-	canonicalRepoURL  string
-	defaultBranch     string
-	sessionPrefix     string
-	model             string
-	permission        string
-	workerAgent       string
-	orchestratorAgent string
-	agentRules        string
-	agentRulesFile    string
-	orchestratorRules string
-	env               []string
-	symlink           []string
-	postCreate        []string
-	trackerIntake     bool
-	trackerRepo       string
-	trackerAssignee   string
-	reviewers         []string
-	configJSON        string
-	clear             bool
-	json              bool
+	canonicalRepoURL      string
+	defaultBranch         string
+	sessionPrefix         string
+	model                 string
+	permission            string
+	workerAgent           string
+	orchestratorAgent     string
+	agentRules            string
+	agentRulesFile        string
+	orchestratorRules     string
+	env                   []string
+	symlink               []string
+	postCreate            []string
+	trackerIntake         bool
+	trackerRepo           string
+	trackerAssignee       string
+	reviewers             []string
+	configJSON            string
+	clear                 bool
+	json                  bool
+	terminateOnPRMerge    bool
+	terminateOnPRMergeSet bool
 }
 
 type projectListResult struct {
@@ -314,6 +319,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := strings.TrimSpace(args[0])
+			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
 			config, err := buildProjectConfig(opts)
 			if err != nil {
 				return err
@@ -349,6 +355,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.trackerAssignee, "tracker-assignee", "", "Issue assignee required for intake eligibility")
 	f.StringArrayVar(&opts.reviewers, "reviewer", nil, "Reviewer harness that reviews worker PRs (repeatable; e.g. claude-code)")
 	f.StringVar(&opts.configJSON, "config-json", "", "Full config as a JSON object (overrides field flags)")
+	f.BoolVar(&opts.terminateOnPRMerge, "terminate-on-pr-merge", false, "Terminate spawned sessions for this project after all their PRs merge and their agents quiesce")
 	f.BoolVar(&opts.clear, "clear", false, "Clear all config")
 	f.BoolVar(&opts.json, "json", false, "Output the updated project as JSON")
 	return cmd
@@ -394,7 +401,10 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 		},
 		Reviewers: reviewersForFlags(opts.reviewers),
 	}
-	if reflect.DeepEqual(cfg, projectConfig{}) {
+	if opts.terminateOnPRMergeSet {
+		cfg.TerminateOnPRMerge = opts.terminateOnPRMerge
+	}
+	if !opts.terminateOnPRMergeSet && reflect.DeepEqual(cfg, projectConfig{}) {
 		return projectConfig{}, usageError{errors.New("usage: provide at least one config flag, --config-json, or --clear")}
 	}
 	return cfg, nil

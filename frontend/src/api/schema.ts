@@ -5335,6 +5335,7 @@ export interface components {
             reviewers?: components["schemas"]["DomainReviewerConfig"][];
             sessionPrefix?: string;
             symlinks?: string[];
+            terminateOnPrMerge?: boolean;
             trackerIntake?: components["schemas"]["TrackerIntakeConfig"];
             worker?: components["schemas"]["RoleOverride"];
             workersRequestReview?: boolean;
@@ -6225,6 +6226,7 @@ export interface components {
             remoteSpawn?: boolean;
             /** @enum {string} */
             requestedOutput?: "artifact";
+            terminateOnPrMerge?: null | boolean;
             /** @enum {string} */
             trackerProvider?: "github" | "gitlab";
         };
