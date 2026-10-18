@@ -101,6 +101,10 @@ For code entry points:
 
 ## Coding conventions
 
+- Keep each code comment to at most two physical lines and 80 characters per line, including indentation and delimiters. Adjacent `//` lines form one comment. Markdown prose is not subject to this limit.
+- The automated check tokenizes Go and TypeScript/TSX/JavaScript with Go's standard parser and the existing TypeScript compiler. Generated files, Go build/compiler directives, TypeScript tooling directives, narrow formatter/linter directives, and SPDX/copyright notices are preserved and narrowly excluded. Other handwritten formats are not yet covered by automated enforcement; the rule still applies to their comments.
+- The committed `scripts/comment-policy/baseline.json` records existing Go and TypeScript-family violations per file. It prevents the recorded debt from growing; it does not mean existing violations are compliant or remediated. Run `npm run comment:check` and `npm run comment:test` when changing comments.
+
 - Keep every change surgical and directly tied to the task. Avoid drive-by cleanup, broad renames, formatting churn, speculative abstractions, and architectural refactors unless the task explicitly asks for them.
 - Follow existing Go package boundaries. CLI code should call daemon HTTP routes through shared CLI client helpers; it should not open SQLite, spawn runtimes, or call adapters directly.
 - Keep Cobra commands in the relevant command file and table-test them in the style of `backend/internal/cli/*_test.go`.
