@@ -40,8 +40,10 @@ Build arguments:
 `AGENT_NPM_PACKAGES` is refreshed against npm `latest` by
 `.github/workflows/agent-pins.yml`, which opens a PR and runs the Hub image
 check when a pin drifts. The same workflow updates the hub's
-`HUB_AGENT_NPM_PACKAGES` and `HUB_OPENCODE_V2_PACKAGE` pins. To preview the
-change locally, run
+`HUB_AGENT_NPM_PACKAGES` and `HUB_OPENCODE_V2_PACKAGE` pins. The updater
+refuses downgrades and keeps OpenCode on its major (`opencode-ai` 1,
+`@opencode/cli` 2); a cross-major `latest` is reported and left unchanged. To
+preview the change locally, run
 `node deploy/railway/scripts/update-agent-pins.mjs --dry-run` from the
 repository root.
 

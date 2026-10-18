@@ -109,6 +109,7 @@ jobs:
         run: |
           node deploy/railway/scripts/update-agent-pins.mjs \
             --summary "$RUNNER_TEMP/pin-summary.md"
+          cat "$RUNNER_TEMP/pin-summary.md" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Commit and push the update
         id: commit
