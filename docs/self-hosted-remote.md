@@ -155,6 +155,11 @@ service that runs the daemon:
 scripts/install-self-update.sh --install --channel main --repo <owner>/<repo>
 ```
 
+From a checkout the same thing is `make daemon-update-install
+DAEMON_CHANNEL=main` (the repository defaults to this checkout's `origin`),
+`make daemon-update DAEMON_UPDATE_CMD=status` reports a host, and
+`make daemon-channel` stages a channel locally.
+
 It writes `~/.ao/self-update.json`, copies the updater to
 `~/.ao/bin/ao-self-update`, and enables a systemd user timer or a LaunchAgent
 that runs `ao-self-update apply` every hour (`--interval-minutes`). On systemd
