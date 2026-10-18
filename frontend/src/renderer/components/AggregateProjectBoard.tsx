@@ -68,8 +68,7 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 							: <div className="min-h-0 flex-1">
 								<SessionsBoardGridView columns={columns} labels={labels} sessions={sessions} sessionKey={(session) => refKey({ host: session.hostId ?? LOCAL_HOST, id: session.id })} renderSessionCard={(session) => {
 									const hostId = session.hostId ?? LOCAL_HOST;
-									const target = hostId === LOCAL_HOST ? localProject : associated.find((entry) => entry.hostId === hostId && entry.projectId === session.workspaceId);
-									const targetProjectId = hostId === LOCAL_HOST ? projectId : target?.projectId;
+									const targetProjectId = hostId === LOCAL_HOST ? projectId : associated.find((entry) => entry.hostId === hostId && entry.projectId === session.workspaceId)?.projectId;
 									const hostLabel = hostId === LOCAL_HOST ? localHostName : labelForHost(hostId) ?? hostId;
 									return <div key={sessionUiKey(session.id, hostId)} data-session-key={refKey({ host: hostId, id: session.id })}>
 										<BoardSessionCardAdapter session={session} sourceLabel={t("shell.aggregateSource", { host: hostLabel, worker: agentLabel(session.provider) })} onOpen={() => targetProjectId && void projectRoute(hostId, targetProjectId, session.id)} />
