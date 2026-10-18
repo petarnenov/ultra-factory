@@ -20,39 +20,41 @@ import (
 const maxDisplayNameLen = 100
 
 type spawnOptions struct {
-	project         string
-	standalone      bool
-	harness         string
-	kind            string
-	mode            string
-	branch          string
-	prompt          string
-	issue           string
-	name            string
-	model           string
-	output          string
-	claimPR         string
-	noTakeover      bool
-	skipAgentCheck  bool
-	trackerProvider string
+	project            string
+	standalone         bool
+	harness            string
+	kind               string
+	mode               string
+	branch             string
+	prompt             string
+	issue              string
+	name               string
+	model              string
+	output             string
+	claimPR            string
+	noTakeover         bool
+	skipAgentCheck     bool
+	trackerProvider    string
+	terminateOnPRMerge bool
 }
 
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
 // POST /api/v1/sessions. The CLI keeps its own copy so it need not import httpd.
 type spawnRequest struct {
-	ProjectID       string `json:"projectId,omitempty"`
-	IssueID         string `json:"issueId,omitempty"`
-	ParentSessionID string `json:"parentSessionId,omitempty"`
-	TrackerProvider string `json:"trackerProvider,omitempty"`
-	Kind            string `json:"kind,omitempty"`
-	Mode            string `json:"mode,omitempty"`
-	Harness         string `json:"harness,omitempty"`
-	Branch          string `json:"branch,omitempty"`
-	Prompt          string `json:"prompt,omitempty"`
-	Model           string `json:"model,omitempty"`
-	RequestedOutput string `json:"requestedOutput,omitempty"`
-	DisplayName     string `json:"displayName"`
-	RemoteSpawn     bool   `json:"remoteSpawn,omitempty"`
+	ProjectID          string `json:"projectId,omitempty"`
+	IssueID            string `json:"issueId,omitempty"`
+	ParentSessionID    string `json:"parentSessionId,omitempty"`
+	TrackerProvider    string `json:"trackerProvider,omitempty"`
+	Kind               string `json:"kind,omitempty"`
+	Mode               string `json:"mode,omitempty"`
+	Harness            string `json:"harness,omitempty"`
+	Branch             string `json:"branch,omitempty"`
+	Prompt             string `json:"prompt,omitempty"`
+	Model              string `json:"model,omitempty"`
+	RequestedOutput    string `json:"requestedOutput,omitempty"`
+	DisplayName        string `json:"displayName"`
+	RemoteSpawn        bool   `json:"remoteSpawn,omitempty"`
+	TerminateOnPRMerge *bool  `json:"terminateOnPrMerge,omitempty"`
 }
 
 type spawnResult struct {
@@ -181,20 +183,26 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if ctx.targetsRemote() {
 				parentSessionID = ""
 			}
+			var terminateOnPRMerge *bool
+			if cmd.Flags().Changed("terminate-on-pr-merge") {
+				value := opts.terminateOnPRMerge
+				terminateOnPRMerge = &value
+			}
 			req := spawnRequest{
-				ProjectID:       opts.project,
-				IssueID:         opts.issue,
-				ParentSessionID: parentSessionID,
-				TrackerProvider: opts.trackerProvider,
-				Kind:            opts.kind,
-				Harness:         opts.harness,
-				Mode:            opts.mode,
-				Branch:          opts.branch,
-				Prompt:          opts.prompt,
-				Model:           strings.TrimSpace(opts.model),
-				RequestedOutput: opts.output,
-				DisplayName:     name,
-				RemoteSpawn:     ctx.targetsRemote() && opts.kind != "orchestrator",
+				ProjectID:          opts.project,
+				IssueID:            opts.issue,
+				ParentSessionID:    parentSessionID,
+				TrackerProvider:    opts.trackerProvider,
+				Kind:               opts.kind,
+				Harness:            opts.harness,
+				Mode:               opts.mode,
+				Branch:             opts.branch,
+				Prompt:             opts.prompt,
+				Model:              strings.TrimSpace(opts.model),
+				RequestedOutput:    opts.output,
+				DisplayName:        name,
+				RemoteSpawn:        ctx.targetsRemote() && opts.kind != "orchestrator",
+				TerminateOnPRMerge: terminateOnPRMerge,
 			}
 			var res spawnResult
 			if err := ctx.postJSON(cmd.Context(), "sessions", req, &res); err != nil {
@@ -271,6 +279,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.prompt, "prompt", "", "Initial prompt for the agent")
 	f.StringVar(&opts.model, "model", "", "Agent model override for this session only (e.g. sonnet, gpt-5.6-sol); overrides project/role config without changing it")
 	f.StringVar(&opts.output, "output", "", "Deliverable for the session: artifact asks the agent to write a file in its artifact directory instead of opening a PR (default: ordinary task)")
+	f.BoolVar(&opts.terminateOnPRMerge, "terminate-on-pr-merge", false, "Tear down this session after all its PRs reach a terminal state with at least one merged and the agent quiesces; overrides the project default")
 	f.StringVar(&opts.issue, "issue", "", "Issue id to associate with the session")
 	f.StringVar(&opts.trackerProvider, "tracker-provider", "github", "Issue tracker provider: github or gitlab (default: github)")
 	f.StringVar(&opts.name, "name", "", "Display name shown in the sidebar (required, max 100 characters)")

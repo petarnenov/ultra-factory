@@ -5237,6 +5237,9 @@ func TestSpawn_DefaultsBranchFromSessionID(t *testing.T) {
 	if st.sessions[s.ID].AutoReviewEnabled {
 		t.Fatal("auto review must default to disabled when project config does not enable it")
 	}
+	if st.sessions[s.ID].TerminateOnPRMerge {
+		t.Fatal("terminate on PR merge must default to disabled when project config does not enable it")
+	}
 }
 
 func TestSpawn_InheritsAutoReviewFromProjectConfig(t *testing.T) {
@@ -5251,6 +5254,56 @@ func TestSpawn_InheritsAutoReviewFromProjectConfig(t *testing.T) {
 	}
 	if !st.sessions[s.ID].AutoReviewEnabled {
 		t.Fatal("auto review must be enabled when project config enables it")
+	}
+}
+
+func TestSpawn_InheritsTerminateOnPRMergeFromProjectConfig(t *testing.T) {
+	m, st, _, _ := newManager()
+	cfg := testRoleAgents()
+	cfg.TerminateOnPRMerge = true
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: "/repo/mer", Kind: domain.ProjectKindWorkspace, Config: cfg}
+
+	s, _, _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.sessions[s.ID].TerminateOnPRMerge {
+		t.Fatal("terminate-on-pr-merge must be enabled when project config enables it")
+	}
+}
+
+func TestSpawn_TerminateOnPRMergeOverrideWinsOverProjectDefault(t *testing.T) {
+	m, st, _, _ := newManager()
+	cfg := testRoleAgents()
+	cfg.TerminateOnPRMerge = true
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: "/repo/mer", Kind: domain.ProjectKindWorkspace, Config: cfg}
+
+	falseValue := false
+	s, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID:          "mer",
+		Kind:               domain.KindWorker,
+		TerminateOnPRMerge: &falseValue,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.sessions[s.ID].TerminateOnPRMerge {
+		t.Fatal("explicit false override must win over project default true")
+	}
+
+	trueValue := true
+	cfg.TerminateOnPRMerge = false
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: "/repo/mer", Kind: domain.ProjectKindWorkspace, Config: cfg}
+	s, _, _, err = m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID:          "mer",
+		Kind:               domain.KindWorker,
+		TerminateOnPRMerge: &trueValue,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.sessions[s.ID].TerminateOnPRMerge {
+		t.Fatal("explicit true override must win over project default false")
 	}
 }
 

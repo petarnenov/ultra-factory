@@ -240,4 +240,7 @@ func TestProjectConfigIsZero(t *testing.T) {
 	if (ProjectConfig{AutoReview: true}).IsZero() {
 		t.Fatal("config with autoReview enabled should not be zero")
 	}
+	if (ProjectConfig{TerminateOnPRMerge: true}).IsZero() {
+		t.Fatal("config with terminateOnPrMerge enabled should not be zero")
+	}
 }

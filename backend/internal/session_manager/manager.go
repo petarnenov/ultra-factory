@@ -5266,14 +5266,24 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		Activity:          domain.Activity{State: domain.ActivityIdle, LastActivityAt: now},
 		// Resolved before this point and persisted here. There is no UPDATE
 		// statement that can change it afterwards.
-		Mode:              domain.NormalizeSessionMode(cfg.RequestedMode),
-		Metadata:          domain.SessionMetadata{Permissions: applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, projectConfig), cfg.AgentConfig).Permissions},
-		RequestedOutput:   cfg.RequestedOutput,
-		OutputType:        domain.SessionOutputNone,
-		AutoReviewEnabled: projectConfig.AutoReview,
-		AutoInjectReview:  true,
-		AutoInjectCI:      true,
+		Mode:               domain.NormalizeSessionMode(cfg.RequestedMode),
+		Metadata:           domain.SessionMetadata{Permissions: applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, projectConfig), cfg.AgentConfig).Permissions},
+		RequestedOutput:    cfg.RequestedOutput,
+		OutputType:         domain.SessionOutputNone,
+		AutoReviewEnabled:  projectConfig.AutoReview,
+		TerminateOnPRMerge: resolveTerminateOnPRMerge(cfg.TerminateOnPRMerge, projectConfig.TerminateOnPRMerge),
+		AutoInjectReview:   true,
+		AutoInjectCI:       true,
 	}
+}
+
+// resolveTerminateOnPRMerge chooses a spawn's explicit override when it is
+// present and falls back to the project default otherwise.
+func resolveTerminateOnPRMerge(override *bool, projectDefault bool) bool {
+	if override != nil {
+		return *override
+	}
+	return projectDefault
 }
 
 func defaultSessionBranch(id domain.SessionID, kind domain.SessionKind, prefix, branchNamespace string) string {

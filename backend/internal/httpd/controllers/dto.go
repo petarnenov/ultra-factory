@@ -514,6 +514,10 @@ type SpawnSessionRequest struct {
 	// Effort is the optional reasoning level for the selected model.
 	Effort string `json:"effort,omitempty" maxLength:"32"`
 
+	// TerminateOnPRMerge, when set, overrides the project default for this spawn.
+	// Omitted inherits the daemon-resolved project setting.
+	TerminateOnPRMerge *bool `json:"terminateOnPrMerge,omitempty"`
+
 	// RequestedOutput asks for a specific deliverable. artifact tells the worker to
 	// write a file in its artifact directory instead of opening a PR. Omitted is
 	// the ordinary task flow.
