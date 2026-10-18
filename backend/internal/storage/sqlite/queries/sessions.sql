@@ -308,6 +308,7 @@ UPDATE sessions SET
     kind = sqlc.arg(kind),
     harness = sqlc.arg(harness),
     auto_review_enabled = sqlc.arg(auto_review_enabled),
+    terminate_on_pr_merge = sqlc.arg(terminate_on_pr_merge),
     display_name = sqlc.arg(display_name),
     activity_state = sqlc.arg(activity_state),
     activity_last_at = sqlc.arg(activity_last_at),

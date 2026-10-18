@@ -1089,25 +1089,26 @@ UPDATE sessions SET
     kind = ?2,
     harness = ?3,
     auto_review_enabled = ?4,
-    display_name = ?5,
-    activity_state = ?6,
-    activity_last_at = ?7,
+    terminate_on_pr_merge = ?5,
+    display_name = ?6,
+    activity_state = ?7,
+    activity_last_at = ?8,
     is_terminated = 0,
-    session_mode = ?8,
-    model = ?9,
-    effort = ?10,
-    session_permissions = ?11,
-    requested_output = ?12,
-    created_at = ?13,
-    updated_at = ?14,
-    auto_inject_review = ?15,
-    auto_inject_ci = ?16,
-    provision_state = ?17,
+    session_mode = ?9,
+    model = ?10,
+    effort = ?11,
+    session_permissions = ?12,
+    requested_output = ?13,
+    created_at = ?14,
+    updated_at = ?15,
+    auto_inject_review = ?16,
+    auto_inject_ci = ?17,
+    provision_state = ?18,
     provision_error = '',
-    client_request_id = ?18,
-    client_request_hash = ?19,
+    client_request_id = ?19,
+    client_request_hash = ?20,
     is_task_preparation = 0
-WHERE id = ?20 AND is_task_preparation = 1
+WHERE id = ?21 AND is_task_preparation = 1
 `
 
 type PromoteTaskPreparationParams struct {
@@ -1115,6 +1116,7 @@ type PromoteTaskPreparationParams struct {
 	Kind               domain.SessionKind
 	Harness            domain.AgentHarness
 	AutoReviewEnabled  bool
+	TerminateOnPRMerge bool
 	DisplayName        string
 	ActivityState      domain.ActivityState
 	ActivityLastAt     time.Time
@@ -1141,6 +1143,7 @@ func (q *Queries) PromoteTaskPreparation(ctx context.Context, arg PromoteTaskPre
 		arg.Kind,
 		arg.Harness,
 		arg.AutoReviewEnabled,
+		arg.TerminateOnPRMerge,
 		arg.DisplayName,
 		arg.ActivityState,
 		arg.ActivityLastAt,
