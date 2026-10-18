@@ -221,6 +221,8 @@ export function updatePins({ root = repoRoot, versions, write = false }) {
 }
 
 export function npmLatest(name) {
+  // Only npm `latest` is consulted, so a locked package's same-major patch
+  // releases are not discovered while `latest` is on a new major.
   const output = execFileSync(
     "npm",
     ["view", `${name}@latest`, "version"],
@@ -325,10 +327,13 @@ export function run(options = {}) {
     );
   }
   for (const skip of skipped) {
-    console.log(
+    const message =
       `${skip.file} ${skip.arg}: skipped ${skip.name} ` +
-        `${skip.from} -> ${skip.to} (${skip.reason})`,
-    );
+      `${skip.from} -> ${skip.to} (${skip.reason})`;
+    console.log(message);
+    if (process.env.GITHUB_ACTIONS === "true") {
+      console.log(`::warning::${message}`);
+    }
   }
   if (!changes.length) {
     console.log("No agent CLI pins updated.");
