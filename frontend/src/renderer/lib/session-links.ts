@@ -1,4 +1,4 @@
-export type SessionLinkTarget = { projectId: string; sessionId: string };
+export type SessionLinkTarget = { projectId: string; sessionId: string; hostId?: string };
 export type ArtifactLinkTarget = SessionLinkTarget & { path: string };
 export type ResolvedSessionLink = SessionLinkTarget & { isTerminated: boolean };
 export type SessionLinkWorkspace = {
@@ -7,8 +7,9 @@ export type SessionLinkWorkspace = {
 };
 
 const SESSION_LINK_PREFIX = "ao://sessions/";
+const HOST_SESSION_LINK_PREFIX = "ao://hosts/";
 const ARTIFACT_SEGMENT = "artifacts";
-const RAW_SESSION_LINK = /ao:\/\/sessions\/\S+/g;
+const RAW_SESSION_LINK = /ao:\/\/(?:sessions|hosts\/[^/]+\/sessions)\/\S+/g;
 const TRAILING_PUNCTUATION = /[.,;:!?]+$/;
 const TRAILING_DELIMITERS = [
 	["(", ")"],
@@ -26,16 +27,17 @@ const TRAILING_DELIMITERS = [
 
 /** Strictly parse the in-app session route, `ao://sessions/{project}/{session}`. */
 export function parseSessionLink(value: string): SessionLinkTarget | undefined {
-	const segments = linkSegments(value);
-	if (segments?.length !== 2) return undefined;
-	return sessionTarget(segments);
+	const route = linkRoute(value);
+	if (route?.segments.length !== 2) return undefined;
+	return sessionTarget(route.segments, route.hostId);
 }
 
 /** Strictly parse the in-app artifact route, `ao://sessions/{project}/{session}/artifacts/{path}`. */
 export function parseArtifactLink(value: string): ArtifactLinkTarget | undefined {
-	const segments = linkSegments(value);
+	const route = linkRoute(value);
+	const segments = route?.segments;
 	if (!segments || segments.length < 4 || segments[2] !== ARTIFACT_SEGMENT) return undefined;
-	const target = sessionTarget(segments.slice(0, 2));
+	const target = sessionTarget(segments.slice(0, 2), route.hostId);
 	if (!target) return undefined;
 	const path: string[] = [];
 	for (const segment of segments.slice(3)) {
@@ -47,9 +49,17 @@ export function parseArtifactLink(value: string): ArtifactLinkTarget | undefined
 }
 
 /** The canonical artifact route for a slash-separated path inside a session's artifact directory. */
-export function artifactLink(projectId: string, sessionId: string, path: string): string {
+export function artifactLink(projectId: string, sessionId: string, path: string, hostId?: string): string {
 	const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-	return `${SESSION_LINK_PREFIX}${encodeURIComponent(projectId)}/${encodeURIComponent(sessionId)}/${ARTIFACT_SEGMENT}/${encodedPath}`;
+	return `${sessionLink(projectId, sessionId, hostId)}/${ARTIFACT_SEGMENT}/${encodedPath}`;
+}
+
+/** Canonical session route, with host when source is remote. */
+export function sessionLink(projectId: string, sessionId: string, hostId?: string): string {
+	const project = encodeURIComponent(projectId);
+	const session = encodeURIComponent(sessionId);
+	if (hostId && hostId !== "local") return `${HOST_SESSION_LINK_PREFIX}${encodeURIComponent(hostId)}/sessions/${project}/${session}`;
+	return `${SESSION_LINK_PREFIX}${project}/${session}`;
 }
 
 type ArtifactPathWorkspace = { id: string; sessions: Array<{ id: string; artifactFiles?: Array<{ path: string }> }> };
@@ -83,17 +93,25 @@ export function isAoLink(value: string): boolean {
 	return parseSessionLink(value) !== undefined || parseArtifactLink(value) !== undefined;
 }
 
-function linkSegments(value: string): string[] | undefined {
-	if (!value.startsWith(SESSION_LINK_PREFIX) || value.includes("?") || value.includes("#")) return undefined;
-	const segments = value.slice(SESSION_LINK_PREFIX.length).split("/");
-	return segments.some((segment) => segment.length === 0) ? undefined : segments;
+function linkRoute(value: string): { hostId?: string; segments: string[] } | undefined {
+	if (value.includes("?") || value.includes("#")) return undefined;
+	if (value.startsWith(SESSION_LINK_PREFIX)) {
+		const segments = value.slice(SESSION_LINK_PREFIX.length).split("/");
+		return segments.some((segment) => segment.length === 0) ? undefined : { segments };
+	}
+	if (!value.startsWith(HOST_SESSION_LINK_PREFIX)) return undefined;
+	const segments = value.slice(HOST_SESSION_LINK_PREFIX.length).split("/");
+	if (segments.length < 4 || segments[1] !== "sessions" || segments.some((segment) => segment.length === 0)) return undefined;
+	const hostId = decodeSegment(segments[0]!);
+	if (!hostId?.trim() || hostId.includes("/")) return undefined;
+	return { hostId, segments: segments.slice(2) };
 }
 
-function sessionTarget([project, session]: string[]): SessionLinkTarget | undefined {
+function sessionTarget([project, session]: string[], hostId?: string): SessionLinkTarget | undefined {
 	const projectId = decodeSegment(project!);
 	const sessionId = decodeSegment(session!);
 	if (!projectId?.trim() || !sessionId?.trim() || projectId.includes("/") || sessionId.includes("/")) return undefined;
-	return { projectId, sessionId };
+	return hostId ? { projectId, sessionId, hostId } : { projectId, sessionId };
 }
 
 function decodeSegment(segment: string): string | undefined {
@@ -114,7 +132,7 @@ export function resolveSessionLink(value: string, workspaces: SessionLinkWorkspa
 	const project = workspaces.find((workspace) => workspace.id === target.projectId);
 	const session = project?.sessions.find((candidate) => candidate.id === target.sessionId);
 	if (!session) return undefined;
-	return { projectId: target.projectId, sessionId: target.sessionId, isTerminated: session.isTerminated === true || session.status === "terminated" };
+	return { projectId: target.projectId, sessionId: target.sessionId, hostId: target.hostId, isTerminated: session.isTerminated === true || session.status === "terminated" };
 }
 
 /** Find raw session and artifact links without swallowing prose punctuation adjacent to them. */

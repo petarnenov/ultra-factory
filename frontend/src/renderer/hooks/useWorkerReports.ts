@@ -26,6 +26,16 @@ export function useWorkerReports(projectId: string, hostId?: string, enabled = t
 	});
 	return {
 		...query,
-		data: query.data?.pages.flatMap((page) => page.reports ?? []) ?? [],
+		data: deduplicateReports(query.data?.pages.flatMap((page) => page.reports ?? []) ?? []),
 	};
+}
+
+function deduplicateReports<T extends { hostId?: string; sessionId: string; id: string }>(reports: T[]): T[] {
+	const seen = new Set<string>();
+	return reports.filter((report) => {
+		const key = `${report.hostId || "local"}/${report.sessionId}/${report.id}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
 }

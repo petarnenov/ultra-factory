@@ -350,6 +350,18 @@ func (b PreparedBatch) Render() string {
 			out.WriteString(text)
 		}
 		for _, output := range report.Outputs {
+			if output.Kind == domain.ReportOutputArtifact {
+				if href := reportArtifactLink(report, output.Reference); href != "" {
+					label := strings.ReplaceAll(output.Label, "[", "\\[")
+					label = strings.ReplaceAll(label, "]", "\\]")
+					label = strings.ReplaceAll(label, "\n", " ")
+					if label == "" {
+						label = output.Reference
+					}
+					fmt.Fprintf(&out, "\nartifact: [%s](%s)", label, href)
+					continue
+				}
+			}
 			fmt.Fprintf(&out, "\n%s: %s", output.Kind, output.Reference)
 		}
 	}
@@ -372,9 +384,48 @@ func reportSessionLink(r domain.ReportRecord) string {
 		oneLine := strings.NewReplacer("\n", " ", "\r", " ")
 		return fmt.Sprintf("%s (session %s on host %s)", oneLine.Replace(reportDisplayNameOrID(r)), oneLine.Replace(string(r.SessionID)), oneLine.Replace(r.HostLabel))
 	}
-	label := strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "\n", " ").Replace(reportDisplayNameOrID(r))
-	href := "ao://sessions/" + url.PathEscape(string(r.ProjectID)) + "/" + url.PathEscape(string(r.SessionID))
+	label := strings.NewReplacer("\\", "\\\\", "[", "\\[", "]", "\\]", "\n", " ", "\r", " ").Replace(reportDisplayNameOrID(r))
+	href := reportSessionLinkURL(r)
 	return "[" + label + "](" + href + ")"
+}
+
+func reportSessionLinkURL(r domain.ReportRecord) string {
+	projectID := r.SourceProjectID
+	if projectID == "" {
+		projectID = string(r.ProjectID)
+	}
+	if r.HostID != "" {
+		return "ao://hosts/" + url.PathEscape(r.HostID) + "/sessions/" + url.PathEscape(projectID) + "/" + url.PathEscape(string(r.SessionID))
+	}
+	return "ao://sessions/" + url.PathEscape(projectID) + "/" + url.PathEscape(string(r.SessionID))
+}
+
+func reportArtifactLink(r domain.ReportRecord, reference string) string {
+	path := strings.TrimSpace(reference)
+	if !safeReportArtifactPath(path) {
+		return ""
+	}
+	return reportSessionLinkURL(r) + "/artifacts/" + escapeReportArtifactPath(path)
+}
+
+func safeReportArtifactPath(path string) bool {
+	if path == "" || strings.HasPrefix(path, "/") || strings.Contains(path, "\\") || strings.Contains(path, ":") {
+		return false
+	}
+	for _, segment := range strings.Split(path, "/") {
+		if strings.TrimSpace(segment) == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func escapeReportArtifactPath(path string) string {
+	segments := strings.Split(path, "/")
+	for i := range segments {
+		segments[i] = url.PathEscape(segments[i])
+	}
+	return strings.Join(segments, "/")
 }
 
 func (b PreparedBatch) hasState(state domain.ReportState) bool {

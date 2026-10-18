@@ -236,3 +236,74 @@ func TestReportStoreInterruptLimitSurvivesRestart(t *testing.T) {
 		t.Fatalf("boundary acquired = %v, err = %v", acquired, err)
 	}
 }
+
+func TestListReportsByProjectPageCursorAcrossHostsAndTies(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	sess, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	localReports := []string{"local-alpha", "local-beta"}
+	for _, id := range localReports {
+		if _, err := s.CreateReport(ctx, domain.ReportRecord{
+			ID: id, SessionID: sess.ID, ProjectID: "ao", State: domain.ReportDone,
+			Note: id, CreatedAt: at, AvailableAt: at, SettlementDeadline: at.Add(time.Hour),
+			DeliveryState: domain.ReportPending, RepeatCount: 1,
+		}); err != nil {
+			t.Fatalf("create local %s: %v", id, err)
+		}
+	}
+	if err := s.RecordRemoteReportHistory(ctx, "host-z", "worker-z", []domain.ReportRecord{{
+		ID: "remote-z", SessionID: "worker-z", ProjectID: "ao", SourceProjectID: "ao",
+		State: domain.ReportDone, Note: "remote z", HostLabel: "Build box", Agent: "codex",
+		SessionDisplayName: "worker z", CreatedAt: at, RepeatCount: 1,
+	}}); err != nil {
+		t.Fatalf("record remote z: %v", err)
+	}
+	if err := s.RecordRemoteReportHistory(ctx, "host-alpha", "worker-a", []domain.ReportRecord{{
+		ID: "remote-a", SessionID: "worker-a", ProjectID: "ao", SourceProjectID: "ao",
+		State: domain.ReportDone, Note: "remote a", HostLabel: "Test box", Agent: "claude-code",
+		SessionDisplayName: "worker a", CreatedAt: at, RepeatCount: 1,
+	}}); err != nil {
+		t.Fatalf("record remote a: %v", err)
+	}
+
+	first, err := s.ListReportsByProjectPage(ctx, "ao", time.Time{}, "", "", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) < 2 || first[0].HostID != "host-z" || first[1].HostID != "host-alpha" {
+		t.Fatalf("first page = %+v", first)
+	}
+	first = first[:2]
+	second, err := s.ListReportsByProjectPage(ctx, "ao", first[1].CreatedAt, first[1].HostID, string(first[1].SessionID), string(first[1].ID), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 2 {
+		t.Fatalf("second page = %+v", second)
+	}
+	third, err := s.ListReportsByProjectPage(ctx, "ao", second[1].CreatedAt, second[1].HostID, string(second[1].SessionID), string(second[1].ID), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third) != 0 {
+		t.Fatalf("third page = %+v, want none", third)
+	}
+	seen := map[string]bool{}
+	for _, page := range [][]domain.ReportRecord{first, second} {
+		for _, report := range page {
+			key := report.HostID + "/" + string(report.SessionID) + "/" + string(report.ID)
+			if seen[key] {
+				t.Fatalf("duplicate report %s", key)
+			}
+			seen[key] = true
+		}
+	}
+	if len(seen) != 4 {
+		t.Fatalf("got %d distinct reports, want 4", len(seen))
+	}
+}

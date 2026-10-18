@@ -105,11 +105,19 @@ func (s *Service) SetSelfHostName(name string) {
 // ListProject returns persisted report facts ordered newest first.
 // It is the compatibility entry point for callers that do not paginate.
 func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) ([]domain.ReportRecord, error) {
-	page, err := s.ListProjectPage(ctx, projectID, ListProjectFilter{})
-	if err != nil {
-		return nil, err
+	var reports []domain.ReportRecord
+	cursor := ""
+	for {
+		page, err := s.ListProjectPage(ctx, projectID, ListProjectFilter{Limit: MaxListProjectLimit, Cursor: cursor})
+		if err != nil {
+			return nil, err
+		}
+		reports = append(reports, page.Reports...)
+		if page.NextCursor == "" {
+			return reports, nil
+		}
+		cursor = page.NextCursor
 	}
-	return page.Reports, nil
 }
 
 // ListProjectPage returns one stable newest-first page.
@@ -127,21 +135,17 @@ func (s *Service) ListProjectPage(ctx context.Context, projectID domain.ProjectI
 	}
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = 100000
+		limit = DefaultListProjectLimit
 	}
 	if limit > MaxListProjectLimit && filter.Limit > 0 {
 		limit = MaxListProjectLimit
-	}
-	fetchLimit := limit
-	if filter.Limit > 0 {
-		fetchLimit = limit + 1
 	}
 	var reports []domain.ReportRecord
 	pager, isPager := s.store.(interface {
 		ListReportsByProjectPage(context.Context, domain.ProjectID, time.Time, string, string, string, int) ([]domain.ReportRecord, error)
 	})
 	if isPager {
-		reports, err = pager.ListReportsByProjectPage(ctx, projectID, cursorTime, cursorHost, cursorSession, cursorID, fetchLimit)
+		reports, err = pager.ListReportsByProjectPage(ctx, projectID, cursorTime, cursorHost, cursorSession, cursorID, limit)
 		if err != nil {
 			return ListProjectPage{}, err
 		}
@@ -182,12 +186,8 @@ func (s *Service) ListProjectPage(ctx context.Context, projectID domain.ProjectI
 			reports[i].SourceProjectID = string(reports[i].ProjectID)
 		}
 		if reports[i].HostID == "" {
-			if reports[i].HostLabel == "" {
-				if s.selfHostName != "" {
-					reports[i].HostLabel = s.selfHostName
-				} else if s.selfHostID != "" {
-					reports[i].HostLabel = s.selfHostID
-				}
+			if reports[i].HostLabel == "" && s.selfHostName != "" {
+				reports[i].HostLabel = s.selfHostName
 			}
 			source, cached := sources[reports[i].SessionID]
 			if !cached {

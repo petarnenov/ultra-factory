@@ -45,7 +45,7 @@ import { isLoopbackHostname } from "../../lib/loopback";
 import { canonicalLanguage } from "../../lib/code-highlight";
 import { fenceOf } from "../../lib/markdown-fence";
 import { EMOJI_GRAPHEME, rehypeStreamFade } from "../../lib/rehype-stream-fade";
-import { artifactLinkForPath, findSessionLinks, isAoLink, isSessionLink, remarkSessionLinks } from "../../lib/session-links";
+import { artifactLinkForPath, findSessionLinks, isAoLink, isSessionLink, parseArtifactLink, parseSessionLink, remarkSessionLinks } from "../../lib/session-links";
 import { useSessionLinkSource } from "../../lib/use-session-link-navigation";
 import {
 	isPotentialWorkspaceFileLink,
@@ -322,6 +322,7 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
 		? workspaceFilePath(href, workspacePaths) ?? findWorkspaceFilePath(href, workspacePaths) ?? explicitWorkspaceFilePath(href)
 		: undefined;
 	const sessionLink = Boolean(href && isAoLink(href));
+	const targetHostId = href ? (parseSessionLink(href) ?? parseArtifactLink(href))?.hostId ?? sessionLinkHostId : sessionLinkHostId;
 	if (safeOriginContent && !sessionLink) return <>{children}</>;
 	const openInFiles = filePath && href && !/\.html?$/i.test(filePath) ? workspaceFileOpenTarget(href, filePath) : undefined;
 	if (remoteHost && href && (isHostLocalWebLink(href) || (isPotentialWorkspaceFileLink(href) && !openInFiles))) {
@@ -339,8 +340,8 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
 			onFileOpen={onFileOpen}
 			hoverPreview={sessionLink
 				? () => isSessionLink(href!)
-					? <SessionLinkPreviewCard href={href!} sourceHostId={sessionLinkHostId} sourceKind={sessionLinkSourceKind} />
-					: <ArtifactLinkPreviewCard href={href!} sourceHostId={sessionLinkHostId} sourceKind={sessionLinkSourceKind} />
+					? <SessionLinkPreviewCard href={href!} sourceHostId={targetHostId} sourceKind={sessionLinkSourceKind} />
+					: <ArtifactLinkPreviewCard href={href!} sourceHostId={targetHostId} sourceKind={sessionLinkSourceKind} />
 				: undefined}
 			onClick={(event) => {
 				if (href && sessionLink) {

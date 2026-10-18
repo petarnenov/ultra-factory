@@ -21,6 +21,9 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 }));
 vi.mock("../hooks/useCloudOrg", () => ({ useCloudOrg: () => ({ ready: true, org: { id: "org-1" } }) }));
 
+const defaultQueryClient = new QueryClient();
+const defaultWrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={defaultQueryClient}>{children}</QueryClientProvider>;
+
 describe("useSessionLinkNavigation", () => {
 	beforeEach(() => {
 		mocks.navigate.mockReset();
@@ -40,7 +43,7 @@ describe("useSessionLinkNavigation", () => {
 	});
 
 	it("selects the exact cross-project session by stable ID", () => {
-		const { result } = renderHook(() => useSessionLinkNavigation());
+		const { result } = renderHook(() => useSessionLinkNavigation(), { wrapper: defaultWrapper });
 		act(() => expect(result.current("ao://sessions/other-project/other-session")).toBe(true));
 		expect(mocks.navigate).toHaveBeenCalledWith("other-project", "other-session");
 		expect(useUiStore.getState().globalToasts).toEqual([]);
@@ -64,7 +67,7 @@ describe("useSessionLinkNavigation", () => {
 			mocks.workspace.mockReturnValue({ isSuccess: false, data: undefined });
 			mocks.cloudProjects.mockReturnValue({ isSuccess: true, data: [{ id: "project" }] });
 			mocks.cloudSessions.mockReturnValue({ isSuccess: true, data: [{ id: "session", projectId: "project", isTerminated: false }] });
-			const { result } = renderHook(() => useSessionLinkNavigation(undefined, "cloud"));
+			const { result } = renderHook(() => useSessionLinkNavigation(undefined, "cloud"), { wrapper: defaultWrapper });
 			act(() => expect(result.current("ao://sessions/project/session")).toBe(true));
 			expect(mocks.navigate).toHaveBeenCalledWith("project", "session");
 			expect(useUiStore.getState().globalToasts).toEqual([]);
@@ -72,7 +75,7 @@ describe("useSessionLinkNavigation", () => {
 	});
 
 	it("shows feedback instead of navigating to a terminated session", () => {
-		const { result } = renderHook(() => useSessionLinkNavigation());
+		const { result } = renderHook(() => useSessionLinkNavigation(), { wrapper: defaultWrapper });
 		act(() => expect(result.current("ao://sessions/project/terminated")).toBe(false));
 		act(() => expect(result.current("ao://sessions/project/terminated")).toBe(false));
 		expect(mocks.navigate).not.toHaveBeenCalled();
@@ -90,7 +93,7 @@ describe("useSessionLinkNavigation", () => {
 
 	it("navigates to the session and requests the artifact open, even after termination", () => {
 		useUiStore.setState({ workspaceFileOpenRequest: null });
-		const { result } = renderHook(() => useSessionLinkNavigation());
+		const { result } = renderHook(() => useSessionLinkNavigation(), { wrapper: defaultWrapper });
 		act(() => expect(result.current("ao://sessions/project/terminated/artifacts/plans/my%20plan.md")).toBe(true));
 		expect(mocks.navigate).toHaveBeenCalledWith("project", "terminated");
 		expect(useUiStore.getState().workspaceFileOpenRequest).toEqual(expect.objectContaining({
@@ -105,7 +108,7 @@ describe("useSessionLinkNavigation", () => {
 		["ao://sessions/project/missing", "missing or is not accessible"],
 		["ao://sessions/project/session/kill", "malformed or unsupported"],
 	])("rejects %s with actionable feedback", (url, message) => {
-		const { result } = renderHook(() => useSessionLinkNavigation());
+		const { result } = renderHook(() => useSessionLinkNavigation(), { wrapper: defaultWrapper });
 		act(() => expect(result.current(url)).toBe(false));
 		expect(mocks.navigate).not.toHaveBeenCalled();
 		expect(useUiStore.getState().globalToasts.at(-1)).toEqual(expect.objectContaining({
@@ -119,7 +122,7 @@ describe("useSessionLinkNavigation", () => {
 
 	it("does not navigate when the workspace cannot be verified", () => {
 		mocks.workspace.mockReturnValue({ isSuccess: false, data: undefined });
-		const { result } = renderHook(() => useSessionLinkNavigation());
+		const { result } = renderHook(() => useSessionLinkNavigation(), { wrapper: defaultWrapper });
 		act(() => expect(result.current("ao://sessions/project/session")).toBe(false));
 		expect(useUiStore.getState().globalToasts.at(-1)?.title).toContain("daemon connection");
 	});

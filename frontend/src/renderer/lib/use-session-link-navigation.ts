@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { useCloudProjectsQuery, useCloudSessionsQuery, remoteWorkspaceQueryKey, toCloudWorkspace, useWorkspaceQuery } from "../hooks/useWorkspaceQuery";
+import { useCloudProjectsQuery, useCloudSessionsQuery, remoteWorkspaceQueryKey, toCloudWorkspace, useWorkspaceQuery, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { useCloudOrg } from "../hooks/useCloudOrg";
 import { useUiStore } from "../stores/ui-store";
 import type { WorkspaceSummary } from "../types/workspace";
@@ -59,6 +59,7 @@ export function useSessionLinkSource(sourceHostId?: string, sourceKind?: "cloud"
 
 export function useSessionLinkNavigation(sourceHostId?: string, sourceKind?: "cloud"): (url: string) => boolean {
 	const remoteHostId = sourceHostId && sourceHostId !== LOCAL_HOST ? sourceHostId : undefined;
+	const queryClient = useQueryClient();
 	const source = useSessionLinkSource(sourceHostId, sourceKind);
 	const navigateToSession = useNavigateToSession();
 	const showGlobalToast = useUiStore((state) => state.showGlobalToast);
@@ -75,8 +76,15 @@ export function useSessionLinkNavigation(sourceHostId?: string, sourceKind?: "cl
 			});
 			return false;
 		}
-		if (!source.ready) {
-			showGlobalToast(`AO could not verify that session. Check the ${remoteHostId ? "host" : sourceKind === "cloud" ? "Cloud" : "daemon"} connection and try again.`, undefined, {
+		const targetHostId = target.hostId && target.hostId !== LOCAL_HOST ? target.hostId : undefined;
+		const navigationHostId = targetHostId || remoteHostId;
+		const targetSource = target.hostId
+			? targetHostId
+				? { ready: queryClient.getQueryState(remoteWorkspaceQueryKey(targetHostId))?.status === "success", workspaces: queryClient.getQueryData<WorkspaceSummary[]>(remoteWorkspaceQueryKey(targetHostId)) ?? [] }
+				: { ready: queryClient.getQueryState(workspaceQueryKey)?.status === "success", workspaces: queryClient.getQueryData<WorkspaceSummary[]>(workspaceQueryKey) ?? [] }
+			: source;
+		if (!targetSource.ready) {
+			showGlobalToast(`AO could not verify that session. Check the ${targetHostId ? "host" : sourceKind === "cloud" && !target.hostId ? "Cloud" : "daemon"} connection and try again.`, undefined, {
 				tone: "error",
 				placement: "top-center",
 				dismissible: true,
@@ -84,7 +92,7 @@ export function useSessionLinkNavigation(sourceHostId?: string, sourceKind?: "cl
 			});
 			return false;
 		}
-		const resolved = resolveSessionLink(url, source.workspaces);
+		const resolved = resolveSessionLink(url, targetSource.workspaces);
 		if (!resolved) {
 			showGlobalToast("That session is missing or is not accessible in this AO workspace.", undefined, {
 				tone: "error",
@@ -100,13 +108,13 @@ export function useSessionLinkNavigation(sourceHostId?: string, sourceKind?: "cl
 				placement: "top-center",
 				dismissible: true,
 				durationMs: 5_000,
-				dedupeKey: `session-link:${remoteHostId ? `${remoteHostId}:` : ""}${resolved.projectId}:${resolved.sessionId}`,
+				dedupeKey: `session-link:${targetHostId ? `${targetHostId}:` : ""}${resolved.projectId}:${resolved.sessionId}`,
 			});
 			return false;
 		}
-		if (artifact) requestWorkspaceFileOpen(resolved.sessionId, artifact.path, remoteHostId, "artifact");
-		if (remoteHostId) navigateToSession(resolved.projectId, resolved.sessionId, remoteHostId);
+		if (artifact) requestWorkspaceFileOpen(resolved.sessionId, artifact.path, navigationHostId, "artifact");
+		if (navigationHostId) navigateToSession(resolved.projectId, resolved.sessionId, navigationHostId);
 		else navigateToSession(resolved.projectId, resolved.sessionId);
 		return true;
-	}, [navigateToSession, remoteHostId, requestWorkspaceFileOpen, showGlobalToast, source, sourceKind]);
+	}, [navigateToSession, queryClient, remoteHostId, requestWorkspaceFileOpen, showGlobalToast, source, sourceKind]);
 }

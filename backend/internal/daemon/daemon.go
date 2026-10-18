@@ -957,7 +957,7 @@ func Run() error {
 
 	bs.HostID = hostIdentity.HostID
 	reportSvc.SetSelfHostID(hostIdentity.HostID)
-	if hostname, err := os.Hostname(); err == nil {
+	if hostname := reportSourceHostName(); hostname != "" {
 		reportSvc.SetSelfHostName(hostname)
 	}
 	// Pushes include the authoritative host identity so a phone can reject

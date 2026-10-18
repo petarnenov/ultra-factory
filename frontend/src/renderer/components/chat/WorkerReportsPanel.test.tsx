@@ -4,7 +4,7 @@ import { WorkerReportsPanel } from "./WorkerReportsPanel";
 
 const reports = vi.hoisted(() => ({ data: [] as unknown[], isLoading: false, error: null as unknown }));
 vi.mock("../../hooks/useWorkerReports", () => ({ useWorkerReports: () => reports }));
-vi.mock("../../lib/use-session-link-navigation", () => ({ useSessionLinkNavigation: () => vi.fn() }));
+vi.mock("../../lib/use-session-link-navigation", () => ({ useSessionLinkNavigation: () => vi.fn(), useSessionLinkSource: () => ({ workspaces: [], ready: true }) }));
 
 describe("WorkerReportsPanel", () => {
 	beforeEach(() => {
@@ -25,7 +25,7 @@ describe("WorkerReportsPanel", () => {
 		expect(screen.getByText("Needs input")).toBeInTheDocument();
 		expect(screen.getByText("Done")).toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "PR 1" })).toHaveAttribute("href", "https://github.com/o/r/pull/1");
-		expect(screen.getByRole("link", { name: "Result" })).toHaveAttribute("href", "ao://sessions/remote-project/worker/artifacts/result.md");
+		expect(screen.getByRole("link", { name: "Result" })).toHaveAttribute("href", "ao://hosts/host-a/sessions/remote-project/worker/artifacts/result.md");
 	});
 
 	it("shows an honest local machine fallback, a session link, and long report text", () => {

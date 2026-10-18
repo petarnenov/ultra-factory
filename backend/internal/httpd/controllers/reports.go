@@ -73,7 +73,7 @@ func (c *ReportsController) list(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
-	if pager, ok := c.Svc.(reportProjectPager); ok {
+	if isPager {
 		page, err := pager.ListProjectPage(r.Context(), projectID, reportsvc.ListProjectFilter{
 			Limit:  limit,
 			Cursor: r.URL.Query().Get("cursor"),

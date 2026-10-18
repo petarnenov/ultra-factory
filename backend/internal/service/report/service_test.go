@@ -2,10 +2,12 @@ package report
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 )
 
 type fakeStore struct {
@@ -204,7 +206,6 @@ func TestListProjectPageUsesSelfHostNameAndKeepsRemoteLabel(t *testing.T) {
 		},
 	}
 	s := New(Deps{Store: st, SelfHostID: "h_local", SelfHostName: "devbox"})
-	s.SetSelfHostName("devbox")
 	page, err := s.ListProjectPage(context.Background(), "ao", ListProjectFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +225,8 @@ func TestListProjectPageUsesSelfHostNameAndKeepsRemoteLabel(t *testing.T) {
 func TestListProjectPageRejectsMalformedCursor(t *testing.T) {
 	st := &fakeStore{reports: []domain.ReportRecord{{ID: "r", CreatedAt: time.Now().UTC()}}}
 	_, err := New(Deps{Store: st}).ListProjectPage(context.Background(), "ao", ListProjectFilter{Cursor: "not-base64!!!"})
-	if err == nil {
-		t.Fatal("expected cursor error")
+	var apiErr *apierr.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "INVALID_REPORT_CURSOR" {
+		t.Fatalf("err = %v, want INVALID_REPORT_CURSOR", err)
 	}
 }
