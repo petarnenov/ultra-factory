@@ -141,13 +141,14 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	);
 
 	return <>
-		<SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
+		{/* The web build always connects the hub's hosts, so the switch has nothing to turn off there. */}
+		{isWebBuild ? null : <SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
 			<SettingsRow label={t("remote.enable")} description={t("remote.enableDescription")}>
 				<Switch aria-label={t("remote.enable")} checked={enabled} onCheckedChange={setEnabled} />
 			</SettingsRow>
 			{/* Tunnels and LAN addresses are the desktop's ways to reach a host; the hub reaches its hosts itself. */}
-			{isWebBuild ? null : <p className="px-3 text-pretty text-xs leading-relaxed text-settings-muted">{t("remote.connectionDescription")}</p>}
-		</SettingsSection>
+			<p className="px-3 text-pretty text-xs leading-relaxed text-settings-muted">{t("remote.connectionDescription")}</p>
+		</SettingsSection>}
 
 		<SettingsSection title={t("remote.savedHosts")} grouped>
 			{loading && saved.length === 0 ? <p className="px-3 py-2 text-xs text-settings-muted" role="status">{t("remote.loadingHosts")}</p> : null}

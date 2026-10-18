@@ -152,3 +152,11 @@ it("lists the hub's hosts on the web without AO Cloud sign-in, edit, or tunnel s
 	expect(screen.getByRole("textbox", { name: "Address" })).toBeVisible();
 	expect(screen.getByLabelText("Connection password")).toBeVisible();
 });
+
+it("hides the Remote hosts switch on the web, where the hub's hosts are always connected", async () => {
+	platform.web = true;
+	saved.entries = [{ hostId: "h_worker", label: "Worker 1", url: "http://worker-1.railway.internal:3011" }];
+	renderSettings();
+	await waitFor(() => expect(screen.getByText("Worker 1")).toBeVisible());
+	expect(screen.queryByRole("switch", { name: "Connect to remote hosts" })).toBeNull();
+});
