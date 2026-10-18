@@ -564,11 +564,37 @@ type RemoteWorkerLink struct {
 	CreatedAt       time.Time
 }
 
+type RemoteWorkerReport struct {
+	HostID          string
+	RemoteSessionID string
+	ReportID        string
+	ProjectID       string
+	SourceProjectID string
+	State           string
+	Note            string
+	Message         string
+	Agent           string
+	SessionName     string
+	HostLabel       string
+	CreatedAt       time.Time
+	RepeatCount     int64
+}
+
 type RemoteWorkerReportDelivery struct {
 	HostID          string
 	RemoteSessionID string
 	ReportID        string
 	DeliveredAt     time.Time
+}
+
+type RemoteWorkerReportOutput struct {
+	HostID          string
+	RemoteSessionID string
+	ReportID        string
+	Position        int64
+	Kind            string
+	Reference       string
+	Label           string
 }
 
 type Report struct {
