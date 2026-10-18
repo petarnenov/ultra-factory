@@ -140,10 +140,12 @@ func (s *Store) ListReportedPRURLs(ctx context.Context, id domain.SessionID) ([]
 // ListReportsByProjectPage returns one bounded report page.
 // It merges local and remote history with a stable cursor.
 func (s *Store) ListReportsByProjectPage(ctx context.Context, id domain.ProjectID, beforeCreatedAt time.Time, beforeHost, beforeSession, beforeID string, limit int) ([]domain.ReportRecord, error) {
+	var fetchLimit int
 	if limit <= 0 {
-		limit = 20
+		fetchLimit = 1000000
+	} else {
+		fetchLimit = limit
 	}
-	fetchLimit := limit + 1
 	query := `SELECT host_id, session_id, report_id, project_id, source_project_id, state, note, message,
 		agent, session_name, host_label, created_at, repeat_count
 		FROM (
