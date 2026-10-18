@@ -39,10 +39,10 @@ type ArtifactRecorder interface {
 
 // Service validates and creates durable worker reports.
 type Service struct {
-	store     Store
-	now       func() time.Time
-	newID     func() string
-	onCreated func(domain.ReportRecord)
+	store        Store
+	now          func() time.Time
+	newID        func() string
+	onCreated    func(domain.ReportRecord)
 	artifacts    ArtifactRecorder
 	selfHostID   string
 	selfHostName string
