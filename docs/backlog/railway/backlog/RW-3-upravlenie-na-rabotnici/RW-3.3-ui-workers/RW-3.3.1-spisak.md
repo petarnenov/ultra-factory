@@ -1,4 +1,5 @@
 # RW-3.3.1 · Task: Worker list
+**Status:** ✅ done (#97)
 
 **Type:** frontend React. **Estimate:** 0.5–1 pd. **Story:** RW-3.3.
 

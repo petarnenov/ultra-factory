@@ -52,10 +52,25 @@ func (c *commandContext) runImport(cmd *cobra.Command, opts importOptions) error
 	}
 
 	// The daemon is the sole writer; refuse to open the store underneath a live
-	// one. A stale run-file (dead PID) is treated as safe.
-	if live, err := runfile.CheckStale(cfg.RunFilePath); err != nil {
+	// one. A stale run-file (dead PID, nothing answering as its owner) is safe.
+	live, err := runfile.CheckStale(cfg.RunFilePath)
+	if err != nil {
 		return fmt.Errorf("inspect run-file: %w", err)
-	} else if live != nil {
+	}
+	if live == nil {
+		// CheckStale decides by PID, which a sandbox with its own PID namespace
+		// cannot see; a daemon answering on the recorded port is live as well.
+		info, err := runfile.Read(cfg.RunFilePath)
+		if err != nil {
+			return fmt.Errorf("inspect run-file: %w", err)
+		}
+		if info != nil {
+			if answered, err := c.probeRunFileOwner(cmd.Context(), *info); answered && err == nil {
+				live = info
+			}
+		}
+	}
+	if live != nil {
 		return usageError{fmt.Errorf("the AO daemon is running (pid %d); stop it first with `ao stop` before importing", live.PID)}
 	}
 

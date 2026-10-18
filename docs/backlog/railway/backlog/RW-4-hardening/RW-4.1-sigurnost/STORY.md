@@ -1,4 +1,5 @@
 # RW-4.1 · Story: Security
+**Status:** ✅ done
 
 **Estimate:** 1–2 pd.
 

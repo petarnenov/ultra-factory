@@ -12,6 +12,12 @@ on:
       - "packages/mobile/**"
       - ".github/workflows/mobile.yml"
 
+# A newer commit on the same PR cancels that PR's older in-flight run; push
+# runs on main keep their own group and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -22,9 +28,9 @@ jobs:
       run:
         working-directory: packages/mobile
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm

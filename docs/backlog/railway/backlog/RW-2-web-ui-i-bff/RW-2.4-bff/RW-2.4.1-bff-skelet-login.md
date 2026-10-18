@@ -1,4 +1,5 @@
 # RW-2.4.1 · Task: BFF skeleton with login and session cookie
+**Status:** ✅ done (#73)
 
 **Type:** Node TS (new package). **Estimate:** 1.5–2 pd. **Story:** RW-2.4.
 

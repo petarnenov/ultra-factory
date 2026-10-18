@@ -1,4 +1,5 @@
 # RW-2.4.2 · Task: Reverse proxy for REST, SSE and `/mux`
+**Status:** ✅ done (#80)
 
 **Type:** Node TS. **Estimate:** 2–3 pd. **Story:** RW-2.4. **Dependencies:** RW-2.4.1, RW-1.1.2.
 

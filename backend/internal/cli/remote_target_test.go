@@ -35,17 +35,30 @@ type fakeRemoteHost struct {
 
 type recordedRequest struct {
 	method, path, auth, expectedHost, body string
+	tls                                    bool
 }
 
 func newFakeRemoteHost(t *testing.T, hostID, password string) *fakeRemoteHost {
 	t.Helper()
+	return newFakeRemoteHostOn(t, hostID, password, httptest.NewServer)
+}
+
+// newFakeRemoteHostTLS is a host reached over https, as through a
+// TLS-terminating proxy such as Railway's edge.
+func newFakeRemoteHostTLS(t *testing.T, hostID, password string) *fakeRemoteHost {
+	t.Helper()
+	return newFakeRemoteHostOn(t, hostID, password, httptest.NewTLSServer)
+}
+
+func newFakeRemoteHostOn(t *testing.T, hostID, password string, start func(http.Handler) *httptest.Server) *fakeRemoteHost {
+	t.Helper()
 	h := &fakeRemoteHost{hostID: hostID, password: password, handlers: map[string]http.HandlerFunc{}}
-	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h.srv = start(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
 		h.mu.Lock()
 		h.requests = append(h.requests, recordedRequest{
 			method: r.Method, path: r.URL.Path, auth: r.Header.Get("Authorization"),
-			expectedHost: r.Header.Get("X-AO-Expected-Host-ID"), body: string(raw),
+			expectedHost: r.Header.Get("X-AO-Expected-Host-ID"), body: string(raw), tls: r.TLS != nil,
 		})
 		handler := h.handlers[r.Method+" "+r.URL.Path]
 		h.mu.Unlock()
@@ -583,6 +596,76 @@ func TestHostListReportsReachabilityWithoutLeakingPasswords(t *testing.T) {
 	for _, r := range moved.recorded() {
 		if r.auth != "" {
 			t.Fatal("password sent to a host whose identity did not match")
+		}
+	}
+}
+
+func TestRemoteBaseURLKeepsHTTPS(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"https://worker.up.railway.app", "https://worker.up.railway.app"},
+		{"https://worker.up.railway.app/", "https://worker.up.railway.app"},
+		{"HTTPS://Worker.Up.Railway.App", "https://worker.up.railway.app"},
+		{"https://worker.up.railway.app:8443", "https://worker.up.railway.app:8443"},
+		{"worker.railway.internal:3011", "http://worker.railway.internal:3011"},
+	} {
+		if got, err := remoteBaseURL(tc.raw); err != nil || got != tc.want {
+			t.Errorf("remoteBaseURL(%q) = %q, %v; want %q", tc.raw, got, err, tc.want)
+		}
+	}
+	for _, raw := range []string{"ftp://worker.up.railway.app", "https://user:pw@worker.up.railway.app", "https://"} {
+		if _, err := remoteBaseURL(raw); err == nil {
+			t.Errorf("remoteBaseURL(%q) accepted an unsafe address", raw)
+		}
+	}
+}
+
+// A worker behind a TLS-terminating proxy is saved with an https URL. Both
+// `ao host ls` and --host must probe identity and then talk over TLS.
+func TestRemoteHTTPSHost(t *testing.T) {
+	setConfigEnv(t)
+	remote := newFakeRemoteHostTLS(t, "host-worker", "pw-worker")
+	remote.handle(http.MethodGet, "/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	serveRemoteProjects(remote, projectDetails{ID: "widgets", Name: "Widgets"})
+	if !strings.HasPrefix(remote.srv.URL, "https://") {
+		t.Fatalf("fake host URL %q is not https", remote.srv.URL)
+	}
+	writeRemotesFile(t, remoteEntry{Label: "worker", URL: remote.srv.URL + "/", Password: "pw-worker", HostID: "host-worker"})
+	deps := aliveDeps()
+	deps.HTTPClient = remote.srv.Client() // trusts the test certificate
+
+	out, errOut, err := executeCLI(t, deps, "host", "ls", "--json")
+	if err != nil {
+		t.Fatalf("host ls: %v\nstderr=%s", err, errOut)
+	}
+	var listed struct {
+		Hosts []hostListItem `json:"hosts"`
+	}
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Hosts) != 1 || listed.Hosts[0].HostID != "host-worker" || listed.Hosts[0].Status != hostStatusOnline {
+		t.Fatalf("host ls = %+v, want worker online with its host ID", listed.Hosts)
+	}
+
+	out, errOut, err = executeCLI(t, deps, "project", "ls", "--host", "worker")
+	if err != nil {
+		t.Fatalf("project ls --host worker: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "widgets") {
+		t.Fatalf("project ls --host worker output %q does not list the remote project", out)
+	}
+	got, ok := remote.find(http.MethodGet, "/api/v1/projects")
+	if !ok || got.auth != "Bearer pw-worker" || got.expectedHost != "host-worker" {
+		t.Fatalf("project list request = %+v (found %v), want bearer and expected host ID", got, ok)
+	}
+	for _, r := range remote.recorded() {
+		if !r.tls {
+			t.Fatalf("request %s %s left TLS", r.method, r.path)
+		}
+		if r.path == "/api/v1/identity" && r.auth != "" {
+			t.Fatal("identity probe carried a credential")
 		}
 	}
 }

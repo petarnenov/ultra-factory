@@ -133,6 +133,7 @@ vi.mock("../TerminalPane", () => ({
 }));
 
 vi.mock("../../lib/platform", () => ({
+	isWebBuild: false,
 	isMacPlatform: () => true,
 	isLinuxPlatform: () => false,
 	isWindowsPlatform: () => false,

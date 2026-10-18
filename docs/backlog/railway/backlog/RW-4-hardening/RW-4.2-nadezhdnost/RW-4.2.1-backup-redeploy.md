@@ -1,4 +1,5 @@
 # RW-4.2.1 · Task: Backup and redeploy strategy
+**Status:** ✅ done (#139)
 
 **Type:** operations. **Estimate:** 0.5 pd. **Story:** RW-4.2.
 

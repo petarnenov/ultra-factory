@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	isLinuxPlatform,
 	isMacPlatform,
@@ -6,6 +6,7 @@ import {
 	usesFramedAppTopbar,
 	hidesShellTopbar,
 	usesBoardActionsInPanel,
+	resolveCapabilities,
 } from "./platform";
 
 const originalPlatform = Object.getOwnPropertyDescriptor(window.navigator, "platform");
@@ -70,5 +71,106 @@ describe("renderer platform behavior", () => {
 		expect(usesFramedAppTopbar()).toBe(true);
 		expect(hidesShellTopbar()).toBe(false);
 		expect(usesBoardActionsInPanel()).toBe(false);
+	});
+});
+
+describe("web build window chrome", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.resetModules();
+	});
+
+	it.each([
+		["MacIntel", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"],
+		["Win32", "Win32"],
+		["Linux x86_64", "Linux x86_64"],
+	])("shows the shell topbar and keeps board actions there on %s", async (platformName, userAgent) => {
+		spoofPlatform(platformName, userAgent);
+		vi.stubEnv("VITE_AO_WEB", "1");
+		vi.resetModules();
+		const platform = await import("./platform");
+
+		expect(platform.hidesShellTopbar()).toBe(false);
+		expect(platform.usesBoardActionsInPanel()).toBe(false);
+	});
+
+	it("keeps the desktop surfaces in the mock preview without a bridge", async () => {
+		vi.stubEnv("VITE_NO_ELECTRON", "1");
+		const original = window.ao;
+		window.ao = undefined;
+		try {
+			vi.resetModules();
+			const platform = await import("./platform");
+
+			expect(platform.hasElectronBridge).toBe(false);
+			expect(Object.values(platform.capabilities).every(Boolean)).toBe(true);
+		} finally {
+			window.ao = original;
+		}
+	});
+});
+
+describe("renderer capabilities", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.resetModules();
+	});
+
+	it("enables every desktop capability in the Electron renderer", () => {
+		const caps = resolveCapabilities({ webBuild: false, electronBridge: true });
+
+		expect(caps).toEqual({
+			browserPanel: true,
+			editorHandoff: true,
+			cliLink: true,
+			autoUpdate: true,
+			nativeDialogs: true,
+			tray: true,
+			windowChrome: true,
+		});
+		expect(Object.isFrozen(caps)).toBe(true);
+	});
+
+	it("disables every desktop capability in the web build", () => {
+		const caps = resolveCapabilities({ webBuild: true, electronBridge: false });
+
+		expect(Object.values(caps).every((enabled) => !enabled)).toBe(true);
+	});
+
+	it("disables desktop capabilities without the preload bridge", () => {
+		const caps = resolveCapabilities({ webBuild: false, electronBridge: false });
+
+		expect(Object.values(caps).some(Boolean)).toBe(false);
+	});
+
+	it("treats the web build as web-only even if a bridge is present", () => {
+		const caps = resolveCapabilities({ webBuild: true, electronBridge: true });
+
+		expect(Object.values(caps).some(Boolean)).toBe(false);
+	});
+
+	it("reads the Electron flags from the test renderer", async () => {
+		vi.resetModules();
+		const platform = await import("./platform");
+
+		expect(platform.isWebBuild).toBe(false);
+		expect(platform.hasElectronBridge).toBe(true);
+		expect(platform.capabilities.browserPanel).toBe(true);
+	});
+
+	it("reads VITE_AO_WEB=1 as the web build with no desktop capabilities", async () => {
+		vi.stubEnv("VITE_AO_WEB", "1");
+		const original = window.ao;
+		window.ao = undefined;
+		try {
+			vi.resetModules();
+			const platform = await import("./platform");
+
+			expect(platform.isWebBuild).toBe(true);
+			expect(platform.hasElectronBridge).toBe(false);
+			expect(Object.values(platform.capabilities).some(Boolean)).toBe(false);
+		} finally {
+			window.ao = original;
+		}
 	});
 });

@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { getApiBaseUrl } from "../lib/api-client";
+import { capabilities } from "../lib/platform";
 import { clientForSessionHost } from "../lib/host-clients";
 import { sessionUiKey } from "../lib/hosts";
 import { attachmentURL } from "../components/chat/messageAttachments";
@@ -37,12 +38,18 @@ export function useSessionBrowserLink(
 			// `target` is what the daemon preview resolves; `workspacePath` is set
 			// only when the target is known to be that workspace-relative file.
 			const openPreview = (target: string, workspacePath: string | undefined) => {
-				const uiKey = sessionUiKey(sessionId, hostId);
-				setInspectorView(uiKey, "browser");
-				setInspectorOpen(uiKey, true);
-				// Local workspace paths must go through the daemon preview resolver first.
-				// Passing an absolute worktree path directly to BrowserView opens an empty
-				// tab because Chromium cannot navigate to the filesystem path.
+				if (!capabilities.browserPanel && !hostId && (webLink || workspacePath)) {
+					// Without a Browser panel, links and workspace files open in a new tab.
+					window.open(webLink ? target : attachmentURL(getApiBaseUrl(), sessionId, workspacePath!), "_blank", "noopener,noreferrer");
+					return;
+				}
+				if (capabilities.browserPanel) {
+					const uiKey = sessionUiKey(sessionId, hostId);
+					setInspectorView(uiKey, "browser");
+					setInspectorOpen(uiKey, true);
+				}
+				// Without a panel, the preview result reaches SessionView as a toast.
+				// Paths must go through the daemon preview resolver before BrowserView.
 				if (!hostId && openInBrowser && webLink) {
 					void openInBrowser(target).catch((error) => {
 						console.warn("Unable to open link in Browser tab", error);

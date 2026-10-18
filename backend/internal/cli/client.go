@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
@@ -149,6 +150,40 @@ func (c *commandContext) doJSONPathWithHeaders(
 	return c.doJSONPathWithHeadersAndTimeout(ctx, method, path, body, out, headers, commandTimeout)
 }
 
+// ensureLocalDaemon decides whether the daemon in the run-file is up before a
+// request, since a dead-looking PID is invisible inside an agent sandbox.
+func (c *commandContext) ensureLocalDaemon(ctx context.Context, runFilePath string, info runfile.Info) error {
+	if c.deps.ProcessAlive(info.PID) {
+		return nil
+	}
+	key := fmt.Sprintf("%d/%d/%s", info.PID, info.Port, info.InstanceID)
+	if c.verifiedDaemon == key {
+		return nil
+	}
+	if answered, err := c.probeRunFileOwner(ctx, info); answered && err == nil {
+		c.verifiedDaemon = key
+		return nil
+	}
+	if inAgentSession() {
+		return daemonUnavailableError{message: sandboxedDaemonMessage(info), cause: errDaemonNotRunning}
+	}
+	return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", runFilePath), cause: errDaemonNotRunning}
+}
+
+// inAgentSession reports whether this command runs inside an AO agent session,
+// which the daemon marks with AO_SESSION_ID.
+func inAgentSession() bool {
+	return strings.TrimSpace(os.Getenv("AO_SESSION_ID")) != ""
+}
+
+// sandboxedDaemonMessage explains an unreachable daemon to an agent: a sandbox
+// hides it more often than it stopped, so never tell the agent to start one.
+func sandboxedDaemonMessage(info runfile.Info) string {
+	return fmt.Sprintf("AO daemon is not reachable from this agent session: its process (pid %d) is not visible and its port %d does not answer. "+
+		"It is most likely running outside your sandbox: run this command again outside the sandbox (request escalation). "+
+		"Do not run `ao start`, `ao stop` or `ao daemon` from an agent session.", info.PID, info.Port)
+}
+
 func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	ctx context.Context,
 	method, path string,
@@ -177,8 +212,8 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 		if info == nil {
 			return daemonUnavailableError{message: "AO daemon is not running — start it with `ao start`", cause: errDaemonNotRunning}
 		}
-		if !c.deps.ProcessAlive(info.PID) {
-			return daemonUnavailableError{message: fmt.Sprintf("AO daemon is not running (stale run-file at %s) — start it with `ao start`", cfg.RunFilePath), cause: errDaemonNotRunning}
+		if err := c.ensureLocalDaemon(ctx, cfg.RunFilePath, *info); err != nil {
+			return err
 		}
 		url = fmt.Sprintf("http://%s:%d%s", config.LoopbackHost, info.Port, path)
 	}

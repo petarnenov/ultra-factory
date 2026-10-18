@@ -1,4 +1,5 @@
 # RW-4.1.2 · Task: Railway token scope, rotation, audit log
+**Status:** ✅ done (#107)
 
 **Type:** operations + Node TS. **Estimate:** 0.5–1 pd. **Story:** RW-4.1.
 

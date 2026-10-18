@@ -1,7 +1,132 @@
 import type { AoBridge } from "../../preload";
-import { coerceUiSettings, DEFAULT_UI_SETTINGS } from "../../shared/ui-locale";
+import type { DaemonStatus } from "../../shared/daemon-status";
+import { isWebBuild } from "./platform";
+import { usesPreviewWorkspaceData } from "./preview-mode";
+import { isHubSignedOut, redirectToHubLogin } from "./hub-login";
+import { createWebNotificationsBridge } from "./web-notifications";
+import { createWebRemotesBridge } from "./web-remotes";
+import { webKeybindings, webUiSettings } from "./web-settings";
+import { setWebShortcutRecording, webShortcutListeners } from "./web-shortcuts";
 export type { FeatureBuild } from "../../main/feature-builds";
 
+// The web build has no Electron supervisor: the daemon (or the proxy in front
+// of it) answers on the API base URL, so readiness comes from its /readyz.
+const WEB_DAEMON_POLL_MS = 5_000;
+const WEB_DAEMON_READY_POLL_MS = 30_000;
+
+function webDaemonBaseUrl(): string {
+	return (import.meta.env.VITE_AO_API_BASE_URL ?? "").replace(/\/+$/, "");
+}
+
+// The shell only trusts a ready status that carries a port. A proxy on the
+// scheme's default port leaves the URL port empty, so report the effective one.
+function webDaemonPort(baseUrl: string): number {
+	const url = new URL(baseUrl || window.location.href, window.location.href);
+	if (url.port) return Number(url.port);
+	return url.protocol === "https:" ? 443 : 80;
+}
+
+function webDaemonIsSameOrigin(baseUrl: string): boolean {
+	return new URL(baseUrl || window.location.href, window.location.href).origin === window.location.origin;
+}
+
+async function probeWebDaemon(): Promise<DaemonStatus> {
+	const baseUrl = webDaemonBaseUrl();
+	try {
+		const response = await fetch(`${baseUrl}/readyz`, { cache: "no-store" });
+		// Only the page's own origin has the hub's /login.
+		if (response.status === 401 && webDaemonIsSameOrigin(baseUrl) && isHubSignedOut(401, await response.json().catch(() => null))) {
+			redirectToHubLogin();
+			return { state: "error", message: "The hub session has ended. Sign in again." };
+		}
+		if (response.status !== 200) {
+			return { state: "error", message: `Daemon readiness check returned HTTP ${response.status}.` };
+		}
+		// A static host's SPA fallback also answers 200, with index.html.
+		const body = (await response.json().catch(() => null)) as { status?: unknown } | null;
+		if (body?.status !== "ready") {
+			return { state: "error", message: "Daemon readiness check did not return a ready daemon." };
+		}
+		return { state: "ready", port: webDaemonPort(baseUrl) };
+	} catch (error) {
+		return {
+			state: "error",
+			message: `Daemon readiness check failed: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+}
+
+async function unsupportedWebDaemonControl(): Promise<DaemonStatus> {
+	return { ...(await probeWebDaemon()), supported: false };
+}
+
+// Browsers allow clipboard reads only in a secure context, after user gesture.
+// A denial is toasted and resolves to empty text instead of failing the caller.
+async function readWebClipboardText(): Promise<string> {
+	try {
+		if (!navigator.clipboard?.readText) throw new Error("Clipboard API is unavailable");
+		return await navigator.clipboard.readText();
+	} catch {
+		const { useUiStore } = await import("../stores/ui-store");
+		useUiStore.getState().showGlobalToast(
+			"Clipboard access is blocked",
+			"Allow clipboard access for this site, or paste with your browser's paste shortcut.",
+			{ tone: "info", dedupeKey: "web-clipboard-read-denied" },
+		);
+		return "";
+	}
+}
+
+type WebDaemonListener = Parameters<AoBridge["daemon"]["onStatus"]>[0];
+
+// Every onStatus subscriber (status hook, transports, failure telemetry)
+// shares one /readyz loop: a loop each multiplied the probes in every tab.
+const webDaemonListeners = new Set<WebDaemonListener>();
+let webDaemonTimer: ReturnType<typeof setTimeout> | undefined;
+let webDaemonLoop = 0;
+
+function scheduleWebDaemonProbe(delayMs: number): void {
+	const loop = webDaemonLoop;
+	webDaemonTimer = setTimeout(() => {
+		void probeWebDaemon().then((status) => {
+			if (loop !== webDaemonLoop) return;
+			for (const listener of [...webDaemonListeners]) {
+				// An earlier listener may have unsubscribed this one.
+				if (!webDaemonListeners.has(listener)) continue;
+				// One failing subscriber must not stop the probe for the others; its
+				// error still surfaces as an uncaught one.
+				try {
+					listener(status);
+				} catch (error) {
+					queueMicrotask(() => { throw error; });
+				}
+			}
+			if (loop !== webDaemonLoop) return;
+			scheduleWebDaemonProbe(status.state === "ready" ? WEB_DAEMON_READY_POLL_MS : WEB_DAEMON_POLL_MS);
+		});
+	}, delayMs);
+}
+
+const webDaemonBridge: AoBridge["daemon"] = {
+	getStatus: probeWebDaemon,
+	start: unsupportedWebDaemonControl,
+	stop: unsupportedWebDaemonControl,
+	restart: unsupportedWebDaemonControl,
+	onStatus: (listener) => {
+		// A wrapper keeps two subscriptions of the same function independent.
+		const entry: WebDaemonListener = (status) => listener(status);
+		webDaemonListeners.add(entry);
+		if (webDaemonListeners.size === 1) scheduleWebDaemonProbe(WEB_DAEMON_POLL_MS);
+		return () => {
+			if (!webDaemonListeners.delete(entry) || webDaemonListeners.size > 0) return;
+			// The last subscriber left: stop the loop, and let an in-flight probe
+			// see that it belongs to a finished loop.
+			webDaemonLoop += 1;
+			clearTimeout(webDaemonTimer);
+			webDaemonTimer = undefined;
+		};
+	},
+};
 
 export const aoBridge: AoBridge =
 	window.ao ??
@@ -22,18 +147,10 @@ export const aoBridge: AoBridge =
 		checkGitHubRepositoryAvailability: async () => ({ available: true }),
 			getPathForFile: () => "",
 			onOpenFolderPath: () => () => undefined,
-			onNewSessionShortcut: () => () => undefined,
-			onKeyboardShortcutsHelp: () => () => undefined,
-			onNewShellTerminalShortcut: () => () => undefined,
-			onCloseShellTerminalShortcut: () => () => undefined,
-			setCloseShellTerminalShortcutEnabled: () => undefined,
+			// With no main process, shortcuts come from the keydown handler in
+			// web-shortcuts.ts, which is installed only when isWebBuild.
+			...webShortcutListeners,
 			setChatDraftRisk: () => undefined,
-			onOpenSettingsShortcut: () => () => undefined,
-			onPreviousSessionShortcut: () => () => undefined,
-			onNextSessionShortcut: () => () => undefined,
-			onPreviousTabShortcut: () => () => undefined,
-			onNextTabShortcut: () => () => undefined,
-			onShortcut: () => () => undefined,
 		},
 		terminal: {
 			saveDroppedFile: async () => "",
@@ -64,18 +181,21 @@ export const aoBridge: AoBridge =
 					await navigator.clipboard.writeText(text);
 				}
 			},
-			readText: async () => (navigator.clipboard?.readText ? navigator.clipboard.readText() : ""),
+			readText: readWebClipboardText,
 		},
-		daemon: {
-			getStatus: async () => ({
-				state: "stopped",
-				message: "Electron preload is not available in browser preview.",
-			}),
-			start: async () => ({ state: "starting" }),
-			stop: async () => ({ state: "stopped" }),
-			restart: async () => ({ state: "starting" }),
-			onStatus: () => () => undefined,
-		},
+		// Mock-data preview (VITE_NO_ELECTRON) has no daemon to probe.
+		daemon: usesPreviewWorkspaceData
+			? {
+				getStatus: async () => ({
+					state: "stopped",
+					message: "Electron preload is not available in browser preview.",
+				}),
+				start: async () => ({ state: "starting" }),
+				stop: async () => ({ state: "stopped" }),
+				restart: async () => ({ state: "starting" }),
+				onStatus: () => () => undefined,
+			}
+			: webDaemonBridge,
 		sideChats: { capture: async () => undefined },
 		editorHandoff: {
 			getState: async () => ({
@@ -254,14 +374,22 @@ export const aoBridge: AoBridge =
 			import: async () => ({ sourceName: "", entries: [] }),
 			onImportProgress: () => () => undefined,
 		},
-		notifications: {
-			show: async () => undefined,
-			setBadge: async () => undefined,
-			devBounce: async () => undefined,
-			onClick: () => () => undefined,
-			onPlaySound: () => () => undefined,
-			reportSoundFailure: () => undefined,
-		},
+		// Mock-data preview (VITE_NO_ELECTRON) stays without notifications; the web
+		// build uses Web Notifications, a document.title badge and the bundled sound.
+		notifications: usesPreviewWorkspaceData
+			? {
+				show: async () => undefined,
+				setBadge: async () => undefined,
+				devBounce: async () => undefined,
+				onClick: () => () => undefined,
+				onPlaySound: () => () => undefined,
+				reportSoundFailure: () => undefined,
+			}
+			: createWebNotificationsBridge({
+				// Dynamic import: the store imports aoBridge from this module.
+				soundEnabled: async () =>
+					(await import("../stores/sound-notifications-store")).useSoundNotificationsStore.getState().enabled,
+			}),
 		tray: {
 			setAttentionState: () => undefined,
 			onOpenSession: () => () => undefined,
@@ -281,14 +409,10 @@ export const aoBridge: AoBridge =
 			set: async () => undefined,
 			setMacDifferentialUpdates: async () => undefined,
 		},
-		uiSettings: {
-			get: async () => ({ ...DEFAULT_UI_SETTINGS }),
-			set: async (settings) => coerceUiSettings({ ...DEFAULT_UI_SETTINGS, ...settings }),
-		},
+		uiSettings: webUiSettings,
 		keybindings: {
-			get: async () => ({}),
-			set: async (overrides) => overrides,
-			setRecording: async () => undefined,
+			...webKeybindings,
+			setRecording: async (active) => setWebShortcutRecording(active),
 		},
 		updates: {
 			getStatus: async () => ({ state: "idle" }),
@@ -305,10 +429,9 @@ export const aoBridge: AoBridge =
 			list: async () => [],
 			getActive: async () => null,
 		},
-		// The daemon-served web build has no Electron bridge and so no access to
-		// ~/.ao/remotes.json. Reporting no hosts leaves the UI showing local only,
-		// which is the truth there.
-		remotes: {
+		// The web build reads the hub BFF's host registry; the mock preview has
+		// no BFF and no ~/.ao/remotes.json, so it reports none and shows local.
+		remotes: isWebBuild ? createWebRemotesBridge(webDaemonBaseUrl) : {
 			list: async () => [],
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,

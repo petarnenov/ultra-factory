@@ -363,7 +363,7 @@ func applyTurnSettings(params map[string]any, settings ports.ChatTurnSettings, r
 		policy, sandbox := approvalSettings(settings.Approval)
 		params["approvalPolicy"] = policy
 		params["approvalsReviewer"] = approvalReviewer(settings.Approval)
-		params["sandboxPolicy"] = turnSandboxPolicy(sandbox)
+		params["sandboxPolicy"] = turnSandboxPolicy(sandbox, disableNetwork)
 	}
 	if readOnly {
 		// Reviewers need gh and ao review submit; text-only background calls
@@ -374,12 +374,12 @@ func applyTurnSettings(params map[string]any, settings ports.ChatTurnSettings, r
 	}
 }
 
-// turnSandboxPolicy converts a thread-level sandbox name into the tagged object
-// turn/start expects.
-func turnSandboxPolicy(sandbox string) map[string]any {
+// turnSandboxPolicy converts a thread-level sandbox name to the tagged object
+// turn/start expects; workspace-write carries network via workspaceNetworkKey.
+func turnSandboxPolicy(sandbox string, disableNetwork bool) map[string]any {
 	switch sandbox {
 	case "workspace-write":
-		return map[string]any{"type": "workspaceWrite"}
+		return map[string]any{"type": "workspaceWrite", "networkAccess": !disableNetwork}
 	case "read-only":
 		return map[string]any{"type": "readOnly"}
 	default:

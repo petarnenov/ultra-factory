@@ -6,6 +6,7 @@ const mockIsLinux = vi.hoisted(() => vi.fn(() => false));
 const mockIsFullScreen = vi.hoisted(() => vi.fn(() => false));
 const uiState = vi.hoisted(() => ({ isSidebarOpen: true }));
 vi.mock("../lib/platform", () => ({
+	isWebBuild: false,
 	isMacPlatform: mockIsMac,
 	isLinuxPlatform: mockIsLinux,
 }));

@@ -28,4 +28,7 @@ export type DaemonStatus = {
 	code?: DaemonFailureCode;
 	exitCode?: number | null;
 	signal?: string | null;
+	// False when the bridge cannot start, stop, or restart the daemon. The web
+	// build reports this because the daemon is run by its host, not the app.
+	supported?: boolean;
 };

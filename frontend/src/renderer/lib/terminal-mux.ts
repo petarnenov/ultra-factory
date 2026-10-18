@@ -71,9 +71,11 @@ function pingFrame(): string {
 // Derive the ws(s)://.../mux URL from the REST API base. The mux is mounted at
 // the router root (backend router.go), not under /api/v1.
 export function muxUrlFromApiBase(apiBaseUrl: string): string {
-	if (apiBaseUrl === "" && typeof window !== "undefined") {
+	// "" is the page's own origin; a path such as /hosts/<id> is a same-origin
+	// prefix (the web build's hub BFF proxies each remote host under one).
+	if ((apiBaseUrl === "" || apiBaseUrl.startsWith("/")) && typeof window !== "undefined") {
 		const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-		return `${protocol}//${window.location.host}/mux`;
+		return `${protocol}//${window.location.host}${apiBaseUrl.replace(/\/+$/, "")}/mux`;
 	}
 
 	// http://host → ws://host and https://host → wss://host (the trailing "s" is left

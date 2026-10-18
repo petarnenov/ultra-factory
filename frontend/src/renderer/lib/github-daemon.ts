@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "./api-client";
+import { getApiBaseUrl, hasTrustedApiBaseUrl } from "./api-client";
 
 export interface GitHubStatusResponse {
 	connected: boolean;
@@ -32,8 +32,9 @@ export function isGitHubAuthInvalidError(error: unknown): boolean {
 }
 
 async function daemonFetch<T>(path: string, init?: RequestInit): Promise<T> {
+	// "" is the web build's same-origin base, so check trust, not truthiness.
+	if (!hasTrustedApiBaseUrl()) throw new Error("Daemon is not running.");
 	const baseUrl = getApiBaseUrl();
-	if (!baseUrl) throw new Error("Daemon is not running.");
 	const res = await fetch(`${baseUrl}${path}`, init);
 	if (!res.ok) {
 		const body = await res.json().catch(() => ({}));

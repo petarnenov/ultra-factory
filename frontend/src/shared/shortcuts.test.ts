@@ -16,6 +16,7 @@ import {
 	shortcutBindingKeys,
 	shortcutBindingLabel,
 	shortcutBindingValidationError,
+	webShortcutBindings,
 	type ShortcutChord,
 } from "./shortcuts";
 
@@ -364,5 +365,69 @@ describe("shortcut binding matching and validation", () => {
 		expect(shortcutBindingValidationError(chord({ key: "q", meta: true }), true)).not.toBeNull();
 		expect(shortcutBindingValidationError(chord({ key: "F4", alt: true }), false)).not.toBeNull();
 		expect(shortcutBindingValidationError(chord({ key: "j", meta: true }), true)).toBeNull();
+	});
+});
+
+describe("web shortcut defaults", () => {
+	const browserReserved = [
+		{ key: "n", meta: true },
+		{ key: "t", meta: true },
+		{ key: "w", meta: true },
+		{ key: "n", ctrl: true },
+		{ key: "n", ctrl: true, shift: true },
+		{ key: "t", ctrl: true },
+		{ key: "t", ctrl: true, shift: true },
+		{ key: "w", ctrl: true },
+		{ key: "w", ctrl: true, shift: true },
+		{ key: "Tab", ctrl: true },
+		{ key: "Tab", ctrl: true, shift: true },
+		{ key: "PageUp", ctrl: true },
+		{ key: "PageDown", ctrl: true },
+		{ key: "[", meta: true, shift: true, code: "BracketLeft" },
+		{ key: "ArrowLeft", meta: true, alt: true },
+		{ key: "1", meta: true },
+		{ key: "1", ctrl: true },
+	];
+
+	for (const isMac of [true, false]) {
+		const platform = isMac ? "macOS" : "Windows/Linux";
+
+		it(`binds no command to a browser-reserved chord on ${platform}`, () => {
+			for (const reserved of browserReserved) {
+				const owner = APP_SHORTCUTS.find(({ id }) => matchesAppShortcut(id, chord(reserved), isMac, {}, true));
+				expect(owner?.id, JSON.stringify(reserved)).toBeUndefined();
+			}
+		});
+
+		it(`gives every web chord a single command on ${platform}`, () => {
+			const seen = new Map<string, string>();
+			for (const { id } of APP_SHORTCUTS) {
+				for (const candidate of defaultShortcutBindings(id, isMac, true)) {
+					const label = shortcutBindingLabel(candidate, isMac);
+					expect(seen.get(label), `${id} reuses ${label}`).toBeUndefined();
+					seen.set(label, id);
+				}
+			}
+		});
+
+		it(`accepts the web replacements as custom bindings on ${platform}`, () => {
+			for (const { id } of APP_SHORTCUTS) {
+				for (const candidate of webShortcutBindings(id) ?? []) {
+					expect(shortcutBindingValidationError(candidate, isMac), `${id}`).toBeNull();
+				}
+			}
+		});
+	}
+
+	it("keeps the desktop defaults outside the web build", () => {
+		expect(defaultShortcutBindings("new-session", true)).toEqual(defaultShortcutBindings("new-session", true, false));
+		expect(matchesNewSessionShortcut(chord({ key: "n", meta: true }), true)).toBe(true);
+	});
+
+	it("only replaces the commands whose desktop chords the browser keeps", () => {
+		expect(webShortcutBindings("command-palette")).toBeUndefined();
+		expect(defaultShortcutBindings("command-palette", true, true)).toEqual(defaultShortcutBindings("command-palette", true, false));
+		expect(shortcutBindingLabel(defaultShortcutBindings("new-session", true, true)[0], true)).toBe("⌥⇧N");
+		expect(shortcutBindingLabel(defaultShortcutBindings("new-session", false, true)[0], false)).toBe("Alt+Shift+N");
 	});
 });

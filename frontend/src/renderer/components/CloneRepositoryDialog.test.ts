@@ -3,6 +3,18 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import CloneRepositoryDialog, { joinCloneDestination, repositoryNameFromGitUrl, sameProjectPath } from "./CloneRepositoryDialog";
 
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	const web = (await import("../test/web-build-platform")).webBuildPlatform(actual);
+	return {
+		...actual,
+		get capabilities() {
+			return webBuild.enabled ? web.capabilities : actual.capabilities;
+		},
+	};
+});
+
 function cloneDialogProps(
 	overrides: Partial<React.ComponentProps<typeof CloneRepositoryDialog>> = {},
 ): React.ComponentProps<typeof CloneRepositoryDialog> {
@@ -28,6 +40,7 @@ function renderCloneDialog(
 }
 
 afterEach(() => {
+	webBuild.enabled = false;
 	window.localStorage.removeItem("ao.clone.lastDestinationParent");
 	vi.restoreAllMocks();
 });
@@ -48,6 +61,23 @@ describe("clone repository input", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 		expect(props.onContinue).toHaveBeenCalledWith({ ...props.value, destinationParent: "/Projects/new folder", targetPath: "/Projects/new folder/web-app" });
 		expect(window.localStorage.getItem("ao.clone.lastDestinationParent")).toBe("/Projects/new folder");
+	});
+
+	it("keeps only the typed destination in the web build, without the native picker", () => {
+		webBuild.enabled = true;
+		window.ao!.app.checkGitRepository = vi.fn().mockResolvedValue(true);
+		renderCloneDialog();
+
+		expect(screen.getByRole("textbox", { name: "Clone into" })).toBeEnabled();
+		expect(screen.queryByRole("button", { name: "Choose where to clone the repository" })).not.toBeInTheDocument();
+	});
+
+	it("keeps the remote destination picker in the web build", () => {
+		webBuild.enabled = true;
+		window.ao!.app.checkGitRepository = vi.fn().mockResolvedValue(true);
+		renderCloneDialog({ remote: true, onChooseRemoteDestination: vi.fn() });
+
+		expect(screen.getByRole("button", { name: "Choose where to clone the repository" })).toBeInTheDocument();
 	});
 
 	it("opens the destination picker at the default folder and submits its selection", async () => {

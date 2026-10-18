@@ -1,4 +1,5 @@
 # RW-4.3.2 · Task: Documentation
+**Status:** ✅ done (#146)
 
 **Type:** documentation. **Estimate:** 0.5–1 pd. **Story:** RW-4.3.
 

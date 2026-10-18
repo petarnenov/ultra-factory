@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/activitydispatch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/cursor"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/outbox"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/pricing"
 )
@@ -690,6 +691,14 @@ func (c *commandContext) runHook(ctx context.Context, agent, event string) error
 		}
 	}
 	if err := c.postActivityHook(ctx, path, req); err != nil {
+		// No daemon received the signal: queue it for the daemon to apply when
+		// it is back, unless newer activity has been applied by then.
+		if undelivered(err) {
+			if queued, qerr := c.queueForDaemon(outbox.KindActivity, path, sessionID, req, req.ObservedAt); qerr == nil {
+				c.logHookEvent(sessionID, fmt.Sprintf("ao hooks %s %s: AO daemon is not reachable; queued at %s", agent, event, queued))
+				return nil
+			}
+		}
 		// Surface the failure for diagnosis, but exit 0: a failed activity
 		// report must not disrupt the agent.
 		c.reportHookFailure(agent, event, sessionID, err)
@@ -920,6 +929,11 @@ func (c *commandContext) reportHookFailure(agent, event, sessionID string, cause
 	if !errors.Is(cause, errDaemonNotRunning) {
 		_, _ = fmt.Fprintln(c.deps.Err, msg)
 	}
+	c.logHookEvent(sessionID, msg)
+}
+
+// logHookEvent appends msg for sessionID to $AO_DATA_DIR/hooks.log.
+func (c *commandContext) logHookEvent(sessionID, msg string) {
 	dataDir := strings.TrimSpace(os.Getenv("AO_DATA_DIR"))
 	if dataDir == "" {
 		return

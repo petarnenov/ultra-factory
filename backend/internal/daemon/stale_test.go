@@ -92,6 +92,23 @@ func TestRunFileOwnerServing(t *testing.T) {
 	}
 }
 
+func TestRunFileOwnerServingMatchesInstanceID(t *testing.T) {
+	const pid = 4242
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"status":"ok","service":%q,"pid":%d,"instanceId":"instance-a"}`, daemonmeta.ServiceName, pid)
+	}))
+	defer srv.Close()
+	host, port := hostPort(t, srv.URL)
+
+	for instance, want := range map[string]bool{"instance-a": true, "instance-b": false, "": true} {
+		got := runFileOwnerServing(srv.Client(), host, &runfile.Info{PID: pid, Port: port, InstanceID: instance})
+		if got != want {
+			t.Errorf("run-file instance %q: runFileOwnerServing = %v, want %v", instance, got, want)
+		}
+	}
+}
+
 func TestRunFileOwnerServingNoListener(t *testing.T) {
 	// Bind then immediately close to obtain a port nothing is listening on, so
 	// the probe hits a refused connection — the leaked-run-file case.

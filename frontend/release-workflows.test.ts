@@ -17,6 +17,10 @@ const releaseMutationPatterns = [
 
 type WorkflowSource = { name: string; contents: string };
 
+// The daemon update channel publishes prereleases for self-hosted hosts; the
+// test below pins what makes its release access safe (ADR 0009).
+const daemonChannelWorkflow = "daemon-channel.yml";
+
 function findReleaseMutationViolations(workflows: WorkflowSource[]) {
   return workflows.flatMap(({ name, contents }) => {
     const logicalCommands = contents.replace(/\\\r?\n[ \t]*/g, " ");
@@ -71,9 +75,29 @@ describe("desktop release workflows", () => {
   });
 
   it("prevents public workflows from mutating releases or release tags", async () => {
-    const workflows = await readWorkflows();
+    const workflows = (await readWorkflows()).filter(
+      ({ name }) => name !== daemonChannelWorkflow,
+    );
 
     expect(findReleaseMutationViolations(workflows)).toEqual([]);
+  });
+
+  it("keeps the daemon channel publisher a prerelease-only channel", async () => {
+    const contents = await readFile(
+      path.join(workflowsDirectory, daemonChannelWorkflow),
+      "utf8",
+    );
+
+    // The exemption is real, so the properties that make it safe are pinned.
+    expect(
+      findReleaseMutationViolations([
+        { name: daemonChannelWorkflow, contents },
+      ]),
+    ).not.toEqual([]);
+    expect(contents).toContain("--prerelease");
+    expect(contents).toContain('tag="daemon-channel-$CHANNEL"');
+    expect(contents).not.toMatch(/gh release \w+ [^\n]*latest/);
+    expect(contents).not.toContain("desktop-v");
   });
 
   it("recognizes multiline mutations without rejecting allowed workflows", () => {

@@ -1,4 +1,5 @@
 # RW-2.3.3 · Task: Settings in localStorage; clipboard and openExternal
+**Status:** ✅ done (#79)
 
 **Type:** frontend TS. **Estimate:** 0.5–1 pd. **Story:** RW-2.3.
 

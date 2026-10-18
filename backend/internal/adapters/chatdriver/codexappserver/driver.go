@@ -322,7 +322,7 @@ func (d *Driver) Start(ctx context.Context, cfg ports.ChatStartConfig) (ports.Ch
 	// thread/start has no top-level effort field either; carry the durable AO
 	// choice as a config override like thread/resume does, so a fresh thread
 	// does not silently fall back to the provider default.
-	if config := threadConfig(cfg.Effort, cfg.MCPServers); len(config) > 0 {
+	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, cfg.DisableNetwork, agentlaunch.AgentShellEnv(cfg.Env)); len(config) > 0 {
 		params["config"] = config
 	}
 	if cfg.SystemPrompt != "" {
@@ -402,7 +402,7 @@ func (d *Driver) Resume(ctx context.Context, cfg ports.ChatResumeConfig) (ports.
 	// thread/resume has no top-level effort field. Codex exposes persistent
 	// reasoning effort as a config override, so carry the durable AO choice into
 	// the resumed thread instead of silently falling back to the provider default.
-	if config := threadConfig(cfg.Effort, cfg.MCPServers); len(config) > 0 {
+	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, false, agentlaunch.AgentShellEnv(cfg.Env)); len(config) > 0 {
 		params["config"] = config
 	}
 	// Developer instructions are launch context, not durable conversation
@@ -429,18 +429,18 @@ func (d *Driver) Resume(ctx context.Context, cfg ports.ChatResumeConfig) (ports.
 	return conv, nil
 }
 
-// threadConfig is the config override sent with thread/start and
-// thread/resume. Codex layers it above config.toml for this thread only.
-//
-// AO's own "ao" server (html_preview, html_render) is pre-approved. AO answers
-// no mcpServer/elicitation/request, so a prompt could only fail the call.
-// Verified live on codex-cli 0.160.1: a tool not marked read-only raised that
-// request under on-request and was refused under never/read-only, and
-// default_tools_approval_mode "approve" removed both.
-func threadConfig(effort string, servers []ports.ChatMCPServerConfig) map[string]any {
+// threadConfig is the config override sent with thread/start and resume.
+// AO's own server is pre-approved; shellEnv is set for the agent's commands.
+func threadConfig(effort string, servers []ports.ChatMCPServerConfig, sandbox string, disableNetwork bool, shellEnv map[string]string) map[string]any {
 	config := map[string]any{}
 	if effort != "" {
 		config["model_reasoning_effort"] = effort
+	}
+	for name, value := range shellEnv {
+		config["shell_environment_policy.set."+name] = value
+	}
+	if sandbox == "workspace-write" && !disableNetwork {
+		config[workspaceNetworkKey] = true
 	}
 	if len(servers) == 0 {
 		return config
@@ -617,9 +617,8 @@ func approvalSettings(mode ports.PermissionMode) (policy, sandbox string) {
 	}
 }
 
-// approvalReviewer selects whether Codex asks the user directly or first lets
-// its built-in reviewer approve routine safe actions. Explicitly sending "user"
-// also resets a thread that previously used auto review.
+// approvalReviewer selects whether Codex asks the user directly or lets its
+// built-in reviewer approve safe actions; "user" also resets a thread.
 func approvalReviewer(mode ports.PermissionMode) string {
 	if ports.NormalizePermissionMode(mode) == ports.PermissionModeAuto {
 		return "auto_review"
@@ -627,22 +626,14 @@ func approvalReviewer(mode ports.PermissionMode) string {
 	return "user"
 }
 
+// workspaceNetworkKey gives the workspace-write sandbox (accept-edits, auto)
+// network access, so ao commands reach the daemon on loopback; a dotted key.
+const workspaceNetworkKey = "sandbox_workspace_write.network_access"
+
 // SandboxAllowsNetwork reports whether this thread's agent can reach the
-// network. Codex's workspace-write sandbox, used for accept-edits and auto, has
-// no network (AO never grants it), while full access and the read-only
-// reviewer sandbox do.
-func (c *conversation) SandboxAllowsNetwork(turnMode ports.PermissionMode) bool {
-	if c.disableNetwork {
-		return false
-	}
-	if c.readOnly {
-		return true
-	}
-	if turnMode == "" {
-		turnMode = c.launchMode
-	}
-	_, sandbox := approvalSettings(turnMode)
-	return sandbox == "danger-full-access"
+// network. Every sandbox AO runs Codex in has it unless the caller disabled it.
+func (c *conversation) SandboxAllowsNetwork(ports.PermissionMode) bool {
+	return !c.disableNetwork
 }
 
 func launchApprovalSettings(mode ports.PermissionMode, readOnly bool) (policy, sandbox, reviewer string) {
@@ -775,7 +766,7 @@ func (d *Driver) ForkIntoHost(ctx context.Context, sourceProviderConversationID,
 	}
 	// Same overrides as thread/start and thread/resume: without the MCP servers
 	// a fresh fork has no AO tools until a restart resumes it.
-	if config := threadConfig(cfg.Effort, cfg.MCPServers); len(config) > 0 {
+	if config := threadConfig(cfg.Effort, cfg.MCPServers, sandbox, cfg.DisableNetwork, agentlaunch.AgentShellEnv(cfg.Env)); len(config) > 0 {
 		params["config"] = config
 	}
 	if cfg.SystemPrompt != "" {

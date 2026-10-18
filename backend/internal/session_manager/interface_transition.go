@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
@@ -852,7 +853,7 @@ func (m *Manager) preflightInterfaceTarget(
 	var cmd []string
 	if transition.NativeConversationID == "" {
 		cmd, _, _, err = freshLaunchArgv(ctx, agent, rec.ID, rec.Metadata.WorkspacePath,
-			rec.Metadata, systemPrompt, "", config, rec.Kind, m.dataDir, true)
+			rec.Metadata, systemPrompt, "", config, rec.Kind, m.dataDir, true, env)
 	} else {
 		var resumable bool
 		cmd, resumable, err = agent.GetRestoreCommand(ctx, ports.RestoreConfig{
@@ -861,7 +862,7 @@ func (m *Manager) preflightInterfaceTarget(
 				Metadata: map[string]string{ports.MetadataKeyAgentSessionID: transition.NativeConversationID},
 			},
 			Kind: rec.Kind, DataDir: m.dataDir, SystemPrompt: systemPrompt,
-			Config: config, Permissions: config.Permissions,
+			Config: config, Permissions: config.Permissions, ShellEnv: agentlaunch.AgentShellEnv(env),
 		})
 		if err == nil && !resumable {
 			return ErrNativeConversationMissing

@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
@@ -98,6 +99,51 @@ func TestLANManagerAuthGatesSharedHandler(t *testing.T) {
 	resp2, _ := http.DefaultClient.Do(req)
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("auth: got %d want 200", resp2.StatusCode)
+	}
+}
+
+// TestLANManagerStartAcceptsIPv6Loopback pins the dual-stack behavior of the
+// 0.0.0.0 bind (ADR 0007): "tcp4" would break IPv6-only private networks.
+func TestLANManagerStartAcceptsIPv6Loopback(t *testing.T) {
+	probe, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback on this host: %v", err)
+	}
+	probe.Close()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	})
+	st := &authState{}
+	st.setHash(mobilebridge.HashPassword("secret12"))
+	m := NewLANManager(inner, st, 0, slog.Default(), nil)
+	port, err := m.Start(0)
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer m.Stop(context.Background())
+
+	for _, host := range []string{"127.0.0.1", "::1"} {
+		url := fmt.Sprintf("http://%s/anything", net.JoinHostPort(host, fmt.Sprint(port)))
+		resp, err := http.Get(url)
+		if err != nil {
+			t.Fatalf("%s no-auth: %v", host, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("%s no-auth: got %d want 401", host, resp.StatusCode)
+		}
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req.Header.Set("Authorization", "Bearer secret12")
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s auth: %v", host, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || string(body) != "ok" {
+			t.Fatalf("%s auth: got %d %q want 200 ok", host, resp.StatusCode, body)
+		}
 	}
 }
 
@@ -524,6 +570,52 @@ func TestLANListenerServesCodexModelRoutesFromRealRouter(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s: got %d want 404", path, resp.StatusCode)
+		}
+	}
+}
+
+// TestMobileLANBehindTLSProxy covers a worker behind a TLS-terminating proxy
+// that rewrites Host: the identity probe answers and the guard uses its header.
+func TestMobileLANBehindTLSProxy(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	router := NewRouterWithControl(config.Config{}, log, nil, APIDeps{HostID: "h_worker"}, ControlDeps{})
+	m := NewMobileLAN(router, "h_worker", 0, nil, nil)
+	m.SetPasswordHash(mobilebridge.HashPassword("secret12"))
+	proxied := func(path, host, password, expectedHostID string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		req.Header.Set("X-Forwarded-Host", "worker.up.railway.app")
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Forwarded-For", "203.0.113.7")
+		if password != "" {
+			req.Header.Set("Authorization", "Bearer "+password)
+		}
+		if expectedHostID != "" {
+			req.Header.Set("X-AO-Expected-Host-ID", expectedHostID)
+		}
+		recorder := httptest.NewRecorder()
+		m.handler.ServeHTTP(recorder, req)
+		return recorder
+	}
+
+	identity := proxied("/api/v1/identity", "worker.up.railway.app", "", "")
+	if identity.Code != http.StatusOK {
+		t.Fatalf("identity through proxy: status=%d body=%q", identity.Code, identity.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(identity.Body.Bytes(), &body); err != nil {
+		t.Fatalf("identity body %q: %v", identity.Body.String(), err)
+	}
+	if len(body) != 2 || body["hostId"] != "h_worker" || body["apiVersion"] != float64(controllers.MobileAPIVersion) {
+		t.Fatalf("identity through proxy exposed %v, want only hostId and apiVersion", body)
+	}
+
+	for _, host := range []string{"worker.up.railway.app", "worker.railway.internal:3011", "127.0.0.1:3011", "h_other"} {
+		if got := proxied("/healthz", host, "secret12", "h_worker"); got.Code != http.StatusOK {
+			t.Errorf("Host %q, matching expected host: status=%d body=%q", host, got.Code, got.Body.String())
+		}
+		if got := proxied("/healthz", host, "secret12", "h_old"); got.Code != http.StatusMisdirectedRequest || !strings.Contains(got.Body.String(), `"code":"HOST_ID_MISMATCH"`) {
+			t.Errorf("Host %q, stale expected host: status=%d body=%q, want 421 HOST_ID_MISMATCH", host, got.Code, got.Body.String())
 		}
 	}
 }

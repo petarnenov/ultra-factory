@@ -27,6 +27,8 @@ type LANManager struct {
 	log         *slog.Logger
 	state       *authState // shared with authMiddleware; SetPasswordHash writes through here
 	lock        *lockout
+	// trustedProxy keys the lockout on X-Forwarded-For (AO_REMOTE_TRUSTED_PROXY).
+	trustedProxy bool
 
 	transitionMu sync.Mutex // serializes Start and Stop without blocking status reads
 	mu           sync.Mutex
@@ -37,18 +39,30 @@ type LANManager struct {
 	bindHost     string
 }
 
+// LANOption configures a LANManager at construction.
+type LANOption func(*LANManager)
+
+// WithTrustedProxy keys the lockout on the rightmost X-Forwarded-For entry
+// instead of the TCP peer. Only for a listener behind one reverse proxy.
+func WithTrustedProxy(enabled bool) LANOption {
+	return func(m *LANManager) { m.trustedProxy = enabled }
+}
+
 // NewLANManager wraps handler in the LAN control-block and authMiddleware
 // (backed by the shared state) and returns a manager that can start/stop the
 // network-facing listener. Most callers want NewMobileLAN, which owns the state.
-func NewLANManager(handler http.Handler, state *authState, defaultPort int, log *slog.Logger, sink ports.EventSink) *LANManager {
-	lock := newLockout(time.Now)
-	return &LANManager{
-		handler:     lanControlBlock(authMiddleware(state, lock, newMobileConnectReporter(sink, time.Now))(handler)),
+func NewLANManager(handler http.Handler, state *authState, defaultPort int, log *slog.Logger, sink ports.EventSink, opts ...LANOption) *LANManager {
+	m := &LANManager{
 		defaultPort: defaultPort,
 		log:         loggerOrDefault(log),
 		state:       state,
-		lock:        lock,
+		lock:        newLockout(time.Now),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	m.handler = lanControlBlock(authMiddleware(state, m.lock, newMobileConnectReporter(sink, time.Now), m.trustedProxy, m.log)(handler))
+	return m
 }
 
 // lanControlBlockedPrefixes are the loopback-only daemon-control route
@@ -131,8 +145,8 @@ func IsLANControlBlockedPathForTest(path string) bool { return isLANControlBlock
 // outside this package (the daemon) cannot construct an authState directly
 // since it is unexported; this gives them a LANManager that owns one, and the
 // daemon rotates the connection password exclusively via SetPasswordHash.
-func NewMobileLAN(handler http.Handler, hostID string, defaultPort int, log *slog.Logger, sink ports.EventSink) *LANManager {
-	return NewLANManager(expectedHostGuard(hostID)(handler), &authState{}, defaultPort, log, sink)
+func NewMobileLAN(handler http.Handler, hostID string, defaultPort int, log *slog.Logger, sink ports.EventSink, opts ...LANOption) *LANManager {
+	return NewLANManager(expectedHostGuard(hostID)(handler), &authState{}, defaultPort, log, sink, opts...)
 }
 
 // expectedHostGuard prevents a saved address from sending work to a different
@@ -203,6 +217,8 @@ func (m *LANManager) PasswordHash() string {
 
 // Start binds the authenticated listener on every interface for Connect Mobile.
 func (m *LANManager) Start(port int) (int, error) {
+	// With network "tcp", Go opens 0.0.0.0 as a dual-stack socket; keep it so
+	// IPv6-only private networks can reach it (ADR 0007).
 	return m.start(port, "0.0.0.0")
 }
 
@@ -267,6 +283,10 @@ func (m *LANManager) start(port int, host string) (int, error) {
 		}
 	}()
 	m.log.Info("LAN listener started", "addr", ln.Addr())
+	if m.trustedProxy {
+		m.log.Warn("trusted proxy mode on; X-Forwarded-For is trusted for lockout keys; only enable behind a reverse proxy",
+			"addr", ln.Addr())
+	}
 	return boundPort, nil
 }
 

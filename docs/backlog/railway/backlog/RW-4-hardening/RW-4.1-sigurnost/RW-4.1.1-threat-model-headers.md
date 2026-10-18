@@ -1,4 +1,5 @@
 # RW-4.1.1 · Task: Threat model and security headers
+**Status:** ✅ done (#98)
 
 **Type:** security + Node TS. **Estimate:** 0.5–1 pd. **Story:** RW-4.1.
 

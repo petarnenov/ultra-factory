@@ -53,6 +53,7 @@ type probeResult struct {
 	Status           string `json:"status"`
 	Service          string `json:"service"`
 	PID              int    `json:"pid"`
+	InstanceID       string `json:"instanceId,omitempty"`
 	ExecutablePath   string `json:"executablePath,omitempty"`
 	WorkingDirectory string `json:"workingDirectory,omitempty"`
 }
@@ -100,9 +101,16 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 	st.Uptime = formatUptime(c.deps.Now().Sub(info.StartedAt))
 
 	if !c.deps.ProcessAlive(info.PID) {
-		st.State = stateStale
-		st.Error = "run-file points to a dead process"
-		return st, nil
+		// A PID that looks dead may only be invisible from a private namespace
+		// (an agent sandbox); the daemon answering on its port is live.
+		if answered, err := c.probeRunFileOwner(ctx, *info); !answered || err != nil {
+			st.State = stateStale
+			st.Error = "run-file points to a dead process"
+			if inAgentSession() {
+				st.Error = sandboxedDaemonMessage(*info)
+			}
+			return st, nil
+		}
 	}
 
 	health, err := c.readProbe(ctx, info.Port, "healthz")
@@ -111,7 +119,7 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 		st.Error = err.Error()
 		return st, nil
 	}
-	if err := verifyProbeOwner(health, info.PID, "healthz"); err != nil {
+	if err := verifyProbeOwner(health, *info, "healthz"); err != nil {
 		st.State = stateStale
 		st.Error = err.Error()
 		return st, nil
@@ -130,7 +138,7 @@ func (c *commandContext) inspectDaemon(ctx context.Context) (daemonStatus, error
 		st.Error = err.Error()
 		return st, nil
 	}
-	if err := verifyProbeOwner(ready, info.PID, "readyz"); err != nil {
+	if err := verifyProbeOwner(ready, *info, "readyz"); err != nil {
 		st.State = stateStale
 		st.owned = false
 		st.Error = err.Error()
@@ -171,12 +179,27 @@ func (c *commandContext) readProbe(ctx context.Context, port int, path string) (
 	return body, nil
 }
 
-func verifyProbeOwner(probe probeResult, wantPID int, path string) error {
+// probeRunFileOwner asks the daemon on info's loopback port who it is, used
+// when the PID looks dead but its loopback network is shared; err explains.
+func (c *commandContext) probeRunFileOwner(ctx context.Context, info runfile.Info) (answered bool, err error) {
+	health, err := c.readProbe(ctx, info.Port, "healthz")
+	if err != nil {
+		return false, err
+	}
+	return true, verifyProbeOwner(health, info, "healthz")
+}
+
+// verifyProbeOwner checks that a probe answer comes from the daemon that wrote
+// the run-file: service name, self-reported PID, and its instance id.
+func verifyProbeOwner(probe probeResult, info runfile.Info, path string) error {
 	if probe.Service != daemonmeta.ServiceName {
 		return fmt.Errorf("%s: response is not from AO daemon", path)
 	}
-	if probe.PID != wantPID {
-		return fmt.Errorf("%s: daemon pid %d does not match run-file pid %d", path, probe.PID, wantPID)
+	if probe.PID != info.PID {
+		return fmt.Errorf("%s: daemon pid %d does not match run-file pid %d", path, probe.PID, info.PID)
+	}
+	if info.InstanceID != "" && probe.InstanceID != info.InstanceID {
+		return fmt.Errorf("%s: daemon instance %q does not match run-file instance %q", path, probe.InstanceID, info.InstanceID)
 	}
 	return nil
 }

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "watchPatterns": [
+      "/backend/**",
+      "/frontend/acp-runtime/package.json",
+      "/frontend/acp-runtime/package-lock.json",
+      "/frontend/scripts/build-acp-runtime.mjs",
+      "/frontend/scripts/build-acp-runtime-helpers.mjs",
+      "/deploy/railway/worker/**",
+      "/railway.json"
+    ]
+  }
+}

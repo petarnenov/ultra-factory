@@ -76,6 +76,22 @@ describe("WindowTitlebar", () => {
     expect(actionMock).toHaveBeenNthCalledWith(3, "window.close");
   });
 
+  it("renders nothing in the web build, even on Windows", async () => {
+    vi.stubEnv("VITE_AO_WEB", "1");
+    try {
+      const { WindowTitlebar } = await loadWindowTitlebar();
+      const { container } = render(
+        <TooltipProvider>
+          <WindowTitlebar />
+        </TooltipProvider>,
+      );
+
+      expect(container).toBeEmptyDOMElement();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("shows only View and Help in the top menu", async () => {
     const { WindowTitlebar } = await loadWindowTitlebar();
 

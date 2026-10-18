@@ -11,6 +11,17 @@ import { TooltipProvider } from "./ui/tooltip";
 const { deleteArtifactMock, openPreviewMock } = vi.hoisted(() => ({ deleteArtifactMock: vi.fn(), openPreviewMock: vi.fn() }));
 
 vi.mock("../hooks/useOpenArtifactPreview", () => ({ useOpenArtifactPreview: () => openPreviewMock }));
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	const web = (await import("../test/web-build-platform")).webBuildPlatform(actual);
+	return {
+		...actual,
+		get capabilities() {
+			return webBuild.enabled ? web.capabilities : actual.capabilities;
+		},
+	};
+});
 vi.mock("../hooks/useSessionWorkspaceFiles", () => ({
 	deleteSessionArtifactFile: deleteArtifactMock,
 	sessionArtifactFileQueryOptions: (sessionId: string, path: string) => ({
@@ -45,6 +56,7 @@ function renderView(ui: ReactNode) {
 
 describe("SessionArtifactsView", () => {
 	beforeEach(() => {
+		webBuild.enabled = false;
 		openPreviewMock.mockReset();
 		deleteArtifactMock.mockReset().mockResolvedValue(undefined);
 	});
@@ -195,6 +207,16 @@ describe("SessionArtifactsView", () => {
 		expect(openArtifacts).toHaveBeenNthCalledWith(1, { sessionId: "sess-1", targetId: "file-manager", path: "reports/plan.md" });
 		expect(openArtifacts).toHaveBeenNthCalledWith(2, { sessionId: "sess-1", targetId: "terminal", path: "reports/plan.md" });
 		openArtifacts.mockRestore();
+	});
+
+	it("hides the file manager and terminal handoff in the web build but keeps copy and delete", async () => {
+		webBuild.enabled = true;
+		renderView(<SessionArtifactsView session={session()} />);
+
+		expect(screen.queryByRole("button", { name: /^Open in / })).not.toBeInTheDocument();
+		await userEvent.click(screen.getByRole("button", { name: /^plan\.md/ }));
+		await userEvent.click(screen.getByRole("button", { name: "plan.md" }));
+		expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Copy as Markdown", "Delete artifact"]);
 	});
 
 	it("copies a markdown artifact as Markdown", async () => {

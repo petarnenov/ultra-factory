@@ -23,6 +23,12 @@ on:
       # a producer change that breaks the contract cannot slip past.
       - "test/e2e-pod/**"
 
+# A newer commit on the same PR cancels that PR's older in-flight run; push
+# runs on main keep their own group and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -30,8 +36,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
       - name: Run verdict-contract tests

@@ -1,4 +1,5 @@
 # RW-1.1.2 · Task: ADR for a BFF in front of the daemon orchestrator in the hub
+**Status:** ✅ done (#60)
 
 **Type:** ADR. **Estimate:** 0.5–1 pd. **Story:** RW-1.1.
 

@@ -7,6 +7,7 @@ import type { components } from "../../api/schema";
 import type { MessageKey } from "../i18n";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { aoBridge } from "../lib/bridge";
+import { electronBridge } from "../lib/electron-bridge";
 import { cn } from "../lib/utils";
 import { requirementDetailText, requirementDisplayLabel, type SystemRequirement } from "./SystemRequirementsChecklist";
 import {
@@ -324,7 +325,7 @@ export function InstallDependencyDialog({
 					<button
 						type="button"
 						className="settings-footer-button"
-						onClick={() => void window.ao?.menu?.action("app.quit")}
+						onClick={() => void electronBridge()?.menu?.action("app.quit")}
 					>
 						{t("startup.quit")}
 					</button>

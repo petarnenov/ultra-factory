@@ -15,8 +15,10 @@ on:
 permissions:
   contents: read
 
+# A newer commit on the same PR cancels that PR's older in-flight run; push
+# runs on main keep their own group and are never cancelled.
 concurrency:
-  group: go-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -30,9 +32,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           # Read the version from go.mod so CI can't drift from the module
           # (it previously pinned 1.22 while go.mod declared 1.25).
@@ -86,9 +88,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -106,9 +108,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -126,9 +128,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -164,9 +166,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -214,9 +216,9 @@ jobs:
       run:
         working-directory: cloud
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: cloud/go.mod
           cache-dependency-path: cloud/go.sum
@@ -250,9 +252,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache: false
@@ -260,7 +262,7 @@ jobs:
       - name: golangci-lint
         # v8 of the action drives golangci-lint v2 (the schema this config uses);
         # the v6 action speaks v1 CLI flags and errors against a v2 binary.
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           # Pinned for reproducibility: bump intentionally rather than letting an
           # upstream release change CI. Must be built with Go >= the module's
@@ -274,14 +276,16 @@ jobs:
   sqlc-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
-          cache: false
+          # sqlc runs through `go run ...@v1.31.1`, so the cached module and
+          # build caches are what keep it from recompiling sqlc from scratch.
+          cache-dependency-path: backend/go.sum
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
 
@@ -296,16 +300,20 @@ jobs:
   api-drift:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
-          cache: false
+          # `go generate` compiles cmd/genspec; the module and build caches are
+          # the difference between recompiling it and reusing the last run.
+          cache-dependency-path: backend/go.sum
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci

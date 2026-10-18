@@ -5,7 +5,7 @@ import type { components } from "../../../api/schema";
 import type { ChatDraftExcerptReference } from "../../lib/chat-drafts";
 import type { ChatSkill } from "../../types/conversation";
 import type { ChatModel } from "../../types/conversation";
-import { apiClient, apiErrorMessage, getApiBaseUrl, subscribeApiBaseUrl } from "../../lib/api-client";
+import { apiClient, apiErrorMessage, getApiBaseUrl, hasTrustedApiBaseUrl, subscribeApiBaseUrl } from "../../lib/api-client";
 import { aoBridge } from "../../lib/bridge";
 import { ApprovalCard } from "./ChatTimelineItems";
 import { Timeline } from "./ChatWorkspace";
@@ -353,6 +353,10 @@ async function sideFilePayload(file: File): Promise<{ mimeType: string; data: st
 	};
 }
 
+function trustedApiBaseUrl(): string | null {
+	return hasTrustedApiBaseUrl() ? getApiBaseUrl() : null;
+}
+
 export function useIndependentSideChats(
 	sessionId: string,
 	models: ChatModel[],
@@ -408,7 +412,8 @@ export function useIndependentSideChats(
 		loadingOlderRef.current = false;
 	}
 	useEffect(() => setLoadingOlder(false), [sessionId, activeId, enabled]);
-	const baseUrl = useSyncExternalStore(subscribeApiBaseUrl, getApiBaseUrl, getApiBaseUrl);
+	// null until a daemon is trusted; "" is a valid same-origin base (web build).
+	const baseUrl = useSyncExternalStore(subscribeApiBaseUrl, trustedApiBaseUrl, trustedApiBaseUrl);
 	const sessionRef = useRef(sessionId);
 	sessionRef.current = enabled ? sessionId : "";
 	useEffect(() => {
@@ -509,7 +514,7 @@ export function useIndependentSideChats(
 			});
 		refreshSafely();
 		let stream: EventSource | undefined;
-		if (baseUrl && typeof EventSource !== "undefined") {
+		if (baseUrl !== null && typeof EventSource !== "undefined") {
 			stream = new EventSource(
 				`${baseUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}/conversation/side-chats/${encodeURIComponent(activeId)}/events`,
 			);

@@ -90,6 +90,17 @@ vi.mock("../lib/telemetry", () => ({
 	captureRendererEvent: vi.fn(),
 	captureRendererException: vi.fn(),
 }));
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/platform")>();
+	const web = (await import("../test/web-build-platform")).webBuildPlatform(actual);
+	return {
+		...actual,
+		get capabilities() {
+			return webBuild.enabled ? web.capabilities : actual.capabilities;
+		},
+	};
+});
 vi.mock("./NewTaskDialog", () => ({ NewTaskDialog: () => null }));
 vi.mock("./NotificationCenter", () => ({
 	NotificationCenter: () => <button aria-label="Notifications" type="button" />,
@@ -703,6 +714,20 @@ describe("ShellTopbar inspector state", () => {
 		expect(screen.getByTestId("session-pinned-actions-reserve")).toHaveAttribute("data-state", "expanded");
 	});
 
+	it("reserves one control for an orchestrator without the Browser inspector in the web build", () => {
+		webBuild.enabled = true;
+		try {
+			useUiStore.setState({ inspectorSessions: { [orchestrator.id]: { isOpen: true, view: "browser" } } });
+			renderTopbarSessions([orchestrator], orchestrator.id);
+
+			const reserve = screen.getByTestId("session-pinned-actions-reserve");
+			expect(reserve).toHaveAttribute("data-state", "expanded");
+			expect(reserve).toHaveAttribute("data-controls", "single");
+		} finally {
+			webBuild.enabled = false;
+		}
+	});
+
 	it("keeps one reserve mounted while the inspector changes state", () => {
 		useUiStore.setState({ inspectorSessions: { "sess-1": { isOpen: false, view: "summary" } } });
 		const view = renderTopbarSessions([worker], "sess-1");
@@ -736,6 +761,20 @@ describe("ShellTopbar open-in-editor control", () => {
 			expect(screen.queryByRole("button", { name: "Open in Cursor" })).not.toBeInTheDocument();
 			expect(screen.queryByRole("button", { name: "Choose editor" })).not.toBeInTheDocument();
 		});
+	});
+
+	it("hides the open-in-editor control and Copy path for a local session in the web build", async () => {
+		webBuild.enabled = true;
+		try {
+			renderTopbarSessions([worker], "sess-1");
+
+			expect(await screen.findByRole("button", { name: "Archive session" })).toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "Copy path" })).not.toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "Open in Cursor" })).not.toBeInTheDocument();
+			expect(screen.queryByRole("button", { name: "Choose editor" })).not.toBeInTheDocument();
+		} finally {
+			webBuild.enabled = false;
+		}
 	});
 });
 
