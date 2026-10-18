@@ -19,7 +19,7 @@ DAEMON_REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's|^.*gith
 	build build-backend build-daemon daemon-dist daemon-channel package dist \
 	daemon-update-install daemon-update \
 	test test-backend test-race test-frontend test-e2e test-e2e-renderer test-daemon-update \
-	lint vet typecheck check \
+	lint vet typecheck check check-all \
 	sqlc api api-spec api-ts \
 	cloud-check product-ui-check hub-bff-check shared-check \
 	cloud-local cloud-local-down cloud-local-reset cloud-local-smoke \
@@ -130,6 +130,38 @@ typecheck: ## Typecheck the frontend
 	npm run frontend:typecheck
 
 check: lint vet typecheck test-frontend ## Run the main local checks before a PR
+
+# check-all mirrors the CI job set that runs locally, without the backend race
+# suite (run `make test-race` for that) and without Docker or OS-specific runners.
+check-all: ## Run every CI check that runs locally (no Docker or OS-specific runner)
+	@echo "==> comment policy"
+	@npm run comment:check
+	@npm run comment:test
+	@echo "==> backend format, build, vet, tests, lint"
+	@unformatted="$$(cd backend && gofmt -l .)"; \
+		if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
+	@cd backend && go build ./...
+	@cd backend && go vet ./...
+	@npm run lint
+	@echo "==> storage and API drift"
+	@npm run sqlc
+	@git diff --exit-code -- backend/internal/storage/sqlite/gen
+	@test -z "$$(git ls-files --others --exclude-standard -- backend/internal/storage/sqlite/gen)"
+	@npm run api
+	@git diff --exit-code -- frontend/src/api/schema.ts
+	@echo "==> shared packages and the hub BFF"
+	@npm run shared:check
+	@npm run hub-bff:check
+	@echo "==> frontend typecheck and unit tests"
+	@npm run frontend:typecheck
+	@npm --prefix frontend run typecheck:e2e
+	@npm --prefix frontend run test
+	@echo "==> scripts and their tests"
+	@npm run version:test
+	@bash scripts/ao-self-update.test.sh all
+	@bash scripts/install-self-update.test.sh all
+	@node scripts/ao-e2e-pod-gate.test.mjs
+	@echo "check-all: every local check passed"
 
 ##@ Code generation
 
