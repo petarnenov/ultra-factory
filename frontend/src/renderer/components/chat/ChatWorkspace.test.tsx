@@ -2990,6 +2990,28 @@ ${reportText}
 		expect(screen.queryByTestId("chat-timeline")).not.toBeInTheDocument();
 	});
 
+	it("removes a raw report relay turn using its durable client message ID", () => {
+		const source = chatFixture.items.find((item): item is ConversationMessage => item.kind === "message" && item.id === "m-4");
+		if (!source) throw new Error("Fixture needs an automation message");
+		const snapshot: ConversationSnapshot = {
+			...chatFixtureEmpty,
+			items: [{
+				...source,
+				id: "worker-report-relay",
+				turnId: undefined,
+				sequence: 1,
+				clientMessageId: "report-batch:abc123",
+				text: "Reports since your previous turn:\n\n[done] worker finished",
+			}],
+			latestSequence: 1,
+		};
+
+		render(<ChatWorkspace snapshot={snapshot} />);
+
+		expect(screen.queryByText(/Reports since your previous turn/)).not.toBeInTheDocument();
+		expect(screen.queryByTestId("chat-timeline")).not.toBeInTheDocument();
+	});
+
 	it("keeps queued browser feedback visible while the agent is busy", () => {
 		const snapshot: ConversationSnapshot = {
 			...chatFixture,

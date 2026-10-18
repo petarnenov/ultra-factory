@@ -729,7 +729,7 @@ export function HumanMessage({
  */
 export function OriginMessage({ message }: { message: ConversationMessage }) {
 	const [expanded, setExpanded] = useState(false);
-	if (message.origin === "automation" && isReportDeliveryEnvelope(message.text)) {
+	if (isReportDeliveryMessage(message)) {
 		return null;
 	}
 	const browserAnnotations = parseBrowserAnnotationMessage(message.text);
@@ -768,6 +768,12 @@ export function OriginMessage({ message }: { message: ConversationMessage }) {
 
 export function isReportDeliveryEnvelope(text: string): boolean {
 	return /^<ao-report-delivery id="[A-Za-z0-9:_-]{1,128}">\s*[\s\S]*\s*<\/ao-report-delivery>\s*$/.test(text.trim());
+}
+
+export function isReportDeliveryMessage(message: ConversationMessage): boolean {
+	return message.origin === "automation" && (
+		isReportDeliveryEnvelope(message.text) || message.clientMessageId?.startsWith("report-batch:") === true
+	);
 }
 
 function AutomationMessageFrame({
