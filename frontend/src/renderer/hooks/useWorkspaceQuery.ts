@@ -603,7 +603,7 @@ export function remoteWorkspacesQueryOptions(hostId: string) {
 export function remoteProjectQueryOptions(hostId: string, projectId: string) {
 	return {
 		...remoteWorkspacesQueryOptions(hostId),
-		select: (workspaces) => workspaces.find((workspace) => workspace.id === projectId),
+		select: (workspaces: WorkspaceSummary[]) => workspaces.find((workspace) => workspace.id === projectId),
 		enabled: Boolean(hostId && projectId),
 	};
 }
