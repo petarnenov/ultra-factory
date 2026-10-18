@@ -195,6 +195,16 @@ jobs:
           echo "GET /hub/hosts with the session -> $code"
           test "$code" = 200
 
+      # The supervisor seeds OpenCode 2 from the image into the daemon's private
+      # npm prefix on the volume; the harness resolves it there by major.
+      - name: Check the hub's OpenCode 2 install
+        run: |
+          version=$(docker exec ao-hub-smoke \
+            /data/home/.local/share/opencode-v2-home/npm/bin/opencode --version)
+          echo "opencode --version -> $version"
+          major=$(printf '%s' "$version" | grep -oE '[0-9]+\.[0-9]+' | head -n1 | cut -d. -f1)
+          test "$major" = 2
+
       - name: Hub logs
         if: failure()
         run: docker logs ao-hub-smoke || true
