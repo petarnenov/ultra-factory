@@ -2,8 +2,8 @@ package domain
 
 import "time"
 
-// StageTransition is one observed entry into a derived Kanban column. It is
-// report history only and never the source of a session's current status.
+// StageTransition is a polled, approximate entry into a derived Kanban
+// column; report history only, never a session's current status.
 type StageTransition struct {
 	Stage     KanbanColumn
 	EnteredAt time.Time

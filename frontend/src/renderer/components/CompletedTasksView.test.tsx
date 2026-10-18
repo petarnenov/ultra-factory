@@ -144,6 +144,7 @@ describe("CompletedTasksView", () => {
 		expect(screen.getByText("25m 00s · visits: 2")).toBeInTheDocument();
 		expect(screen.getByText("10m 00s · visits: 1")).toBeInTheDocument();
 		expect(screen.getAllByText("Not visited")).toHaveLength(2);
+		expect(screen.getByText(/times are approximate and short stays may be missing/)).toBeInTheDocument();
 		expect(screen.getByText(/Configuration changes were not recorded/)).toHaveTextContent("claude-code · claude-opus-5-5 · medium");
 		expect(screen.getAllByText("Partial").length).toBeGreaterThanOrEqual(2);
 		expect(screen.getByText("Cancelled")).toBeInTheDocument();

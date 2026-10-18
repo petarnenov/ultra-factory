@@ -3205,6 +3205,6 @@
 	"completedTasks.report.stageTotal": "{{duration}} · visits: {{count}}",
 	"completedTasks.report.notVisited": "Not visited",
 	"completedTasks.report.ongoing": "Ongoing",
-	"completedTasks.report.stageNote": "Stage times are cumulative per stage and are not the same as elapsed time.",
+	"completedTasks.report.stageNote": "Stages are sampled about every 15 seconds, so times are approximate and short stays may be missing. Totals are cumulative per stage and differ from elapsed time.",
 	"completedTasks.report.timeline": "Stage visits"
 }

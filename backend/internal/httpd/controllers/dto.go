@@ -3640,7 +3640,8 @@ type CompletedTaskStageTotal struct {
 	HasUnfinished bool   `json:"hasUnfinished"`
 }
 
-// CompletedTaskStages are observed stage visits and per-stage totals.
+// CompletedTaskStages are polled stage observations: times are approximate
+// and stays shorter than the poll interval may be missing.
 type CompletedTaskStages struct {
 	Completeness string                    `json:"completeness" enum:"complete,partial,unavailable"`
 	Visits       []CompletedTaskStageVisit `json:"visits"`
