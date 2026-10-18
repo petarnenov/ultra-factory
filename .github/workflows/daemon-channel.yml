@@ -1,0 +1,127 @@
+name: Daemon update channel
+
+# Publishes one rolling prerelease per daemon update channel: stable-named
+# daemon bundles, SHA256SUMS, and manifest.json, which ao-self-update.sh reads.
+# These releases always live under daemon-channel-* as prereleases, so they
+# never take over /releases/latest or the desktop update feed.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or SHA to publish (defaults to the dispatched ref)
+        required: false
+        default: ""
+      channel:
+        description: Channel name (defaults to the ref slug, for example feat-railway-hosting)
+        required: false
+        default: ""
+  pull_request:
+    paths: &paths
+      - .github/workflows/daemon-channel.yml
+      - backend/**
+      - frontend/package.json
+      - frontend/resources/acp-runtime/**
+      - frontend/scripts/build-acp-runtime.mjs
+      - scripts/ao-self-update.sh
+      - scripts/ao-self-update.test.sh
+      - scripts/build-daemon-channel.sh
+      - scripts/build-daemon-dist.sh
+  push:
+    branches: [main, "feat/**"]
+    paths: *paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daemon-channel-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Updater tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run the self-update script tests
+        run: bash scripts/ao-self-update.test.sh all
+
+  publish:
+    name: Publish the channel
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Resolve the channel name
+        id: channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel="${{ inputs.channel }}"
+          if [[ -z "$channel" ]]; then
+            channel="${GITHUB_REF_NAME}"
+          fi
+          channel="$(printf '%s' "$channel" | tr '/ ' '--' | tr -cd 'A-Za-z0-9._-')"
+          if [[ -z "$channel" ]]; then
+            echo "::error::could not derive a channel name"
+            exit 1
+          fi
+          echo "name=$channel" >>"$GITHUB_OUTPUT"
+
+      - name: Build the channel artifacts
+        env:
+          DAEMON_CHANNEL: ${{ steps.channel.outputs.name }}
+          DAEMON_REPO: ${{ github.repository }}
+          DAEMON_REF: ${{ github.ref }}
+        run: bash scripts/build-daemon-channel.sh
+
+      - name: Publish the rolling channel release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ steps.channel.outputs.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="daemon-channel-$CHANNEL"
+          manifest=dist/daemon-channel/manifest.json
+          version="$(jq -r .version "$manifest")"
+          commit="$(jq -r .commit "$manifest")"
+          built="$(jq -r '.builtAt // "unknown"' "$manifest")"
+          notes="$(printf 'Rolling daemon update channel `%s`.\n\n- version: %s\n- commit: %s\n- built: %s\n\nEvery publish replaces these assets in place. A host configured with\n`"channel": "%s"` follows this release through scripts/ao-self-update.sh.\n' "$CHANNEL" "$version" "$commit" "$built" "$CHANNEL")"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "Daemon channel $CHANNEL" --prerelease --notes "$notes"
+            while read -r name; do
+              gh release delete-asset "$tag" "$name" --yes >/dev/null
+            done < <(gh release view "$tag" --json assets --jq '.assets[].name')
+          else
+            gh release create "$tag" --title "Daemon channel $CHANNEL" --prerelease --notes "$notes"
+          fi
+
+          gh release upload "$tag" dist/daemon-channel/ao-*.tar.gz \
+            dist/daemon-channel/SHA256SUMS dist/daemon-channel/manifest.json \
+            dist/daemon-channel/ao-self-update.sh --clobber
+          echo "::notice::published https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag at $commit"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: daemon-channel-manifest
+          path: dist/daemon-channel/manifest.json
+          retention-days: 14
