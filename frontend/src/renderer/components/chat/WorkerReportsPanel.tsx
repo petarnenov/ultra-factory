@@ -70,7 +70,7 @@ export function WorkerReportsPanel({ projectId, ownerHostId }: { projectId: stri
 				{!isLoading && !error && data.length === 0 ? <p className="p-4 text-sm text-muted-foreground">{t("reports.empty")}</p> : null}
 				<ol className="divide-y divide-border">
 					{data.map((report, index) => {
-						const sourceHostId = report.hostId;
+						const sourceHostId = report.hostId || ownerHostId;
 						const machine = report.hostLabel || (sourceHostId && sourceHostId !== "local" ? labelForHost(sourceHostId) || sourceHostId : t("reports.thisMachine"));
 						const machineIdentity = sourceHostId && machine !== sourceHostId ? `${machine} (${sourceHostId})` : machine;
 						const source = [machineIdentity, report.agent || t("reports.unknownAgent"), report.sessionName || report.sessionId].join(" · ");
