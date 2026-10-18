@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Install the AO daemon self-update timer on a self-hosted host.
-#
-# Detects how this host installed its daemon (flat bundle, release directory,
-# or a single binary) and which service runs it, writes ~/.ao/self-update.json,
-# copies ao-self-update.sh next to the state it manages, and enables a systemd
-# user timer or a launchd agent. See docs/self-hosted-remote.md.
+# Install the daemon self-update timer: detect the host, write the config,
+# copy the updater, and enable the timer. See docs/self-hosted-remote.md.
 set -euo pipefail
 
 usage() {
@@ -154,7 +150,24 @@ discover_systemd() {
 discover_launchd() {
 	local found
 	found="$(python3 -c '
-import glob, os, plistlib, sys
+import glob, os, plistlib, re, sys
+
+exec_line = re.compile(r"^\s*exec\s+(\S+)\s+daemon\b", re.M)
+
+
+def from_program(program):
+    if os.path.basename(program) == "ao":
+        return program
+    try:
+        with open(program) as handle:
+            text = handle.read()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    found = exec_line.search(text)
+    if found and os.path.basename(found.group(1)) == "ao":
+        return found.group(1)
+    return ""
+
 
 for path in sorted(glob.glob(os.path.expanduser("~/Library/LaunchAgents/*.plist"))):
     try:
@@ -162,13 +175,14 @@ for path in sorted(glob.glob(os.path.expanduser("~/Library/LaunchAgents/*.plist"
             doc = plistlib.load(handle)
     except Exception:
         continue
-    args = doc.get("ProgramArguments") or []
-    if len(args) < 2 or os.path.basename(str(args[0])) != "ao":
+    args = [str(value) for value in doc.get("ProgramArguments") or []]
+    if not args:
         continue
-    if str(args[1]) != "daemon":
+    binary = args[0] if args[1:] and args[1] == "daemon" else from_program(args[0])
+    if not binary or os.path.basename(binary) != "ao":
         continue
     label = doc.get("Label") or os.path.basename(path)[: -len(".plist")]
-    print("%s\t%s" % (label, args[0]))
+    print("%s\t%s" % (label, binary))
     sys.exit(0)
 sys.exit(1)
 ')" || return 1

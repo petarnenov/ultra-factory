@@ -39,7 +39,7 @@ fake_daemon() {
 }
 
 write_service() {
-	local bin="$1" name="$2"
+	local bin="$1" name="$2" wrapper="${3:-}"
 	case "$(uname -s)" in
 		Linux)
 			mkdir -p "$HOME/.config/systemd/user"
@@ -50,12 +50,21 @@ write_service() {
 			;;
 		Darwin)
 			mkdir -p "$HOME/Library/LaunchAgents"
-			python3 - "$HOME/Library/LaunchAgents/$name.plist" "$bin" "$name" <<'PY'
+			program="$bin"
+			if [[ -n "$wrapper" ]]; then
+				{
+					printf '%s\n' '#!/bin/sh'
+					printf 'exec %s daemon\n' "$bin"
+				} >"$wrapper"
+				chmod 0755 "$wrapper"
+				program="$wrapper"
+			fi
+			python3 - "$HOME/Library/LaunchAgents/$name.plist" "$program" "$name" <<'PY'
 import plistlib, sys
 
-path, binary, label = sys.argv[1:4]
+path, program, label = sys.argv[1:4]
 with open(path, "wb") as handle:
-    plistlib.dump({"Label": label, "ProgramArguments": [binary, "daemon"]}, handle)
+    plistlib.dump({"Label": label, "ProgramArguments": [program]}, handle)
 PY
 			;;
 	esac
@@ -80,7 +89,11 @@ case "${1:-all}" in
 		mkdir -p "$release/resources" "$HOME/.ao/host"
 		fake_daemon "$release/resources/daemon/ao"
 		ln -sfn "$release" "$HOME/.ao/host/current"
-		write_service "$HOME/.ao/host/current/resources/daemon/ao" "ao"
+		if [[ "$(uname -s)" == Darwin ]]; then
+			write_service "$HOME/.ao/host/current/resources/daemon/ao" "ao" "$HOME/.ao/host/run-daemon.sh"
+		else
+			write_service "$HOME/.ao/host/current/resources/daemon/ao" "ao"
+		fi
 		out="$(run_installer --dry-run --channel test)"
 		assert_contains "plan: layout=release installDir=$HOME/.ao/host/current/resources" "$out" "release layout"
 		ok release

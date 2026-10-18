@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Stage the daemon update channel: stable-named bundles plus a manifest.
-#
-# Wraps scripts/build-daemon-dist.sh, renames the per-version archives to
-# stable channel names, and writes SHA256SUMS and manifest.json next to them.
-# The daemon-channel workflow uploads that directory as a rolling prerelease
-# that ao-self-update.sh reads. See docs/self-hosted-remote.md.
+# Stage the daemon update channel: stable-named bundles plus a manifest,
+# built from scripts/build-daemon-dist.sh; see docs/self-hosted-remote.md.
 set -euo pipefail
 
 usage() {
@@ -73,6 +69,7 @@ for target in $platforms; do
 	cp "$work/daemon/ao-$version-$goos-$goarch.tar.gz" "$out/ao-$goos-$goarch.tar.gz"
 done
 cp "$root/scripts/ao-self-update.sh" "$out/ao-self-update.sh"
+cp "$root/scripts/install-self-update.sh" "$out/install-self-update.sh"
 
 python3 -c '
 import hashlib, json, pathlib, sys
@@ -102,7 +99,7 @@ for target in platforms.split():
     }
     sums.append("%s  %s" % (checksum, name))
 
-for extra in ("ao-self-update.sh",):
+for extra in ("ao-self-update.sh", "install-self-update.sh"):
     path = pathlib.Path(out, extra)
     if path.exists():
         sums.append("%s  %s" % (digest(path), extra))
