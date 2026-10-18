@@ -11630,6 +11630,16 @@ components:
       - status
       - checkedAt
       type: object
+    AggregateProjectRef:
+      properties:
+        hostId:
+          type: string
+        projectId:
+          type: string
+      required:
+      - hostId
+      - projectId
+      type: object
     AppMemoryResponse:
       properties:
         cpuMeasured:
@@ -15500,6 +15510,10 @@ components:
           type: string
         agentRulesFile:
           type: string
+        aggregateProjects:
+          items:
+            $ref: '#/components/schemas/AggregateProjectRef'
+          type: array
         autoReview:
           type: boolean
         canonicalRepoURL:

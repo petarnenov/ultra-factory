@@ -896,6 +896,17 @@ describe("Sidebar", () => {
 		expect(navigateMock).toHaveBeenCalledWith({ to: "/" });
 	});
 
+	it("opens the aggregate Kanban from a local project menu", async () => {
+		const user = userEvent.setup();
+		renderSidebar();
+		await user.click(screen.getByLabelText("Project actions for Project One"));
+		await user.click(await screen.findByRole("menuitem", { name: "Open aggregate Kanban" }));
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/projects/$projectId/aggregate",
+			params: { projectId: "proj-1" },
+		});
+	});
+
 	it("dismisses project removal immediately and shows progress outside the modal", async () => {
 		let finishRemoval!: () => void;
 		const onRemoveProject = vi.fn(

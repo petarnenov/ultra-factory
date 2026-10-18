@@ -101,6 +101,7 @@ export function BoardSessionCardAdapter({
 	onOpenArtifact,
 	onTerminate,
 	session,
+	sourceLabel,
 }: {
 	/** Live reading of the session's process tree, for the card's resource chip. */
 	memory?: SessionMemoryReading;
@@ -111,16 +112,20 @@ export function BoardSessionCardAdapter({
 	onOpenArtifact?: (path: string) => void;
 	onTerminate?: (choice: SessionArchiveChoice) => void;
 	session: WorkspaceSession;
+	sourceLabel?: string;
 }) {
 	return (
-		<DesktopSessionCard
-			memory={memory}
-			memoryTone={memoryTone}
-			onOpen={onOpen}
-			onOpenArtifact={onOpenArtifact}
-			onTerminate={onTerminate}
-			session={session}
-		/>
+		<div className={sourceLabel ? "flex min-w-0 flex-col gap-1" : "contents"}>
+			{sourceLabel ? <span className="truncate px-1 text-2xs text-muted-foreground" title={sourceLabel}>{sourceLabel}</span> : null}
+			<DesktopSessionCard
+				memory={memory}
+				memoryTone={memoryTone}
+				onOpen={onOpen}
+				onOpenArtifact={onOpenArtifact}
+				onTerminate={onTerminate}
+				session={session}
+			/>
+		</div>
 	);
 }
 

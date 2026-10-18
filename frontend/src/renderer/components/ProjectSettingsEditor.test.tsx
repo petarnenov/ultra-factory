@@ -6,6 +6,7 @@ import { ProjectSettingsEditor, type ProjectSettingsDraft } from "./ProjectSetti
 import { TooltipProvider } from "./ui/tooltip";
 
 const initialValues: ProjectSettingsDraft = {
+	aggregateProjects: [],
 	displayName: "Project", defaultBranch: "main", sessionPrefix: "ao",
 	workerAgent: "codex", orchestratorAgent: "claude-code", reviewerHarness: "",
 	workerModel: "", orchestratorModel: "", reviewerModel: "",
@@ -77,4 +78,17 @@ describe.each([false, true])("shared settings page, Cloud=%s", (cloud) => {
 		await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
 		await waitFor(() => expect(onSaveState).toHaveBeenLastCalledWith(expect.objectContaining({ phase: "saved", dirty: false, error: undefined })));
 	});
+});
+
+it("saves host-qualified aggregate project membership from local project settings", async () => {
+	const { save } = setup(false);
+	await userEvent.type(screen.getByRole("textbox", { name: "Host ID" }), "host-a");
+	await userEvent.type(screen.getByRole("textbox", { name: "Project ID" }), "project-a");
+	await userEvent.click(screen.getByRole("button", { name: "Add project" }));
+	await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
+		aggregateProjects: [{ hostId: "host-a", projectId: "project-a" }],
+	})), { timeout: 2_000 });
+	const removeButton = screen.getByRole("button", { name: "Remove host-a / project-a" });
+	await userEvent.click(removeButton);
+	await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ aggregateProjects: [] })), { timeout: 2_000 });
 });
