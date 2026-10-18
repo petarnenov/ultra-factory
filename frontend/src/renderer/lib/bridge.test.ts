@@ -54,6 +54,7 @@ afterEach(() => {
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
 	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 });
 
 describe("web daemon bridge", () => {
@@ -185,6 +186,93 @@ describe("web daemon bridge", () => {
 
 		expect(listener).toHaveBeenCalledTimes(1);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("shares one /readyz probe between every subscriber", async () => {
+		vi.useFakeTimers();
+		fetchMock.mockImplementation(async () => notReadyResponse());
+		const aoBridge = await loadBridge();
+		const listeners = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+
+		const stops = listeners.map((listener) => aoBridge.daemon.onStatus(listener));
+		await vi.advanceTimersByTimeAsync(5_000);
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		for (const listener of listeners) expect(listener).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(5_000);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		for (const listener of listeners) expect(listener).toHaveBeenCalledTimes(2);
+		for (const stop of stops) stop();
+	});
+
+	it("keeps probing for the remaining subscribers and stops after the last one leaves", async () => {
+		vi.useFakeTimers();
+		fetchMock.mockImplementation(async () => notReadyResponse());
+		const aoBridge = await loadBridge();
+		const leaving = vi.fn();
+		const staying = vi.fn();
+
+		const stopLeaving = aoBridge.daemon.onStatus(leaving);
+		const stopStaying = aoBridge.daemon.onStatus(staying);
+		await vi.advanceTimersByTimeAsync(5_000);
+		stopLeaving();
+		await vi.advanceTimersByTimeAsync(5_000);
+		expect(leaving).toHaveBeenCalledTimes(1);
+		expect(staying).toHaveBeenCalledTimes(2);
+		stopStaying();
+		const callsAtLastStop = fetchMock.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(60_000);
+
+		expect(fetchMock).toHaveBeenCalledTimes(callsAtLastStop);
+	});
+
+	it("does not call a subscriber that an earlier one removed in the same round", async () => {
+		vi.useFakeTimers();
+		fetchMock.mockImplementation(async () => notReadyResponse());
+		const aoBridge = await loadBridge();
+		const removed = vi.fn();
+		let stopRemoved = () => {};
+
+		const stopFirst = aoBridge.daemon.onStatus(() => stopRemoved());
+		stopRemoved = aoBridge.daemon.onStatus(removed);
+		await vi.advanceTimersByTimeAsync(5_000);
+
+		expect(removed).not.toHaveBeenCalled();
+		stopFirst();
+	});
+
+	it("keeps the shared probe going when one subscriber throws", async () => {
+		vi.useFakeTimers();
+		const rethrown: unknown[] = [];
+		vi.spyOn(globalThis, "queueMicrotask").mockImplementation((callback) => {
+			try { callback(); } catch (error) { rethrown.push(error); }
+		});
+		fetchMock.mockImplementation(async () => notReadyResponse());
+		const aoBridge = await loadBridge();
+		const failure = new Error("listener failed");
+		const healthy = vi.fn();
+
+		const stopFailing = aoBridge.daemon.onStatus(() => { throw failure; });
+		const stopHealthy = aoBridge.daemon.onStatus(healthy);
+		await vi.advanceTimersByTimeAsync(10_000);
+
+		expect(healthy).toHaveBeenCalledTimes(2);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(rethrown).toEqual([failure, failure]);
+		stopFailing();
+		stopHealthy();
+	});
+
+	it("sends a signed-out tab to /login once per round, not once per subscriber", async () => {
+		vi.useFakeTimers();
+		fetchMock.mockImplementation(async () => Response.json({ error: "unauthorized" }, { status: 401 }));
+		const aoBridge = await loadBridge();
+
+		const stops = [vi.fn(), vi.fn(), vi.fn(), vi.fn(), vi.fn()].map((listener) => aoBridge.daemon.onStatus(listener));
+		await vi.advanceTimersByTimeAsync(5_000);
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(hubLogin.redirect).toHaveBeenCalledTimes(1);
+		for (const stop of stops) stop();
 	});
 
 	it("stops every readiness poll when the daemon status hook unmounts", async () => {

@@ -80,27 +80,55 @@ async function readWebClipboardText(): Promise<string> {
 	}
 }
 
+type WebDaemonListener = Parameters<AoBridge["daemon"]["onStatus"]>[0];
+
+// Every onStatus subscriber (daemon status hook, event and notification
+// transports, failure telemetry) shares one /readyz loop. A loop per
+// subscriber multiplied the probes in every tab, and after a hub sign-out
+// each of them kept hitting the BFF with 401s.
+const webDaemonListeners = new Set<WebDaemonListener>();
+let webDaemonTimer: ReturnType<typeof setTimeout> | undefined;
+let webDaemonLoop = 0;
+
+function scheduleWebDaemonProbe(delayMs: number): void {
+	const loop = webDaemonLoop;
+	webDaemonTimer = setTimeout(() => {
+		void probeWebDaemon().then((status) => {
+			if (loop !== webDaemonLoop) return;
+			for (const listener of [...webDaemonListeners]) {
+				// An earlier listener may have unsubscribed this one.
+				if (!webDaemonListeners.has(listener)) continue;
+				// One failing subscriber must not stop the probe for the others; its
+				// error still surfaces as an uncaught one.
+				try {
+					listener(status);
+				} catch (error) {
+					queueMicrotask(() => { throw error; });
+				}
+			}
+			if (loop !== webDaemonLoop) return;
+			scheduleWebDaemonProbe(status.state === "ready" ? WEB_DAEMON_READY_POLL_MS : WEB_DAEMON_POLL_MS);
+		});
+	}, delayMs);
+}
+
 const webDaemonBridge: AoBridge["daemon"] = {
 	getStatus: probeWebDaemon,
 	start: unsupportedWebDaemonControl,
 	stop: unsupportedWebDaemonControl,
 	restart: unsupportedWebDaemonControl,
 	onStatus: (listener) => {
-		let active = true;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const schedule = (delayMs: number) => {
-			timer = setTimeout(() => {
-				void probeWebDaemon().then((status) => {
-					if (!active) return;
-					listener(status);
-					schedule(status.state === "ready" ? WEB_DAEMON_READY_POLL_MS : WEB_DAEMON_POLL_MS);
-				});
-			}, delayMs);
-		};
-		schedule(WEB_DAEMON_POLL_MS);
+		// A wrapper keeps two subscriptions of the same function independent.
+		const entry: WebDaemonListener = (status) => listener(status);
+		webDaemonListeners.add(entry);
+		if (webDaemonListeners.size === 1) scheduleWebDaemonProbe(WEB_DAEMON_POLL_MS);
 		return () => {
-			active = false;
-			clearTimeout(timer);
+			if (!webDaemonListeners.delete(entry) || webDaemonListeners.size > 0) return;
+			// The last subscriber left: stop the loop, and let an in-flight probe
+			// see that it belongs to a finished loop.
+			webDaemonLoop += 1;
+			clearTimeout(webDaemonTimer);
+			webDaemonTimer = undefined;
 		};
 	},
 };
