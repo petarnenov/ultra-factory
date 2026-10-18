@@ -22,6 +22,13 @@ type WorkerBranchState struct {
 	Unpushed int
 }
 
+// WorkerReview is AO's current-head native review state for one worker PR.
+type WorkerReview struct {
+	PRNumber  int
+	TargetSHA string
+	Status    string
+}
+
 // Worker is one AO session on a host, as a tick needs it.
 type Worker struct {
 	ID         string
@@ -35,6 +42,7 @@ type Worker struct {
 	PRNumber       int
 	CI             string
 	PRs            []WorkerPR
+	Reviews        []WorkerReview
 	BranchState    *WorkerBranchState
 	LastActivityAt time.Time
 	CreatedAt      time.Time
@@ -86,6 +94,10 @@ type PullRequest struct {
 	ReviewDecision string
 	Reviews        []Review
 	Threads        []ReviewThread
+	// AOReviewStatus is AO's native review state for this exact head, set by
+	// the cadence from the worker's review read model. Empty means AO has no
+	// recorded decision for this head.
+	AOReviewStatus string
 	Checks         []Check
 	UpdatedAt      time.Time
 }

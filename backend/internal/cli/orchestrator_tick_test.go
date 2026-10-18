@@ -253,7 +253,16 @@ func TestTickDaemonWorkersCarryEveryOwnedPRAndBranchState(t *testing.T) {
 	t.Setenv("AO_SESSION_ID", "")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/api/v1/sessions" || r.URL.Query().Get("active") != "true" {
+		switch r.URL.Path {
+		case "/api/v1/sessions":
+			if r.URL.Query().Get("active") != "true" {
+				http.NotFound(w, r)
+				return
+			}
+		case "/api/v1/sessions/uf-1/reviews":
+			_, _ = w.Write([]byte(`{"reviews":[{"prNumber":202,"targetSha":"sha-202","status":"up_to_date"}]}`))
+			return
+		default:
 			http.NotFound(w, r)
 			return
 		}
@@ -280,5 +289,8 @@ func TestTickDaemonWorkersCarryEveryOwnedPRAndBranchState(t *testing.T) {
 	}
 	if w.BranchState == nil || w.BranchState.Unpushed != 1 || !w.BranchState.Known {
 		t.Fatalf("branch state = %+v", w.BranchState)
+	}
+	if len(w.Reviews) != 1 || w.Reviews[0].PRNumber != 202 || w.Reviews[0].Status != "up_to_date" {
+		t.Fatalf("reviews = %+v", w.Reviews)
 	}
 }

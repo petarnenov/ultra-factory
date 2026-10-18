@@ -405,8 +405,9 @@ ships, is versioned and is tested with the rest of AO.
 - **Completion reconciliation.** Two explicit durable opt-ins extend the same
   cadence. `RW_TICK_MERGE_AUTHORIZED=1` permits a normal squash merge only when
   the fresh provider observation proves the exact current head has passing
-  required checks, a current-head approval, `MERGEABLE`, no unresolved review
-  threads, and no hold label (`RW_TICK_HOLD_LABELS`, default
+  required checks, a current-head approval (AO's native review is `up_to_date`,
+  or a provider approval whose commit is the exact head), `MERGEABLE`, no
+  unresolved review threads, and no hold label (`RW_TICK_HOLD_LABELS`, default
   `needs-human do-not-merge status:blocked`). The merge request carries the
   evaluated head SHA, so a head change between the check and the mutation is
   refused rather than merged. Without the flag the exact missing authorization

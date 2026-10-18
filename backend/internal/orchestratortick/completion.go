@@ -19,6 +19,10 @@ const (
 	// CompletionActionBlocked records a precondition failure. The next tick
 	// re-evaluates fresh facts; it never reuses a stale head or approval.
 	CompletionActionBlocked = "blocked"
+	// CompletionActionSuperseded marks an action that can never succeed for
+	// the facts it pinned (a head that advanced, or a PR closed unmerged).
+	// It is never retried or reported again.
+	CompletionActionSuperseded = "superseded"
 )
 
 var headSHAPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$`)
@@ -101,16 +105,22 @@ func MergeBlockers(cfg Config, pr PullRequest) []string {
 }
 
 func reviewBlocker(pr PullRequest) string {
+	switch strings.ToLower(strings.TrimSpace(pr.AOReviewStatus)) {
+	case "up_to_date":
+		return ""
+	case "changes_requested":
+		return "AO review changes requested"
+	}
 	switch strings.ToUpper(strings.TrimSpace(pr.ReviewDecision)) {
 	case "CHANGES_REQUESTED":
 		return "review changes requested"
 	case "REVIEW_REQUIRED":
 		return "review approval required"
-	case "APPROVED":
-		// GitHub's decision is the current-head rollup; a review may have
-		// fallen outside the bounded review page but still be authoritative.
-		return ""
 	}
+	// A provider APPROVED rollup is not proof for the current head: GitHub
+	// keeps it after a push unless branch protection dismisses stale reviews.
+	// Require an approval review whose commit is the exact head, or AO's own
+	// current-head native approval above.
 	if !currentHeadApproved(pr) {
 		return "no current-head approval"
 	}
@@ -175,6 +185,18 @@ func oneOf(value, fallback string) string {
 // ownedByWorker reports whether a PR belongs to a worker, either because the
 // daemon already attributed its number or because its source branch is the
 // worker branch or a stacked child of it.
+// applyWorkerReview attaches AO's current-head native review decision to a
+// fresh provider PR observation.
+func applyWorkerReview(worker Worker, pr PullRequest) PullRequest {
+	for _, review := range worker.Reviews {
+		if review.PRNumber == pr.Number && strings.EqualFold(strings.TrimSpace(review.TargetSHA), strings.TrimSpace(pr.HeadSHA)) {
+			pr.AOReviewStatus = review.Status
+			return pr
+		}
+	}
+	return pr
+}
+
 func ownedByWorker(worker Worker, number int, head string) bool {
 	for _, pr := range worker.PRs {
 		if pr.Number == number {
@@ -214,7 +236,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	}
 	state, _, err := r.Store.Completion()
 	if err != nil {
-		return []CompletionNote{{Errors: []string{"completion state unreadable: " + err.Error()}}}, false, nil
+		return nil, false, fmt.Errorf("completion state unreadable: %w", err)
 	}
 	if state.Sessions == nil {
 		state.Sessions = map[string]SessionCompletion{}
@@ -222,7 +244,18 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	if facts.GitHub == nil {
 		return nil, false, nil
 	}
+	workers := map[string]Worker{}
+	hostReachable := map[string]bool{}
+	for _, host := range facts.Hosts {
+		hostReachable[host.Host] = host.Err == nil
+		for _, worker := range host.Sessions {
+			if !worker.Terminated && !strings.EqualFold(worker.Kind, "orchestrator") {
+				workers[completionKey(host.Host, worker.ID)] = worker
+			}
+		}
+	}
 	notes := map[string]*CompletionNote{}
+	closeEligible := map[string]bool{}
 	changed := false
 
 	// Derive eligibility and queue one idempotent merge action per ready PR.
@@ -237,7 +270,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 			if session.Actions == nil {
 				session.Actions = map[string]CompletionAction{}
 			}
-			note, wantsClose := r.reconcileWorker(session, worker, facts, now)
+			note, wantsClose := r.reconcileWorker(session, worker, facts)
 			note.Host, note.Session = host.Host, worker.ID
 			if len(note.PRs) == 0 && len(session.Obligations) == 0 && len(session.Actions) == 0 && !wantsClose {
 				continue
@@ -245,6 +278,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 			addNote(notes, key, note)
 
 			for _, pr := range ownedOpenPRs(worker, facts.GitHub) {
+				pr = applyWorkerReview(worker, pr)
 				if blockers := MergeBlockers(r.Config, pr); len(blockers) > 0 {
 					noteFor(notes, key).Remaining = appendUniqueStrings(noteFor(notes, key).Remaining,
 						fmt.Sprintf("PR #%d: %s", pr.Number, strings.Join(blockers, ", ")))
@@ -261,10 +295,10 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 					continue
 				}
 				actionKey := fmt.Sprintf("merge:%d@%s", pr.Number, strings.ToLower(pr.HeadSHA))
-				if _, exists := session.Actions[actionKey]; !exists {
+				if existing, exists := session.Actions[actionKey]; !exists || existing.Status == CompletionActionSuperseded {
 					session.Actions[actionKey] = CompletionAction{
 						Kind: ActionMerge, Status: CompletionActionPending, PR: pr.Number,
-						HeadSHA: strings.ToLower(pr.HeadSHA), UpdatedAt: now,
+						HeadSHA: strings.ToLower(pr.HeadSHA), AOReviewStatus: pr.AOReviewStatus, UpdatedAt: now,
 					}
 					changed = true
 				}
@@ -277,7 +311,8 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 			}
 			session.UpdatedAt = now
 			if wantsClose {
-				if _, exists := session.Actions["close"]; !exists {
+				closeEligible[key] = true
+				if existing, exists := session.Actions["close"]; !exists || existing.Status == CompletionActionSuperseded {
 					session.Actions["close"] = CompletionAction{
 						Kind: ActionClose, Status: CompletionActionPending, UpdatedAt: now,
 					}
@@ -297,10 +332,24 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 		}
 		for _, actionKey := range sortedActionKeys(session.Actions) {
 			action := session.Actions[actionKey]
-			if action.Status == CompletionActionCompleted || action.Kind != ActionMerge {
+			if action.Status == CompletionActionCompleted || action.Status == CompletionActionSuperseded || action.Kind != ActionMerge {
 				continue
 			}
-			updated, note, didChange := r.retryAction(ctx, session, action, facts.GitHub, now)
+			worker, workerPresent := workers[key]
+			if !hostReachable[session.Host] {
+				// A transient host failure is not proof the worker is gone.
+				continue
+			}
+			if !workerPresent {
+				action.Status = CompletionActionSuperseded
+				action.LastError = "session is no longer present on its host"
+				action.UpdatedAt = now
+				session.Actions[actionKey] = action
+				state.Sessions[key] = session
+				changed = true
+				continue
+			}
+			updated, note, didChange := r.retryAction(ctx, worker, session, action, facts.GitHub, now)
 			if didChange {
 				session.Actions[actionKey] = updated
 				state.Sessions[key] = session
@@ -318,7 +367,24 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	for _, key := range sortedKeys(state.Sessions) {
 		session := state.Sessions[key]
 		action, ok := session.Actions["close"]
-		if !ok || action.Status == CompletionActionCompleted {
+		if !ok || action.Status == CompletionActionCompleted || action.Status == CompletionActionSuperseded {
+			continue
+		}
+		if !hostReachable[session.Host] {
+			// A transient host failure is not proof the close is no longer due.
+			continue
+		}
+		if !r.Config.CloseCompleted || !closeEligible[key] {
+			// A queued close is only a request. The current tick must still
+			// prove the worker qualifies: an added obligation, renewed activity,
+			// another open PR, or turning the opt-in off cancels it.
+			action.Status = CompletionActionSuperseded
+			action.LastError = "close no longer eligible on this tick"
+			action.UpdatedAt = now
+			session.Actions["close"] = action
+			session.UpdatedAt = now
+			state.Sessions[key] = session
+			changed = true
 			continue
 		}
 		if reason, paused := r.completionPaused(); paused {
@@ -367,7 +433,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	return notesList(notes), changed, nil
 }
 
-func (r *Runner) reconcileWorker(session SessionCompletion, worker Worker, facts Facts, now time.Time) (CompletionNote, bool) {
+func (r *Runner) reconcileWorker(session SessionCompletion, worker Worker, facts Facts) (CompletionNote, bool) {
 	note := CompletionNote{}
 	gh := facts.GitHub
 	open := ownedOpenPRs(worker, gh)
@@ -425,7 +491,7 @@ func (r *Runner) reconcileWorker(session SessionCompletion, worker Worker, facts
 	return note, true
 }
 
-func (r *Runner) retryAction(ctx context.Context, session SessionCompletion, action CompletionAction, gh *GitHubState, now time.Time) (CompletionAction, *CompletionNote, bool) {
+func (r *Runner) retryAction(ctx context.Context, worker Worker, session SessionCompletion, action CompletionAction, gh *GitHubState, now time.Time) (CompletionAction, *CompletionNote, bool) {
 	note := &CompletionNote{Host: session.Host, Session: session.Session}
 	switch action.Kind {
 	case ActionMerge:
@@ -437,19 +503,20 @@ func (r *Runner) retryAction(ctx context.Context, session SessionCompletion, act
 				action.UpdatedAt = now
 				return action, note, true
 			}
-			action.Status = CompletionActionFailed
+			action.Status = CompletionActionSuperseded
 			action.LastError = fmt.Sprintf("PR #%d closed without merging", action.PR)
 			action.UpdatedAt = now
 			note.Errors = append(note.Errors, action.LastError)
 			return action, note, true
 		}
 		if !strings.EqualFold(pr.HeadSHA, action.HeadSHA) {
-			action.Status = CompletionActionBlocked
+			action.Status = CompletionActionSuperseded
 			action.LastError = fmt.Sprintf("PR #%d head changed from %s to %s", action.PR, shortHead(action.HeadSHA), shortHead(pr.HeadSHA))
 			action.UpdatedAt = now
 			note.Errors = append(note.Errors, action.LastError)
 			return action, note, true
 		}
+		pr = applyWorkerReview(worker, pr)
 		if blockers := MergeBlockers(r.Config, pr); len(blockers) > 0 {
 			action.Status = CompletionActionBlocked
 			action.LastError = "PR #" + fmt.Sprint(action.PR) + " no longer mergeable: " + strings.Join(blockers, ", ")
@@ -474,9 +541,12 @@ func (r *Runner) retryAction(ctx context.Context, session SessionCompletion, act
 		action.Attempts++
 		result, err := r.Merger.Merge(ctx, MergeRequest{Repo: r.Config.Repo, Number: action.PR, ExpectedHeadSHA: action.HeadSHA})
 		if err != nil {
-			if errors.Is(err, ErrMergeHeadChanged) || errors.Is(err, ErrMergeNotReady) {
+			switch {
+			case errors.Is(err, ErrMergeHeadChanged):
+				action.Status = CompletionActionSuperseded
+			case errors.Is(err, ErrMergeNotReady):
 				action.Status = CompletionActionBlocked
-			} else {
+			default:
 				action.Status = CompletionActionPending
 			}
 			action.LastError = err.Error()
@@ -517,7 +587,7 @@ func completionKey(host, session string) string {
 func ownedOpenPRs(worker Worker, gh *GitHubState) []PullRequest {
 	var out []PullRequest
 	for _, pr := range gh.OpenPRs {
-		if workerOwns(worker, pr.Number, pr.Head) {
+		if ownedByWorker(worker, pr.Number, pr.Head) {
 			out = append(out, pr)
 		}
 	}
@@ -527,7 +597,7 @@ func ownedOpenPRs(worker Worker, gh *GitHubState) []PullRequest {
 func ownedMergedPRs(worker Worker, gh *GitHubState) []MergedPR {
 	var out []MergedPR
 	for _, pr := range gh.MergedPRs {
-		if workerOwns(worker, pr.Number, pr.Head) {
+		if ownedByWorker(worker, pr.Number, pr.Head) {
 			out = append(out, pr)
 		}
 	}
@@ -537,15 +607,11 @@ func ownedMergedPRs(worker Worker, gh *GitHubState) []MergedPR {
 func ownedClosedPRs(worker Worker, gh *GitHubState) []ClosedPR {
 	var out []ClosedPR
 	for _, pr := range gh.ClosedPRs {
-		if workerOwns(worker, pr.Number, pr.Head) {
+		if ownedByWorker(worker, pr.Number, pr.Head) {
 			out = append(out, pr)
 		}
 	}
 	return out
-}
-
-func workerOwns(worker Worker, number int, head string) bool {
-	return ownedByWorker(worker, number, head)
 }
 
 func openPR(gh *GitHubState, number int) (PullRequest, bool) {

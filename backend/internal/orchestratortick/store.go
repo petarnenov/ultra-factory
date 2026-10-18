@@ -45,6 +45,7 @@ type CompletionAction struct {
 	Status         string    `json:"status"`
 	PR             int       `json:"pr,omitempty"`
 	HeadSHA        string    `json:"headSha,omitempty"`
+	AOReviewStatus string    `json:"aoReviewStatus,omitempty"`
 	MergeCommitSHA string    `json:"mergeCommitSha,omitempty"`
 	Attempts       int       `json:"attempts,omitempty"`
 	LastError      string    `json:"lastError,omitempty"`
@@ -55,7 +56,6 @@ type CompletionAction struct {
 const (
 	CompletionActionPending   = "pending"
 	CompletionActionCompleted = "completed"
-	CompletionActionFailed    = "failed"
 )
 
 // SessionCompletion is the durable completion state of one host-qualified

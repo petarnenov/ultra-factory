@@ -155,7 +155,7 @@ func TestHeadChangeBetweenCheckAndMutationIsNotRetried(t *testing.T) {
 			blocked = action
 		}
 	}
-	if blocked.Status != CompletionActionBlocked || !strings.Contains(blocked.LastError, "head changed") {
+	if blocked.Status != CompletionActionSuperseded || !strings.Contains(blocked.LastError, "head changed") {
 		t.Fatalf("merge action = %+v", blocked)
 	}
 
@@ -347,16 +347,18 @@ func TestMergeBlockersAreExact(t *testing.T) {
 		mutate func(*PullRequest)
 		want   string
 	}{
-		"head unknown":        {func(pr *PullRequest) { pr.HeadSHA = "" }, "head SHA is unknown"},
-		"draft":               {func(pr *PullRequest) { pr.Draft = true }, "pull request is a draft"},
-		"failing checks":      {func(pr *PullRequest) { pr.Checks = []Check{{Result: "FAILURE"}} }, "required checks are red"},
-		"no current approval": {func(pr *PullRequest) { pr.Reviews = nil; pr.ReviewDecision = "" }, "no current-head approval"},
-		"stale approval":      {func(pr *PullRequest) { pr.ReviewDecision = ""; pr.Reviews[0].CommitID = head("b") }, "no current-head approval"},
-		"changes requested":   {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
-		"unresolved thread":   {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Body: "fix this"}} }, "1 unresolved review thread(s)"},
-		"conflicting":         {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "mergeability is CONFLICTING"},
-		"hold label":          {func(pr *PullRequest) { pr.Labels = []string{"status:blocked"} }, "hold label status:blocked"},
-		"resolved thread":     {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Resolved: true, Body: "old"}} }, ""},
+		"head unknown":         {func(pr *PullRequest) { pr.HeadSHA = "" }, "head SHA is unknown"},
+		"draft":                {func(pr *PullRequest) { pr.Draft = true }, "pull request is a draft"},
+		"failing checks":       {func(pr *PullRequest) { pr.Checks = []Check{{Result: "FAILURE"}} }, "required checks are red"},
+		"no current approval":  {func(pr *PullRequest) { pr.Reviews = nil; pr.ReviewDecision = "" }, "no current-head approval"},
+		"stale approval":       {func(pr *PullRequest) { pr.ReviewDecision = "APPROVED"; pr.Reviews[0].CommitID = head("b") }, "no current-head approval"},
+		"AO up to date":        {func(pr *PullRequest) { pr.ReviewDecision = ""; pr.Reviews = nil; pr.AOReviewStatus = "up_to_date" }, ""},
+		"AO changes requested": {func(pr *PullRequest) { pr.AOReviewStatus = "changes_requested" }, "AO review changes requested"},
+		"changes requested":    {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
+		"unresolved thread":    {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Body: "fix this"}} }, "1 unresolved review thread(s)"},
+		"conflicting":          {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "mergeability is CONFLICTING"},
+		"hold label":           {func(pr *PullRequest) { pr.Labels = []string{"status:blocked"} }, "hold label status:blocked"},
+		"resolved thread":      {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Resolved: true, Body: "old"}} }, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -417,5 +419,135 @@ func TestCompletedActionsSurviveARestart(t *testing.T) {
 	tick(t, restarted)
 	if fm.calls() != 1 || len(restartedDaemon.killed) != 0 {
 		t.Fatalf("restart replayed completed work: merges=%d killed=%v", fm.calls(), restartedDaemon.killed)
+	}
+}
+
+func TestAOCurrentHeadApprovalAuthorizesMerge(t *testing.T) {
+	r, _, gh, fm, _ := completionFixture(t)
+	pr := readyPR(201, "rw/190", head("1"))
+	pr.ReviewDecision = ""
+	pr.Reviews = nil
+	gh.state.OpenPRs = []PullRequest{pr}
+	worker := r.Daemon.(*fakeDaemon).workers["Linux"][0]
+	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: head("1"), Status: "up_to_date"}}
+	r.Daemon.(*fakeDaemon).workers["Linux"] = []Worker{worker}
+	blk := MergeBlockers(r.Config, applyWorkerReview(worker, gh.state.OpenPRs[0]))
+	tick(t, r)
+	state, _, _ := r.Store.Completion()
+	if fm.calls() != 1 {
+		t.Fatalf("AO current-head approval did not enable the merge: calls=%d blockers=%v worker=%+v state=%+v", fm.calls(), blk, worker, state)
+	}
+}
+
+func TestPendingCloseIsDroppedWhenAnObligationAppears(t *testing.T) {
+	r, d, gh, _, store := completionFixture(t)
+	gh.state = GitHubState{MergedPRs: []MergedPR{{Number: 201, Head: "rw/190", HeadSHA: head("1")}}}
+	d.killErr = errors.New("lifecycle unavailable")
+	tick(t, r)
+	state, _, _ := store.Completion()
+	session := state.Sessions["Linux/uf-1"]
+	if action := session.Actions["close"]; action.Status != CompletionActionPending {
+		t.Fatalf("close action = %+v", action)
+	}
+	session.Obligations = []Obligation{{ID: "deploy", Reason: "deployment pending"}}
+	state.Sessions["Linux/uf-1"] = session
+	if err := store.SaveCompletion(state); err != nil {
+		t.Fatal(err)
+	}
+	d.killErr = nil
+	tick(t, r)
+	if len(d.killed) != 0 {
+		t.Fatalf("pending close ignored the new obligation: %v", d.killed)
+	}
+	state, _, _ = store.Completion()
+	if action := state.Sessions["Linux/uf-1"].Actions["close"]; action.Status != CompletionActionSuperseded {
+		t.Fatalf("close action after obligation = %+v", action)
+	}
+}
+
+func TestSupersededMergeActionStopsReporting(t *testing.T) {
+	r, _, gh, fm, store := completionFixture(t)
+	fm.err = ErrMergeHeadChanged
+	tick(t, r)
+	state, _, _ := store.Completion()
+	var key string
+	for actionKey, action := range state.Sessions["Linux/uf-1"].Actions {
+		if strings.HasPrefix(actionKey, "merge:201@") {
+			key = actionKey
+			if action.Status != CompletionActionSuperseded {
+				t.Fatalf("head-changed action = %+v", action)
+			}
+		}
+	}
+	if key == "" {
+		t.Fatal("merge action not recorded")
+	}
+	// Change the head and keep it unapproved. The old action must not keep
+	// producing an error in subsequent ticks.
+	gh.state.OpenPRs[0].HeadSHA = head("2")
+	gh.state.OpenPRs[0].ReviewDecision = ""
+	gh.state.OpenPRs[0].Reviews[0].CommitID = head("1")
+	fm.err = nil
+	res := tick(t, r)
+	if strings.Contains(strings.Join(CompletionLines(res.Completions), " "), "head changed") {
+		t.Fatalf("superseded action still reported: %+v", res.Completions)
+	}
+	if fm.calls() != 1 {
+		t.Fatalf("superseded action was retried: calls=%d", fm.calls())
+	}
+}
+
+func TestPendingMergeIsNotRunForAnAbsentSession(t *testing.T) {
+	r, d, gh, fm, store := completionFixture(t)
+	sha := head("1")
+	state := CompletionState{Sessions: map[string]SessionCompletion{
+		"Linux/uf-1": {
+			Host: "Linux", Session: "uf-1",
+			Actions: map[string]CompletionAction{
+				"merge:201@" + sha: {Kind: ActionMerge, Status: CompletionActionPending, PR: 201, HeadSHA: sha},
+			},
+		},
+	}}
+	if err := store.SaveCompletion(state); err != nil {
+		t.Fatal(err)
+	}
+	d.workers["Linux"] = nil
+	gh.state.OpenPRs = []PullRequest{readyPR(201, "rw/190", sha)}
+	tick(t, r)
+	if fm.calls() != 0 {
+		t.Fatalf("merged a PR for a session that is no longer present: calls=%d", fm.calls())
+	}
+	got, _, _ := store.Completion()
+	if action := got.Sessions["Linux/uf-1"].Actions["merge:201@"+sha]; action.Status != CompletionActionSuperseded {
+		t.Fatalf("action = %+v", action)
+	}
+}
+
+func TestAOReviewChangeRequestBlocksAnExistingMergeAction(t *testing.T) {
+	r, d, gh, fm, _ := completionFixture(t)
+	sha := head("1")
+	pr := readyPR(201, "rw/190", sha)
+	pr.ReviewDecision = ""
+	pr.Reviews = nil
+	gh.state.OpenPRs = []PullRequest{pr}
+	worker := d.workers["Linux"][0]
+	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: sha, Status: "up_to_date"}}
+	d.workers["Linux"] = []Worker{worker}
+
+	state, _, _ := r.Store.Completion()
+	state.Sessions["Linux/uf-1"] = SessionCompletion{
+		Host: "Linux", Session: "uf-1",
+		Actions: map[string]CompletionAction{
+			"merge:201@" + sha: {Kind: ActionMerge, Status: CompletionActionPending, PR: 201, HeadSHA: sha, AOReviewStatus: "up_to_date"},
+		},
+	}
+	if err := r.Store.SaveCompletion(state); err != nil {
+		t.Fatal(err)
+	}
+	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: sha, Status: "changes_requested"}}
+	d.workers["Linux"] = []Worker{worker}
+	tick(t, r)
+	if fm.calls() != 0 {
+		t.Fatal("merged after AO requested changes")
 	}
 }

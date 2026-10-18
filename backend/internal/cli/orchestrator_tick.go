@@ -382,6 +382,14 @@ func (d tickDaemon) Session(ctx context.Context, id string) (orchestratortick.Se
 	return orchestratortick.SessionState{Status: s.Status, Activity: s.Activity.State, Terminated: s.IsTerminated}, nil
 }
 
+type tickReviewsResponse struct {
+	Reviews []struct {
+		PRNumber  int    `json:"prNumber"`
+		TargetSHA string `json:"targetSha"`
+		Status    string `json:"status"`
+	} `json:"reviews"`
+}
+
 func (d tickDaemon) Workers(ctx context.Context, host string) ([]orchestratortick.Worker, error) {
 	// A remote target is cached per command context, so each host gets its own.
 	hc := &commandContext{deps: d.c.deps, hostSelector: host}
@@ -398,6 +406,14 @@ func (d tickDaemon) Workers(ctx context.Context, host string) ([]orchestratortic
 		}
 		for _, pr := range s.PRs {
 			w.PRs = append(w.PRs, orchestratortick.WorkerPR{Number: pr.Number, State: pr.State})
+		}
+		var reviews tickReviewsResponse
+		if err := hc.getJSON(ctx, "sessions/"+url.PathEscape(s.ID)+"/reviews", &reviews); err == nil {
+			for _, review := range reviews.Reviews {
+				w.Reviews = append(w.Reviews, orchestratortick.WorkerReview{
+					PRNumber: review.PRNumber, TargetSHA: review.TargetSHA, Status: review.Status,
+				})
+			}
 		}
 		if s.BranchState != nil {
 			w.BranchState = &orchestratortick.WorkerBranchState{
