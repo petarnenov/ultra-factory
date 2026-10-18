@@ -138,6 +138,34 @@ test("refuses a numerically lower version", () => {
   );
 });
 
+test("fails when a package has no resolved version", () => {
+  const target = targetFor(
+    "deploy/railway/worker/Dockerfile",
+    "AGENT_NPM_PACKAGES",
+  );
+  const versions = { ...latest };
+  delete versions["@openai/codex"];
+  assert.throws(
+    () => applyTarget(workerDockerfile, target, versions),
+    /no resolved version for @openai\/codex/,
+  );
+});
+
+test("rejects an invalid resolved version", () => {
+  const target = targetFor(
+    "deploy/railway/worker/Dockerfile",
+    "AGENT_NPM_PACKAGES",
+  );
+  assert.throws(
+    () =>
+      applyTarget(workerDockerfile, target, {
+        ...latest,
+        "@openai/codex": "latest",
+      }),
+    /invalid version for @openai\/codex/,
+  );
+});
+
 test("the worker Dockerfile keeps unpinned packages in place", () => {
   const target = targetFor(
     "deploy/railway/worker/Dockerfile",
@@ -230,6 +258,30 @@ test("skips a cross-major OpenCode 2 update", () => {
   ]);
 });
 
+test("allows a same-major OpenCode bump", () => {
+  const workerTarget = targetFor(
+    "deploy/railway/worker/Dockerfile",
+    "AGENT_NPM_PACKAGES",
+  );
+  const workerResult = applyTarget(workerDockerfile, workerTarget, {
+    ...latest,
+    "opencode-ai": "1.20.0",
+  });
+  assert.match(workerResult.text, /opencode-ai@1\.20\.0/);
+  assert.deepEqual(workerResult.skipped, []);
+
+  const hubTarget = targetFor(
+    "deploy/railway/hub/Dockerfile",
+    "HUB_OPENCODE_V2_PACKAGE",
+  );
+  const hubResult = applyTarget(hubDockerfile, hubTarget, {
+    ...latest,
+    "@opencode/cli": "2.1.0",
+  });
+  assert.match(hubResult.text, /@opencode\/cli@2\.1\.0/);
+  assert.deepEqual(hubResult.skipped, []);
+});
+
 test("fails when a locked package is pinned outside its major", () => {
   const target = targetFor(
     "deploy/railway/worker/Dockerfile",
@@ -282,6 +334,23 @@ test("check mode reports drift without writing", (t) => {
   assert.match(
     readFileSync(join(root, "deploy/railway/worker/Dockerfile"), "utf8"),
     /claude-code@2\.1\.228/,
+  );
+});
+
+test("dry run writes the summary but not the Dockerfiles", (t) => {
+  const root = makeRoot(t);
+  const versionsPath = join(root, "versions.json");
+  const summaryPath = join(root, "summary.md");
+  writeFileSync(versionsPath, JSON.stringify(latest));
+  const code = run({ root, versionsPath, dryRun: true, summaryPath });
+  assert.equal(code, 0);
+  assert.match(
+    readFileSync(join(root, "deploy/railway/worker/Dockerfile"), "utf8"),
+    /claude-code@2\.1\.228/,
+  );
+  assert.match(
+    readFileSync(summaryPath, "utf8"),
+    /^\| File \| ARG \| Package \| From \| To \|/,
   );
 });
 

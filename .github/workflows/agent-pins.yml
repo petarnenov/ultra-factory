@@ -6,8 +6,9 @@ name: Agent CLI pins
 #
 # A PR created with GITHUB_TOKEN does not start pull_request workflows, so the
 # Hub image workflow is dispatched explicitly unless AGENT_PINS_TOKEN is set.
-# Without that token, the repository must allow Actions to create pull
-# requests (Settings > Actions > General).
+# Without that token the repository must allow Actions to create pull requests
+# (Settings > Actions > General); otherwise the branch is pushed and
+# `gh pr create` fails.
 
 on:
   schedule:
@@ -27,7 +28,7 @@ permissions:
 
 # Scheduled and manual runs must not race on the pin branch.
 concurrency:
-  group: agent-cli-pins-${{ github.ref }}
+  group: agent-cli-pins
   cancel-in-progress: false
 
 env:
@@ -72,23 +73,10 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Check the pull request setup
-        env:
-          GH_TOKEN: ${{ secrets.AGENT_PINS_TOKEN || github.token }}
+      - name: Note the pull request prerequisite
+        if: env.PINS_TOKEN == ''
         run: |
-          set -euo pipefail
-          if [ -n "${PINS_TOKEN}" ]; then
-            exit 0
-          fi
-          allowed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/permissions/workflow" \
-            --jq .can_approve_pull_request_reviews 2>/dev/null || true)
-          if [ "$allowed" = false ]; then
-            echo "::error::Set AGENT_PINS_TOKEN or enable 'Allow GitHub Actions to create and approve pull requests' in Settings > Actions > General."
-            exit 1
-          fi
-          if [ "$allowed" != true ]; then
-            echo "::warning::Could not read the Actions pull request setting; gh pr create will report if it is blocked."
-          fi
+          echo "::warning::Set AGENT_PINS_TOKEN or enable 'Allow GitHub Actions to create and approve pull requests' in Settings > Actions > General; gh pr create will fail without one."
 
       - name: Start from main
         id: branch
@@ -117,10 +105,19 @@ jobs:
           EXISTS: ${{ steps.branch.outputs.exists }}
         run: |
           set -euo pipefail
-          git add -- deploy/railway/worker/Dockerfile \
-            deploy/railway/hub/Dockerfile deploy/railway/worker/README.md
+          paths=(
+            deploy/railway/worker/Dockerfile
+            deploy/railway/hub/Dockerfile
+            deploy/railway/worker/README.md
+          )
+          git add -- "${paths[@]}"
           if git diff --cached --quiet; then
             echo "All pins are current; nothing to push."
+            exit 0
+          fi
+          if [ "$EXISTS" = true ] && \
+            git diff --cached --quiet "origin/$BRANCH" -- "${paths[@]}"; then
+            echo "The pin branch already has these versions; nothing to push."
             exit 0
           fi
           git commit -m "chore(railway): refresh agent CLI pins"
@@ -139,6 +136,12 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --quiet origin/main HEAD; then
+            number=$(gh pr list --head "$BRANCH" --state open \
+              --json number --jq '.[0].number // empty')
+            if [ -n "$number" ]; then
+              gh pr close "$number" \
+                --comment "Main now has the current agent CLI pins; closing this automated PR."
+            fi
             echo "No pin changes; nothing to open."
             exit 0
           fi
