@@ -32,7 +32,7 @@ Build arguments:
 
 | Argument | Default | Purpose |
 |---|---|---|
-| `AGENT_NPM_PACKAGES` | `@anthropic-ai/claude-code@2.1.228 @openai/codex@0.147.0 opencode-ai@1.19.3` | Pinned global npm installs. Keep Claude Code in the list. |
+| `AGENT_NPM_PACKAGES` | `@anthropic-ai/claude-code@2.1.302 @openai/codex@0.163.0 opencode-ai@1.19.3` | Pinned global npm installs. Keep Claude Code in the list. |
 | `CURSOR_AGENT_VERSION` | `2026.08.11-e8db854` | Cursor Agent release. Set it empty to leave Cursor out. |
 | `AO_VERSION`, `AO_COMMIT` | `dev`, `unknown` | Stamped into `ao version`. |
 | `GO_IMAGE`, `NODE_IMAGE` | `golang:1.27.1-bookworm`, `node:24-bookworm-slim` | Base images. |
