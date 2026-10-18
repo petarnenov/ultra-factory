@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { ProjectSettingsSaveState, ProjectSettingsSection as SettingsSection } from "./ProjectSettingsForm";
 import { deriveRepoHost, deriveRepoPath, IntakeFields, intakeNeedsRule } from "./IntakeFields";
 import { ProductExternalLink } from "./ProductExternalLink";
-import { AgentModelField, ProjectAutoReviewToggle, ProjectWorkersRequestReviewToggle } from "./settings/ProjectAgentRoleControls";
+import { AgentModelField, ProjectAutoReviewToggle, ProjectTerminateOnPRMergeToggle, ProjectWorkersRequestReviewToggle } from "./settings/ProjectAgentRoleControls";
 import { SettingsOptionMenu } from "./settings/SettingsOptionMenu";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -32,6 +32,7 @@ export type ProjectSettingsDraft = {
 	orchestratorPermissions: string;
 	reviewerPermissions: string;
 	autoReview: boolean;
+	terminateOnPrMerge?: boolean;
 	/** Local-only: workers may ask AO to review their own PRs. */
 	workersRequestReview?: boolean;
 	intakeEnabled: boolean;
@@ -191,6 +192,7 @@ export function ProjectSettingsEditor({ initialValues, section, capabilities, de
 					{capabilities.intake && <ProjectSettingsSection title={t("settings.project.issues")} grouped><IntakeFields variant="settings" form={intake} onChange={(values) => patch({ intakeEnabled: values.enabled ?? draft.intakeEnabled, intakeRepo: values.repo ?? draft.intakeRepo, intakeAssignee: values.assignee ?? draft.intakeAssignee })} repoPreview={{ value: draft.intakeRepo.trim() || deriveRepoPath(repository ?? ""), host: deriveRepoHost(repository ?? "") }} /></ProjectSettingsSection>}
 					<ProjectSettingsSection title={t("settings.project.pullRequests")} grouped>
 						<ProjectAutoReviewToggle description={autoReviewDescription} checked={draft.autoReview} onCheckedChange={(autoReview) => patch({ autoReview })} />
+						<ProjectTerminateOnPRMergeToggle checked={draft.terminateOnPrMerge ?? false} onCheckedChange={(terminateOnPrMerge) => patch({ terminateOnPrMerge })} />
 						{capabilities.workersRequestReview && <ProjectWorkersRequestReviewToggle checked={draft.workersRequestReview ?? false} onCheckedChange={(workersRequestReview) => patch({ workersRequestReview })} />}
 					</ProjectSettingsSection>
 				</>}

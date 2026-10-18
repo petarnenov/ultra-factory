@@ -5441,3 +5441,39 @@ func TestPRObservation_ReviewCommentNudgesDedupPerComment(t *testing.T) {
 			len(msg.msgs)-sent, msg.msgs[sent:])
 	}
 }
+
+// TestPRObservation_InheritedProjectDefaultTeardownAfterQuiescence is the
+// regression for the inherited-default-on path in #144: a session spawned with
+// the project default enabled carries TerminateOnPRMerge=true, and teardown
+// still requires the merged-PR/completion bar plus agent quiescence (#105/#2879).
+func TestPRObservation_InheritedProjectDefaultTeardownAfterQuiescence(t *testing.T) {
+	m, st, _ := newManager()
+	terminator := &fakeCompletionTerminator{}
+	m.SetCompletionTerminator(terminator)
+	rec := exited("mer-1")
+	// As if spawned after inheritance from ProjectConfig.TerminateOnPRMerge.
+	rec.TerminateOnPRMerge = true
+	st.sessions["mer-1"] = rec
+	st.prs["mer-1"] = []domain.PullRequest{{URL: "pr1", Merged: true}}
+
+	if err := m.ApplyPRObservation(ctx, "mer-1", ports.PRObservation{Fetched: true, URL: "pr1", Merged: true}); err != nil {
+		t.Fatal(err)
+	}
+	if terminator.calls != 1 {
+		t.Fatalf("terminator calls = %d, want 1 after inherited default and quiescence", terminator.calls)
+	}
+
+	m, st, _ = newManager()
+	terminator = &fakeCompletionTerminator{}
+	m.SetCompletionTerminator(terminator)
+	rec = working("mer-1")
+	rec.TerminateOnPRMerge = true
+	st.sessions["mer-1"] = rec
+	st.prs["mer-1"] = []domain.PullRequest{{URL: "pr1", Merged: true}}
+	if err := m.ApplyPRObservation(ctx, "mer-1", ports.PRObservation{Fetched: true, URL: "pr1", Merged: true}); err != nil {
+		t.Fatal(err)
+	}
+	if terminator.calls != 0 {
+		t.Fatalf("terminator calls = %d, want 0 while the inherited-default session is still active", terminator.calls)
+	}
+}

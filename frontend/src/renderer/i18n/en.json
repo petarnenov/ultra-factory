@@ -1596,6 +1596,8 @@
 	"settings.project.workersRequestReviewDescription": "When enabled, new workers start an AO review of their own PR once it is ready, and again after each fix. When disabled, workers ask before starting one.",
 	"settings.project.workersRequestReviewToggle": "Workers request AO review",
 	"settings.project.autoReviewDescription": "When enabled, new worker sessions will automatically review their pull requests. This can still be toggled per session after spawn.",
+	"settings.project.terminateOnPrMergeToggle": "Terminate sessions on PR merge",
+	"settings.project.terminateOnPrMergeDescription": "When enabled, new worker sessions are terminated automatically after all of their pull requests reach a terminal state with at least one merged and the agent has quiesced. Dirty worktrees are preserved.",
 	"settings.project.saveChanges": "Save changes",
 	"settings.project.scripts": "Scripts",
 	"settings.project.scriptSetup": "Setup",
