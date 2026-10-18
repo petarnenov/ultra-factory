@@ -128,7 +128,7 @@ function reportArtifactHref(reference: string, projectId: string, sessionId: str
 	const historical = artifactLinkForPath(reference, workspaces);
 	const normalized = historical ? parseArtifactLink(historical) : undefined;
 	if (normalized?.projectId === projectId && normalized.sessionId === sessionId) {
-		return artifactLink(projectId, sessionId, normalized.path, hostId);
+		return artifactLink(projectId, sessionId, normalized.path, normalized.hostId || hostId);
 	}
 	return undefined;
 }
