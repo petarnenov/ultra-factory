@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { electronBridge } from "../lib/electron-bridge";
+import { isWebBuild } from "../lib/platform";
 import { sidebarIsVisible, useUiStore } from "../stores/ui-store";
 import { useCanGoForward } from "./TitlebarNav";
 import {
@@ -23,10 +25,10 @@ import {
 } from "./ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-// Windows-only: macOS keeps its system menu bar and inset traffic lights; Linux
-// keeps the existing minimal chrome. Only Windows loses the native title bar and
-// needs the app to paint its own (see the win32 branch in main.ts).
+// Windows-only: macOS keeps its system menu bar and traffic lights, Linux its
+// minimal chrome. The web build runs in a browser tab and paints no titlebar.
 const isWindows =
+  !isWebBuild &&
   typeof navigator !== "undefined" &&
   /win/i.test(
     (navigator as Navigator & { userAgentData?: { platform?: string } })
@@ -39,7 +41,7 @@ type MenuKey = "view" | "help";
 
 // Dispatch a native-menu action to the main process (see menu:action in main.ts).
 const act = (action: string) => () => {
-  void window.ao?.menu?.action(action);
+  void electronBridge()?.menu?.action(action);
 };
 
 // One top-level menu (View/Help). Declared at module scope, not inside
@@ -152,10 +154,10 @@ export function WindowTitlebar() {
   useEffect(() => {
     if (!isWindows) return;
     let active = true;
-    void window.ao?.window?.isMaximized().then((maximized) => {
+    void electronBridge()?.window?.isMaximized().then((maximized) => {
       if (active) setIsMaximized(maximized);
     });
-    const unsubscribe = window.ao?.window?.onMaximized((maximized) =>
+    const unsubscribe = electronBridge()?.window?.onMaximized((maximized) =>
       setIsMaximized(maximized),
     );
     return () => {
@@ -177,7 +179,7 @@ export function WindowTitlebar() {
       // reported shell focus, main would drop the browser shortcut target and the
       // next ⌘T/⌘W would open/close a terminal instead of a browser tab.
       if (target?.closest('[data-testid="browser-address-bar"], .browser-panel__topbar-host')) return;
-      void window.ao?.menu?.notifyShellFocus();
+      void electronBridge()?.menu?.notifyShellFocus();
     };
     document.addEventListener("focusin", onShellUse);
     document.addEventListener("pointerdown", onShellUse, true);

@@ -3,6 +3,7 @@ import { GitHubDaemonError, isGitHubAuthInvalidError, listGitHubRepos } from "./
 
 vi.mock("./api-client", () => ({
 	getApiBaseUrl: () => "http://127.0.0.1:3002",
+	hasTrustedApiBaseUrl: () => true,
 }));
 
 describe("GitHub daemon client", () => {

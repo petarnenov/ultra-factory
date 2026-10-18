@@ -1,0 +1,13 @@
+# BuildKit reads this file instead of a root .dockerignore when building
+# deploy/railway/hub/Dockerfile. Send only what the hub image needs.
+*
+!frontend/
+!packages/
+!packages/hub-bff/package.json
+!packages/hub-bff/src/
+!packages/hub-bff/login/
+!deploy/railway/hub/hub-supervisor.sh
+**/node_modules
+frontend/dist-web
+frontend/dist-electron
+frontend/out

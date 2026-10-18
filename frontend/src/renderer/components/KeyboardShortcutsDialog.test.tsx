@@ -91,4 +91,21 @@ describe("KeyboardShortcutsDialog", () => {
 
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
+
+	it("shows the web chords in the web build", async () => {
+		vi.stubEnv("VITE_AO_WEB", "1");
+		try {
+			vi.resetModules();
+			const { KeyboardShortcutsDialog: WebDialog } = await import("./KeyboardShortcutsDialog");
+			render(<WebDialog open onOpenChange={vi.fn()} isMac={false} />);
+
+			expect(within(screen.getByText("New session").closest("li") as HTMLElement).getByLabelText("Alt+Shift+N")).toBeInTheDocument();
+			expect(within(screen.getByText("New terminal").closest("li") as HTMLElement).getByLabelText("Alt+Shift+T")).toBeInTheDocument();
+			expect(within(screen.getByText("Previous session").closest("li") as HTMLElement).getByLabelText("Alt+↑")).toBeInTheDocument();
+			expect(screen.queryByLabelText("Ctrl+PageUp")).not.toBeInTheDocument();
+		} finally {
+			vi.unstubAllEnvs();
+			vi.resetModules();
+		}
+	});
 });

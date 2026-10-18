@@ -119,12 +119,15 @@ func BaseURL(raw string) (string, error) {
 	return u.Scheme + "://" + u.Host, nil
 }
 
-// DirectClient returns a copy of base with redirects disabled, so a bearer
-// credential can never be replayed to whatever a 3xx points at, and with
-// environment proxies disabled, so it never crosses an HTTP(S)_PROXY (agent
-// sandboxes set one) that could answer the identity probe and read the
-// plaintext bearer. The desktop's Node fetch connects directly as well.
+// DirectClient returns a copy of base with redirects and environment proxies
+// disabled, so a bearer is never replayed or read by a proxy (ADR 0008).
 func DirectClient(base *http.Client, timeout time.Duration) http.Client {
+	return directClient(base, timeout, nil)
+}
+
+// directClient builds the client behind DirectClient and ProbedClient. A
+// non-nil gate guards the transport's dials.
+func directClient(base *http.Client, timeout time.Duration, gate *ProbeGate) http.Client {
 	var client http.Client
 	if base != nil {
 		client = *base
@@ -134,6 +137,7 @@ func DirectClient(base *http.Client, timeout time.Duration) http.Client {
 	if transport, ok := client.Transport.(*http.Transport); ok {
 		direct := transport.Clone()
 		direct.Proxy = nil
+		wrapDial(direct, gate)
 		client.Transport = direct
 		return client
 	}
@@ -147,8 +151,26 @@ func DirectClient(base *http.Client, timeout time.Duration) http.Client {
 		direct = defaultTransport.Clone()
 	}
 	direct.Proxy = nil
+	wrapDial(direct, gate)
 	client.Transport = direct
 	return client
+}
+
+// wrapDial routes the transport's dials through routeTailnet and, when gate is
+// set, through the gate. A transport with neither keeps its dialer untouched.
+func wrapDial(transport *http.Transport, gate *ProbeGate) {
+	if gate == nil && strings.TrimSpace(os.Getenv(TailnetSOCKSEnv)) == "" {
+		return
+	}
+	inner := transport.DialContext
+	if inner == nil {
+		inner = defaultDial
+	}
+	dial := routeTailnet(inner)
+	if gate != nil {
+		dial = gate.guard(dial)
+	}
+	transport.DialContext = dial
 }
 
 func isDefaultTransport(rt http.RoundTripper) bool {
@@ -175,10 +197,10 @@ func UnattendedTransportAllowed(base string) error {
 		return nil
 	}
 	host := strings.ToLower(u.Hostname())
-	if ip := net.ParseIP(host); ip != nil && (ip.IsLoopback() || tailscaleNet.Contains(ip)) {
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		return nil
 	}
-	if host == "localhost" || strings.HasSuffix(host, ".ts.net") {
+	if host == "localhost" || IsTailnetHost(host) {
 		return nil
 	}
 	if strings.TrimSpace(os.Getenv(AllowHTTPEnv)) == "1" {

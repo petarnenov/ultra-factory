@@ -1,4 +1,5 @@
 # RW-1.4 · Story: Manual worker deploy and connection from the desktop app
+**Status:** ⛔ needs-human
 
 **As** an operator **I want** to deploy a single worker to Railway following a documented procedure and use it from the desktop app, **so that** we confirm networking, the image, and agent authentication before RW-2.
 

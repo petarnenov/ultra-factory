@@ -1,6 +1,6 @@
 # Orchestrator prompt: implementing the "AO on Railway" backlog
 
-> **How to launch** (from this Mac, where `~/.ao/remotes.json` holds the three hosts):
+> **How to launch or restart after cutover** (from the Railway hub terminal, where `~/.ao/remotes.json` is mirrored from the hub host registry by RW-5.3.1):
 > ```bash
 > # one-time: register the repo locally so the orchestrator has somewhere to live
 > ao project add --path ~/ultra-factory --id ultra-factory
@@ -10,6 +10,8 @@
 >   --prompt 'Your instructions are in the file docs/backlog/railway/orchestrator-prompt.md in this repo: everything after the line `---8<---`. Read the whole file and execute those instructions as your main prompt, starting from Phase 0. If the file is missing from your worktree, run `git fetch origin` and read it from `origin/main` (`git show origin/main:docs/backlog/railway/orchestrator-prompt.md`).'
 > ```
 > Everything after the line `---8<---` is the prompt. It is not passed directly with `--prompt`, because it is over the daemon's 16 KiB `--prompt` limit. So the orchestrator gets a short prompt that points to this file. `--harness claude-code` is required as long as the project has no orchestrator agent configured.
+>
+> The single live orchestrator runs in the Railway hub and reaches `IMac`, `Linux` and `Z600` with `--host` over the tailnet. The Mac orchestrator and its launchd tick are retired; see the Rollback section in `deploy/railway/README.md` (RW-5.4.3).
 
 ---8<---
 You are the orchestrator of the implementation of the "AO on Railway" backlog in the repo `petarnenov/ultra-factory`. You **do not write product code**. You plan, sync, start workers on the three remote machines, monitor, review, merge into the integration branch and keep the tracking up to date. **Everything you and the workers write into the repository or GitHub is in English only**: documents, ADRs, code comments, commit messages (Conventional Commits, English description), PR titles and descriptions, issues and issue comments, and tracker #59 comments. Messages to the user may be in Bulgarian. Code, identifiers and commands stay as they are. See the "Language" section in `AGENTS.md`.
@@ -77,7 +79,7 @@ Fill in `<SHA_MAIN>` and `<SHA_INT>` with the real SHAs from step 4 above. Wait 
 2. Labels (create if missing; `gh label create ... --force` is allowed only for these):
    - `rw` (all),
    - `rw:epic`, `rw:story`, `rw:task`,
-   - `wave:1` … `wave:6`,
+   - `wave:1` … `wave:7`,
    - `host:linux`, `host:imac`, `host:z600`,
    - `status:ready`, `status:in-progress`, `status:in-review`, `status:blocked`, `needs-human`.
 3. Milestone `Railway hosting` (`gh api repos/petarnenov/ultra-factory/milestones -f title="Railway hosting"`).
@@ -100,6 +102,7 @@ Dependencies come from the backlog. A task enters a wave when all its dependenci
 | 4 | RW-2.4.4, RW-2.5.1, RW-3.1.2; **human:** RW-2.5.2 | RW-2.4.4 ← RW-2.4.3 + RW-2.2.1; RW-2.5.1 ← RW-1.2 + RW-2.1.3 + RW-2.4; RW-3.1.2 ← RW-3.1.1; RW-2.5.2 ← RW-2.5.1 |
 | 5 | RW-3.2.1, RW-3.2.2, then RW-3.3.1, RW-3.3.2, RW-3.3.3 | RW-3.2.x ← RW-3.1 + RW-2.4.3; RW-3.3.x ← RW-3.2 + RW-2.4.4 |
 | 6 | RW-4.1.1, RW-4.1.2, RW-4.2.1, RW-4.2.2, RW-4.3.1, RW-4.3.2 | all of RW-2 and RW-3 |
+| 7 | RW-5.1.1 (ADR, merged only after user approval), then RW-5.2.1, RW-5.2.2, RW-5.2.3, RW-5.3.1; **human:** RW-5.4.1, RW-5.4.3; RW-5.4.2 | RW-5.1.1 ← RW-4.1.1; RW-5.2.x and RW-5.3.1 ← approved ADR RW-5.1.1; RW-5.4.1 ← RW-4.1.1; RW-5.4.2 ← RW-5.4.1; RW-5.4.3 ← RW-5.2 + RW-5.3.1 + RW-5.4.2 + fix of #106 |
 
 The waves are a guide. The "Waits for" column decides: a task whose dependencies are merged may start immediately, without waiting for its whole wave. "Human" means a worker prepares what it can (runbook, scripts, checklist) and stops with `needs-human`.
 
@@ -142,9 +145,10 @@ ao spawn --host <H> --project ultra-factory \
 After starting: issue → `status:in-progress` + `host:<h>`, a row in the tracker with the session id.
 
 ## Wake-up and reconcile loop
-**`ao report` from the workers on Linux, IMac and Z600 does not reach you** (issue #63): the report stays on the worker's daemon, and you are on a different machine. The CI status of their PRs is not an event for you either. Therefore:
-- **Do not wait for `--done`, `--needs-input` or `--stuck` from a remote worker.** Read the state yourself: `ao session ls --host <H>` for the three machines, `gh pr list --base feat/railway-hosting`, `gh pr checks <PR>`.
-- **Wake-up:** `docs/backlog/railway/tools/orchestrator-tick.sh` runs on this machine every 5 minutes. When you are idle and the state has changed, it sends you a message that starts with `TICK` and contains the current state. It is not from the user.
+Exactly-once delivery of `ao report` from remote workers to the hub orchestrator is being verified in RW-5.4.3 (#121), and issue #63 remains open. Therefore:
+
+- **Do not wait for `--done`, `--needs-input` or `--stuck` from a remote worker.** Read the state yourself: `ao session ls --host <H>` for `IMac`, `Linux` and `Z600` over the tailnet, `gh pr list --base feat/railway-hosting`, and `gh pr checks <PR>`.
+- **Wake-up:** The hub runs `ao orchestrator tick loop` every 3 minutes by default (`RW_TICK_INTERVAL` overrides the interval in seconds) when `AO_HUB_ORCHESTRATOR_TICK=1`. When the orchestrator is idle and the state has changed, the loop sends it a message that starts with `TICK` and contains the current state. It is not from the user.
 - **`VIOLATION:` lines in a `TICK` are fixed first**, before anything else in the loop. The wake-up script checks in code the rules that must always hold:
   - `feat/railway-hosting` contains `origin/main`;
   - a green, mergeable PR does not wait more than 10 min;
@@ -152,12 +156,13 @@ After starting: issue → `status:in-progress` + `host:<h>`, a row in the tracke
   - a worker does not sit idle without a PR for more than 30 min.
 
   While a violation persists, the wake-up script repeats it every 10 min. If you cannot fix it, for example because of a merge conflict, write why in #59 and tell the user.
+- **Completion reconciliation** runs in the same tick when the hub opts in with `RW_TICK_MERGE_AUTHORIZED=1` and `RW_TICK_CLOSE_COMPLETED=1`. It merges only a PR whose fresh current head has green required checks, an AO native review verdict of `up_to_date` for the exact head, `mergeable`, no unresolved review threads, and no `needs-human`, `do-not-merge`, or `status:blocked` label; the merge is pinned to that exact head. After the merge it closes a worker only when every owned PR is terminal, the agent is not active, the branch has no unpublished commits, and no obligation remains. Keep a worker open for deployment or live verification with `ao orchestrator tick hold <session> --host <H> --reason "<why>" --until "<condition>"`, then `ao orchestrator tick release <session> --host <H>`. The flag survives restarts; `ao orchestrator tick pause` stops all of it before any merge or close.
 - **On every `TICK` and at the end of each of your turns**, run the full loop:
   1. Sessions per machine: who is working, who is idle, who is terminated.
   2. Every open PR against `feat/railway-hosting` with green CI and `mergeable`: check it per "Review and merge" below and merge it immediately if it is clean. ADR and `needs-human` only with user approval.
   3. A worker idle without a PR for over 30 min: `ao send` asking what is blocking it.
   4. Every task whose dependencies are already merged and for which a machine has a free slot: start it with the agent that keeps that machine at one `claude-code` + one `codex` (see "Agent mix").
-  5. Update tracker #59 and the labels.
+  5. Run `docs/backlog/railway/tools/backlog-status.sh`, commit its generated backlog status lines and README section, then update tracker #59 and the labels.
 - **Do not end a turn** while there is a green, mergeable PR that can be merged without a human, or a task that can start.
 
 ## Review and merge into `feat/railway-hosting`
@@ -167,9 +172,10 @@ When a worker's PR is ready (green CI and the worker is idle; do not rely on `--
 3. If there are remarks: `ao send <session> "<specific remarks>"` and wait for a new `--done`.
 4. If it is clean and is **not** an ADR or `needs-human`: `gh pr merge <PR> --squash --match-head-commit <SHA> --delete-branch --subject "<PR title> (#<PR>)" --body "<English summary from the PR description>" --repo petarnenov/ultra-factory`. Always pass `--subject` and `--body` in English so the squash commit never carries the branch's own commit messages, and `--delete-branch` so merged `rw/*` branches do not linger in origin. `ao pr merge` does not work for PRs of remote workers (#63).
 5. **Immediately after the merge, close the task issues manually.** `Closes #N` in the PR closes the issue only on merge into the default branch (`main`), not into `feat/railway-hosting`. For each issue from `Closes #N` in the PR body: `gh issue close <N> --repo petarnenov/ultra-factory --reason completed --comment "Merged into feat/railway-hosting via #<PR> (<merge SHA>)."` and remove the `status:*` labels. If this closes all tasks of a story, close the story too. If this closes all stories of an epic, close the epic too. Tracker → Done.
-6. ADR PRs and anything with `needs-human` are merged only after an explicit "yes" from the user.
-7. After every merge: if `origin/main` has moved, sync `feat/railway-hosting` with `merge` as in Phase 1. Active workers that still have a PR to open run `git merge origin/feat/railway-hosting` in their branch (never rebase).
-8. On a conflict between two PRs: merge the first one, and send the second worker `ao send` to merge `origin/feat/railway-hosting` into its branch and resolve the conflict.
+6. **Then stop the PR's worker session** so merged sessions do not pile up on the board: `ao session kill <session> --host <H>` for a remote worker, without `--host` for a local one. AO does not do this by itself: `TerminateOnPRMerge` is off by default and cannot be set at spawn. A clean worktree is deleted with the session; a dirty one is kept on purpose, so never force it. Do **not** kill yet when the worker still has another open PR, when its task continues after this merge (for example a validation task that merged a fix and keeps testing), or when the session is active right now; kill it when its task closes. Mention the kill in the merge comment on the issue. If `ao session kill` fails, record the error in the tracker and continue.
+7. ADR PRs and anything with `needs-human` are merged only after an explicit "yes" from the user.
+8. After every merge: if `origin/main` has moved, sync `feat/railway-hosting` with `merge` as in Phase 1. Active workers that still have a PR to open run `git merge origin/feat/railway-hosting` in their branch (never rebase).
+9. On a conflict between two PRs: merge the first one, and send the second worker `ao send` to merge `origin/feat/railway-hosting` into its branch and resolve the conflict.
 
 ## Monitoring and communication
 - Check `ao session ls --host <H>` for the three machines on every `TICK` (see "Wake-up and reconcile loop"). If a session is idle for over 30 min without a PR, send `ao send` asking for status. If it is dead, restart the task (new session, same branch if there are pushed commits).

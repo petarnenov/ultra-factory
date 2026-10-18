@@ -73,6 +73,18 @@ vi.mock("../lib/preview-mode", () => ({
   usesPreviewWorkspaceData: false,
 }));
 
+const webBuild = vi.hoisted(() => ({ enabled: false }));
+vi.mock("../lib/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/platform")>();
+  const web = (await import("../test/web-build-platform")).webBuildPlatform(actual);
+  return {
+    ...actual,
+    get capabilities() {
+      return webBuild.enabled ? web.capabilities : actual.capabilities;
+    },
+  };
+});
+
 vi.mock("../lib/api-client", () => ({
   apiClient: {
     GET: getMock,
@@ -375,6 +387,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  webBuild.enabled = false;
 });
 
 describe("SessionInspector tabs", () => {
@@ -392,6 +405,22 @@ describe("SessionInspector tabs", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Files" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Session inspector" }).querySelector(".session-inspector__body--browser")).toBeInTheDocument();
+  });
+
+  it("hides the Browser tab in the web build", () => {
+    webBuild.enabled = true;
+    renderWithQuery(<SessionInspector session={session([])} />);
+
+    expect(screen.getByRole("tab", { name: "Summary" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Browser" })).not.toBeInTheDocument();
+  });
+
+  it("falls back to Summary when the web build restores a Browser selection", () => {
+    webBuild.enabled = true;
+    renderWithQuery(<SessionInspector session={session([])} view="browser" />);
+
+    expect(screen.getByRole("tab", { name: "Summary" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("complementary", { name: "Session inspector" }).querySelector(".session-inspector__body--browser")).not.toBeInTheDocument();
   });
 
   it("gives the Browser viewport the full inspector body without the default content gutter", async () => {

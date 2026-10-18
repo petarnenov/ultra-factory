@@ -17,6 +17,12 @@ on:
       - "backend/internal/service/systeminstall/release_feeds_live_test.go"
       - ".github/workflows/harness-release-feeds.yml"
 
+# A newer commit on the same PR cancels that PR's older in-flight run.
+# Scheduled and manual runs get a unique group, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -30,9 +36,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum

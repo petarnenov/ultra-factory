@@ -11,7 +11,7 @@ import (
 func TestLoadDefaults(t *testing.T) {
 	// Clear every recognised var so we observe pure defaults regardless of the
 	// surrounding environment.
-	for _, k := range []string{"AO_PORT", "AO_REQUEST_TIMEOUT", "AO_SHUTDOWN_TIMEOUT", "AO_RUN_FILE", "AO_DATA_DIR", "AO_AGENT", "AO_ALLOWED_ORIGINS", "AO_TELEMETRY_EVENTS", "AO_TELEMETRY_METRICS", "AO_TELEMETRY_REMOTE", "AO_TELEMETRY_POSTHOG_KEY", "AO_TELEMETRY_POSTHOG_HOST", "AO_TELEMETRY_DISABLED_EVENTS", "AO_TELEMETRY_APP_VERSION", "AO_HARNESS_UPDATE_CHECKS", "AO_HARNESS_UPDATE_INTERVAL"} {
+	for _, k := range []string{"AO_PORT", "AO_REQUEST_TIMEOUT", "AO_SHUTDOWN_TIMEOUT", "AO_RUN_FILE", "AO_DATA_DIR", "AO_AGENT", "AO_ALLOWED_ORIGINS", "AO_TELEMETRY_EVENTS", "AO_TELEMETRY_METRICS", "AO_TELEMETRY_REMOTE", "AO_TELEMETRY_POSTHOG_KEY", "AO_TELEMETRY_POSTHOG_HOST", "AO_TELEMETRY_DISABLED_EVENTS", "AO_TELEMETRY_APP_VERSION", "AO_HARNESS_UPDATE_CHECKS", "AO_HARNESS_UPDATE_INTERVAL", "AO_REMOTE_TRUSTED_PROXY"} {
 		t.Setenv(k, "")
 	}
 
@@ -57,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.Telemetry.EventsExplicit {
 		t.Fatal("Telemetry.EventsExplicit = true for an absent setting")
+	}
+	if cfg.RemoteTrustedProxy {
+		t.Fatal("RemoteTrustedProxy = true by default, want false")
 	}
 }
 
@@ -524,6 +527,34 @@ func TestLoadTrackerIntakeRejectsGarbage(t *testing.T) {
 	t.Setenv("AO_TRACKER_INTAKE", "maybe")
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() = nil error, want error for malformed AO_TRACKER_INTAKE")
+	}
+}
+
+// AO_REMOTE_TRUSTED_PROXY trusts X-Forwarded-For for lockout keys, so it is
+// never on unless set, and a typo fails boot instead of picking a mode.
+func TestLoadRemoteTrustedProxy(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want bool
+	}{
+		{"", false}, {" ", false},
+		{"1", true}, {"true", true}, {"on", true}, {"ON", true},
+		{"0", false}, {"false", false}, {"off", false},
+	} {
+		t.Run(fmt.Sprintf("%q", tc.raw), func(t *testing.T) {
+			t.Setenv("AO_REMOTE_TRUSTED_PROXY", tc.raw)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.RemoteTrustedProxy != tc.want {
+				t.Errorf("RemoteTrustedProxy = %t for %q, want %t", cfg.RemoteTrustedProxy, tc.raw, tc.want)
+			}
+		})
+	}
+	t.Setenv("AO_REMOTE_TRUSTED_PROXY", "maybe")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() = nil error, want error for malformed AO_REMOTE_TRUSTED_PROXY")
 	}
 }
 

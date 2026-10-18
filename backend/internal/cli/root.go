@@ -242,6 +242,9 @@ type commandContext struct {
 	hostSelector string
 	// remote caches the verified --host target for the rest of the invocation.
 	remote *remoteTarget
+	// verifiedDaemon caches the run-file daemon that answered its ownership
+	// probe (see ensureLocalDaemon), keyed by pid, port and instance id.
+	verifiedDaemon string
 }
 
 func shouldEmitCLIInvocation(cmd *cobra.Command) bool {

@@ -48,10 +48,14 @@ func runFileOwnerServing(client *http.Client, host string, info *runfile.Info) b
 	}
 
 	var body struct {
-		Service string `json:"service"`
-		PID     int    `json:"pid"`
+		Service    string `json:"service"`
+		PID        int    `json:"pid"`
+		InstanceID string `json:"instanceId"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return false
+	}
+	if info.InstanceID != "" && body.InstanceID != info.InstanceID {
 		return false
 	}
 	return body.Service == daemonmeta.ServiceName && body.PID == info.PID

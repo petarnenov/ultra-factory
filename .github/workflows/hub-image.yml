@@ -1,0 +1,320 @@
+name: Hub image
+
+# Builds the Railway hub image (deploy/railway/hub/Dockerfile) and smoke-tests
+# it. The hub extends the worker image (deploy/railway/worker/Dockerfile)
+# through the `ao-worker` build context that deploy/railway/docker-bake.hcl
+# wires to the worker target.
+#
+# Every run builds both images from this commit in one build graph, so the
+# daemon, its agent CLIs, and tini inside the hub are never older than the
+# commit being built. No published worker tag is involved.
+#
+# Pull requests and manual runs smoke-test the result and publish nothing.
+# A push to main, feat/railway-hosting, or a hub-v* tag publishes
+# ghcr.io/<owner>/ao-hub. main and hub-v* publish linux/amd64 and linux/arm64;
+# feat/railway-hosting publishes linux/amd64 only, the platform Railway runs.
+#
+# After a feat/railway-hosting publish, the deploy job points the Railway hub
+# service at the new sha-<short> tag and waits for the deployment. It runs in
+# the railway-hub environment and needs its secrets RAILWAY_TOKEN (a project
+# token for the hub's project and environment) and RAILWAY_HUB_SERVICE_ID;
+# without them it is skipped with a notice. See deploy/railway/README.md.
+
+on:
+  push:
+    branches: [main, feat/railway-hosting]
+    tags: ["hub-v*"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packages/**"
+      - "deploy/railway/**"
+      - ".github/workflows/hub-image.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packages/**"
+      - "deploy/railway/**"
+      - ".github/workflows/hub-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Pull requests cancel their older runs. A push to main and a hub-v* tag on the
+# same commit must not share a group, or the tag run could be cancelled.
+# Deploys have their own group (see the deploy job), so they never overlap.
+concurrency:
+  group: hub-image-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# local-ci (`make ci-local`) runs every workflow as a push and sets
+# LOCAL_CI_LOCAL in the runner. A local run must never publish.
+env:
+  AO_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+  AO_COMMIT: ${{ github.sha }}
+
+jobs:
+  # Decides the mode once: publish (push to main, the integration branch, or a
+  # hub-v* tag, and not local-ci) or verify (everything else).
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+      deploy: ${{ steps.plan.outputs.deploy }}
+    steps:
+      - name: Choose the mode and platforms
+        id: plan
+        run: |
+          publish=false
+          if [ "${LOCAL_CI_LOCAL:-}" != true ] && [ "$GITHUB_EVENT_NAME" = push ]; then
+            publish=true
+          fi
+          echo "publish=$publish" >>"$GITHUB_OUTPUT"
+          # The integration branch feeds the Railway hub: amd64 only, then
+          # deploy. main and release tags stay multi-arch and never deploy.
+          if [ "$publish" = true ] && [ "$GITHUB_REF" = refs/heads/feat/railway-hosting ]; then
+            echo "platforms=linux/amd64" >>"$GITHUB_OUTPUT"
+            echo "deploy=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "platforms=linux/amd64,linux/arm64" >>"$GITHUB_OUTPUT"
+            echo "deploy=false" >>"$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  # Starts the hub the way Railway does (entrypoint, empty volume, operator
+  # hash) and checks the public endpoints: health, login, and the
+  # authenticated hosts list. curl runs in a second container on the same
+  # network, as Railway's proxy would reach the service.
+  smoke:
+    name: Smoke (linux/amd64)
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Both images come from this commit in one build graph. The hub is
+      # loaded so the checks below can start it; nothing is pushed.
+      - name: Build the worker and hub images from this commit
+        env:
+          TAGS: ao-hub:smoke
+          PLATFORMS: linux/amd64
+        run: docker buildx bake -f deploy/railway/docker-bake.hcl hub --load
+
+      - name: Start the hub on a temporary volume
+        run: |
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          hash=$(printf '%s' "$password" | npm --prefix packages/hub-bff run --silent hash-password)
+          echo "::add-mask::$hash"
+          echo "HUB_PASSWORD=$password" >>"$GITHUB_ENV"
+          docker network create ao-hub-smoke
+          docker volume create ao-hub-smoke
+          # Railway injects RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID into
+          # every service; the hub must start with them and no Railway token.
+          docker run --detach --name ao-hub-smoke \
+            --network ao-hub-smoke \
+            --env PORT=8080 \
+            --env RAILWAY_PROJECT_ID=smoke-project \
+            --env RAILWAY_ENVIRONMENT_ID=smoke-environment \
+            --env AO_WEB_PASSWORD_HASH="$hash" \
+            --volume ao-hub-smoke:/data \
+            ao-hub:smoke
+
+      - name: Check health, login, and the hosts list
+        run: |
+          base=http://ao-hub-smoke:8080
+          client() { docker run --rm --network ao-hub-smoke --entrypoint curl ao-hub:smoke --silent "$@"; }
+          status() { client --output /dev/null --write-out '%{http_code}' "$@" || true; }
+
+          code=000
+          for _ in $(seq 60); do
+            code=$(status "$base/healthz")
+            [ "$code" = 200 ] && break
+            sleep 2
+          done
+          echo "GET /healthz -> $code"
+          test "$code" = 200
+
+          code=$(status "$base/hub/hosts")
+          echo "GET /hub/hosts without a session -> $code"
+          test "$code" = 401
+
+          # Headers go to stdout (--dump-header -), not to the discarded body:
+          # with --include and --output /dev/null curl drops them.
+          resp=$(client --dump-header - --output /dev/null --write-out '\nHTTP_CODE=%{http_code}\n' \
+            --header 'Content-Type: application/json' --header "Origin: $base" \
+            --data "{\"password\":\"$HUB_PASSWORD\"}" "$base/login" || true)
+          code=$(printf '%s' "$resp" | sed -n 's/^HTTP_CODE=//p')
+          echo "POST /login with the operator password -> $code"
+          test "$code" = 204
+          cookie=$(printf '%s' "$resp" | tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \([^;]*\).*/\1/p' | head -n 1)
+          test -n "$cookie"
+
+          code=$(status --cookie "$cookie" "$base/hub/hosts")
+          echo "GET /hub/hosts with the session -> $code"
+          test "$code" = 200
+
+      # The supervisor seeds OpenCode 2 from the image into the daemon's private
+      # npm prefix on the volume; the harness resolves it there by major.
+      - name: Check the hub's OpenCode 2 install
+        run: |
+          version=$(docker exec ao-hub-smoke \
+            /data/home/.local/share/opencode-v2-home/npm/bin/opencode --version)
+          echo "opencode --version -> $version"
+          major=$(printf '%s' "$version" | grep -oE '[0-9]+\.[0-9]+' | head -n1 | cut -d. -f1)
+          test "$major" = 2
+
+      - name: Hub logs
+        if: failure()
+        run: docker logs ao-hub-smoke || true
+
+      - name: Remove the hub, its volume, and its network
+        if: always()
+        run: |
+          docker rm --force ao-hub-smoke || true
+          docker volume rm ao-hub-smoke || true
+          docker network rm ao-hub-smoke || true
+
+  # Publish only: build both images from this commit and push the hub to GHCR.
+  # linux/arm64 (main and hub-v*) runs under QEMU; the Go and ACP stages build
+  # on the build host, and only the runtime stages are emulated.
+  publish:
+    name: Build and publish
+    needs: [plan, smoke]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.tags.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v4
+        if: contains(needs.plan.outputs.platforms, 'arm64')
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      # sha-<short> on every build; hub-v<semver> only on hub-v* tags. The
+      # image never takes a moving tag.
+      - name: Tags
+        id: tags
+        run: |
+          owner=${GITHUB_REPOSITORY%%/*}
+          image=ghcr.io/${owner,,}/ao-hub
+          echo "image=$image:sha-${GITHUB_SHA::7}" >>"$GITHUB_OUTPUT"
+          # Comma-separated: the TAGS variable docker-bake.hcl reads.
+          taglist="$image:sha-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            taglist="$taglist,$image:$GITHUB_REF_NAME"
+          fi
+          echo "taglist=$taglist" >>"$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push
+        env:
+          TAGS: ${{ steps.tags.outputs.taglist }}
+          PLATFORMS: ${{ needs.plan.outputs.platforms }}
+        run: |
+          docker buildx bake -f deploy/railway/docker-bake.hcl hub --push \
+            --set "hub.labels.org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --set "hub.labels.org.opencontainers.image.revision=${{ github.sha }}" \
+            --set "hub.cache-from=type=gha,scope=hub-image" \
+            --set "hub.cache-to=type=gha,mode=max,scope=hub-image" \
+            --set "worker.cache-from=type=gha,scope=worker-image" \
+            --set "worker.cache-to=type=gha,mode=max,scope=worker-image"
+
+  # feat/railway-hosting only: point the Railway hub service at the image just
+  # published and wait for the deployment. The ao-hub package must be pullable
+  # by Railway (public, or registry credentials on the service). Restarting
+  # the hub stops its live agent processes and terminals and signs browsers
+  # out; /data persists. Required reviewers on the railway-hub environment
+  # turn each deploy into a one-click approval instead.
+  deploy:
+    name: Deploy to Railway
+    needs: [plan, publish]
+    if: needs.plan.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: railway-hub
+    concurrency:
+      group: railway-hub-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Update the hub image and deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE_ID: ${{ secrets.RAILWAY_HUB_SERVICE_ID }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$SERVICE_ID" ]; then
+            echo "::notice::Railway deploy skipped: set RAILWAY_TOKEN and RAILWAY_HUB_SERVICE_ID in the railway-hub environment."
+            exit 0
+          fi
+          # A project token authenticates with Project-Access-Token, never
+          # Authorization: Bearer (packages/hub-bff/docs/railway-api-notes.md).
+          gql() {
+            jq -n --arg query "$1" --argjson variables "$2" '{query: $query, variables: $variables}' |
+              curl --silent --show-error --fail-with-body \
+                --header "Project-Access-Token: $RAILWAY_TOKEN" \
+                --header 'Content-Type: application/json' \
+                --data @- https://backboard.railway.com/graphql/v2 >response.json
+            if jq --exit-status '.errors | length > 0' response.json >/dev/null; then
+              jq -r '.errors[].message' response.json | sed 's/^/::error::Railway: /'
+              exit 1
+            fi
+          }
+
+          gql 'query { projectToken { environmentId } }' '{}'
+          env_id=$(jq -r '.data.projectToken.environmentId' response.json)
+          echo "::add-mask::$env_id"
+          vars=$(jq -n --arg s "$SERVICE_ID" --arg e "$env_id" --arg i "$IMAGE" \
+            '{serviceId: $s, environmentId: $e, input: {source: {image: $i}}}')
+          gql 'mutation($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input) }' "$vars"
+          echo "Hub service image set to $IMAGE"
+
+          vars=$(jq -n --arg s "$SERVICE_ID" --arg e "$env_id" '{serviceId: $s, environmentId: $e}')
+          gql 'mutation($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' "$vars"
+          deployment=$(jq -r '.data.serviceInstanceDeployV2' response.json)
+          echo "::add-mask::$deployment"
+
+          vars=$(jq -n --arg id "$deployment" '{id: $id}')
+          status=UNKNOWN
+          for _ in $(seq 90); do
+            gql 'query($id: String!) { deployment(id: $id) { status } }' "$vars"
+            status=$(jq -r '.data.deployment.status' response.json)
+            case $status in
+              SUCCESS|FAILED|CRASHED|REMOVED|SKIPPED) break ;;
+            esac
+            sleep 10
+          done
+          echo "Hub deployment status: $status"
+          test "$status" = SUCCESS
+
+          # SUCCESS means the container started. A hub that exits right after
+          # startup turns CRASHED within seconds, so check again.
+          sleep 60
+          gql 'query($id: String!) { deployment(id: $id) { status } }' "$vars"
+          status=$(jq -r '.data.deployment.status' response.json)
+          echo "Hub deployment status after 60s: $status"
+          test "$status" = SUCCESS

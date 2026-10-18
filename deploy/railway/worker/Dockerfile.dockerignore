@@ -1,0 +1,9 @@
+# BuildKit reads this file instead of a root .dockerignore when building
+# deploy/railway/worker/Dockerfile. Send only what the image needs.
+*
+!backend/
+!frontend/acp-runtime/package.json
+!frontend/acp-runtime/package-lock.json
+!frontend/scripts/build-acp-runtime.mjs
+!frontend/scripts/build-acp-runtime-helpers.mjs
+!deploy/railway/worker/ao-worker-entrypoint.sh

@@ -1145,6 +1145,46 @@ func TestSwitchAgentAdmitsChatSessionWithoutRuntimeHandle(t *testing.T) {
 	}
 }
 
+// switchNoConfigDirAgent is a switch source that, like OpenCode, does not
+// expose its native session config directory.
+type switchNoConfigDirAgent struct{ fakeAgent }
+
+func TestSwitchAgentAdmitsSourceWithoutNativeConfigDir(t *testing.T) {
+	manager, store, _ := newSwitchTestManager(t, &fakeRestartRuntime{fakeRuntime: &fakeRuntime{}})
+	manager.agents.(switchTestAgents)[domain.HarnessOpenCode] = &switchNoConfigDirAgent{}
+	rec := store.sessions["proj-1"]
+	rec.Harness = domain.HarnessOpenCode
+	rec.Mode = domain.SessionModeChat
+	rec.Metadata.RuntimeHandleID = ""
+	rec.Metadata.RuntimeLaunchID = ""
+	rec.Metadata.ProviderConversationID = "opencode-native"
+	rec.Metadata.ControllerGeneration = "source-controller-generation"
+	store.sessions[rec.ID] = rec
+	manager.chat = &recordingLauncher{}
+
+	_, admitted, err := manager.admitAgentSwitch(context.Background(), rec.ID, SwitchAgentConfig{
+		TargetHarness:  domain.HarnessCodex,
+		IdempotencyKey: "source-without-config-dir",
+	})
+	if err != nil {
+		t.Fatalf("admitAgentSwitch: %v", err)
+	}
+	if admitted == nil {
+		t.Fatal("admitAgentSwitch returned no admitted switch")
+	}
+	natives, err := store.ListAgentNativeSessions(context.Background(), rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(natives) != 1 {
+		t.Fatalf("preserved native sessions = %+v, want one", natives)
+	}
+	got := natives[0]
+	if got.Harness != domain.HarnessOpenCode || got.NativeSessionID != "opencode-native" || got.ConfigDir != "" || got.TranscriptPath != "" {
+		t.Fatalf("preserved source = %+v, want OpenCode conversation with unknown config dir and no transcript", got)
+	}
+}
+
 func TestAgentSwitchChatControllerReadyUsesSourceGenerationCAS(t *testing.T) {
 	manager, store, _ := newSwitchTestManager(t, &fakeRestartRuntime{fakeRuntime: &fakeRuntime{}})
 	rec := store.sessions["proj-1"]

@@ -46,11 +46,13 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/sentryobs"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/stagehistory"
 	usagepipeline "github.com/aoagents/agent-orchestrator/backend/internal/observe/usage"
+	"github.com/aoagents/agent-orchestrator/backend/internal/outbox"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/presence"
 	"github.com/aoagents/agent-orchestrator/backend/internal/preview"
 	"github.com/aoagents/agent-orchestrator/backend/internal/previewserver"
 	"github.com/aoagents/agent-orchestrator/backend/internal/push"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
@@ -186,6 +188,10 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	// Refuse to start on a malformed tailnet proxy rather than fail per request.
+	if _, err := remotehost.TailnetSOCKSAddress(); err != nil {
+		return err
+	}
 	if cwd, err := os.Getwd(); err == nil {
 		cfg.StartupWorkingDirectory = cwd
 	}
@@ -211,18 +217,12 @@ func Run() error {
 	browserAuthority := browsersvc.NewAuthority()
 	browserBroker := browserruntime.New(log, browserRuntimeToken)
 
-	// Fail fast only if a daemon is genuinely still serving the recorded port.
-	// CheckStale confirms the run-file's PID is alive, but that alone is not
-	// proof a predecessor owns the port: the file leaks when the daemon is hard
-	// killed without a graceful shutdown (the norm on Windows, where the desktop
-	// supervisor can only TerminateProcess it), and Windows reuses the recorded
-	// PID for unrelated processes. So a "live" PID is verified against an actual
-	// /healthz probe; a run-file left by a crashed/hard-killed/reused-PID
-	// predecessor is treated as stale and overwritten when the new server starts.
-	if live, err := runfile.CheckStale(cfg.RunFilePath); err != nil {
+	// Fail fast only if a daemon is genuinely still serving the recorded port:
+	// a live PID is verified with a /healthz probe, since Windows reuses PIDs.
+	if prev, err := runfile.Read(cfg.RunFilePath); err != nil {
 		return fmt.Errorf("inspect run-file: %w", err)
-	} else if live != nil && runFileOwnerServing(&http.Client{Timeout: staleProbeTimeout}, config.LoopbackHost, live) {
-		return fmt.Errorf("daemon already running (pid %d, port %d); refusing to start", live.PID, live.Port)
+	} else if prev != nil && runFileOwnerServing(&http.Client{Timeout: staleProbeTimeout}, config.LoopbackHost, prev) {
+		return fmt.Errorf("daemon already running (pid %d, port %d); refusing to start", prev.PID, prev.Port)
 	}
 
 	// Open the durable store and bring up the CDC substrate: DB triggers capture
@@ -1067,7 +1067,8 @@ func Run() error {
 
 	// Late-bind: the LAN listener shares the exact loopback router instance so
 	// the LAN surface and loopback surface never drift apart.
-	lan := httpd.NewMobileLAN(srv.Handler(), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink)
+	lan := httpd.NewMobileLAN(srv.Handler(), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink,
+		httpd.WithTrustedProxy(cfg.RemoteTrustedProxy))
 	bs.LAN = lan
 
 	// Restore Connect Mobile across a daemon restart: if the bridge was left
@@ -1135,6 +1136,16 @@ func Run() error {
 			if reconcileErr := lcStack.ReconcileRuntime(ctx); reconcileErr != nil {
 				log.Error("background agent-process reconciliation on boot failed", "err", reconcileErr)
 			}
+		}()
+		go func() {
+			// Deliver reports and activity the CLI queued while no daemon
+			// answered, once boot reconciliation has restored the sessions.
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+			}
+			runOutboxDrainer(ctx, outbox.Dirs(cfg.DataDir), srv.Handler(), store, time.Now, log)
 		}()
 		go func() {
 			// The session operation gate skips reconciliation in progress, so

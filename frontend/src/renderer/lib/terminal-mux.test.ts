@@ -52,6 +52,11 @@ describe("terminal-mux framing", () => {
 	it("uses the current origin for a relative dev API base", () => {
 		expect(muxUrlFromApiBase("")).toBe("ws://localhost:3000/mux");
 	});
+
+	it("keeps a same-origin host prefix on the current origin", () => {
+		expect(muxUrlFromApiBase("/hosts/h_worker")).toBe("ws://localhost:3000/hosts/h_worker/mux");
+		expect(muxUrlFromApiBase("/hosts/h_worker/")).toBe("ws://localhost:3000/hosts/h_worker/mux");
+	});
 });
 
 // Minimal fake socket so we can assert client behaviour without a live daemon.

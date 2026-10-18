@@ -1,0 +1,138 @@
+import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { loadConfig } from "../src/config.ts";
+import { jsonLogger } from "../src/log.ts";
+import { hashPassword, parsePasswordHash, verifyPassword } from "../src/password.ts";
+
+const TEST_COST = { ln: 10, r: 8, p: 1 };
+
+describe("password hashes", () => {
+	it("round-trips a generated password", async () => {
+		const password = randomBytes(12).toString("base64url");
+		const encoded = await hashPassword(password, TEST_COST);
+		expect(encoded).toMatch(/^\$scrypt\$ln=10,r=8,p=1\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
+		const parsed = parsePasswordHash(encoded);
+		expect(await verifyPassword(password, parsed)).toBe(true);
+		expect(await verifyPassword(`${password}!`, parsed)).toBe(false);
+	});
+
+	it("salts every hash", async () => {
+		expect(await hashPassword("same", TEST_COST)).not.toBe(await hashPassword("same", TEST_COST));
+	});
+
+	it.each(["", "plain", "$argon2id$v=19$m=65536,t=3,p=4$abc$def", "$scrypt$ln=99,r=8,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaA"])(
+		"rejects malformed hash %j",
+		(encoded) => {
+			expect(() => parsePasswordHash(encoded)).toThrow();
+		},
+	);
+});
+
+describe("loadConfig", () => {
+	function withSpa<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+		const dir = mkdtempSync(path.join(tmpdir(), "hub-bff-cfg-"));
+		writeFileSync(path.join(dir, "index.html"), "x");
+		return fn(dir).finally(() => rmSync(dir, { recursive: true, force: true }));
+	}
+
+	it("requires the SPA dir and a password", async () => {
+		await expect(loadConfig({})).rejects.toThrow(/AO_HUB_SPA_DIR/);
+		await withSpa((dir) => expect(loadConfig({ AO_HUB_SPA_DIR: dir })).rejects.toThrow(/AO_WEB_PASSWORD_HASH/));
+	});
+
+	it("accepts a hash, and hashes a plaintext password without exposing it", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const fromHash = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash, PORT: "9000" });
+			expect(fromHash).toMatchObject({ port: 9000, passwordHash: hash, plaintextPassword: false });
+			const plaintext = randomBytes(12).toString("base64url");
+			const fromPlain = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD: plaintext });
+			expect(fromPlain.passwordHash).not.toContain(plaintext);
+			expect(await verifyPassword(plaintext, parsePasswordHash(fromPlain.passwordHash))).toBe(true);
+			await expect(loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD: "a", AO_WEB_PASSWORD_HASH: hash })).rejects.toThrow(/only one/);
+		});
+	});
+
+	it("validates AO_WEB_ORIGIN", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect((await loadConfig({ ...base, AO_WEB_ORIGIN: "https://hub.example.com" })).publicOrigin).toBe("https://hub.example.com");
+			await expect(loadConfig({ ...base, AO_WEB_ORIGIN: "https://hub.example.com/app" })).rejects.toThrow(/AO_WEB_ORIGIN/);
+		});
+	});
+
+	it("validates AO_REMOTE_TAILNET_SOCKS and leaves it off when unset", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect((await loadConfig(base)).tailnetSocks).toBeUndefined();
+			expect((await loadConfig({ ...base, AO_REMOTE_TAILNET_SOCKS: "127.0.0.1:1055" })).tailnetSocks).toEqual({ host: "127.0.0.1", port: 1055 });
+			await expect(loadConfig({ ...base, AO_REMOTE_TAILNET_SOCKS: "localhost:1055" })).rejects.toThrow(/AO_REMOTE_TAILNET_SOCKS/);
+		});
+	});
+
+	it("defaults the worker limit to five and validates overrides", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect((await loadConfig(base)).maxWorkers).toBe(5);
+			expect((await loadConfig({ ...base, AO_HUB_MAX_WORKERS: "8" })).maxWorkers).toBe(8);
+			await expect(loadConfig({ ...base, AO_HUB_MAX_WORKERS: "0" })).rejects.toThrow(/AO_HUB_MAX_WORKERS/);
+		});
+	});
+
+	it("leaves the volume limit and idle check off by default and validates overrides", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			expect(await loadConfig(base)).toMatchObject({ maxVolumeGb: undefined, idleStopHours: undefined });
+			expect(await loadConfig({ ...base, AO_HUB_MAX_VOLUME_GB: "50", AO_HUB_IDLE_STOP_HOURS: "12" })).toMatchObject({ maxVolumeGb: 50, idleStopHours: 12 });
+			expect((await loadConfig({ ...base, AO_HUB_IDLE_STOP_HOURS: "" })).idleStopHours).toBeUndefined();
+			await expect(loadConfig({ ...base, AO_HUB_MAX_VOLUME_GB: "0" })).rejects.toThrow(/AO_HUB_MAX_VOLUME_GB/);
+			await expect(loadConfig({ ...base, AO_HUB_IDLE_STOP_HOURS: "soon" })).rejects.toThrow(/AO_HUB_IDLE_STOP_HOURS/);
+		});
+	});
+
+	it("requires the Railway project and environment with a Railway token", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			await expect(loadConfig({ ...base, RAILWAY_API_TOKEN: "masked" })).rejects.toThrow(/needs RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID/);
+			await expect(loadConfig({ ...base, RAILWAY_API_TOKEN: "masked", RAILWAY_PROJECT_ID: "project" })).rejects.toThrow(/needs RAILWAY_PROJECT_ID and RAILWAY_ENVIRONMENT_ID/);
+		});
+	});
+
+	it("starts with the IDs Railway injects into every service and no token", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const config = await loadConfig({ AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash, RAILWAY_PROJECT_ID: "project", RAILWAY_ENVIRONMENT_ID: "environment" });
+			expect(config.railwayToken).toBeUndefined();
+		});
+	});
+
+	it("enables fake provider only with explicit safe test configuration", async () => {
+		const hash = await hashPassword("pw", TEST_COST);
+		await withSpa(async (dir) => {
+			const base = { AO_HUB_SPA_DIR: dir, AO_WEB_PASSWORD_HASH: hash };
+			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "unknown" })).rejects.toThrow(/AO_HUB_PROVIDER/);
+			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "fake" })).rejects.toThrow(/FAKE_WORKER_URL/);
+			await expect(loadConfig({ ...base, AO_HUB_PROVIDER: "fake", AO_HUB_FAKE_WORKER_URL: "http://worker-1:3011", AO_HUB_FAKE_WORKER_PASSWORD: "pw", RAILWAY_PROJECT_ID: "project" })).rejects.toThrow(/cannot be used/);
+			const config = await loadConfig({ ...base, AO_HUB_PROVIDER: "fake", AO_HUB_FAKE_WORKER_URL: "http://worker-1:3011", AO_HUB_FAKE_WORKER_PASSWORD: "pw" });
+			expect(config).toMatchObject({ providerMode: "fake", fakeWorkerUrl: "http://worker-1:3011", fakeWorkerPassword: "pw" });
+		});
+	});
+});
+
+describe("jsonLogger", () => {
+	it("writes one JSON object per line", () => {
+		const lines: string[] = [];
+		jsonLogger((line) => lines.push(line))("info", "hello", { status: 200 });
+		expect(lines).toHaveLength(1);
+		expect(lines[0].endsWith("\n")).toBe(true);
+		expect(JSON.parse(lines[0])).toMatchObject({ level: "info", msg: "hello", status: 200 });
+	});
+});

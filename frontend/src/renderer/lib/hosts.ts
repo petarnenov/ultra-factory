@@ -33,3 +33,17 @@ export function parseRefKey(key: string): Ref {
 		id: decodeURIComponent(key.slice(separator + 1)),
 	};
 }
+
+/** Whether a host-scoped route must fall back to home. The desktop reaches
+ * hosts through AO Cloud; the web build uses the hub BFF's own sign-in. */
+export function shouldLeaveHostRoute({
+	remoteHostsEnabled,
+	accountStatus,
+	webBuild,
+}: {
+	remoteHostsEnabled: boolean;
+	accountStatus: string;
+	webBuild: boolean;
+}): boolean {
+	return !remoteHostsEnabled || (!webBuild && accountStatus === "unauthenticated");
+}

@@ -1,4 +1,5 @@
 # RW-1.3.3 · Task: Identity probe and Expected-Host-ID guard through a proxy
+**Status:** ✅ done (#71)
 
 **Type:** backend Go + verification. **Estimate:** 0.5 pd. **Story:** RW-1.3.
 

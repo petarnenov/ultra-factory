@@ -1,4 +1,5 @@
 # RW-1.4.2 · Task: End-to-end session from the desktop app and runbook
+**Status:** ⛔ needs-human (#83)
 
 **Type:** operations + documentation. **Estimate:** 0.5 pd. **Story:** RW-1.4.
 

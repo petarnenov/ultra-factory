@@ -1,3 +1,6 @@
+import { electronBridge } from "./electron-bridge";
+import { usesPreviewWorkspaceData } from "./preview-mode";
+
 type NavigatorWithUserAgentData = Navigator & { userAgentData?: { platform?: string } };
 
 function navigatorPlatform(): string {
@@ -43,7 +46,8 @@ export function usesFramedAppTopbar(): boolean {
  * Win/Linux as the ShellTopbar path. Fixed in PR #3421.
  */
 export function hidesShellTopbar(): boolean {
-	return isMacPlatform();
+	// The web build has no macOS traffic lights and uses the Linux shell.
+	return isMacPlatform() && !isWebBuild;
 }
 
 /**
@@ -56,3 +60,38 @@ export function hidesShellTopbar(): boolean {
 export function usesBoardActionsInPanel(): boolean {
 	return hidesShellTopbar();
 }
+
+// VITE_AO_WEB=1 selects the standalone web renderer (build:web, dev:web:real).
+export const isWebBuild = import.meta.env.VITE_AO_WEB === "1";
+
+// True when the Electron preload installed its bridge. False in the web build
+// and in the VITE_NO_ELECTRON mock preview.
+export const hasElectronBridge = electronBridge() !== undefined;
+
+export type Capability =
+	| "browserPanel"
+	| "editorHandoff"
+	| "cliLink"
+	| "autoUpdate"
+	| "nativeDialogs"
+	| "tray"
+	| "windowChrome";
+
+export function resolveCapabilities(options: { webBuild: boolean; electronBridge: boolean }): Readonly<Record<Capability, boolean>> {
+	// Every capability here needs the Electron supervisor, which the web build
+	// never has. Callers gate on the feature, not the build.
+	const desktop = options.electronBridge && !options.webBuild;
+	return Object.freeze({
+		browserPanel: desktop,
+		editorHandoff: desktop,
+		cliLink: desktop,
+		autoUpdate: desktop,
+		nativeDialogs: desktop,
+		tray: desktop,
+		windowChrome: desktop,
+	});
+}
+
+// The mock preview (VITE_NO_ELECTRON) shows the desktop UI: bridge.ts stubs
+// stand in for the preload, so it keeps desktop capabilities.
+export const capabilities = resolveCapabilities({ webBuild: isWebBuild, electronBridge: hasElectronBridge || usesPreviewWorkspaceData });

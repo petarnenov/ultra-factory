@@ -23,6 +23,8 @@ vi.mock("../../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, signIn: vi.fn() }) }));
 vi.mock("../../hooks/useCloudLocalAuth", () => ({ useCloudLocalAuth: () => ({ available: false }) }));
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
+const platform = vi.hoisted(() => ({ web: false }));
+vi.mock("../../lib/platform", () => ({ get isWebBuild() { return platform.web; } }));
 
 import { RemoteHostsSettings } from "./RemoteHostsSettings";
 
@@ -30,6 +32,7 @@ const renderSettings = () => render(<QueryClientProvider client={new QueryClient
 
 afterEach(() => {
 	account.status = "authenticated";
+	platform.web = false;
 	saved.entries = [];
 	useUiStore.setState({ remoteHosts: false });
 	remotes.connect.mockClear();
@@ -133,4 +136,27 @@ it("requires confirmation before forgetting a host", async () => {
 	fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 	await waitFor(() => expect(remotes.remove).toHaveBeenCalledWith("http://box-a:3001"));
 	expect(await screen.findByText("No hosts yet. Add one below.")).toBeVisible();
+});
+
+it("lists the hub's hosts on the web without AO Cloud sign-in, edit, or tunnel setup", async () => {
+	platform.web = true;
+	account.status = "unauthenticated";
+	saved.entries = [{ hostId: "h_worker", label: "Worker 1", url: "http://worker-1.railway.internal:3011" }];
+	renderSettings();
+	await waitFor(() => expect(screen.getByText("Worker 1")).toBeVisible());
+	expect(screen.queryByRole("button", { name: "Sign in to AO Cloud" })).toBeNull();
+	expect(screen.queryByRole("button", { name: "Edit Worker 1" })).toBeNull();
+	expect(screen.getByRole("button", { name: "Remove Worker 1" })).toBeVisible();
+	expect(screen.queryByText(/--tunnel/)).toBeNull();
+	expect(screen.queryByText(/Cloudflare/)).toBeNull();
+	expect(screen.getByRole("textbox", { name: "Address" })).toBeVisible();
+	expect(screen.getByLabelText("Connection password")).toBeVisible();
+});
+
+it("hides the Remote hosts switch on the web, where the hub's hosts are always connected", async () => {
+	platform.web = true;
+	saved.entries = [{ hostId: "h_worker", label: "Worker 1", url: "http://worker-1.railway.internal:3011" }];
+	renderSettings();
+	await waitFor(() => expect(screen.getByText("Worker 1")).toBeVisible());
+	expect(screen.queryByRole("switch", { name: "Connect to remote hosts" })).toBeNull();
 });

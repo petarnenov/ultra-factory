@@ -5,7 +5,11 @@ export type DaemonStatus = Awaited<ReturnType<typeof aoBridge.daemon.getStatus>>
 
 export function applyDaemonStatus(nextStatus: DaemonStatus): void {
 	setApiDaemonStatus(nextStatus);
-	if (nextStatus.state === "ready" && nextStatus.port) {
+	if (nextStatus.state === "ready" && import.meta.env.VITE_AO_WEB === "1") {
+		// The web build reaches the daemon same-origin (or at an explicit base);
+		// the loopback port the daemon reports is not reachable from a browser.
+		setApiBaseUrl(import.meta.env.VITE_AO_API_BASE_URL ?? "");
+	} else if (nextStatus.state === "ready" && nextStatus.port) {
 		setApiBaseUrl(`http://127.0.0.1:${nextStatus.port}`);
 	} else {
 		setApiBaseUrl(null);

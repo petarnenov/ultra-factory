@@ -14,6 +14,7 @@ import { CloudOnboardingGate } from "./components/CloudOnboardingGate";
 import { CloudNotificationRuntime } from "./components/CloudNotificationRuntime";
 import { applyRendererTelemetryPolicy, clearRendererTelemetryQueues, initTelemetry, isDeniedEvent } from "./lib/telemetry";
 import { aoBridge } from "./lib/bridge";
+import { electronBridge } from "./lib/electron-bridge";
 import { startDaemonFailureTelemetry } from "./lib/daemon-telemetry";
 import { startUpdateTelemetry } from "./lib/update-telemetry";
 import { startSessionManagementTelemetry } from "./lib/session-management-telemetry";
@@ -21,6 +22,9 @@ import { appI18n } from "./i18n";
 import { useLocaleStore } from "./stores/locale-store";
 import { useSoundNotificationsStore } from "./stores/sound-notifications-store";
 import { useTelemetryPolicyStore } from "./stores/telemetry-policy-store";
+import { useKeybindingsStore } from "./stores/keybindings-store";
+import { isMacPlatform, isWebBuild } from "./lib/platform";
+import { installWebShortcuts } from "./lib/web-shortcuts";
 
 const router = createAppRouter(queryClient);
 
@@ -32,6 +36,10 @@ aoBridge.telemetry.onClearQueues(clearRendererTelemetryQueues);
 aoBridge.notifications.onPlaySound(() => {
 	playNotificationSound(() => aoBridge.notifications.reportSoundFailure());
 });
+// In Electron the main process delivers shortcuts, so this handler is skipped.
+if (isWebBuild) {
+	installWebShortcuts({ isMac: isMacPlatform(), getOverrides: () => useKeybindingsStore.getState().overrides });
+}
 aoBridge.telemetry.onPolicy((view) => applyRendererTelemetryPolicy(view.eventsEnabled && view.acknowledged && view.state === "applied"));
 
 if (import.meta.env.DEV) {
@@ -68,7 +76,7 @@ if (import.meta.env.DEV) {
 		});
 		console.log("[testNotif] bell updated - click away from AO now, bounce fires in 3s");
 		setTimeout(() => {
-			void window.ao?.notifications.devBounce();
+			void electronBridge()?.notifications.devBounce();
 			// Restore normal stale time after bounce
 			queryClient.setQueryDefaults(key, { staleTime: 0 });
 		}, 3000);

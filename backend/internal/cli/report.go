@@ -3,13 +3,16 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/outbox"
 )
 
 type reportOptions struct {
@@ -120,8 +123,20 @@ func (c *commandContext) report(ctx context.Context, args []string, o reportOpti
 	for i, output := range outputs {
 		apiOutputs[i] = reportAPIOutput{Kind: string(output.Kind), Reference: output.Reference}
 	}
+	req := reportAPIRequest{SessionID: sessionID, State: string(selected), Note: o.note, Message: message, Outputs: apiOutputs}
 	var response reportAPIResponse
-	return c.postJSON(ctx, "reports", reportAPIRequest{SessionID: sessionID, State: string(selected), Note: o.note, Message: message, Outputs: apiOutputs}, &response)
+	err := c.postJSON(ctx, "reports", req, &response)
+	if err == nil || c.targetsRemote() || !undelivered(err) {
+		return err
+	}
+	// No daemon received the report: queue it for the daemon to deliver when
+	// it is back instead of losing it.
+	path, qerr := c.queueForDaemon(outbox.KindReport, "reports", sessionID, req, time.Time{})
+	if qerr != nil {
+		return errors.Join(err, qerr)
+	}
+	_, _ = fmt.Fprintf(c.deps.Err, "AO daemon is not reachable; the report was queued at %s and will be delivered when the daemon is back.\n", path)
+	return nil
 }
 
 func legacyReportStatus(value string) bool {

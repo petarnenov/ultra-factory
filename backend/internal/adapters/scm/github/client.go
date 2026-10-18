@@ -487,3 +487,20 @@ func firstNonEmptyHeader(a, b string) string {
 	}
 	return b
 }
+
+// Query runs one GraphQL query and decodes its data into out, with the same
+// authentication and error classification as the provider's own requests.
+func (c *Client) Query(ctx context.Context, query string, variables map[string]any, out any) error {
+	data, err := c.doGraphQL(ctx, query, variables)
+	if err != nil {
+		return err
+	}
+	b, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("github scm: re-encode graphql data: %w", err)
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		return fmt.Errorf("github scm: decode graphql data: %w", err)
+	}
+	return nil
+}

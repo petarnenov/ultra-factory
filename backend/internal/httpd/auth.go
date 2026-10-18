@@ -1,6 +1,7 @@
 package httpd
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -77,6 +78,10 @@ func (a *authState) retiredPasswordMatches(token string) bool {
 	return false
 }
 
+// maxAuthFailures is how many failed attempts lock a source key out until its
+// window expires.
+const maxAuthFailures = 5
+
 // lockout throttles password guessing per source address.
 type lockout struct {
 	mu        sync.Mutex
@@ -102,13 +107,15 @@ func (l *lockout) blocked(src string) bool {
 		return false
 	}
 	if l.now().Before(a.expires) {
-		return a.fails >= 5
+		return a.fails >= maxAuthFailures
 	}
 	delete(l.attempts, src)
 	return false
 }
 
-func (l *lockout) fail(src string) {
+// fail records a failed attempt and reports whether this attempt locked src
+// out, so entering lockout is logged once rather than per failed request.
+func (l *lockout) fail(src string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
@@ -127,6 +134,7 @@ func (l *lockout) fail(src string) {
 	a.fails++
 	a.expires = now.Add(time.Minute)
 	l.attempts[src] = a
+	return a.fails == maxAuthFailures
 }
 
 func (l *lockout) reset(src string) {
@@ -146,6 +154,43 @@ func sourceKey(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// Where a lockout key came from. Logged when a key becomes locked out.
+const (
+	lockoutKeyFromPeer           = "peer"
+	lockoutKeyFromCFConnectingIP = "cf-connecting-ip"
+	lockoutKeyFromForwardedFor   = "x-forwarded-for"
+)
+
+// lockoutKey derives the key failed attempts count against, starting from the
+// TCP peer. It throttles guessing only, never authorization (ADR 0005).
+func lockoutKey(r *http.Request, peer string, trustedProxy bool) (key, from string) {
+	// Cloudflared connects from loopback, so use its visitor IP for lockout
+	// only. A LAN client must not be able to spoof its source with this header.
+	if ip := net.ParseIP(peer); ip != nil && ip.IsLoopback() {
+		if forwarded := r.Header.Values("CF-Connecting-IP"); len(forwarded) == 1 {
+			if visitor := net.ParseIP(forwarded[0]); visitor != nil {
+				return visitor.String(), lockoutKeyFromCFConnectingIP
+			}
+		}
+	}
+	if trustedProxy {
+		if client := rightmostForwardedFor(r.Header.Values("X-Forwarded-For")); client != nil {
+			return client.String(), lockoutKeyFromForwardedFor
+		}
+	}
+	return peer, lockoutKeyFromPeer
+}
+
+// rightmostForwardedFor returns the last X-Forwarded-For entry across all
+// header lines, the one the nearest proxy appended; one trusted hop is assumed.
+func rightmostForwardedFor(lines []string) net.IP {
+	if len(lines) == 0 {
+		return nil
+	}
+	entries := strings.Split(lines[len(lines)-1], ",")
+	return net.ParseIP(strings.TrimSpace(entries[len(entries)-1]))
 }
 
 func bearerToken(r *http.Request) string {
@@ -251,7 +296,10 @@ func isIdentityProbe(r *http.Request) bool {
 	return r.Method == http.MethodGet && r.URL.Path == identityProbePath
 }
 
-func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter) func(http.Handler) http.Handler {
+// trustedProxy is AO_REMOTE_TRUSTED_PROXY: when set, the lockout key comes from
+// X-Forwarded-For. log, which may be nil, gets one line per new lockout.
+func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter, trustedProxy bool, log *slog.Logger) func(http.Handler) http.Handler {
+	log = loggerOrDefault(log)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if isIdentityProbe(r) {
@@ -259,16 +307,7 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 				return
 			}
 			remoteSrc := sourceKey(r)
-			src := remoteSrc
-			// Cloudflared connects from loopback, so use its visitor IP for lockout
-			// only. A LAN client must not be able to spoof its source with this header.
-			if ip := net.ParseIP(remoteSrc); ip != nil && ip.IsLoopback() {
-				if forwarded := r.Header.Values("CF-Connecting-IP"); len(forwarded) == 1 {
-					if visitor := net.ParseIP(forwarded[0]); visitor != nil {
-						src = visitor.String()
-					}
-				}
-			}
+			src, srcFrom := lockoutKey(r, remoteSrc, trustedProxy)
 			if lock.blocked(src) {
 				envelope.WriteAPIError(w, r, http.StatusTooManyRequests, "too_many_requests", "LOCKED_OUT",
 					"too many failed attempts; try again shortly", nil)
@@ -295,8 +334,9 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 				next.ServeHTTP(w, r)
 				return
 			}
-			if !state.retiredPasswordMatches(tok) {
-				lock.fail(src)
+			if !state.retiredPasswordMatches(tok) && lock.fail(src) {
+				log.Warn("remote-host auth: source locked out after repeated failures",
+					"key", src, "peer", remoteSrc, "key_from", srcFrom)
 			}
 			envelope.WriteAPIError(w, r, http.StatusUnauthorized, "unauthorized", "BAD_PASSWORD",
 				"missing or invalid connection password", nil)

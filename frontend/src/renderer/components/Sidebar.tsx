@@ -140,7 +140,7 @@ import { SessionArchiveDialog, type SessionArchiveChoice } from "./SessionArchiv
 import { CreateProjectFlow, type CloneProjectInput, type CreateProjectInput } from "./CreateProjectFlow";
 import { ResizeHandle } from "./ResizeHandle";
 import { NAV_ROW_HIGHLIGHT_HOST_CLASS, NavRowHighlight } from "./NavRowHighlight";
-import { isLinuxPlatform, isMacPlatform } from "../lib/platform";
+import { isLinuxPlatform, isMacPlatform, isWebBuild } from "../lib/platform";
 import { useCloudSession } from "../lib/cloud-session";
 import type { RemoteHost } from "../hooks/useRemoteHosts";
 import { sessionNavigateTarget } from "../lib/navigate-to-session";
@@ -151,7 +151,7 @@ import { RemoteHostsSection } from "./RemoteHostsSection";
 // sidebar toggle + history arrows above this surface. Windows hangs the sidebar
 // under its custom titlebar.
 const isMac = isMacPlatform();
-const brandInTitlebar = isMac || isLinuxPlatform();
+const brandInTitlebar = isMac || isLinuxPlatform() || isWebBuild;
 const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
 
 // One row-action layout shared by project rows, session rows, and the section
@@ -655,6 +655,7 @@ export function Sidebar({
 	const commandPaletteEnabled = useCommandPaletteEnabled();
 	const settingsPage = useSettingsPage();
 	const setCommandPaletteOpen = useUiStore((s) => s.setCommandPaletteOpen);
+	const requestCreateProject = useUiStore((state) => state.requestCreateProject);
 	const artifactTotal = useMemo(() => artifactCount(groupArtifactsByProject(workspaces)), [workspaces]);
 	const existingProjectPaths = useMemo(
 		() => workspaces
@@ -1190,6 +1191,7 @@ export function Sidebar({
 												/>;
 											}}
 											onRetry={onRetryRemoteHosts}
+											onAddProject={requestCreateProject}
 										/>
 										{isIconRail && <CreateProjectListItem />}
 										<div
@@ -3472,9 +3474,17 @@ function CreateProjectButton({
 	// openSignal for ⌘N on every shell route. The collapsed rail button below
 	// reuses this flow via requestCreateProject().
 	const createProjectNonce = useUiStore((state) => state.createProjectNonce);
+	const createProjectHostId = useUiStore((state) => state.createProjectHostId);
 	const folderDropRequest = useUiStore((state) => state.folderDropRequest);
 	const requestNewTask = useUiStore((state) => state.requestNewTask);
 	const [hostId, setHostId] = useState<string>();
+	// A request names its host (an empty remote host's sidebar row). Adopt it in
+	// the same render the open signal changes, so the flow starts on that host.
+	const [seenCreateProjectNonce, setSeenCreateProjectNonce] = useState(createProjectNonce);
+	if (seenCreateProjectNonce !== createProjectNonce) {
+		setSeenCreateProjectNonce(createProjectNonce);
+		setHostId(createProjectHostId);
+	}
 	const host = remoteHosts?.find((candidate) => candidate.hostId === hostId);
 	return (
 		<CreateProjectFlow

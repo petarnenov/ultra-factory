@@ -7,6 +7,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useTranslation } from "react-i18next";
 import { useCloudGate } from "../hooks/useCloudGate";
 import { useCloudOffering } from "../hooks/useCloudOffering";
+import { isWebBuild } from "../lib/platform";
 import { useRestoreFocusOnClose } from "../hooks/useRestoreFocusOnClose";
 import { ensureCodexAccounts } from "../hooks/useCodexAccountsQuery";
 import { writeCodexAccounts } from "../hooks/codex-accounts-state";
@@ -206,6 +207,7 @@ function useSettingsLayer(settingsModal: SettingsModal | null) {
 		// Warm account management as soon as global Settings opens, regardless of
 		// which page is selected. By the time the user visits Accounts, external
 		// login/logout changes and saved-account observations are already current.
+		if (isWebBuild) return;
 		void ensureCodexAccounts([], {
 			includeUsage: true,
 			forceAuthentication: true,

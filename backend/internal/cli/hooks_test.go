@@ -2228,7 +2228,9 @@ func TestHooks_DaemonNotRunningStaysOutOfStderr(t *testing.T) {
 			if err != nil {
 				t.Fatalf("daemon-down must still be recorded in hooks.log: %v", err)
 			}
-			if !strings.Contains(string(logged), "daemon is not running") {
+			// Inside an agent session a stale run-file is reported as an
+			// unreachable daemon (it may only be hidden by a sandbox).
+			if !strings.Contains(string(logged), "daemon is not running") && !strings.Contains(string(logged), "daemon is not reachable") {
 				t.Errorf("hooks.log missing the daemon-down notice, got %q", logged)
 			}
 		})

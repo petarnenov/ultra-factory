@@ -33,7 +33,7 @@ import {
 import { inspectorIsOpen, sidebarOccupiesLayout, useUiStore } from "../stores/ui-store";
 import { OrchestratorIcon } from "./icons";
 import { getAgentActivityView } from "../lib/session-presentation";
-import { isLinuxPlatform, isMacPlatform, usesBoardActionsInPanel } from "../lib/platform";
+import { capabilities, isLinuxPlatform, isMacPlatform, isWebBuild, usesBoardActionsInPanel } from "../lib/platform";
 import { cn } from "../lib/utils";
 import { useWindowFullScreen } from "../hooks/useWindowFullScreen";
 import { StatusPill } from "./StatusPill";
@@ -82,8 +82,8 @@ const PADDING_CLEARANCE_LINUX = 114;
 export function useTopbarPaddingLeft(embedded = false) {
 	const isSidebarOpen = useUiStore(sidebarOccupiesLayout);
 	const isFullScreen = useWindowFullScreen();
-	const mac = isMacPlatform();
-	const linux = isLinuxPlatform();
+	const mac = isMacPlatform() && !isWebBuild;
+	const linux = isLinuxPlatform() || isWebBuild;
 	return !embedded && !isSidebarOpen && mac
 			? isFullScreen
 				? PADDING_CLEARANCE_FULLSCREEN
@@ -122,6 +122,8 @@ export function ShellTopbar({
 	const isCompletedTasksRoute = !params.sessionId && location.pathname.endsWith("/completed");
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
 	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
+	// Without a Browser panel, an orchestrator has only Notifications.
+	const orchestratorWithoutInspector = isOrchestrator && !capabilities.browserPanel;
 	const isInspectorOpen = useUiStore((state) =>
 		currentSessionId ? inspectorIsOpen(state.inspectorSessions, sessionUiKey(currentSessionId, hostId)) : false,
 	);
@@ -286,7 +288,9 @@ export function ShellTopbar({
 						    have no local workspace to hand off to an editor: the local daemon
 						    has never heard of them, so querying it just surfaces its 404 as a
 						    confusing "Unknown session" error (see workspace.ts's `kind` doc). */}
-						{session && !hostId && project?.kind !== CLOUD_PROJECT_KIND ? (
+						{/* The web build has no editor handoff: /api/v1/desktop is not passed
+						    by the BFF (ADR 0006), so the control is left out. */}
+						{session && !hostId && project?.kind !== CLOUD_PROJECT_KIND && capabilities.editorHandoff ? (
 							// Keyed per session so a stale launch error does not carry over
 							// when switching sessions. The prefix keeps it distinct from the
 							// kill button's key: identical sibling keys make React duplicate
@@ -379,7 +383,8 @@ export function ShellTopbar({
 					   window's right edge. Reserve their width only when the rail is closed. */
 					startingOrchestrator ? null : <div
 						className="session-pinned-actions-reserve"
-						data-state={isInspectorOpen ? "collapsed" : "expanded"}
+						data-state={isInspectorOpen && !orchestratorWithoutInspector ? "collapsed" : "expanded"}
+						data-controls={orchestratorWithoutInspector ? "single" : undefined}
 						data-testid="session-pinned-actions-reserve"
 						aria-hidden="true"
 					/>

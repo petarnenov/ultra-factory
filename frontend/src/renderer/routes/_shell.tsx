@@ -58,6 +58,7 @@ import { cn } from "../lib/utils";
 import {
 	isLinuxPlatform,
 	isMacPlatform,
+	isWebBuild,
 	isWindowsPlatform,
 	usesFramedAppTopbar,
 	hidesShellTopbar,
@@ -73,7 +74,7 @@ import { useCloudSession } from "../lib/cloud-session";
 import { useCloudAccountSwitchReset } from "../hooks/useCloudAccountSwitchReset";
 import { openRemoteOrchestrator } from "../lib/remote-orchestrator";
 import { projectNavigateTarget, sessionNavigateTarget } from "../lib/navigate-to-session";
-import { sessionUiKey } from "../lib/hosts";
+import { sessionUiKey, shouldLeaveHostRoute } from "../lib/hosts";
 import { buildSidebarSessionOrder, sessionWantsAttention, stepSessionNav, type SidebarNavSession } from "../lib/sidebar-order";
 import { useSidebarOrderStore } from "../stores/sidebar-order-store";
 import { useAppShortcut } from "../hooks/useAppShortcut";
@@ -213,9 +214,11 @@ export function createProjectConfig(input: CreateProjectConfigInput): components
 // banner instead of staying gated forever on a hung spawn.
 const PROVISIONING_TIMEOUT_MS = 120_000;
 
-const isMac = isMacPlatform();
-const isWindows = isWindowsPlatform();
-const isLinux = isLinuxPlatform();
+// Window chrome, not the OS: a browser tab has no traffic lights and no
+// WindowTitlebar, so the web build uses the Linux shell on every OS.
+const isMac = isMacPlatform() && !isWebBuild;
+const isWindows = isWindowsPlatform() && !isWebBuild;
+const isLinux = isLinuxPlatform() || isWebBuild;
 const framedAppTopbar = usesFramedAppTopbar();
 const shellTopbarHiddenByPlatform = hidesShellTopbar();
 
@@ -395,10 +398,12 @@ function ShellLayout() {
 	const routeParams = useParams({ strict: false }) as { hostId?: string; projectId?: string; sessionId?: string };
 	const routeParamsRef = useRef(routeParams);
 	routeParamsRef.current = routeParams;
-	const remoteHostsEnabled = useUiStore((state) => state.developerMode && state.remoteHosts);
+	// Same gate as useRemoteHosts: the web build shows the hub's hosts without
+	// Developer mode, so their routes must stay open without it too.
+	const remoteHostsEnabled = useUiStore((state) => isWebBuild || (state.developerMode && state.remoteHosts));
 	const { status: accountStatus, session: cloudAccount } = useCloudSession();
 	useEffect(() => {
-		if ((!remoteHostsEnabled || accountStatus === "unauthenticated") && routeParams.hostId) void navigate({ to: "/", replace: true });
+		if (routeParams.hostId && shouldLeaveHostRoute({ remoteHostsEnabled, accountStatus, webBuild: isWebBuild })) void navigate({ to: "/", replace: true });
 	}, [accountStatus, navigate, remoteHostsEnabled, routeParams.hostId]);
 	useCloudAccountSwitchReset({
 		userId: cloudAccount?.user.id ?? null,

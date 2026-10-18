@@ -1,4 +1,5 @@
 # RW-2 · Epic: Web UI and BFF on Railway
+**Status:** ✅ done
 
 **Goal.** The desktop app's renderer is built as a static SPA and served by a hub service on Railway. A BFF (Node) in front of it handles login and proxies REST, SSE and `/mux` to the hub's daemon and to every registered worker, with an injected Bearer. Workers are added by address and password (manually). Automatic creation is RW-3.
 

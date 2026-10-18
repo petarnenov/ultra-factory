@@ -149,6 +149,8 @@ vi.mock("../hooks/useCommandPaletteEnabled", () => ({
 }));
 
 vi.mock("../lib/platform", () => ({
+	isWebBuild: false,
+	capabilities: { browserPanel: true, editorHandoff: true, cliLink: true, autoUpdate: true, nativeDialogs: true, tray: true, windowChrome: true },
 	isLinuxPlatform: () => false,
 	isMacPlatform: () => true,
 	isWindowsPlatform: () => false,

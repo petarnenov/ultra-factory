@@ -8,12 +8,15 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -134,6 +137,9 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 	appendTerminalCompatibilityFlags(&providerArgs)
 	appendReasoningEffortFlag(&providerArgs, cfg.Config.Effort)
+	if err := appendShellEnvFlags(&providerArgs, cfg.ShellEnv); err != nil {
+		return nil, err
+	}
 	return agentruntime.BuildLaunchCommand(agentruntime.LaunchConfig{
 		Harness:          agentruntime.HarnessCodex,
 		Binary:           binary,
@@ -173,6 +179,9 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 	}
 	appendTerminalCompatibilityFlags(&providerArgs)
 	appendReasoningEffortFlag(&providerArgs, cfg.Config.Effort)
+	if err := appendShellEnvFlags(&providerArgs, cfg.ShellEnv); err != nil {
+		return nil, false, err
+	}
 	return agentruntime.BuildRestoreCommand(agentruntime.RestoreConfig{
 		Harness:          agentruntime.HarnessCodex,
 		Binary:           binary,
@@ -571,4 +580,28 @@ func appendTerminalCompatibilityFlags(cmd *[]string) {
 var fileExists = func(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+// shellEnvName limits forwarded variable names to ones that are safe as a
+// dotted config key.
+var shellEnvName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// appendShellEnvFlags forwards AO's session variables to the commands Codex
+// runs, which a shell_environment_policy like inherit = "core" would strip.
+func appendShellEnvFlags(args *[]string, env map[string]string) error {
+	names := make([]string, 0, len(env))
+	for name := range env {
+		if shellEnvName.MatchString(name) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		encoded, err := json.Marshal(env[name])
+		if err != nil {
+			return fmt.Errorf("encode %s: %w", name, err)
+		}
+		*args = append(*args, "-c", "shell_environment_policy.set."+name+"="+string(encoded))
+	}
+	return nil
 }

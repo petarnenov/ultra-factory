@@ -1,6 +1,7 @@
-import { Activity, BadgeCheck, Bot, CircleHelp, CreditCard, Globe2, Keyboard, RefreshCw, Server, Settings2, Smartphone, type LucideIcon } from "lucide-react";
+import { Activity, BadgeCheck, Bot, CircleHelp, CreditCard, Globe2, Keyboard, RefreshCw, Server, ServerCog, Settings2, Smartphone, type LucideIcon } from "lucide-react";
 import { lazy, type ReactNode } from "react";
 import type { TFunction } from "i18next";
+import { capabilities, isWebBuild } from "../../lib/platform";
 import type { GlobalSettingsSection } from "../../stores/ui-store";
 import { BillingSection } from "./BillingSection";
 import { BrowserDownloadsSection } from "./BrowserDownloadsSection";
@@ -14,7 +15,9 @@ import { KeyboardShortcutsContent } from "./KeyboardShortcutsContent";
 import { MobileDevicesSection } from "./MobileDevicesSection";
 import { ReportProblemContent } from "./ReportProblemContent";
 import { RemoteHostsSettings } from "./RemoteHostsSettings";
+import { RemoveWorkerDialog } from "./RemoveWorkerDialog";
 import { SettingsSection } from "./SettingsSection";
+import { WorkersSettings } from "./WorkersSettings";
 
 /** The memory window's own blocks, loaded only when the page is opened: it
  * samples the machine every two seconds while it is on screen. */
@@ -76,6 +79,7 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "agents",
 		icon: BadgeCheck,
 		label: (t) => t("settings.agents"),
+		visible: () => !isWebBuild,
 		render: (_t, titleHidden) => <CodexAccountsSection titleHidden={titleHidden} />,
 	},
 	{
@@ -89,6 +93,8 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "browserProfiles",
 		icon: Globe2,
 		label: (t) => t("settings.browserProfiles"),
+		// Profiles and downloads belong to the embedded Electron browser.
+		visible: () => capabilities.browserPanel,
 		render: (_t, titleHidden) => (
 			<>
 				<BrowserProfilesSection titleHidden={titleHidden} />
@@ -107,8 +113,16 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "remoteHosts",
 		icon: Server,
 		label: (t) => t("settings.remoteHosts"),
-		visible: ({ developerMode }) => developerMode,
+		visible: ({ developerMode }) => isWebBuild || developerMode,
 		render: (_t, titleHidden) => <RemoteHostsSettings titleHidden={titleHidden} />,
+	},
+	{
+		id: "workers",
+		icon: ServerCog,
+		label: (t) => t("settings.workers"),
+		// The hub BFF's worker registry exists only behind the web build.
+		visible: () => isWebBuild,
+		render: (_t, titleHidden) => <WorkersSettings titleHidden={titleHidden} rowActions={(host) => <RemoveWorkerDialog host={host} />} />,
 	},
 	{
 		id: "mobile",
@@ -149,6 +163,8 @@ const globalSettingsCatalog: SettingsCatalogItem[] = [
 		id: "updates",
 		icon: RefreshCw,
 		label: (t) => t("settings.updates"),
+		// Updates and feature builds replace the Electron app.
+		visible: () => capabilities.autoUpdate,
 		render: (_t, titleHidden) => <UpdatesSection titleHidden={titleHidden} />,
 	},
 	{

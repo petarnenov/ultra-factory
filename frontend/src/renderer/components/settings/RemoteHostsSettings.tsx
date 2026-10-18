@@ -7,6 +7,7 @@ import { requestRemoteHostsRefresh } from "../../hooks/useRemoteHosts";
 import { useCloudLocalAuth } from "../../hooks/useCloudLocalAuth";
 import { useCloudSession } from "../../lib/cloud-session";
 import { deleteAccountRemoteHost, saveAccountRemoteHost } from "../../lib/account-remote-hosts";
+import { isWebBuild } from "../../lib/platform";
 import { useSettings } from "../../hooks/useSettings";
 import { useLocalSignInDialogStore } from "../../stores/local-signin-dialog-store";
 import { useUiStore } from "../../stores/ui-store";
@@ -25,7 +26,10 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	const setEnabled = useUiStore((state) => state.setRemoteHosts);
 	const { status, signIn } = useCloudSession();
 	const { settings } = useSettings();
-	const cloudBaseUrl = settings?.cloudControlPlaneUrl ?? "";
+	// The web build signs in to the hub BFF, which owns the registry and every
+	// credential, so it needs no AO Cloud account and syncs no hosts to one.
+	const signedIn = isWebBuild || status === "authenticated";
+	const cloudBaseUrl = isWebBuild ? "" : settings?.cloudControlPlaneUrl ?? "";
 	const { available: localAuthAvailable } = useCloudLocalAuth();
 	const openLocalSignIn = useLocalSignInDialogStore((state) => state.openDialog);
 	const [saved, setSaved] = useState<SavedHost[]>([]);
@@ -55,7 +59,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	};
 
 	useEffect(() => {
-		if (status === "authenticated") void load();
+		if (signedIn) void load();
 		else setSaved([]);
 		// The bridge is fixed for the lifetime of this Settings page.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,7 +129,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 		}
 	};
 
-	if (status !== "authenticated") return (
+	if (!signedIn) return (
 		<SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
 			<SettingsRow label={t("shell.signInToAOCloud")}>{status === "unauthenticated" ? (
 				<Button onClick={() => localAuthAvailable ? openLocalSignIn() : signIn()} size="sm" type="button">
@@ -136,12 +140,14 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	);
 
 	return <>
-		<SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
+		{/* The web build connects the hub's hosts; the switch has nothing to do. */}
+		{isWebBuild ? null : <SettingsSection title={t("settings.remoteHosts")} sectionId="remoteHosts" titleHidden={titleHidden} grouped>
 			<SettingsRow label={t("remote.enable")} description={t("remote.enableDescription")}>
 				<Switch aria-label={t("remote.enable")} checked={enabled} onCheckedChange={setEnabled} />
 			</SettingsRow>
+			{/* Tunnels and LAN addresses are the desktop's ways to reach a host. */}
 			<p className="px-3 text-pretty text-xs leading-relaxed text-settings-muted">{t("remote.connectionDescription")}</p>
-		</SettingsSection>
+		</SettingsSection>}
 
 		<SettingsSection title={t("remote.savedHosts")} grouped>
 			{loading && saved.length === 0 ? <p className="px-3 py-2 text-xs text-settings-muted" role="status">{t("remote.loadingHosts")}</p> : null}
@@ -149,14 +155,15 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 			{saved.map((host) => <div key={host.url}>
 				<SettingsRow icon={Server} label={host.label} description={host.url}>
 					<div className="flex items-center gap-1">
-						<Button aria-label={t("remote.editHost", { label: host.label })} disabled={busy || removeBusy} onClick={() => {
+						{/* The hub's registry has no edit: a host is removed and added again. */}
+						{isWebBuild ? null : <Button aria-label={t("remote.editHost", { label: host.label })} disabled={busy || removeBusy} onClick={() => {
 							setEditing(host);
 							setLabel(host.label);
 							setUrl(host.url);
 							setPassword("");
 							setFormError("");
 							formRef.current?.scrollIntoView?.({ block: "nearest" });
-						}} size="icon-sm" type="button" variant="ghost"><Pencil aria-hidden="true" className="size-icon-base" /></Button>
+						}} size="icon-sm" type="button" variant="ghost"><Pencil aria-hidden="true" className="size-icon-base" /></Button>}
 						<Button aria-label={t("remote.removeHost", { label: host.label })} disabled={busy || removeBusy} onClick={() => {
 							setConfirmingRemoval(host);
 							setRemoveError("");
@@ -169,7 +176,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 		</SettingsSection>
 
 		<SettingsSection title={editing ? t("remote.editHost", { label: editing.label }) : t("remote.addHost")} grouped>
-			<p className="px-3 text-pretty text-xs leading-relaxed text-settings-muted">{t("remote.setupHint")}</p>
+			{isWebBuild ? null : <p className="px-3 text-pretty text-xs leading-relaxed text-settings-muted">{t("remote.setupHint")}</p>}
 			<form className="flex flex-col gap-1.5" onSubmit={(event) => void save(event)} ref={formRef}>
 				<SettingsRow label={t("remote.name")}><Input aria-label={t("remote.name")} className="max-w-sm" disabled={busy} maxLength={64} onChange={(event) => setLabel(event.target.value)} required value={label} /></SettingsRow>
 				<SettingsRow label={t("mobile.address")}><Input aria-label={t("mobile.address")} className="max-w-sm" disabled={busy} inputMode="url" onChange={(event) => setUrl(event.target.value)} placeholder={t("remote.addressPlaceholder")} required value={url} /></SettingsRow>

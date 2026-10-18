@@ -25,6 +25,9 @@ in [gemini-cli.md](gemini-cli.md).
 | [cloud-development.md](cloud-development.md)           | Current public Cloud sources, local stack, tests, and hosted-environment boundaries. |
 | [cloud-refactor.md](cloud-refactor.md)                 | Historical split design for shared Cloud contracts and UI; not the current setup guide. |
 | [self-hosted-remote.md](self-hosted-remote.md)         | Experimental multi-host setup, client workflow, security boundary, and current limits.                                  |
+| [railway/architecture.md](railway/architecture.md)     | AO on Railway: hub/worker/BFF components, login, REST, SSE, WebSocket and Railway API flows, and what does not work on the web. |
+| [railway/threat-model.md](railway/threat-model.md)     | Railway hub threat model: assets, attackers, mitigations, and residual risk. |
+| [Railway runbook](../deploy/railway/README.md)         | Deploying and operating the Railway hub and workers: variables, credentials, backup, drain, limits, local e2e, and the live validation record. |
 | [development.md](development.md)                       | Prerequisites, build steps, running tests, and troubleshooting for local development.                                 |
 | [harnesses/unreal-agent.md](harnesses/unreal-agent.md) | Built-in Unreal Agent Chat setup, provider environment, persistence, and current limits.                              |
 | [harnesses/mimo-code.md](harnesses/mimo-code.md)       | MiMo Code TUI setup, permissions, activity hooks, exact restore, and current limits.                                 |

@@ -1,0 +1,167 @@
+package orchestratortick
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestBehindMainNamesTheMissingCommits(t *testing.T) {
+	got := texts(Violations(DefaultConfig(), Facts{GitHub: &GitHubState{BehindMain: 2, BehindSHAs: []string{"aaaaaaa", "bbbbbbb"}}}, now))
+	want := []string{"feat/railway-hosting is 2 commit(s) behind main (aaaaaaa,bbbbbbb) → git merge origin/main into feat/railway-hosting and push"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestGreenPRThresholdAndChecks(t *testing.T) {
+	cfg := DefaultConfig()
+	pr := func(mergeable string, checks ...Check) Facts {
+		return Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{{Number: 7, Head: "rw/x", Mergeable: mergeable, Checks: checks}}}}
+	}
+	old := now.Add(-cfg.GreenPRMax)
+	fresh := now.Add(-cfg.GreenPRMax + time.Minute)
+	for name, tc := range map[string]struct {
+		facts Facts
+		want  bool
+	}{
+		"green long enough":  {pr("MERGEABLE", Check{Result: "SUCCESS", CompletedAt: old}), true},
+		"green too recently": {pr("MERGEABLE", Check{Result: "SUCCESS", CompletedAt: old}, Check{Result: "NEUTRAL", CompletedAt: fresh}), false},
+		"not mergeable":      {pr("CONFLICTING", Check{Result: "SUCCESS", CompletedAt: old}), false},
+		"a check still runs": {pr("MERGEABLE", Check{Result: "SUCCESS", CompletedAt: old}, Check{Result: "IN_PROGRESS"}), false},
+		"a check failed":     {pr("MERGEABLE", Check{Result: "FAILURE", CompletedAt: old}), false},
+		"no checks":          {pr("MERGEABLE"), false},
+		"no completion time": {pr("MERGEABLE", Check{Result: "SUCCESS"}), false},
+	} {
+		got := len(greenPRsLeftOpen(cfg, tc.facts.GitHub, now)) == 1
+		if got != tc.want {
+			t.Errorf("%s: violation = %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestMergedPRWithOpenIssue(t *testing.T) {
+	gh := &GitHubState{
+		MergedPRs:  []MergedPR{{Number: 190, Body: "Closes #120, fixes #5 and resolves #120"}, {Number: 191, Body: "Refs #120"}},
+		OpenIssues: map[int]string{120: "RW-4.1", 5: "RW-1.1", 9: "RW-9"},
+	}
+	got := texts(mergedPRsWithOpenIssues(gh))
+	want := []string{`#190 is merged but #5, #120 is still open → gh issue close per step 5 of "Review and merge"`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestIdleWorkerWithoutPR(t *testing.T) {
+	cfg := DefaultConfig()
+	idle := now.Add(-cfg.IdleWorkerMax)
+	hosts := []HostSessions{{Host: "Z600", Sessions: []Worker{
+		{ID: "a", Branch: "rw/a", Activity: "idle", LastActivityAt: idle},
+		{ID: "b", Branch: "rw/b", Activity: "idle", LastActivityAt: idle, PRNumber: 3},
+		{ID: "c", Branch: "rw/c", Activity: "active", LastActivityAt: idle},
+		{ID: "d", Branch: "rw/d", Activity: "idle", LastActivityAt: idle, Terminated: true},
+		{ID: "e", Branch: "ao/e/root", Activity: "idle", LastActivityAt: idle},
+		{ID: "f", Branch: "rw/f", Activity: "idle", LastActivityAt: now.Add(-time.Minute)},
+	}}}
+	got := texts(idleWorkersWithoutPR(cfg, hosts, now))
+	if len(got) != 1 || !strings.HasPrefix(got[0], "a (rw/a) on Z600 has been idle for 30 min without a PR") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestAgentMix(t *testing.T) {
+	cfg := DefaultConfig()
+	after := cfg.AgentMixSince.Add(time.Hour)
+	hosts := []HostSessions{
+		{Host: "Linux", Sessions: []Worker{
+			{ID: "l1", Branch: "rw/1", Harness: "claude-code", CreatedAt: after},
+			{ID: "l2", Branch: "rw/2", Harness: "claude-code", CreatedAt: after},
+			{ID: "l3", Branch: "rw/3", Harness: "claude-code", CreatedAt: after, Terminated: true},
+		}},
+		{Host: "IMac", Sessions: []Worker{
+			{ID: "i1", Branch: "rw/4", Harness: "claude-code", CreatedAt: cfg.AgentMixSince.Add(-time.Hour)},
+		}},
+	}
+	got := texts(agentMix(cfg, hosts))
+	want := []string{
+		"Linux runs 2 live claude-code workers (l1, l2) → the next task on Linux must use the other agent (--harness)",
+		"none of the 3 workers started since 2026-10-16T15:45:00Z uses codex → start the next ready task with --harness codex",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q", got)
+	}
+	hosts[0].Sessions[1].Harness = "codex"
+	if got := agentMix(cfg, hosts); len(got) != 0 {
+		t.Fatalf("balanced mix: %q", got)
+	}
+}
+
+func TestCheckSummary(t *testing.T) {
+	for want, checks := range map[string][]Check{
+		"none":    nil,
+		"green":   {{Result: "SUCCESS"}, {Result: "SKIPPED"}},
+		"pending": {{Result: "SUCCESS"}, {Result: "QUEUED"}},
+		"red":     {{Result: "QUEUED"}, {Result: "CANCELLED"}},
+	} {
+		if got := CheckSummary(checks); got != want {
+			t.Errorf("CheckSummary(%v) = %s, want %s", checks, got, want)
+		}
+	}
+}
+
+func TestConfigFromEnv(t *testing.T) {
+	defaults, err := ConfigFromEnv(func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Interval != 3*time.Minute {
+		t.Fatalf("default interval = %s, want 3m", defaults.Interval)
+	}
+
+	env := map[string]string{
+		"RW_TICK_PROJECT": "p", "RW_TICK_HOSTS": "A  B", "RW_TICK_INTERVAL": "60",
+		"RW_TICK_RENUDGE_MINUTES": "5", "RW_TICK_PAUSED": "1", "RW_TICK_REPO": "o/r",
+	}
+	cfg, err := ConfigFromEnv(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Project != "p" || !reflect.DeepEqual(cfg.Hosts, []string{"A", "B"}) || cfg.Interval != time.Minute ||
+		cfg.Renudge != 5*time.Minute || !cfg.Paused || cfg.Repo != "o/r" || cfg.Base != "feat/railway-hosting" {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	for name, bad := range map[string]map[string]string{
+		"interval":  {"RW_TICK_INTERVAL": "soon"},
+		"zero":      {"RW_TICK_RENUDGE_MINUTES": "0"},
+		"repo":      {"RW_TICK_REPO": "no-slash"},
+		"mix since": {"RW_TICK_AGENT_MIX_SINCE": "yesterday"},
+	} {
+		if _, err := ConfigFromEnv(func(k string) string { return bad[k] }); err == nil {
+			t.Errorf("%s: invalid configuration accepted", name)
+		}
+	}
+}
+
+func texts(vs []Violation) []string {
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = v.Text
+	}
+	return out
+}
+
+// A violation whose duration grows is still the same state: its fingerprint
+// does not change, so it is re-sent on the re-nudge interval, not every tick.
+func TestFingerprintIgnoresGrowingDurations(t *testing.T) {
+	cfg := DefaultConfig()
+	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE",
+		Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-time.Hour)}}}}}}
+	early, late := Violations(cfg, facts, now), Violations(cfg, facts, now.Add(5*time.Minute))
+	if Snapshot(cfg, facts, early) == Snapshot(cfg, facts, late) {
+		t.Fatal("the shown durations should differ")
+	}
+	if Fingerprint(cfg, facts, early) != Fingerprint(cfg, facts, late) {
+		t.Fatal("the fingerprint changed although only the duration grew")
+	}
+}

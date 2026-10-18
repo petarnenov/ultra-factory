@@ -230,3 +230,17 @@ func TestListProjectPageRejectsMalformedCursor(t *testing.T) {
 		t.Fatalf("err = %v, want INVALID_REPORT_CURSOR", err)
 	}
 }
+
+// A standalone worker has no project and so no orchestrator to receive its
+// report: Create rejects it as invalid input, not as an internal error.
+func TestCreateRejectsAWorkerWithoutAProject(t *testing.T) {
+	st := &fakeStore{ok: true, session: domain.SessionRecord{ID: "standalone-5", Kind: domain.KindWorker}}
+	_, err := New(Deps{Store: st}).Create(context.Background(), CreateInput{SessionID: "standalone-5", Message: "hi"})
+	var apiErr *apierr.Error
+	if !errors.As(err, &apiErr) || apiErr.Kind != apierr.KindInvalid || apiErr.Code != "REPORT_PROJECT_REQUIRED" {
+		t.Fatalf("err = %v, want invalid REPORT_PROJECT_REQUIRED", err)
+	}
+	if st.created.ID != "" {
+		t.Fatalf("a report was stored: %+v", st.created)
+	}
+}

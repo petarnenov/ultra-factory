@@ -161,4 +161,15 @@ for target in $platforms; do
 done
 
 (cd "$out" && sha256 ./*.tar.gz) | sed 's# \./# #' >"$out/SHA256SUMS"
+{
+	printf '{\n  "version": "%s",\n  "commit": "%s",\n  "date": "%s",\n  "platforms": [' \
+		"$version" "$commit" "$date"
+	separator=""
+	for target in $platforms; do
+		printf '%s"%s-%s"' "$separator" "${target%/*}" "${target#*/}"
+		separator=", "
+	done
+	printf ']\n}\n'
+} >"$out/build.json"
+echo "Build metadata: $out/build.json"
 echo "Checksums: $out/SHA256SUMS"

@@ -404,9 +404,10 @@ func localControlRequest(r *http.Request) bool {
 // daemon is ready to answer requests.
 func daemonProbePayload(status string, cfg config.Config) map[string]any {
 	payload := map[string]any{
-		"status":  status,
-		"service": daemonmeta.ServiceName,
-		"pid":     os.Getpid(),
+		"status":     status,
+		"service":    daemonmeta.ServiceName,
+		"pid":        os.Getpid(),
+		"instanceId": daemonmeta.InstanceID(),
 	}
 	if exe, err := os.Executable(); err == nil && exe != "" {
 		payload["executablePath"] = exe

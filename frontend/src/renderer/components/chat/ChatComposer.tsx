@@ -1672,6 +1672,10 @@ export const ChatComposer = memo(function ChatComposer({
 				data-starting={starting || undefined}
 				aria-busy={starting || undefined}
 				data-attached-top={attachedTop && !queuedDock && !elicitation ? true : undefined}
+				onPointerDown={(event) => {
+					// Padding should focus the editor without first discarding its caret.
+					if (!controlsDisabled && event.button === 0 && event.target === event.currentTarget) event.preventDefault();
+				}}
 			onClick={(e) => {
 					if (controlsDisabled) return;
 					if ((e.target as HTMLElement).closest('[contenteditable="true"]')) return;

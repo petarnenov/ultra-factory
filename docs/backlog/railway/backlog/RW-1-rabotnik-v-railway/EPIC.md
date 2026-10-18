@@ -1,4 +1,5 @@
 # RW-1 · Epic: Worker on Railway, managed from the desktop app
+**Status:** ⛔ needs-human
 
 **Goal.** A single `ao daemon` runs as a Railway service with a persistent volume and the authenticated remote-host listener enabled. The desktop app adds it in Settings → Remote hosts and starts a session on it. This validates Railway networking, the image, and agent authentication before investing in a web UI.
 

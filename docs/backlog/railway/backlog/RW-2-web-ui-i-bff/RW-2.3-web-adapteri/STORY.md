@@ -1,4 +1,5 @@
 # RW-2.3 · Story: Web adapters for shortcuts, notifications, settings, clipboard
+**Status:** ✅ done
 
 **As** a browser user **I want** keyboard shortcuts, notifications and UI settings to work, **so that** it is usable day to day.
 

@@ -1,4 +1,5 @@
 # RW-2.2.1 · Task: Capability flag and audit of direct `window.ao` usages
+**Status:** ✅ done (#70)
 
 **Type:** frontend TS. **Estimate:** 0.5 pd. **Story:** RW-2.2.
 

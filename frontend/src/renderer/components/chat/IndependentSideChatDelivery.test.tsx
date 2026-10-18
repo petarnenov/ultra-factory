@@ -17,6 +17,7 @@ vi.mock("../../lib/api-client", () => ({
 	apiClient: { GET: get, POST: post, PUT: put, DELETE: remove, PATCH: patch },
 	apiErrorMessage: () => "Send failed",
 	getApiBaseUrl: () => "",
+	hasTrustedApiBaseUrl: () => false,
 	subscribeApiBaseUrl: () => () => {},
 }));
 vi.mock("../../lib/bridge", () => ({

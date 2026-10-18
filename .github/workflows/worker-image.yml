@@ -1,0 +1,217 @@
+name: Worker image
+
+# Builds the Railway worker image (deploy/railway/worker/Dockerfile) for
+# linux/amd64 and linux/arm64 and publishes it as ghcr.io/<owner>/ao-worker.
+# Only a push to main or a worker-v* tag publishes, and only after the smoke
+# job is green. Pull requests and manual runs build and smoke-test without
+# pushing. Tags are documented in deploy/railway/worker/README.md.
+#
+# The paths are every input of the image: the build context allowed by
+# deploy/railway/worker/Dockerfile.dockerignore, plus this file. Path filters
+# are not evaluated for tag pushes, so every worker-v* tag builds.
+
+on:
+  push:
+    branches: [main]
+    tags: ["worker-v*"]
+    paths:
+      - "backend/**"
+      - "deploy/railway/worker/**"
+      - "frontend/acp-runtime/**"
+      - "frontend/scripts/build-acp-runtime.mjs"
+      - "frontend/scripts/build-acp-runtime-helpers.mjs"
+      - ".github/workflows/worker-image.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "deploy/railway/worker/**"
+      - "frontend/acp-runtime/**"
+      - "frontend/scripts/build-acp-runtime.mjs"
+      - "frontend/scripts/build-acp-runtime-helpers.mjs"
+      - ".github/workflows/worker-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One group per ref and commit. A push to main and a worker-v* tag on the same
+# commit must not share a group: a third run there would cancel the pending
+# tag run, and the release would silently not publish. Pull requests cancel
+# their older runs.
+concurrency:
+  group: worker-image-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# local-ci (`make ci-local`) runs every workflow as a push and sets
+# LOCAL_CI_LOCAL in the runner. It has no cache service BuildKit can use, and a
+# local run must never publish. A shell step in each job reads LOCAL_CI_LOCAL
+# and only outside local-ci sets the outputs that turn on the GHA cache and
+# the push; with the outputs empty, a job builds without cache and pushes
+# nothing.
+env:
+  # Both jobs pass the same build args so the publish build reuses the smoke
+  # build's linux/amd64 layers from the cache.
+  AO_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'dev' }}
+  AO_COMMIT: ${{ github.sha }}
+
+jobs:
+  # Start the image the way Railway does (entrypoint, empty volume,
+  # AO_REMOTE_PASSWORD) and check the remote-host listener on :3011.
+  smoke:
+    name: Smoke (linux/amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build cache
+        id: cache
+        run: |
+          if [ "${LOCAL_CI_LOCAL:-}" != true ]; then
+            echo "from=type=gha,scope=worker-image-amd64" >>"$GITHUB_OUTPUT"
+            echo "to=type=gha,mode=max,scope=worker-image-amd64" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Build linux/amd64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/railway/worker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ao-worker:smoke
+          build-args: |
+            AO_VERSION=${{ env.AO_VERSION }}
+            AO_COMMIT=${{ env.AO_COMMIT }}
+          cache-from: ${{ steps.cache.outputs.from }}
+          cache-to: ${{ steps.cache.outputs.to }}
+
+      - name: Start the worker on a temporary volume
+        run: |
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          echo "AO_REMOTE_PASSWORD=$password" >>"$GITHUB_ENV"
+          docker network create ao-worker-smoke
+          docker volume create ao-worker-smoke
+          AO_REMOTE_PASSWORD=$password docker run --detach --name ao-worker-smoke \
+            --network ao-worker-smoke \
+            --env AO_REMOTE_PASSWORD \
+            --volume ao-worker-smoke:/data \
+            ao-worker:smoke
+
+      # curl runs in a second container on the worker's network, so the checks
+      # reach the 0.0.0.0:3011 bind from outside the worker, as Railway's proxy
+      # does, and need no host port.
+      - name: Check the remote-host listener on :3011
+        run: |
+          url=http://ao-worker-smoke:3011
+          client() { docker run --rm --network ao-worker-smoke --entrypoint curl ao-worker:smoke --silent "$@"; }
+          status() { client --output /dev/null --write-out '%{http_code}' "$@" || true; }
+
+          code=000
+          for _ in $(seq 60); do
+            code=$(status "$url/api/v1/identity")
+            [ "$code" = 200 ] && break
+            sleep 2
+          done
+          echo "GET /api/v1/identity -> $code"
+          test "$code" = 200
+          client --fail "$url/api/v1/identity" >identity.json
+          jq . identity.json
+          jq --exit-status '.hostId | type == "string" and length > 0' identity.json
+
+          code=$(status "$url/api/v1/sessions")
+          echo "GET /api/v1/sessions without a password -> $code"
+          test "$code" = 401
+          code=$(status --header "Authorization: Bearer $AO_REMOTE_PASSWORD" "$url/api/v1/sessions")
+          echo "GET /api/v1/sessions with AO_REMOTE_PASSWORD -> $code"
+          test "$code" = 200
+
+      - name: Worker logs
+        if: failure()
+        run: docker logs ao-worker-smoke || true
+
+      - name: Remove the worker, its volume, and its network
+        if: always()
+        run: |
+          docker rm --force ao-worker-smoke || true
+          docker volume rm ao-worker-smoke || true
+          docker network rm ao-worker-smoke || true
+
+  # linux/arm64 builds under QEMU. The ao binary and the ACP adapter are built
+  # on the runner (see the Dockerfile), so only the final stage is emulated.
+  image:
+    name: Build and publish (linux/amd64, linux/arm64)
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      # sha-<short> on every build; worker-v<semver> only on worker-v* tags.
+      # Desktop release versions are never used, and no moving tag is pushed.
+      # Publish only on a push to main or a worker-v* tag, never under local-ci.
+      # GHCR image names must be lowercase. The owner comes from
+      # GITHUB_REPOSITORY because local-ci does not set GITHUB_REPOSITORY_OWNER.
+      - name: Tags and publish settings
+        id: mode
+        run: |
+          owner=${GITHUB_REPOSITORY%%/*}
+          image=ghcr.io/${owner,,}/ao-worker
+          {
+            echo "tags<<EOF"
+            echo "$image:sha-${GITHUB_SHA::7}"
+            if [ "$GITHUB_REF_TYPE" = tag ]; then
+              echo "$image:$GITHUB_REF_NAME"
+            fi
+            echo "EOF"
+          } >>"$GITHUB_OUTPUT"
+          if [ "${LOCAL_CI_LOCAL:-}" != true ]; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then
+              echo "publish=true" >>"$GITHUB_OUTPUT"
+            fi
+            {
+              echo "cache-from<<EOF"
+              echo "type=gha,scope=worker-image-amd64"
+              echo "type=gha,scope=worker-image"
+              echo "EOF"
+              echo "cache-to=type=gha,mode=max,scope=worker-image"
+            } >>"$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        if: steps.mode.outputs.publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build, and push on main and worker-v* tags
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/railway/worker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ steps.mode.outputs.publish == 'true' }}
+          tags: ${{ steps.mode.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            AO_VERSION=${{ env.AO_VERSION }}
+            AO_COMMIT=${{ env.AO_COMMIT }}
+          cache-from: ${{ steps.mode.outputs.cache-from }}
+          cache-to: ${{ steps.mode.outputs.cache-to }}

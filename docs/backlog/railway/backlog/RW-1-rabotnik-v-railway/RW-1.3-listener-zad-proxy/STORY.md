@@ -1,4 +1,5 @@
 # RW-1.3 · Story: Remote-host listener behind a reverse proxy
+**Status:** ✅ done
 
 **As** an operator **I want** the remote-host listener to work correctly behind the Railway edge and over IPv6 private networking, **so that** a single failed attempt does not lock out all clients and the listener is reachable from the hub.
 

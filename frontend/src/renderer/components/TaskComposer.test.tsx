@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
 	remotePost: vi.fn(),
 	remoteDelete: vi.fn(),
 	connectedHostIds: ["box-a"],
+	draining: false,
 	capture: vi.fn(),
 	ensureReadiness: vi.fn(),
 	ensureTargetedReadiness: vi.fn(),
@@ -20,6 +21,8 @@ const h = vi.hoisted(() => ({
 	cloudProjects: [] as Array<{ id: string; displayName: string; repositoryUrl: string; defaultBranch: string; config: Record<string, unknown> }>,
 	cloudCreateSession: vi.fn(),
 }));
+
+vi.mock("../hooks/useHubHosts", () => ({ useHubHosts: () => ({ data: { workers: h.draining ? [{ id: "worker-id", hostId: "box-a", status: "draining" }] : [] } }) }));
 
 vi.mock("../hooks/useAgentReadinessQuery", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../hooks/useAgentReadinessQuery")>();
@@ -115,6 +118,7 @@ async function waitForTaskReady() {
 }
 
 beforeEach(() => {
+	h.draining = false;
 	useUiStore.setState({ developerMode: true, remoteHosts: true });
 	h.get.mockImplementation(async (path: string) => {
 		if (path.includes("/models")) {
@@ -188,6 +192,27 @@ describe("TaskComposer", () => {
 		expect(screen.queryByText("No agent is ready on this host. Configure one there first.")).not.toBeInTheDocument();
 	});
 
+	it("blocks new remote tasks while the host is draining", async () => {
+		h.draining = true;
+		h.agentCatalog = { agents: [agentReadiness("opencode", "OpenCode", { authentication: "unknown" })] };
+		const onCreated = vi.fn();
+		h.remoteGet.mockImplementation(async (path: string) => {
+			if (path.includes("/models")) return { data: { agent: "opencode", selectionMode: "text", models: [], allowCustom: true } };
+			if (path === "/api/v1/settings") return { data: { defaultSessionMode: "chat", chatHarnesses: ["opencode"] } };
+			return { data: { status: "ok", project: { id: "project-a", config: { worker: { agent: "opencode" } } } } };
+		});
+		h.remotePost.mockImplementation(async (path: string) => {
+			if (path === "/api/v1/agents/readiness/ensure") return { data: { agents: [agentReadiness("opencode", "OpenCode", { authentication: "unknown" })] } };
+			if (path === "/api/v1/projects/{id}/tasks/prepare") return { data: { taskPreparation: "" } };
+			if (path === "/api/v1/orchestrators/delegate") return { data: { workerId: "remote-task" } };
+			return { data: {} };
+		});
+		render(<Wrap><TaskComposer hostId="box-a" projectId="project-a" onCreated={onCreated} /></Wrap>);
+		fireEvent.change(task(), { target: { value: "Fix the issue" } });
+		await waitFor(() => expect(startTask()).toBeDisabled());
+		fireEvent.click(startTask());
+		expect(h.remotePost.mock.calls.some(([path]) => path === "/api/v1/orchestrators/delegate")).toBe(false);
+	});
 	it("creates a remote project task through its host, not the local daemon", async () => {
 		h.agentCatalog = { agents: [agentReadiness("opencode", "OpenCode", { authentication: "unknown" })] };
 		const onCreated = vi.fn();
