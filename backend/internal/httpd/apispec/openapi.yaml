@@ -3865,6 +3865,18 @@ paths:
         schema:
           description: Stable project identifier.
           type: string
+      - description: Maximum number of reports to return.
+        in: query
+        name: limit
+        schema:
+          description: Maximum number of reports to return.
+          type: integer
+      - description: Cursor for the next page of reports.
+        in: query
+        name: cursor
+        schema:
+          description: Cursor for the next page of reports.
+          type: string
       responses:
         "200":
           content:
@@ -15318,6 +15330,8 @@ components:
       type: object
     ListReportsResponse:
       properties:
+        nextCursor:
+          type: string
         reports:
           items:
             $ref: '#/components/schemas/ReportResponse'

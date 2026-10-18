@@ -5226,6 +5226,7 @@ export interface components {
             projects: components["schemas"]["ProjectSummary"][];
         };
         ListReportsResponse: {
+            nextCursor?: string;
             reports: components["schemas"]["ReportResponse"][];
         };
         ListReviewsResponse: {
@@ -11890,6 +11891,10 @@ export interface operations {
             query: {
                 /** @description Stable project identifier. */
                 projectId: string;
+                /** @description Maximum number of reports to return. */
+                limit?: number;
+                /** @description Cursor for the next page of reports. */
+                cursor?: string;
             };
             header?: never;
             path?: never;

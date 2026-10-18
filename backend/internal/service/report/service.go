@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -42,16 +43,20 @@ type Service struct {
 	now       func() time.Time
 	newID     func() string
 	onCreated func(domain.ReportRecord)
-	artifacts ArtifactRecorder
+	artifacts    ArtifactRecorder
+	selfHostID   string
+	selfHostName string
 }
 
 // Deps configures a Service. Artifacts is optional.
 type Deps struct {
-	Store     Store
-	Now       func() time.Time
-	NewID     func() string
-	OnCreated func(domain.ReportRecord)
-	Artifacts ArtifactRecorder
+	Store        Store
+	Now          func() time.Time
+	NewID        func() string
+	OnCreated    func(domain.ReportRecord)
+	Artifacts    ArtifactRecorder
+	SelfHostID   string
+	SelfHostName string
 }
 
 // New constructs a report Service.
@@ -62,28 +67,111 @@ func New(d Deps) *Service {
 	if d.NewID == nil {
 		d.NewID = func() string { return "rpt_" + uuid.NewString() }
 	}
-	return &Service{store: d.Store, now: d.Now, newID: d.NewID, onCreated: d.OnCreated, artifacts: d.Artifacts}
+	return &Service{store: d.Store, now: d.Now, newID: d.NewID, onCreated: d.OnCreated, artifacts: d.Artifacts, selfHostID: d.SelfHostID, selfHostName: d.SelfHostName}
 }
 
-// ListProject returns persisted report facts ordered by created_at then id,
-// with each report's outputs in persisted position order. It never claims,
-// acknowledges, schedules, or otherwise mutates report delivery state.
+// DefaultListProjectLimit keeps the first Reports panel page bounded.
+const DefaultListProjectLimit = 20
+
+// MaxListProjectLimit keeps every Reports panel page bounded.
+const MaxListProjectLimit = 100
+
+// ListProjectFilter configures one Reports panel page.
+type ListProjectFilter struct {
+	Limit  int
+	Cursor string
+}
+
+// ListProjectPage is one stable newest-first Reports panel page.
+type ListProjectPage struct {
+	Reports    []domain.ReportRecord
+	NextCursor string
+}
+
+// SetSelfHostID records this daemon's identity for local reports.
+func (s *Service) SetSelfHostID(id string) {
+	if s != nil {
+		s.selfHostID = strings.TrimSpace(id)
+	}
+}
+
+// SetSelfHostName records this daemon's human-readable machine name.
+func (s *Service) SetSelfHostName(name string) {
+	if s != nil {
+		s.selfHostName = strings.TrimSpace(name)
+	}
+}
+
+// ListProject returns every persisted report fact ordered newest first, with
+// each report's outputs in persisted position order. It is the compatibility
+// entry point for callers that do not paginate.
 func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) ([]domain.ReportRecord, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("report: store is required")
-	}
-	if projectID == "" {
-		return nil, apierr.Invalid("REPORT_PROJECT_REQUIRED", "Project id is required", nil)
-	}
-	reader, ok := s.store.(interface {
-		ListReportsByProject(context.Context, domain.ProjectID) ([]domain.ReportRecord, error)
-	})
-	if !ok {
-		return nil, errors.New("report: project reader is required")
-	}
-	reports, err := reader.ListReportsByProject(ctx, projectID)
+	page, err := s.ListProjectPage(ctx, projectID, ListProjectFilter{})
 	if err != nil {
 		return nil, err
+	}
+	return page.Reports, nil
+}
+
+// ListProjectPage returns one stable newest-first page of persisted report
+// facts. It never claims, acknowledges, schedules, or otherwise mutates
+// report delivery state.
+func (s *Service) ListProjectPage(ctx context.Context, projectID domain.ProjectID, filter ListProjectFilter) (ListProjectPage, error) {
+	if s == nil || s.store == nil {
+		return ListProjectPage{}, errors.New("report: store is required")
+	}
+	if projectID == "" {
+		return ListProjectPage{}, apierr.Invalid("REPORT_PROJECT_REQUIRED", "Project id is required", nil)
+	}
+	cursorTime, cursorHost, cursorSession, cursorID, err := decodeReportCursor(filter.Cursor)
+	if err != nil {
+		return ListProjectPage{}, err
+	}
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100000
+	}
+	if limit > MaxListProjectLimit && filter.Limit > 0 {
+		limit = MaxListProjectLimit
+	}
+	fetchLimit := limit
+	if filter.Limit > 0 {
+		fetchLimit = limit + 1
+	}
+	var reports []domain.ReportRecord
+	pager, isPager := s.store.(interface {
+		ListReportsByProjectPage(context.Context, domain.ProjectID, time.Time, string, string, string, int) ([]domain.ReportRecord, error)
+	})
+	if isPager {
+		reports, err = pager.ListReportsByProjectPage(ctx, projectID, cursorTime, cursorHost, cursorSession, cursorID, fetchLimit)
+		if err != nil {
+			return ListProjectPage{}, err
+		}
+	} else {
+		reader, ok := s.store.(interface {
+			ListReportsByProject(context.Context, domain.ProjectID) ([]domain.ReportRecord, error)
+		})
+		if !ok {
+			return ListProjectPage{}, errors.New("report: project reader is required")
+		}
+		all, err := reader.ListReportsByProject(ctx, projectID)
+		if err != nil {
+			return ListProjectPage{}, err
+		}
+		for _, report := range all {
+			if cursorTime.IsZero() ||
+				report.CreatedAt.Before(cursorTime) ||
+				(report.CreatedAt.Equal(cursorTime) && report.HostID < cursorHost) ||
+				(report.CreatedAt.Equal(cursorTime) && report.HostID == cursorHost && string(report.SessionID) < cursorSession) ||
+				(report.CreatedAt.Equal(cursorTime) && report.HostID == cursorHost && string(report.SessionID) == cursorSession && strings.Compare(string(report.ID), cursorID) < 0) {
+				reports = append(reports, report)
+			}
+		}
+	}
+	for i := range reports {
+		if reports[i].SourceProjectID == "" {
+			reports[i].SourceProjectID = string(reports[i].ProjectID)
+		}
 	}
 	type sessionSource struct {
 		found   bool
@@ -92,8 +180,17 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 	}
 	sources := map[domain.SessionID]sessionSource{}
 	for i := range reports {
-		if reports[i].HostID == "" {
+		if reports[i].SourceProjectID == "" {
 			reports[i].SourceProjectID = string(reports[i].ProjectID)
+		}
+		if reports[i].HostID == "" {
+			if reports[i].HostLabel == "" {
+				if s.selfHostName != "" {
+					reports[i].HostLabel = s.selfHostName
+				} else if s.selfHostID != "" {
+					reports[i].HostLabel = s.selfHostID
+				}
+			}
 			source, cached := sources[reports[i].SessionID]
 			if !cached {
 				session, found, lookupErr := s.store.GetSession(ctx, reports[i].SessionID)
@@ -110,37 +207,58 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 	}
 	sort.SliceStable(reports, func(i, j int) bool {
 		if reports[i].CreatedAt.Equal(reports[j].CreatedAt) {
-			return reports[i].ID < reports[j].ID
+			if reports[i].HostID != reports[j].HostID {
+				return reports[i].HostID > reports[j].HostID
+			}
+			if reports[i].SessionID != reports[j].SessionID {
+				return reports[i].SessionID > reports[j].SessionID
+			}
+			return reports[i].ID > reports[j].ID
 		}
-		return reports[i].CreatedAt.Before(reports[j].CreatedAt)
+		return reports[i].CreatedAt.After(reports[j].CreatedAt)
 	})
-	return reports, nil
+	hasMore := false
+	if filter.Limit > 0 && len(reports) > limit {
+		hasMore = true
+		reports = reports[:limit]
+	}
+	page := ListProjectPage{Reports: reports}
+	if hasMore && len(reports) > 0 {
+		page.NextCursor = encodeReportCursor(reports[len(reports)-1])
+	}
+	return page, nil
 }
 
-// MaxAcknowledgeReports bounds one acknowledgement request.
-const MaxAcknowledgeReports = 200
+func encodeReportCursor(rec domain.ReportRecord) string {
+	value := rec.CreatedAt.UTC().Format(time.RFC3339Nano) + "\n" + rec.HostID + "\n" + string(rec.SessionID) + "\n" + rec.ID
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
 
-// MaxPulledReportBytes bounds one pending-reports response well below what a
-// pulling daemon reads, so a page of large reports cannot make it fail to
-// decode the response and stall the worker for good.
-const MaxPulledReportBytes = 2 << 20
-
-// encodedReportBytes is a report's size as the pending route encodes it,
-// including HTML escaping that turns one byte into six.
-func encodedReportBytes(r domain.ReportRecord) int {
-	type output struct{ Kind, Reference, Label string }
-	outputs := make([]output, len(r.Outputs))
-	for i, o := range r.Outputs {
-		outputs[i] = output{string(o.Kind), o.Reference, o.Label}
+func decodeReportCursor(raw string) (time.Time, string, string, string, error) {
+	if raw == "" {
+		return time.Time{}, "", "", "", nil
 	}
-	encoded, err := json.Marshal(struct {
-		ID, SessionID, ProjectID, State, Note, Message string
-		Outputs                                        []output
-	}{r.ID, string(r.SessionID), string(r.ProjectID), string(r.State), r.Note, r.Message, outputs})
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return MaxPulledReportBytes
+		return time.Time{}, "", "", "", apierr.Invalid("INVALID_REPORT_CURSOR", "Report cursor is invalid", nil)
 	}
-	return len(encoded) + 128
+	createdAtRaw, rest, ok := strings.Cut(string(decoded), "\n")
+	if !ok {
+		return time.Time{}, "", "", "", apierr.Invalid("INVALID_REPORT_CURSOR", "Report cursor is invalid", nil)
+	}
+	hostID, rest, ok := strings.Cut(rest, "\n")
+	if !ok {
+		return time.Time{}, "", "", "", apierr.Invalid("INVALID_REPORT_CURSOR", "Report cursor is invalid", nil)
+	}
+	sessionID, id, ok := strings.Cut(rest, "\n")
+	if !ok || id == "" {
+		return time.Time{}, "", "", "", apierr.Invalid("INVALID_REPORT_CURSOR", "Report cursor is invalid", nil)
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, createdAtRaw)
+	if err != nil {
+		return time.Time{}, "", "", "", apierr.Invalid("INVALID_REPORT_CURSOR", "Report cursor is invalid", nil)
+	}
+	return createdAt.UTC(), hostID, sessionID, id, nil
 }
 
 // ListDuePending returns one worker's reports that are still pending and due
@@ -321,3 +439,33 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	}
 	return created, nil
 }
+
+// MaxAcknowledgeReports bounds one acknowledgement request.
+const MaxAcknowledgeReports = 200
+
+// MaxPulledReportBytes bounds one pending-reports response well below what a
+// pulling daemon reads, so a page of large reports cannot make it fail to
+// decode the response and stall the worker for good.
+const MaxPulledReportBytes = 2 << 20
+
+// encodedReportBytes is a report's size as the pending route encodes it,
+// including HTML escaping that turns one byte into six.
+func encodedReportBytes(r domain.ReportRecord) int {
+	type output struct{ Kind, Reference, Label string }
+	outputs := make([]output, len(r.Outputs))
+	for i, o := range r.Outputs {
+		outputs[i] = output{string(o.Kind), o.Reference, o.Label}
+	}
+	encoded, err := json.Marshal(struct {
+		ID, SessionID, ProjectID, State, Note, Message string
+		Outputs                                        []output
+	}{r.ID, string(r.SessionID), string(r.ProjectID), string(r.State), r.Note, r.Message, outputs})
+	if err != nil {
+		return MaxPulledReportBytes
+	}
+	return len(encoded) + 128
+}
+
+// ListDuePending returns one worker's reports that are still pending and due
+// now, in creation order, for a peer daemon that delivers them to its own
+// orchestrator. Due keeps the local batching and done-settlement delays;

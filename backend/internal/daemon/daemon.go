@@ -956,6 +956,10 @@ func Run() error {
 	}
 
 	bs.HostID = hostIdentity.HostID
+	reportSvc.SetSelfHostID(hostIdentity.HostID)
+	if hostname, err := os.Hostname(); err == nil {
+		reportSvc.SetSelfHostName(hostname)
+	}
 	// Pushes include the authoritative host identity so a phone can reject
 	// same-numbered sessions on another machine. No identity means no push.
 	if pushDevices != nil && hostIdentity.HostID != "" {

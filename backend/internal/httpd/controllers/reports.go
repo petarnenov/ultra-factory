@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -20,6 +21,10 @@ type ReportService interface {
 
 type reportProjectReader interface {
 	ListProject(context.Context, domain.ProjectID) ([]domain.ReportRecord, error)
+}
+
+type reportProjectPager interface {
+	ListProjectPage(context.Context, domain.ProjectID, reportsvc.ListProjectFilter) (reportsvc.ListProjectPage, error)
 }
 
 // reportPuller serves a peer daemon that delivers this daemon's worker
@@ -48,14 +53,44 @@ func (c *ReportsController) list(w http.ResponseWriter, r *http.Request) {
 		apispec.NotImplemented(w, r, "GET", "/api/v1/reports")
 		return
 	}
-	reader, ok := c.Svc.(reportProjectReader)
-	if !ok {
+	reader, _ := c.Svc.(reportProjectReader)
+	pager, isPager := c.Svc.(reportProjectPager)
+	if !isPager && reader == nil {
 		apispec.NotImplemented(w, r, "GET", "/api/v1/reports")
 		return
 	}
+	_ = reader
+	_ = pager
 	projectID := domain.ProjectID(r.URL.Query().Get("projectId"))
 	if projectID == "" {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "REPORT_PROJECT_REQUIRED", "Project id is required", nil)
+		return
+	}
+	limit := 0
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "INVALID_REPORT_LIMIT", "limit must be a positive integer", nil)
+			return
+		}
+		limit = parsed
+	}
+	if pager, ok := c.Svc.(reportProjectPager); ok {
+		page, err := pager.ListProjectPage(r.Context(), projectID, reportsvc.ListProjectFilter{
+			Limit:  limit,
+			Cursor: r.URL.Query().Get("cursor"),
+		})
+		if err != nil {
+			envelope.WriteError(w, r, err)
+			return
+		}
+		response := listReportsResponse(page.Reports)
+		response.NextCursor = page.NextCursor
+		envelope.WriteJSON(w, http.StatusOK, response)
+		return
+	}
+	if reader == nil {
+		apispec.NotImplemented(w, r, "GET", "/api/v1/reports")
 		return
 	}
 	records, err := reader.ListProject(r.Context(), projectID)

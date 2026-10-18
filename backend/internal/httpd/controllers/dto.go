@@ -73,12 +73,16 @@ type ReportResponse struct {
 
 // ListReportsResponse contains a project's ordered persisted reports.
 type ListReportsResponse struct {
-	Reports []ReportResponse `json:"reports"`
+	Reports    []ReportResponse `json:"reports"`
+	NextCursor string           `json:"nextCursor,omitempty"`
 }
 
-// ListReportsQuery selects reports by stable project identity.
+// ListReportsQuery selects one bounded page of reports by stable project
+// identity.
 type ListReportsQuery struct {
 	ProjectID string `query:"projectId" required:"true" description:"Stable project identifier."`
+	Limit     int    `query:"limit" description:"Maximum number of reports to return."`
+	Cursor    string `query:"cursor" description:"Cursor for the next page of reports."`
 }
 
 // ListPendingReportsQuery selects one worker's due, still-pending reports.

@@ -137,6 +137,95 @@ func (s *Store) ListReportedPRURLs(ctx context.Context, id domain.SessionID) ([]
 	return urls, nil
 }
 
+// ListReportsByProjectPage returns one newest-first page of local and remote
+// report history for a project using a cursor over (created_at, host_id,
+// session_id, report_id). It fetches at most limit+1 rows so callers can
+// detect another page without reading all history.
+func (s *Store) ListReportsByProjectPage(ctx context.Context, id domain.ProjectID, beforeCreatedAt time.Time, beforeHost, beforeSession, beforeID string, limit int) ([]domain.ReportRecord, error) {
+	var fetchLimit int
+	if limit <= 0 {
+		fetchLimit = 1000000
+	} else {
+		fetchLimit = limit + 1
+	}
+	query := `SELECT host_id, session_id, report_id, project_id, source_project_id, state, note, message,
+		agent, session_name, host_label, created_at, repeat_count
+		FROM (
+			SELECT '' AS host_id, session_id, id AS report_id, project_id, '' AS source_project_id,
+				state, note, message, '' AS agent, '' AS session_name, '' AS host_label,
+				created_at, repeat_count
+			FROM reports
+			WHERE project_id = ?
+			UNION ALL
+			SELECT host_id, remote_session_id, report_id, project_id, source_project_id,
+				state, note, message, agent, session_name, host_label,
+				created_at, repeat_count
+			FROM remote_worker_reports
+			WHERE project_id = ?
+		)
+		WHERE 1 = 1`
+	args := []any{string(id), string(id)}
+	if !beforeCreatedAt.IsZero() {
+		query += ` AND (created_at < ?
+			OR (created_at = ? AND (host_id < ?
+				OR (host_id = ? AND (session_id < ?
+					OR (session_id = ? AND report_id < ?))))))`
+		args = append(args, beforeCreatedAt, beforeCreatedAt, beforeHost, beforeHost, beforeSession, beforeSession, beforeID)
+	}
+	query += ` ORDER BY created_at DESC, host_id DESC, session_id DESC, report_id DESC LIMIT ?`
+	args = append(args, fetchLimit)
+
+	rows, err := s.readDB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list project report page: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var reports []domain.ReportRecord
+	for rows.Next() {
+		var report domain.ReportRecord
+		var sessionID, projectID, sourceProjectID, state string
+		if err := rows.Scan(&report.HostID, &sessionID, &report.ID, &projectID, &sourceProjectID, &state, &report.Note, &report.Message,
+			&report.Agent, &report.SessionDisplayName, &report.HostLabel, &report.CreatedAt, &report.RepeatCount); err != nil {
+			return nil, fmt.Errorf("scan project report page: %w", err)
+		}
+		report.SessionID = domain.SessionID(sessionID)
+		report.ProjectID = domain.ProjectID(projectID)
+		report.SourceProjectID = sourceProjectID
+		report.State = domain.ReportState(state)
+		if report.HostID == "" {
+			outputs, err := s.reportOutputs(ctx, report.ID)
+			if err != nil {
+				return nil, err
+			}
+			report.Outputs = outputs
+		} else {
+			outputs, err := s.listRemoteReportOutputs(ctx, report.HostID, sessionID, report.ID)
+			if err != nil {
+				return nil, err
+			}
+			report.Outputs = outputs
+		}
+		reports = append(reports, report)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read project report page: %w", err)
+	}
+	return reports, nil
+}
+
+// reportOutputs reads one local report's outputs.
+func (s *Store) reportOutputs(ctx context.Context, reportID string) ([]domain.ReportOutput, error) {
+	rows, err := s.qr.ListReportOutputs(ctx, reportID)
+	if err != nil {
+		return nil, fmt.Errorf("list report %s outputs: %w", reportID, err)
+	}
+	outputs := make([]domain.ReportOutput, len(rows))
+	for i, row := range rows {
+		outputs[i] = domain.ReportOutput{Kind: domain.ReportOutputKind(row.Kind), Reference: row.Reference, Label: row.Label}
+	}
+	return outputs, nil
+}
+
 // ListReportsByProject is the read-only persisted report projection. Consumers
 // such as Project Summary do not participate in the delivery claim lifecycle.
 func (s *Store) ListReportsByProject(ctx context.Context, id domain.ProjectID) ([]domain.ReportRecord, error) {

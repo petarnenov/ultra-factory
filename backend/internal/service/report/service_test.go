@@ -41,7 +41,7 @@ func TestListProjectIsReadOnlyAndOrdered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 || got[0].ID != "a" || got[1].ID != "b" || got[2].ID != "c" {
+	if len(got) != 3 || got[0].ID != "c" || got[1].ID != "b" || got[2].ID != "a" {
 		t.Fatalf("report order = %+v", got)
 	}
 	if len(got[1].Outputs) != 2 || got[1].Outputs[0].Reference != "first" || got[1].Outputs[1].Reference != "second" {
@@ -62,11 +62,11 @@ func TestListProjectAddsLocalAgentAndPreservesRemoteIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].Agent != "codex" || got[0].SessionDisplayName != "local worker" {
-		t.Fatalf("local source = %+v", got[0])
+	if got[1].Agent != "codex" || got[1].SessionDisplayName != "local worker" {
+		t.Fatalf("local source = %+v", got[1])
 	}
-	if got[1].HostID != "host-remote" || got[1].HostLabel != "build box" || got[1].Agent != "claude-code" || got[1].SessionDisplayName != "remote worker" {
-		t.Fatalf("remote source was overwritten by colliding local session: %+v", got[1])
+	if got[0].HostID != "host-remote" || got[0].HostLabel != "build box" || got[0].Agent != "claude-code" || got[0].SessionDisplayName != "remote worker" {
+		t.Fatalf("remote source was overwritten by colliding local session: %+v", got[0])
 	}
 }
 
