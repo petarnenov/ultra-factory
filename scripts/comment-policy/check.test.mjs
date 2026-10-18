@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDiff, scanTS, summary } from './check.mjs';
+import { mapDeletedCommentRanges, parseDiff, scanTS, summary } from './check.mjs';
 
 function stats(source, file = 'fixture.ts') {
   return summary(scanTS(source, file));
@@ -45,6 +45,12 @@ test('collects comments before closing tokens and JSX braces', () => {
   assert.deepEqual(summary(scanTS(block)), { blocks: 1, longLines: 0 });
   assert.deepEqual(summary(scanTS(jsx, 'fixture.tsx')), { blocks: 1, longLines: 0 });
   assert.deepEqual(summary(scanTS(object)), { blocks: 1, longLines: 0 });
+});
+
+test('maps changed old comment ranges across deleted lines', () => {
+  const comments = [{ start: 10, end: 14 }];
+  const deletions = [{ oldStart: 11, oldEnd: 12, newStart: 11, oldCount: 2, newCount: 0 }];
+  assert.deepEqual(mapDeletedCommentRanges(comments, deletions), [[10, 12]]);
 });
 
 test('does not attribute deleted-file hunks or lose renamed-file paths', () => {

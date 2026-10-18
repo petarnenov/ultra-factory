@@ -185,6 +185,17 @@ function mapLine(line, hunk) {
   return Math.max(1, hunk.newStart);
 }
 
+export function mapDeletedCommentRanges(oldComments, deletions) {
+  const ranges = [];
+  for (const hunk of deletions) {
+    for (const comment of oldComments) {
+      if (comment.start > hunk.oldEnd || comment.end < hunk.oldStart) continue;
+      ranges.push([mapLine(comment.start, hunk), mapLine(comment.end, hunk)]);
+    }
+  }
+  return ranges;
+}
+
 if (isMain) {
   const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
   const sourceFiles = tracked.filter((file) => existsSync(file)
@@ -220,16 +231,11 @@ if (isMain) {
     const comments = file.endsWith('.go') ? goComments[file] : tsComments.get(file);
     const forced = [];
     if (ranges.deletions.length) {
-      const oldSource = execFileSync('git', ['show', `${base}:${file}`], { encoding: 'utf8' });
+      const oldSource = execFileSync('git', ['show', `${mergeBase}:${file}`], { encoding: 'utf8' });
       const oldComments = file.endsWith('.go')
         ? JSON.parse(execFileSync('go', ['run', '-C', 'backend', './cmd/commentpolicy', '--stdin'], { input: oldSource, encoding: 'utf8' }))
         : scanTS(oldSource, file);
-      for (const hunk of ranges.deletions) {
-        for (const oldComment of oldComments) {
-          if (oldComment.start > hunk.oldEnd || oldComment.end < hunk.oldStart) continue;
-          forced.push([mapLine(oldComment.start, hunk), mapLine(oldComment.end, hunk)]);
-        }
-      }
+      forced.push(...mapDeletedCommentRanges(oldComments, ranges.deletions));
     }
     for (const comment of comments) {
       const touched = ranges.added.some(([start, end]) => comment.start <= end && comment.end >= start)
