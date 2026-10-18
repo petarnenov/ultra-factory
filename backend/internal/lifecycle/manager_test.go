@@ -5442,10 +5442,8 @@ func TestPRObservation_ReviewCommentNudgesDedupPerComment(t *testing.T) {
 	}
 }
 
-// TestPRObservation_InheritedProjectDefaultTeardownAfterQuiescence is the
-// regression for the inherited-default-on path in #144: a session spawned with
-// the project default enabled carries TerminateOnPRMerge=true, and teardown
-// still requires the merged-PR/completion bar plus agent quiescence (#105/#2879).
+// TestPRObservation_InheritedProjectDefaultTeardownAfterQuiescence covers
+// inherited #144 defaults: teardown needs merge plus agent quiescence.
 func TestPRObservation_InheritedProjectDefaultTeardownAfterQuiescence(t *testing.T) {
 	m, st, _ := newManager()
 	terminator := &fakeCompletionTerminator{}
