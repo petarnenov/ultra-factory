@@ -317,6 +317,17 @@ func TestPrivateFileReadRejectsUnsafeModeHardLinkAndOwner(t *testing.T) {
 	if err := os.WriteFile(path, []byte("opaque"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Establish the unsafe fixture mode explicitly; creation honors umask.
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fixtureInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := fixtureInfo.Mode().Perm(); mode != 0o644 {
+		t.Fatalf("fixture permissions = %04o, want 0644", mode)
+	}
 	if _, err := readOpaqueCredential(path); err == nil {
 		t.Fatal("read accepted a group/world-readable credential")
 	}

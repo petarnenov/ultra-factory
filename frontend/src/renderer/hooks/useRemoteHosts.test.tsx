@@ -88,6 +88,15 @@ it("enables remote hosts by default in the web build", async () => {
 	expect(remotes.list).toHaveBeenCalled();
 });
 
+it("exposes the web build's connected hosts without Developer mode", async () => {
+	platform.web = true;
+	useUiStore.setState({ developerMode: false, remoteHosts: false });
+	const { result } = renderHook(() => useRemoteHosts());
+	const connections = renderHook(() => useConnectedHosts());
+	await waitFor(() => expect(result.current.hosts.map((host) => host.status)).toEqual(["connected", "connected"]));
+	expect(connections.result.current).toEqual(["box-a", "box-b"]);
+});
+
 it("connects both saved boxes and exposes their stable IDs", async () => {
 	useUiStore.setState({ remoteHosts: true });
 	const { result } = renderHook(() => useRemoteHosts());

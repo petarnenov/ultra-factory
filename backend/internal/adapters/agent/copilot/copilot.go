@@ -179,13 +179,27 @@ func (p *Plugin) SessionInfo(ctx context.Context, session ports.SessionRef) (por
 // stays hand-rolled (rather than binaryutil.ResolveBinary) because of that
 // native-loader indirection.
 func ResolveCopilotBinary(ctx context.Context) (string, error) {
+	return resolveCopilotBinary(ctx, realCopilotResolverOps())
+}
+
+type copilotResolverOps struct {
+	lookPath         func(string) (string, error)
+	isExecutableFile func(string) bool
+	evalSymlinks     func(string) (string, error)
+}
+
+func realCopilotResolverOps() copilotResolverOps {
+	return copilotResolverOps{exec.LookPath, hookutil.IsExecutableFile, filepath.EvalSymlinks}
+}
+
+func resolveCopilotBinary(ctx context.Context, ops copilotResolverOps) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 
 	if runtime.GOOS == "windows" {
 		for _, name := range []string{"copilot.cmd", "copilot.exe", "copilot"} {
-			if path, err := exec.LookPath(name); err == nil && path != "" {
+			if path, err := ops.lookPath(name); err == nil && path != "" {
 				return path, nil
 			}
 			if err := ctx.Err(); err != nil {
@@ -205,7 +219,7 @@ func ResolveCopilotBinary(ctx context.Context) (string, error) {
 		}
 		candidates = append(candidates, binaryutil.WindowsPackageManagerBinCandidates("copilot")...)
 		for _, candidate := range candidates {
-			if hookutil.IsExecutableFile(candidate) {
+			if ops.isExecutableFile(candidate) {
 				return candidate, nil
 			}
 			if err := ctx.Err(); err != nil {
@@ -216,8 +230,8 @@ func ResolveCopilotBinary(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("copilot: %w", ports.ErrAgentBinaryNotFound)
 	}
 
-	if path, err := exec.LookPath("copilot"); err == nil && path != "" {
-		if native := copilotNativeBinaryForLoader(path); native != "" {
+	if path, err := ops.lookPath("copilot"); err == nil && path != "" {
+		if native := copilotNativeBinaryForLoaderWithOps(path, ops); native != "" {
 			return native, nil
 		}
 		return path, nil
@@ -241,8 +255,8 @@ func ResolveCopilotBinary(ctx context.Context) (string, error) {
 	}
 
 	for _, candidate := range candidates {
-		if hookutil.IsExecutableFile(candidate) {
-			if native := copilotNativeBinaryForLoader(candidate); native != "" {
+		if ops.isExecutableFile(candidate) {
+			if native := copilotNativeBinaryForLoaderWithOps(candidate, ops); native != "" {
 				return native, nil
 			}
 			return candidate, nil
@@ -256,10 +270,14 @@ func ResolveCopilotBinary(ctx context.Context) (string, error) {
 }
 
 func copilotNativeBinaryForLoader(path string) string {
+	return copilotNativeBinaryForLoaderWithOps(path, realCopilotResolverOps())
+}
+
+func copilotNativeBinaryForLoaderWithOps(path string, ops copilotResolverOps) string {
 	if path == "" || runtime.GOOS == "windows" {
 		return ""
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := ops.evalSymlinks(path)
 	if err != nil || filepath.Base(resolved) != "npm-loader.js" {
 		return ""
 	}
@@ -268,7 +286,7 @@ func copilotNativeBinaryForLoader(path string) string {
 		platform = "darwin"
 	}
 	native := filepath.Join(filepath.Dir(resolved), "node_modules", ".bin", "copilot-"+platform+"-"+runtime.GOARCH)
-	if hookutil.IsExecutableFile(native) {
+	if ops.isExecutableFile(native) {
 		return native
 	}
 	return ""

@@ -19,7 +19,10 @@ import (
 )
 
 // Plugin is the OpenCode 2 TUI agent adapter.
-type Plugin struct{ agentbase.Base }
+type Plugin struct {
+	agentbase.Base
+	binaryCandidates func(context.Context) ([]string, error)
+}
 
 // New returns an OpenCode 2 adapter.
 func New() *Plugin { return &Plugin{} }
@@ -43,7 +46,7 @@ func (p *Plugin) EmitsSemanticMessageAcceptance() bool { return false }
 // command contract before catalog, authentication, install verification, or a
 // session can use it.
 func (p *Plugin) ResolveBinary(ctx context.Context) (string, error) {
-	return opencode.ResolveBinaryForMajor(ctx, 2)
+	return opencode.ResolveBinaryForMajorWithCandidates(ctx, 2, p.binaryCandidates)
 }
 
 // GetConfigSpec returns the model override spec.
@@ -53,7 +56,7 @@ func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
 
 // GetLaunchCommand builds the OpenCode 2 launch argv.
 func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) ([]string, error) {
-	binary, err := opencode.ResolveBinaryForMajor(ctx, 2)
+	binary, err := p.ResolveBinary(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +72,7 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 	if nativeID == "" {
 		return nil, false, nil
 	}
-	binary, err := opencode.ResolveBinaryForMajor(ctx, 2)
+	binary, err := p.ResolveBinary(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -275,7 +278,7 @@ func (p *Plugin) SessionInfo(ctx context.Context, session ports.SessionRef) (por
 // AuthStatus reports authenticated integrations, including environment connections.
 // Keep this probe private so readiness never starts/replaces a shared service.
 func (p *Plugin) AuthStatus(ctx context.Context) (ports.AgentAuthStatus, error) {
-	binary, err := opencode.ResolveBinaryForMajor(ctx, 2)
+	binary, err := p.ResolveBinary(ctx)
 	if err != nil {
 		return ports.AgentAuthStatusUnknown, err
 	}
