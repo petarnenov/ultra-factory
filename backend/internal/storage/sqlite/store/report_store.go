@@ -137,10 +137,8 @@ func (s *Store) ListReportedPRURLs(ctx context.Context, id domain.SessionID) ([]
 	return urls, nil
 }
 
-// ListReportsByProjectPage returns one newest-first page of local and remote
-// report history for a project using a cursor over (created_at, host_id,
-// session_id, report_id). It fetches at most limit+1 rows so callers can
-// detect another page without reading all history.
+// ListReportsByProjectPage returns one bounded report page.
+// It merges local and remote history with a stable cursor.
 func (s *Store) ListReportsByProjectPage(ctx context.Context, id domain.ProjectID, beforeCreatedAt time.Time, beforeHost, beforeSession, beforeID string, limit int) ([]domain.ReportRecord, error) {
 	var fetchLimit int
 	if limit <= 0 {

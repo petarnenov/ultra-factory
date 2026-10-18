@@ -102,9 +102,8 @@ func (s *Service) SetSelfHostName(name string) {
 	}
 }
 
-// ListProject returns every persisted report fact ordered newest first, with
-// each report's outputs in persisted position order. It is the compatibility
-// entry point for callers that do not paginate.
+// ListProject returns persisted report facts ordered newest first.
+// It is the compatibility entry point for callers that do not paginate.
 func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) ([]domain.ReportRecord, error) {
 	page, err := s.ListProjectPage(ctx, projectID, ListProjectFilter{})
 	if err != nil {
@@ -113,9 +112,8 @@ func (s *Service) ListProject(ctx context.Context, projectID domain.ProjectID) (
 	return page.Reports, nil
 }
 
-// ListProjectPage returns one stable newest-first page of persisted report
-// facts. It never claims, acknowledges, schedules, or otherwise mutates
-// report delivery state.
+// ListProjectPage returns one stable newest-first page.
+// It never mutates report delivery state.
 func (s *Service) ListProjectPage(ctx context.Context, projectID domain.ProjectID, filter ListProjectFilter) (ListProjectPage, error) {
 	if s == nil || s.store == nil {
 		return ListProjectPage{}, errors.New("report: store is required")
@@ -261,13 +259,8 @@ func decodeReportCursor(raw string) (time.Time, string, string, string, error) {
 	return createdAt.UTC(), hostID, sessionID, id, nil
 }
 
-// ListDuePending returns one worker's reports that are still pending and due
-// now, in creation order, for a peer daemon that delivers them to its own
-// orchestrator. Due keeps the local batching and done-settlement delays;
-// morePending reports pending reports that are not due yet or beyond one
-// acknowledgement's worth, so the peer keeps polling a worker that has
-// already ended. It never claims or mutates delivery
-// state; AcknowledgePulled does.
+// ListDuePending returns one worker's pending, due reports.
+// It preserves batching and never mutates delivery state.
 func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID) (due []domain.ReportRecord, morePending bool, err error) {
 	if s == nil || s.store == nil {
 		return nil, false, errors.New("report: store is required")
@@ -443,9 +436,8 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 // MaxAcknowledgeReports bounds one acknowledgement request.
 const MaxAcknowledgeReports = 200
 
-// MaxPulledReportBytes bounds one pending-reports response well below what a
-// pulling daemon reads, so a page of large reports cannot make it fail to
-// decode the response and stall the worker for good.
+// MaxPulledReportBytes bounds pending reports per response.
+// It prevents large pages from failing to decode.
 const MaxPulledReportBytes = 2 << 20
 
 // encodedReportBytes is a report's size as the pending route encodes it,
@@ -466,6 +458,5 @@ func encodedReportBytes(r domain.ReportRecord) int {
 	return len(encoded) + 128
 }
 
-// ListDuePending returns one worker's reports that are still pending and due
-// now, in creation order, for a peer daemon that delivers them to its own
-// orchestrator. Due keeps the local batching and done-settlement delays;
+// ListDuePending returns one worker's pending, due reports.
+// It preserves local batching and settlement delays;
