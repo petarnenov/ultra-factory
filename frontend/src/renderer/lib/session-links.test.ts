@@ -95,3 +95,10 @@ describe("host-scoped report links", () => {
 		expect(artifactLink("p", "s", "plan.md", "host-a")).toBe("ao://hosts/host-a/sessions/p/s/artifacts/plan.md");
 	});
 });
+
+describe("host-scoped artifact path links", () => {
+	it("preserves the source host for an artifact listed by a remote workspace", () => {
+		const workspaces = [{ id: "p 1", hostId: "host-a", sessions: [{ id: "w", artifactFiles: [{ path: "plan.md" }] }] }];
+		expect(artifactLinkForPath("w/plan.md", workspaces)).toBe("ao://hosts/host-a/sessions/p%201/w/artifacts/plan.md");
+	});
+});
