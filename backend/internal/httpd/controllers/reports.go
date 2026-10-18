@@ -77,6 +77,13 @@ func listReportsResponse(records []domain.ReportRecord) ListReportsResponse {
 			ID: record.ID, SessionID: string(record.SessionID), ProjectID: string(record.ProjectID),
 			State: string(record.State), Note: record.Note, Message: record.Message,
 			Outputs: outputs, CreatedAt: record.CreatedAt, RepeatCount: record.RepeatCount,
+			HostID: record.HostID, HostLabel: record.HostLabel, Agent: record.Agent, SessionName: record.SessionDisplayName,
+			SourceProjectID: func() string {
+				if record.SourceProjectID != "" {
+					return record.SourceProjectID
+				}
+				return string(record.ProjectID)
+			}(),
 		}
 	}
 	return response

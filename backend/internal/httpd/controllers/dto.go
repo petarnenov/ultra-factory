@@ -55,15 +55,20 @@ type ReportOutputResponse struct {
 
 // ReportResponse is one persisted worker claim, independent of delivery state.
 type ReportResponse struct {
-	ID          string                 `json:"id"`
-	SessionID   string                 `json:"sessionId"`
-	ProjectID   string                 `json:"projectId"`
-	State       string                 `json:"state,omitempty"`
-	Note        string                 `json:"note,omitempty"`
-	Message     string                 `json:"message,omitempty"`
-	Outputs     []ReportOutputResponse `json:"outputs,omitempty"`
-	CreatedAt   time.Time              `json:"createdAt"`
-	RepeatCount int64                  `json:"repeatCount"`
+	ID              string                 `json:"id"`
+	SessionID       string                 `json:"sessionId"`
+	ProjectID       string                 `json:"projectId"`
+	State           string                 `json:"state,omitempty"`
+	Note            string                 `json:"note,omitempty"`
+	Message         string                 `json:"message,omitempty"`
+	Outputs         []ReportOutputResponse `json:"outputs,omitempty"`
+	CreatedAt       time.Time              `json:"createdAt"`
+	RepeatCount     int64                  `json:"repeatCount"`
+	HostID          string                 `json:"hostId,omitempty"`
+	HostLabel       string                 `json:"hostLabel,omitempty"`
+	Agent           string                 `json:"agent,omitempty"`
+	SessionName     string                 `json:"sessionName,omitempty"`
+	SourceProjectID string                 `json:"sourceProjectId,omitempty"`
 }
 
 // ListReportsResponse contains a project's ordered persisted reports.

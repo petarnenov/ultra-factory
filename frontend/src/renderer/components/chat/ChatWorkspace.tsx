@@ -116,6 +116,7 @@ import {
 	CompactionMarker,
 	HumanMessage,
 	OriginMessage,
+	isReportDeliveryMessage,
 	SteerMessage,
 	TurnChangedFiles,
 	TurnOutcome,
@@ -1988,6 +1989,7 @@ function readableItems(snapshot: ConversationSnapshot): ConversationItem[] {
 		snapshot.turns.filter((turn) => turn.plan?.steps.length).map((turn) => turn.id),
 	);
 	return snapshot.items.filter((item) => {
+		if (item.kind === "message" && isReportDeliveryMessage(item)) return false;
 		if (item.kind !== "activity") return true;
 		if (item.activityKind === "usage") return false;
 		if (item.activityKind === "plan" && item.turnId && plannedTurns.has(item.turnId)) return false;

@@ -537,6 +537,10 @@ function useSelection() {
 		(projectId: string) => void navigate({ to: "/projects/$projectId", params: { projectId } }),
 		[navigate],
 	);
+	const goAggregateProject = useCallback(
+		(projectId: string) => void navigate({ to: "/projects/$projectId/aggregate", params: { projectId } }),
+		[navigate],
+	);
 	const goSession = useCallback(
 		(projectId: string, sessionId: string) => {
 			if (projectId === STANDALONE_WORKSPACE_ID) {
@@ -569,8 +573,9 @@ function useSelection() {
 		goConnectMobile,
 		goSettings,
 		goProject,
+		goAggregateProject,
 		goSession,
-	}), [goArtifacts, goAutomations, goConnectMobile, goGlobalSettings, goHome, goProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
+	}), [goArtifacts, goAutomations, goConnectMobile, goGlobalSettings, goHome, goProject, goAggregateProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
 }
 
 // Colour tracks the session's board section, preserving SCM state while the
@@ -1420,7 +1425,7 @@ function projectItemPropsEqual(previous: ProjectItemProps, next: ProjectItemProp
 	}
 	const a = previous.selection;
 	const b = next.selection;
-	return a.goSession === b.goSession && a.goProject === b.goProject && a.goHome === b.goHome &&
+	return a.goSession === b.goSession && a.goProject === b.goProject && a.goAggregateProject === b.goAggregateProject && a.goHome === b.goHome &&
 		a.goSettings === b.goSettings && projectSelectionKey(previous.workspace, a) === projectSelectionKey(next.workspace, b);
 }
 
@@ -1849,10 +1854,15 @@ const ProjectItem = memo(function ProjectItem({
 											<Plus aria-hidden="true" />
 											{t("shell.newTask")}
 										</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => selection.goSettings(workspace.id, workspace.cloudOrgId)}>
+										<DropdownMenuItem onSelect={() => selection.goSettings(workspace.id, workspace.cloudOrgId)}>
 											<Settings aria-hidden="true" />
 											{t("shell.projectSettings")}
 										</DropdownMenuItem>
+										{!workspace.hostId && workspace.kind !== CLOUD_PROJECT_KIND && workspace.id !== STANDALONE_WORKSPACE_ID ? (
+											<DropdownMenuItem onSelect={() => selection.goAggregateProject(workspace.id)}>
+												{t("shell.openAggregateKanban")}
+											</DropdownMenuItem>
+										) : null}
 										<DropdownMenuItem
 											className="text-destructive focus:text-destructive [&_svg]:text-destructive focus:[&_svg]:text-destructive"
 											disabled={isRemoving}
