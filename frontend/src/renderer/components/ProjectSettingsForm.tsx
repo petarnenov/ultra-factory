@@ -164,6 +164,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 		reviewerEffort: config.reviewers?.[0]?.agentConfig?.effort ?? config.agentConfig?.effort ?? "",
 		reviewerPermissions: config.reviewers?.[0]?.agentConfig?.permissions ?? config.agentConfig?.permissions ?? "",
 		autoReview: config.autoReview ?? false,
+		terminateOnPrMerge: config.terminateOnPrMerge ?? false,
 		workersRequestReview: config.workersRequestReview ?? false,
 		intakeEnabled: intake.enabled ?? false,
 		intakeRepo: intake.repo ?? "",
@@ -255,6 +256,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 						config.trackerIntake,
 					),
 					autoReview: values.autoReview,
+					terminateOnPrMerge: values.terminateOnPrMerge,
 					workersRequestReview: values.workersRequestReview || undefined,
 				};
 		const { error } = await (hostId ? clientForHost(hostId) : apiClient).PUT("/api/v1/projects/{id}", {
@@ -368,6 +370,7 @@ function scratchSupportedConfig(config: ProjectConfig): ProjectConfig {
 		defaultBranch: _defaultBranch,
 		reviewers: _reviewers,
 		autoReview: _legacyAutoReview,
+		terminateOnPrMerge: _legacyTerminateOnPRMerge,
 		workersRequestReview: _workersRequestReview,
 		trackerIntake: _trackerIntake,
 		...supported
