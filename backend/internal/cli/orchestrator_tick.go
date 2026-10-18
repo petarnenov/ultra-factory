@@ -504,7 +504,6 @@ const tickGitHubQuery = `query($owner: String!, $name: String!, $base: String!, 
           ... on CheckRun { status conclusion completedAt }
           ... on StatusContext { state createdAt }
         } } } } } }
-        reviews(last: 100) { nodes { state commit { oid } submittedAt author { login __typename } } }
         reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 50) { nodes { body author { login __typename } } } } }
       }
     }
@@ -552,19 +551,6 @@ type tickGitHubResponse struct {
 						} `json:"commit"`
 					} `json:"nodes"`
 				} `json:"commits"`
-				Reviews struct {
-					Nodes []struct {
-						State       string    `json:"state"`
-						SubmittedAt time.Time `json:"submittedAt"`
-						Commit      struct {
-							OID string `json:"oid"`
-						} `json:"commit"`
-						Author struct {
-							Login    string `json:"login"`
-							Typename string `json:"__typename"`
-						} `json:"author"`
-					} `json:"nodes"`
-				} `json:"reviews"`
 				ReviewThreads struct {
 					Nodes []struct {
 						IsResolved bool `json:"isResolved"`
@@ -649,12 +635,6 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 		}
 		for _, label := range pr.Labels.Nodes {
 			out.Labels = append(out.Labels, label.Name)
-		}
-		for _, review := range pr.Reviews.Nodes {
-			out.Reviews = append(out.Reviews, orchestratortick.Review{
-				State: review.State, CommitID: review.Commit.OID, Author: review.Author.Login,
-				IsBot: strings.EqualFold(review.Author.Typename, "Bot"), Submitted: review.SubmittedAt,
-			})
 		}
 		for _, thread := range pr.ReviewThreads.Nodes {
 			outThread := orchestratortick.ReviewThread{Resolved: thread.IsResolved, Outdated: thread.IsOutdated}

@@ -42,7 +42,6 @@ func readyPR(number int, branch, sha string) PullRequest {
 	return PullRequest{
 		Number: number, Head: branch, HeadSHA: sha, Mergeable: "MERGEABLE",
 		ReviewDecision: "APPROVED",
-		Reviews:        []Review{{State: "APPROVED", CommitID: sha, Author: "reviewer"}},
 		Checks:         []Check{{Result: "SUCCESS", CompletedAt: now.Add(-time.Hour)}},
 	}
 }
@@ -65,7 +64,9 @@ func completionFixture(t *testing.T) (*Runner, *fakeDaemon, *fakeGitHub, *fakeMe
 	r.Merger = fm
 	r.Config.MergeAuthorized = true
 	r.Config.CloseCompleted = true
-	d.workers["Linux"] = []Worker{cleanWorker("rw/190", 201)}
+	worker := cleanWorker("rw/190", 201)
+	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: head("1"), Status: "up_to_date"}}
+	d.workers["Linux"] = []Worker{worker}
 	gh.state = GitHubState{OpenPRs: []PullRequest{readyPR(201, "rw/190", head("1"))}}
 	return r, d, gh, fm, store
 }
@@ -163,7 +164,6 @@ func TestHeadChangeBetweenCheckAndMutationIsNotRetried(t *testing.T) {
 	// the new head using the old approval.
 	gh.state.OpenPRs[0].HeadSHA = head("2")
 	gh.state.OpenPRs[0].ReviewDecision = ""
-	gh.state.OpenPRs[0].Reviews[0].CommitID = head("1")
 	tick(t, r)
 	if fm.calls() != 1 {
 		t.Fatalf("a stale head was merged again: calls = %d", fm.calls())
@@ -343,28 +343,28 @@ func TestConfigAuthorizationFlagsAreDurableOptIns(t *testing.T) {
 func TestMergeBlockersAreExact(t *testing.T) {
 	cfg := DefaultConfig()
 	base := readyPR(1, "rw/1", head("a"))
+	base.AOReviewStatus = "up_to_date"
 	cases := map[string]struct {
 		mutate func(*PullRequest)
 		want   string
 	}{
-		"head unknown":         {func(pr *PullRequest) { pr.HeadSHA = "" }, "head SHA is unknown"},
-		"draft":                {func(pr *PullRequest) { pr.Draft = true }, "pull request is a draft"},
-		"failing checks":       {func(pr *PullRequest) { pr.Checks = []Check{{Result: "FAILURE"}} }, "required checks are red"},
-		"no current approval":  {func(pr *PullRequest) { pr.Reviews = nil; pr.ReviewDecision = "" }, "no current-head approval"},
-		"stale approval":       {func(pr *PullRequest) { pr.ReviewDecision = "APPROVED"; pr.Reviews[0].CommitID = head("b") }, "no current-head approval"},
-		"AO up to date":        {func(pr *PullRequest) { pr.ReviewDecision = ""; pr.Reviews = nil; pr.AOReviewStatus = "up_to_date" }, ""},
-		"AO changes requested": {func(pr *PullRequest) { pr.AOReviewStatus = "changes_requested" }, "AO review changes requested"},
-		"human wins over AO":   {func(pr *PullRequest) { pr.AOReviewStatus = "up_to_date"; pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
-		"changes requested":    {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
-		"unresolved thread":    {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Body: "fix this"}} }, "1 unresolved review thread(s)"},
-		"conflicting":          {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "mergeability is CONFLICTING"},
-		"hold label":           {func(pr *PullRequest) { pr.Labels = []string{"status:blocked"} }, "hold label status:blocked"},
-		"resolved thread":      {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Resolved: true, Body: "old"}} }, ""},
+		"head unknown":          {func(pr *PullRequest) { pr.HeadSHA = "" }, "head SHA is unknown"},
+		"draft":                 {func(pr *PullRequest) { pr.Draft = true }, "pull request is a draft"},
+		"failing checks":        {func(pr *PullRequest) { pr.Checks = []Check{{Result: "FAILURE"}} }, "required checks are red"},
+		"no AO native approval": {func(pr *PullRequest) { pr.AOReviewStatus = "" }, "no current-head AO native approval"},
+		"AO up to date":         {func(pr *PullRequest) { pr.ReviewDecision = ""; pr.AOReviewStatus = "up_to_date" }, ""},
+		"AO changes requested":  {func(pr *PullRequest) { pr.AOReviewStatus = "changes_requested" }, "AO review is changes_requested"},
+		"AO running":            {func(pr *PullRequest) { pr.AOReviewStatus = "running" }, "AO review is running"},
+		"human wins over AO":    {func(pr *PullRequest) { pr.AOReviewStatus = "up_to_date"; pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
+		"changes requested":     {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
+		"unresolved thread":     {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Body: "fix this"}} }, "1 unresolved review thread(s)"},
+		"conflicting":           {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "mergeability is CONFLICTING"},
+		"hold label":            {func(pr *PullRequest) { pr.Labels = []string{"status:blocked"} }, "hold label status:blocked"},
+		"resolved thread":       {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Resolved: true, Body: "old"}} }, ""},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			pr := base
-			pr.Reviews = append([]Review(nil), base.Reviews...)
 			pr.Checks = append([]Check(nil), base.Checks...)
 			pr.Labels = nil
 			pr.Threads = nil
@@ -380,6 +380,19 @@ func TestMergeBlockersAreExact(t *testing.T) {
 				t.Fatalf("blockers = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestApplyWorkerReviewRequiresTheExactHead(t *testing.T) {
+	pr := readyPR(201, "rw/190", head("new"))
+	worker := cleanWorker("rw/190", 201)
+	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: head("old"), Status: "up_to_date"}}
+	got := applyWorkerReview(worker, pr)
+	if got.AOReviewStatus != "" {
+		t.Fatalf("stale AO verdict applied to a new head: %q", got.AOReviewStatus)
+	}
+	if blockers := strings.Join(MergeBlockers(DefaultConfig(), got), ", "); !strings.Contains(blockers, "no current-head AO native approval") {
+		t.Fatalf("blockers = %q", blockers)
 	}
 }
 
@@ -427,7 +440,6 @@ func TestAOCurrentHeadApprovalAuthorizesMerge(t *testing.T) {
 	r, _, gh, fm, _ := completionFixture(t)
 	pr := readyPR(201, "rw/190", head("1"))
 	pr.ReviewDecision = ""
-	pr.Reviews = nil
 	gh.state.OpenPRs = []PullRequest{pr}
 	worker := r.Daemon.(*fakeDaemon).workers["Linux"][0]
 	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: head("1"), Status: "up_to_date"}}
@@ -487,7 +499,6 @@ func TestSupersededMergeActionStopsReporting(t *testing.T) {
 	// producing an error in subsequent ticks.
 	gh.state.OpenPRs[0].HeadSHA = head("2")
 	gh.state.OpenPRs[0].ReviewDecision = ""
-	gh.state.OpenPRs[0].Reviews[0].CommitID = head("1")
 	fm.err = nil
 	res := tick(t, r)
 	if strings.Contains(strings.Join(CompletionLines(res.Completions), " "), "head changed") {
@@ -529,7 +540,6 @@ func TestAOReviewChangeRequestBlocksAnExistingMergeAction(t *testing.T) {
 	sha := head("1")
 	pr := readyPR(201, "rw/190", sha)
 	pr.ReviewDecision = ""
-	pr.Reviews = nil
 	gh.state.OpenPRs = []PullRequest{pr}
 	worker := d.workers["Linux"][0]
 	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: sha, Status: "up_to_date"}}

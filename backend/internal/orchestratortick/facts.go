@@ -63,15 +63,6 @@ type Check struct {
 	CompletedAt time.Time
 }
 
-// Review is one provider review of a pull request.
-type Review struct {
-	State     string
-	CommitID  string
-	Author    string
-	IsBot     bool
-	Submitted time.Time
-}
-
 // ReviewThread is one provider review thread on a pull request.
 type ReviewThread struct {
 	Resolved bool
@@ -92,7 +83,6 @@ type PullRequest struct {
 	Draft          bool
 	Mergeable      string
 	ReviewDecision string
-	Reviews        []Review
 	Threads        []ReviewThread
 	// AOReviewStatus is AO's native review state for this exact head, set by
 	// the cadence from the worker's review read model. Empty means AO has no
