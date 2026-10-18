@@ -246,7 +246,7 @@ func TestGetReportsMissingHistoryAsUnavailableOrPartial(t *testing.T) {
 		t.Fatalf("tokens = %+v", report.Tokens)
 	}
 
-	open := stageHistory(t0, []domain.StageTransition{{Stage: domain.KanbanReady, EnteredAt: t0}}, t0.Add(time.Minute))
+	open := stageHistory(t0, nil, []domain.StageTransition{{Stage: domain.KanbanReady, EnteredAt: t0}}, t0.Add(time.Minute))
 	if open.Completeness != Partial || open.Visits[0].LeftAt != nil || !open.Totals[0].HasUnfinished || open.Totals[0].Seconds != 60 {
 		t.Fatalf("open visit = %+v", open)
 	}
@@ -262,6 +262,39 @@ func TestGetRejectsTasksOutsideProjectOrIncomplete(t *testing.T) {
 		var apiErr *apierr.Error
 		if _, err := svc.Get(context.Background(), "ao", id); !errors.As(err, &apiErr) || apiErr.Code != "COMPLETED_TASK_NOT_FOUND" {
 			t.Errorf("%s: err = %v", id, err)
+		}
+	}
+}
+
+func TestGetCapsStageVisitsAtCompletion(t *testing.T) {
+	merged := t0.Add(90 * time.Minute)
+	sess := worker("ao-1", t0)
+	sess.PRs = []domain.PRFacts{{URL: "u", Merged: true, StateChangedAt: merged}}
+	store := fakeStore{transitions: map[domain.SessionID][]domain.StageTransition{"ao-1": {
+		{Stage: domain.KanbanBuilding, EnteredAt: t0},
+		{Stage: domain.KanbanNeedsReview, EnteredAt: t0.Add(time.Hour)},
+		{Stage: domain.KanbanReady, EnteredAt: t0.Add(80 * time.Minute)},
+		{Stage: domain.KanbanBuilding, EnteredAt: t0.Add(5 * time.Hour)},
+	}}}
+	svc := New(Deps{Sessions: fakeSessions{list: []domain.Session{sess}}, Store: store, Now: func() time.Time { return t0.Add(30 * 24 * time.Hour) }})
+	report, err := svc.Get(context.Background(), "ao", "ao-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stages := report.Stages
+	if stages.Completeness != Complete || len(stages.Visits) != 3 {
+		t.Fatalf("stages = %+v", stages)
+	}
+	last := stages.Visits[2]
+	if last.Stage != domain.KanbanReady || last.LeftAt == nil || !last.LeftAt.Equal(merged) || last.DurationSeconds != 600 {
+		t.Fatalf("ready visit = %+v", last)
+	}
+	for _, total := range stages.Totals {
+		if total.HasUnfinished {
+			t.Fatalf("completed task reported as ongoing: %+v", total)
+		}
+		if total.Stage == domain.KanbanBuilding && (total.Visits != 1 || total.Seconds != 3600) {
+			t.Fatalf("post-completion visit counted: %+v", total)
 		}
 	}
 }

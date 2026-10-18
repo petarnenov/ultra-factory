@@ -302,7 +302,7 @@ func (s *Service) Get(ctx context.Context, projectID domain.ProjectID, id domain
 	report := Report{Summary: summarize(sess, outcome, transitions)}
 	report.Runs, report.Tokens = usage(usageRuns)
 	report.Config = configHistory(sess.CreatedAt, changes)
-	report.Stages = stageHistory(sess.CreatedAt, transitions, s.now().UTC())
+	report.Stages = stageHistory(sess.CreatedAt, report.CompletedAt, transitions, s.now().UTC())
 	return report, nil
 }
 
@@ -521,9 +521,9 @@ func configHistory(createdAt time.Time, changes []domain.ConfigChange) ConfigHis
 	return out
 }
 
-// stageHistory turns transitions into visits; archive only ends the last
-// one. An open last visit runs to now and makes the history partial.
-func stageHistory(createdAt time.Time, transitions []domain.StageTransition, now time.Time) StageHistory {
+// stageHistory turns transitions into visits capped at completedAt when known;
+// without it an open last visit runs to now and makes the history partial.
+func stageHistory(createdAt time.Time, completedAt *time.Time, transitions []domain.StageTransition, now time.Time) StageHistory {
 	out := StageHistory{Completeness: Unavailable, Visits: []StageVisit{}, Totals: []StageTotal{}}
 	if len(transitions) == 0 {
 		return out
@@ -537,13 +537,22 @@ func stageHistory(createdAt time.Time, transitions []domain.StageTransition, now
 		if tr.Stage == domain.KanbanArchive {
 			continue
 		}
+		if completedAt != nil && !tr.EnteredAt.Before(*completedAt) {
+			break
+		}
 		visit := StageVisit{Stage: tr.Stage, EnteredAt: tr.EnteredAt}
 		end := now
 		if i+1 < len(transitions) {
 			left := transitions[i+1].EnteredAt
 			visit.LeftAt = &left
 			end = left
-		} else {
+		}
+		if completedAt != nil && (visit.LeftAt == nil || visit.LeftAt.After(*completedAt)) {
+			left := *completedAt
+			visit.LeftAt = &left
+			end = left
+		}
+		if visit.LeftAt == nil {
 			out.Completeness = Partial
 		}
 		if end.After(tr.EnteredAt) {
