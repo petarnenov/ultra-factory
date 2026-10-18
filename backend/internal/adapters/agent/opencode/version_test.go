@@ -27,6 +27,9 @@ func versionBinary(t *testing.T, script string) string {
 	t.Setenv("PATH", dir)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	old := opencodeUnixPaths
+	opencodeUnixPaths = nil
+	t.Cleanup(func() { opencodeUnixPaths = old })
 	return path
 }
 
@@ -193,6 +196,9 @@ func TestResolveBinaryForMajorPrefersMismatchOverEarlierProbeFailure(t *testing.
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", broken+string(os.PathListSeparator)+mismatch)
+	old := opencodeUnixPaths
+	opencodeUnixPaths = nil
+	t.Cleanup(func() { opencodeUnixPaths = old })
 	_, err := ResolveBinaryForMajor(context.Background(), 2)
 	var incompatible *IncompatibleVersionError
 	if !errors.As(err, &incompatible) || incompatible.Path != filepath.Join(mismatch, "opencode") {
@@ -214,6 +220,9 @@ func TestResolveBinaryForMajorSharesOneProbeDeadline(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", first+string(os.PathListSeparator)+second)
+	old := opencodeUnixPaths
+	opencodeUnixPaths = nil
+	t.Cleanup(func() { opencodeUnixPaths = old })
 	if _, err := ResolveBinaryForMajor(context.Background(), 1); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v, want one overall deadline", err)
 	}

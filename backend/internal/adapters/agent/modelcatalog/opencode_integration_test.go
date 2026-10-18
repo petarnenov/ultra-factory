@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"runtime"
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -46,27 +46,36 @@ func TestOpenCodeDiscoveryRunsAgainstRealBinary(t *testing.T) {
 	}
 }
 
-// TestOpenCodeCredentialScopeListsProviderModels proves the cloud path
-// end-to-end: a credential type marks that provider's env var present, so the
-// real `opencode models` lists that provider's catalog (what the cloud VM runs).
-func TestOpenCodeCredentialScopeListsProviderModels(t *testing.T) {
+// TestOpenCodeCredentialScopeMarksProviderEnv records the provider env the real
+// CLI receives, so the assertion does not depend on the host's provider config.
+func TestOpenCodeCredentialScopeMarksProviderEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("wrapper fixture is a shell script")
+	}
 	binary := resolveRealOpenCode(t)
+	dir := t.TempDir()
+	record := filepath.Join(dir, "provider-env")
+	wrapper := filepath.Join(dir, "opencode")
+	script := "#!/bin/sh\nprintf '%s' \"$ANTHROPIC_API_KEY\" > '" + record + "'\nexec '" + binary + "' \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	catalog, err := (Discoverer{}).Discover(context.Background(), ports.AgentModelDiscoveryRequest{
 		AgentID:        "opencode",
-		Binary:         binary,
+		Binary:         wrapper,
 		CredentialType: "anthropic_api_key",
 	})
 	if err != nil {
 		t.Fatalf("credential-scoped opencode discovery failed: %v", err)
 	}
-	var anthropic int
-	for _, model := range catalog.Models {
-		if strings.HasPrefix(model.ID, "anthropic/") {
-			anthropic++
-		}
+	if len(catalog.Models) == 0 {
+		t.Fatalf("credential-scoped opencode discovery returned no models")
 	}
-	if anthropic == 0 {
-		t.Fatalf("credential scope anthropic_api_key listed no anthropic/* models (got %d models); "+
-			"provider-presence env did not unlock the provider", len(catalog.Models))
+	got, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("provider env was not passed to opencode: %v", err)
+	}
+	if string(got) != modelDiscoveryPresenceValue {
+		t.Fatalf("ANTHROPIC_API_KEY = %q, want the presence placeholder", got)
 	}
 }

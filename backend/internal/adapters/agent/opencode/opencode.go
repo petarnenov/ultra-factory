@@ -60,6 +60,14 @@ var opencodeUnixPaths = []string{
 	"/opt/homebrew/bin/opencode",
 }
 
+// UnixInstallPathsForTest replaces the well-known Unix install locations and
+// returns a restore function, so tests can hide a host-installed opencode.
+func UnixInstallPathsForTest(paths []string) (restore func()) {
+	previous := opencodeUnixPaths
+	opencodeUnixPaths = paths
+	return func() { opencodeUnixPaths = previous }
+}
+
 // Plugin is the opencode agent adapter. It is safe for concurrent use; the
 // binary path is resolved once and cached under binaryMu.
 type Plugin struct {
