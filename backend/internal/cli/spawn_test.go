@@ -1113,10 +1113,11 @@ func TestSpawnModelFlagWiring(t *testing.T) {
 func TestSpawnTerminateOnPRMergeFlagWiring(t *testing.T) {
 	for _, tc := range []struct {
 		flag string
-		want bool
+		want *bool
 	}{
-		{flag: "--terminate-on-pr-merge", want: true},
-		{flag: "--terminate-on-pr-merge=false", want: false},
+		{flag: "--terminate-on-pr-merge", want: boolPtr(true)},
+		{flag: "--terminate-on-pr-merge=false", want: boolPtr(false)},
+		{flag: "", want: nil},
 	} {
 		t.Run(tc.flag, func(t *testing.T) {
 			cfg := setConfigEnv(t)
@@ -1140,16 +1141,28 @@ func TestSpawnTerminateOnPRMergeFlagWiring(t *testing.T) {
 			t.Cleanup(srv.Close)
 			writeRunFileFor(t, cfg, srv)
 
-			_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "spawn", "--project", "demo", "--agent", "codex", "--name", "worker", tc.flag)
+			args := []string{"spawn", "--project", "demo", "--agent", "codex", "--name", "worker"}
+			if tc.flag != "" {
+				args = append(args, tc.flag)
+			}
+			_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, args...)
 			if err != nil {
 				t.Fatalf("spawn failed: %v stderr=%s", err, errOut)
+			}
+			if tc.want == nil {
+				if req.TerminateOnPRMerge != nil {
+					t.Fatalf("spawn request terminateOnPrMerge = %v, want nil", *req.TerminateOnPRMerge)
+				}
+				return
 			}
 			if req.TerminateOnPRMerge == nil {
 				t.Fatal("spawn request did not send terminateOnPrMerge")
 			}
-			if *req.TerminateOnPRMerge != tc.want {
-				t.Fatalf("spawn request terminateOnPrMerge = %v, want %v", *req.TerminateOnPRMerge, tc.want)
+			if *req.TerminateOnPRMerge != *tc.want {
+				t.Fatalf("spawn request terminateOnPrMerge = %v, want %v", *req.TerminateOnPRMerge, *tc.want)
 			}
 		})
 	}
 }
+
+func boolPtr(v bool) *bool { return &v }
