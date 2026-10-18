@@ -5,6 +5,8 @@
 		"lint": "cd backend && go test ./... && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run --path-mode=abs",
 		"comment:check": "node scripts/comment-policy/check.mjs",
 		"comment:test": "node --test scripts/comment-policy/check.test.mjs && cd backend && go test ./cmd/commentpolicy",
+		"version:bump": "node scripts/version-bump.mjs",
+		"version:test": "node --test scripts/version-bump.test.mjs",
 		"frontend:typecheck": "npm --prefix frontend run typecheck",
 		"cloud:check": "npm --prefix packages/cloud-client run generate && git diff --exit-code -- packages/cloud-client/src/schema.ts && npm --prefix packages/cloud-client run typecheck && npm --prefix packages/cloud-client test && npm --prefix packages/cloud-client run build",
 		"cloud:local": "bash cloud/scripts/cloud-local-up.sh",

@@ -63,6 +63,12 @@ Version selection, channel naming, retention, and promotion policy belong to
 the conductor. `frontend/package.json` may be stamped during an unsigned build,
 but changing it in this repository is not a release trigger.
 
+The public repository also advances `frontend/package.json` on its own:
+`.github/workflows/version-bump.yml` commits one semver step per push to `main`,
+derived from that push's conventional commits, and prepends a `CHANGELOG.md`
+entry. That development version is not the conductor's; the conductor still
+selects the version it publishes.
+
 ## Artifact verification
 
 The conductor owns the authoritative verification and publication gates. For a

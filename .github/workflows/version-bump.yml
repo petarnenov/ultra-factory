@@ -1,0 +1,62 @@
+name: Version bump
+
+# Advances frontend/package.json one semver step per push to main, from the
+# conventional commits in that push, and prepends a CHANGELOG entry. The bump
+# is committed back to main and creates no tag.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - scripts/version-bump.mjs
+      - scripts/version-bump.test.mjs
+      - .github/workflows/version-bump.yml
+
+permissions:
+  contents: read
+
+# Serialise bumps so two pushes cannot race the same package.json.
+concurrency:
+  group: version-bump-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: node --test scripts/version-bump.test.mjs
+
+  bump:
+    name: Bump
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Apply the bump
+        run: node scripts/version-bump.mjs --from "${{ github.event.before }}" --to "${{ github.event.after }}"
+      - name: Commit the bump
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "no version change"
+            exit 0
+          fi
+          version="$(node -p "require('./frontend/package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/package.json CHANGELOG.md
+          git commit -m "chore(version): bump to $version"
+          git push
