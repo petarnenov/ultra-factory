@@ -179,7 +179,7 @@ export function ProjectSettingsEditor({ initialValues, section, capabilities, de
 				{capabilities.workflow && draft.aggregateProjects !== undefined && <ProjectSettingsSection title={t("settings.project.aggregateHosts", { defaultValue: "Aggregate project hosts" })} grouped>
 					<p className="px-3 py-2 text-xs text-settings-muted">{t("settings.project.aggregateHostsHelp", { defaultValue: "Add the host ID and project ID for each remote project that belongs on this board." })}</p>
 					{draft.aggregateProjects.map((entry, index) => <ProjectSettingsRow key={`${entry.hostId}:${entry.projectId}`} label={`${entry.hostId} · ${entry.projectId}`}>
-						<button type="button" className="text-xs text-destructive hover:underline" onClick={() => patch({ aggregateProjects: draft.aggregateProjects?.filter((_, itemIndex) => itemIndex !== index) })}>{t("shell.remove")}</button>
+						<Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={t("settings.project.aggregateRemove", { hostId: entry.hostId, projectId: entry.projectId, defaultValue: `Remove ${entry.hostId} / ${entry.projectId}` })} onClick={() => patch({ aggregateProjects: draft.aggregateProjects?.filter((_, itemIndex) => itemIndex !== index) })}>{t("shell.remove")}</Button>
 					</ProjectSettingsRow>)}
 					<AggregateProjectEditor onAdd={(hostId, projectId) => patch({ aggregateProjects: [...(draft.aggregateProjects ?? []), { hostId, projectId }] })} existing={draft.aggregateProjects} />
 				</ProjectSettingsSection>}

@@ -22,14 +22,18 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 	const associations = localIdentity.data?.aggregateProjects ?? [];
 	const associatedHosts = [...new Set(associations.map((ref) => ref.hostId))];
 	const remoteHosts = useQueries({ queries: associatedHosts.map(remoteWorkspacesQueryOptions) });
-	const associated = associations.map((ref, index) => ({
-		hostId: ref.hostId,
-		projectId: ref.projectId,
-		project: remoteHosts[associatedHosts.indexOf(ref.hostId)]?.data?.find((workspace) => workspace.id === ref.projectId),
-		host: hosts.find((host) => host.hostId === ref.hostId),
-		loaded: remoteHosts[associatedHosts.indexOf(ref.hostId)]?.isSuccess ?? false,
-		failed: remoteHosts[associatedHosts.indexOf(ref.hostId)]?.isError ?? false,
-	}));
+	const remoteHostQueries = new Map(associatedHosts.map((hostId, index) => [hostId, remoteHosts[index]] as const));
+	const associated = associations.map((ref) => {
+		const remoteHostQuery = remoteHostQueries.get(ref.hostId);
+		return {
+			hostId: ref.hostId,
+			projectId: ref.projectId,
+			project: remoteHostQuery?.data?.find((workspace) => workspace.id === ref.projectId),
+			host: hosts.find((host) => host.hostId === ref.hostId),
+			loaded: remoteHostQuery?.isSuccess ?? false,
+			failed: remoteHostQuery?.isError ?? false,
+		};
+	});
 	const sessions: WorkspaceSession[] = [
 		...(localProject ? workerSessions(localProject.sessions).map((session) => ({ ...session, hostId: LOCAL_HOST })) : []),
 		...associated.flatMap((entry) => {

@@ -18,7 +18,8 @@ import (
 // yet exist (tracker/SCM per-project config) are intentionally absent and land in
 // focused follow-up PRs alongside the code that reads them.
 type ProjectConfig struct {
-	// AggregateProjects explicitly links remote project identities to this local project board.
+	// AggregateProjects links remote project identities to this project's
+	// aggregate board.
 	AggregateProjects []AggregateProjectRef `json:"aggregateProjects,omitempty"`
 	// CanonicalRepoURL explicitly trusts one upstream repository for PR claims.
 	// Numeric PR references use this repository when set; checkout/push stays on origin.

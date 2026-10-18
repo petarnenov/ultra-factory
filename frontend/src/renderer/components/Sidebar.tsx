@@ -1852,15 +1852,15 @@ const ProjectItem = memo(function ProjectItem({
 											<Plus aria-hidden="true" />
 											{t("shell.newTask")}
 										</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => selection.goSettings(workspace.id, workspace.cloudOrgId)}>
+										<DropdownMenuItem onSelect={() => selection.goSettings(workspace.id, workspace.cloudOrgId)}>
 											<Settings aria-hidden="true" />
 											{t("shell.projectSettings")}
 										</DropdownMenuItem>
-						{!workspace.hostId && workspace.kind !== CLOUD_PROJECT_KIND && workspace.id !== STANDALONE_WORKSPACE_ID ? (
-							<DropdownMenuItem onSelect={() => selection.goAggregateProject(workspace.id)}>
-								{t("shell.openAggregateKanban")}
-							</DropdownMenuItem>
-						) : null}
+										{!workspace.hostId && workspace.kind !== CLOUD_PROJECT_KIND && workspace.id !== STANDALONE_WORKSPACE_ID ? (
+											<DropdownMenuItem onSelect={() => selection.goAggregateProject(workspace.id)}>
+												{t("shell.openAggregateKanban")}
+											</DropdownMenuItem>
+										) : null}
 										<DropdownMenuItem
 											className="text-destructive focus:text-destructive [&_svg]:text-destructive focus:[&_svg]:text-destructive"
 											disabled={isRemoving}

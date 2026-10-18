@@ -88,4 +88,7 @@ it("saves host-qualified aggregate project membership from local project setting
 	await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
 		aggregateProjects: [{ hostId: "host-a", projectId: "project-a" }],
 	})), { timeout: 2_000 });
+	const removeButton = screen.getByRole("button", { name: "Remove host-a / project-a" });
+	await userEvent.click(removeButton);
+	await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ aggregateProjects: [] })), { timeout: 2_000 });
 });

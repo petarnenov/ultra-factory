@@ -144,7 +144,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 	const activeOrchestrator = newestActiveOrchestrator(workspace?.sessions ?? []);
 	const intake: TrackerIntakeConfig = config.trackerIntake ?? {};
 	const initialValues: ProjectSettingsDraft = {
-		aggregateProjects: config.aggregateProjects ?? [],
+		aggregateProjects: hostId ? undefined : config.aggregateProjects ?? [],
 		displayName: project.name,
 		defaultBranch: config.defaultBranch ?? DEFAULT_BRANCH_AUTO,
 		sessionPrefix: config.sessionPrefix ?? "",
@@ -209,7 +209,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 				}
 			: {
 					...config,
-					aggregateProjects: values.aggregateProjects?.length ? values.aggregateProjects : undefined,
+					...(!hostId ? { aggregateProjects: values.aggregateProjects?.length ? values.aggregateProjects : undefined } : {}),
 					defaultBranch: values.defaultBranch.trim() === DEFAULT_BRANCH_AUTO ? undefined : values.defaultBranch || undefined,
 					sessionPrefix: values.sessionPrefix || undefined,
 					worker: {
@@ -314,6 +314,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 			void captureRendererEvent("ao.renderer.settings_save_succeeded", { project_id: projectId });
 			void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId, hostId) });
 			void queryClient.invalidateQueries({ queryKey: hostId ? ["project-config", hostId, projectId] : ["project-config", projectId] });
+			if (!hostId) void queryClient.invalidateQueries({ queryKey: ["project-identity", "local", projectId] });
 			void onSaved();
 			if (result.replacementFailure) {
 				if (!hostId) setOrchestratorReplacementError(projectId, result.replacementFailure);
