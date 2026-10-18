@@ -53,7 +53,7 @@ test('maps changed old comment ranges across deleted lines', () => {
   assert.deepEqual(mapDeletedCommentRanges(comments, deletions), [[10, 12]]);
 });
 
-test('does not attribute deleted-file hunks or lose renamed-file paths', () => {
+test('does not attribute deleted-file hunks or lose renamed-file paths', async () => {
   const diff = [
     'diff --git a/deleted.ts b/deleted.ts',
     '--- a/deleted.ts',
@@ -77,7 +77,7 @@ test('does not attribute deleted-file hunks or lose renamed-file paths', () => {
     '-// line',
     '+// replacement',
   ].join('\n');
-  const changes = parseDiff(diff);
+  const changes = await parseDiff(diff);
   assert.equal(changes.has('deleted.ts'), false);
   assert.deepEqual(changes.get('renamed.ts').added, [[1, 3]]);
   assert.deepEqual(changes.get('kept.ts').deletions, [
