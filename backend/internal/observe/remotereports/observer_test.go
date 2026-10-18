@@ -22,14 +22,21 @@ import (
 )
 
 type memStore struct {
-	mu         sync.Mutex
-	links      []domain.RemoteWorkerLink
-	delivered  map[string]map[string]bool
-	recorded   []string
-	recordErr  error
-	historyErr error
-	history    map[string]map[string]domain.ReportRecord
-	listCalls  int
+	mu            sync.Mutex
+	links         []domain.RemoteWorkerLink
+	delivered     map[string]map[string]bool
+	recorded      []string
+	recordErr     error
+	historyErr    error
+	history       map[string]map[string]domain.ReportRecord
+	historyWrites []historyWrite
+	listCalls     int
+}
+
+type historyWrite struct {
+	hostID  string
+	session domain.SessionID
+	reports []domain.ReportRecord
 }
 
 func newMemStore(links ...domain.RemoteWorkerLink) *memStore {
@@ -89,6 +96,11 @@ func (m *memStore) RecordDeliveredRemoteReports(_ context.Context, host string, 
 func (m *memStore) RecordRemoteReportHistory(_ context.Context, host string, session domain.SessionID, reports []domain.ReportRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.historyWrites = append(m.historyWrites, historyWrite{
+		hostID:  host,
+		session: session,
+		reports: append([]domain.ReportRecord(nil), reports...),
+	})
 	if m.historyErr != nil {
 		return m.historyErr
 	}
@@ -402,9 +414,17 @@ func TestPollHistoryUsesHostSessionAndReportIdentity(t *testing.T) {
 	if len(deliverer.calls) != 1 || len(deliverer.calls[0].reports) != 2 {
 		t.Fatalf("deliveries = %+v, want both host reports in one turn", deliverer.calls)
 	}
+	if len(store.historyWrites) != 2 {
+		t.Fatalf("history writes = %d, want one per host despite replay", len(store.historyWrites))
+	}
 	for _, host := range []string{"host-a", "host-b"} {
-		if got := store.history[linkKey(host, "worker-1")]["rpt_same"]; got.ID != "rpt_same" {
-			t.Fatalf("history for %s = %+v", host, got)
+		got, ok := store.history[linkKey(host, "worker-1")]["rpt_same"]
+		if !ok {
+			t.Fatalf("history for %s is missing", host)
+		}
+		if got.ID != "rpt_same" || got.HostID != host || got.HostLabel != "label-"+host ||
+			got.SessionID != "worker-1" || got.SourceProjectID != "widgets" || got.ProjectID != "ultra-factory" {
+			t.Fatalf("history for %s has incorrect source metadata: %+v", host, got)
 		}
 	}
 }
@@ -419,8 +439,13 @@ func TestPollRecordsHistoryBeforeFailedDeliveryAndDoesNotSettleRemoteReport(t *t
 	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.history[linkKey("host-build", "worker-1")]["rpt_1"]; got.ID != "rpt_1" {
-		t.Fatalf("history = %+v, report should be visible despite failed delivery", got)
+	got, ok := store.history[linkKey("host-build", "worker-1")]["rpt_1"]
+	if !ok || got.HostID != "host-build" || got.HostLabel != "label-host-build" ||
+		got.SessionID != "worker-1" || got.SourceProjectID != "widgets" || got.ProjectID != "ultra-factory" {
+		t.Fatalf("history = %+v, report source metadata should be visible despite failed delivery", got)
+	}
+	if len(store.historyWrites) != 1 || len(store.historyWrites[0].reports) != 1 {
+		t.Fatalf("history writes = %+v, want one report history write before failed delivery", store.historyWrites)
 	}
 	if len(store.recorded) != 0 || len(host.acks()) != 0 {
 		t.Fatalf("recorded=%v acks=%v, failed delivery must remain pending", store.recorded, host.acks())

@@ -323,7 +323,9 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 			continue
 		}
 		report.SessionID = link.RemoteSessionID
-		report.SourceProjectID = string(report.ProjectID)
+		if report.SourceProjectID == "" {
+			report.SourceProjectID = string(report.ProjectID)
+		}
 		report.ProjectID = link.ProjectID
 		report.SessionDisplayName = link.DisplayName
 		report.HostLabel = client.label
