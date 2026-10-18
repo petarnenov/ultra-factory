@@ -12,9 +12,8 @@ export function validateCompletedTasksSearch(search: Record<string, unknown>): C
 	return typeof search.task === "string" && search.task ? { task: search.task } : {};
 }
 
-// Host-qualified project references are owned by the project identity returned
-// by the answering daemon (#194). Completed tasks use those explicit
-// host/project pairs and never pair projects by repository URL or display name.
+// Explicit host/project references come from project identity (#194); they are
+// never inferred from URLs or display names.
 export function buildCompletedTaskRefs(
 	hostId: HostId,
 	projectId: string,
