@@ -354,6 +354,7 @@ func TestMergeBlockersAreExact(t *testing.T) {
 		"stale approval":       {func(pr *PullRequest) { pr.ReviewDecision = "APPROVED"; pr.Reviews[0].CommitID = head("b") }, "no current-head approval"},
 		"AO up to date":        {func(pr *PullRequest) { pr.ReviewDecision = ""; pr.Reviews = nil; pr.AOReviewStatus = "up_to_date" }, ""},
 		"AO changes requested": {func(pr *PullRequest) { pr.AOReviewStatus = "changes_requested" }, "AO review changes requested"},
+		"human wins over AO":   {func(pr *PullRequest) { pr.AOReviewStatus = "up_to_date"; pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
 		"changes requested":    {func(pr *PullRequest) { pr.ReviewDecision = "CHANGES_REQUESTED" }, "review changes requested"},
 		"unresolved thread":    {func(pr *PullRequest) { pr.Threads = []ReviewThread{{Body: "fix this"}} }, "1 unresolved review thread(s)"},
 		"conflicting":          {func(pr *PullRequest) { pr.Mergeable = "CONFLICTING" }, "mergeability is CONFLICTING"},

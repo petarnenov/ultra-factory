@@ -105,17 +105,20 @@ func MergeBlockers(cfg Config, pr PullRequest) []string {
 }
 
 func reviewBlocker(pr PullRequest) string {
-	switch strings.ToLower(strings.TrimSpace(pr.AOReviewStatus)) {
-	case "up_to_date":
-		return ""
-	case "changes_requested":
-		return "AO review changes requested"
-	}
+	// Provider protections and a human changes-requested decision win over
+	// AO's approval. REVIEW_REQUIRED is kept explicit because the provider
+	// merge call would reject the PR anyway.
 	switch strings.ToUpper(strings.TrimSpace(pr.ReviewDecision)) {
 	case "CHANGES_REQUESTED":
 		return "review changes requested"
 	case "REVIEW_REQUIRED":
 		return "review approval required"
+	}
+	switch strings.ToLower(strings.TrimSpace(pr.AOReviewStatus)) {
+	case "up_to_date":
+		return ""
+	case "changes_requested":
+		return "AO review changes requested"
 	}
 	// A provider APPROVED rollup is not proof for the current head: GitHub
 	// keeps it after a push unless branch protection dismisses stale reviews.
@@ -186,7 +189,8 @@ func oneOf(value, fallback string) string {
 // daemon already attributed its number or because its source branch is the
 // worker branch or a stacked child of it.
 // applyWorkerReview attaches AO's current-head native review decision to a
-// fresh provider PR observation.
+// fresh provider PR observation. The planner returns one state per PR, so the
+// first matching number and SHA is the whole decision.
 func applyWorkerReview(worker Worker, pr PullRequest) PullRequest {
 	for _, review := range worker.Reviews {
 		if review.PRNumber == pr.Number && strings.EqualFold(strings.TrimSpace(review.TargetSHA), strings.TrimSpace(pr.HeadSHA)) {
