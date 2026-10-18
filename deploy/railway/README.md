@@ -33,7 +33,7 @@ Conventions for everything below:
   reported as passed. Open live checks are listed under
   [Pending live checks](#pending-live-checks).
 - Merging a change under `deploy/railway/` (or `backend/`, `frontend/`,
-  `packages/`) to `feat/railway-hosting` rebuilds and redeploys the hub, which
+  `packages/`) to `main` rebuilds and redeploys the hub, which
   ends live hub sessions. See
   [Automated image publish and deploy](#automated-image-publish-and-deploy).
 
@@ -527,16 +527,15 @@ docker buildx build --platform linux/amd64 -f deploy/railway/hub/Dockerfile \
 
 [`.github/workflows/hub-image.yml`](../../.github/workflows/hub-image.yml)
 builds both images from the pushed commit in one build graph and smoke-tests
-the hub, on every push to `feat/railway-hosting` that touches its inputs
+the hub, on every push to `main` that touches its inputs
 (`backend/`, `frontend/`, `packages/`, `deploy/railway/`, or the workflow).
 The base is the worker target from that same commit
 ([docker-bake.hcl](docker-bake.hcl)), not a published `ao-worker` tag, so the
-hub's daemon and tools can never lag the commit it was built from. That branch
-publishes `ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64 only, then the
-deploy job sets the Railway `hub` service image to that tag and waits for the
-deployment to reach `SUCCESS`, with a 60 s re-check after `SUCCESS` to catch a
-crash loop. Pushes to `main` and `hub-v*` tags still publish multi-arch images
-and never deploy. Every deploy restarts the hub, as in
+hub's daemon and tools can never lag the commit it was built from. It
+publishes `ghcr.io/<owner>/ao-hub:sha-<short>` for linux/amd64 and linux/arm64,
+then the deploy job sets the Railway `hub` service image to that tag and waits
+for the deployment to reach `SUCCESS`, with a 60 s re-check after `SUCCESS` to
+catch a crash loop. `hub-v*` tags publish the same images and never deploy. Every deploy restarts the hub, as in
 [Hub image update](#hub-image-update). To approve each deploy instead, add
 required reviewers to the `railway-hub` environment.
 
@@ -759,7 +758,7 @@ survived and what had to restart.
 
 ### Hub image update
 
-Merges to `feat/railway-hosting` that touch the hub image inputs deploy
+Merges to `main` that touch the hub image inputs deploy
 automatically ([Automated image publish and deploy](#automated-image-publish-and-deploy)).
 Coordinate a hub maintenance window and pause hub work before merging such a
 PR; worker drain does not protect sessions executing on the hub itself.

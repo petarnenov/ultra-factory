@@ -12,7 +12,9 @@ FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS build
 ARG TARGETOS=linux
 ARG TARGETARCH
 ARG AO_VERSION=dev
-ARG AO_COMMIT=unknown
+# A Railway repo build stamps its commit; an image build passes AO_COMMIT.
+ARG RAILWAY_GIT_COMMIT_SHA=unknown
+ARG AO_COMMIT=${RAILWAY_GIT_COMMIT_SHA}
 WORKDIR /src/backend
 
 COPY backend/go.mod backend/go.sum ./
