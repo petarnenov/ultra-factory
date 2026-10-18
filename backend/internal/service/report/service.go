@@ -186,8 +186,12 @@ func (s *Service) ListProjectPage(ctx context.Context, projectID domain.ProjectI
 			reports[i].SourceProjectID = string(reports[i].ProjectID)
 		}
 		if reports[i].HostID == "" {
-			if reports[i].HostLabel == "" && s.selfHostName != "" {
-				reports[i].HostLabel = s.selfHostName
+			if reports[i].HostLabel == "" {
+				if s.selfHostName != "" {
+					reports[i].HostLabel = s.selfHostName
+				} else if s.selfHostID != "" {
+					reports[i].HostLabel = s.selfHostID
+				}
 			}
 			source, cached := sources[reports[i].SessionID]
 			if !cached {

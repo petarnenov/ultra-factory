@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artifactLinkForPath, findSessionLinks, isAoLink, parseArtifactLink, parseSessionLink, resolveSessionLink } from "./session-links";
+import { artifactLink, artifactLinkForPath, findSessionLinks, isAoLink, parseArtifactLink, parseSessionLink, resolveSessionLink, sessionLink } from "./session-links";
 
 describe("session links", () => {
 	it.each([
@@ -77,5 +77,21 @@ describe("session links", () => {
 		expect(artifactLinkForPath("w/missing.md", workspaces)).toBeUndefined();
 		expect(artifactLinkForPath("/tmp/w/plan.md", workspaces)).toBeUndefined();
 		expect(artifactLinkForPath("plan.md", workspaces)).toBeUndefined();
+	});
+});
+
+describe("host-scoped report links", () => {
+	it("parses and renders remote session links", () => {
+		expect(parseSessionLink("ao://hosts/host-a/sessions/p/s")).toEqual({ projectId: "p", sessionId: "s", hostId: "host-a" });
+		expect(sessionLink("p", "s", "host-a")).toBe("ao://hosts/host-a/sessions/p/s");
+	});
+	it("parses remote artifact links", () => {
+		expect(parseArtifactLink("ao://hosts/host-a/sessions/p/s/artifacts/plan.md")).toEqual({
+			projectId: "p",
+			sessionId: "s",
+			hostId: "host-a",
+			path: "plan.md",
+		});
+		expect(artifactLink("p", "s", "plan.md", "host-a")).toBe("ao://hosts/host-a/sessions/p/s/artifacts/plan.md");
 	});
 });
