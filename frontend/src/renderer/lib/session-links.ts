@@ -62,7 +62,7 @@ export function sessionLink(projectId: string, sessionId: string, hostId?: strin
 	return `${SESSION_LINK_PREFIX}${project}/${session}`;
 }
 
-type ArtifactPathWorkspace = { id: string; sessions: Array<{ id: string; artifactFiles?: Array<{ path: string }> }> };
+type ArtifactPathWorkspace = { id: string; hostId?: string; sessions: Array<{ id: string; artifactFiles?: Array<{ path: string }> }> };
 
 /**
  * The artifact route for text naming a listed session artifact, either as
@@ -82,7 +82,7 @@ export function artifactLinkForPath(value: string, workspaces: ArtifactPathWorks
 		const path = candidate.slice(slash + 1);
 		for (const workspace of workspaces) {
 			const session = workspace.sessions.find((entry) => entry.id === sessionId);
-			if (session?.artifactFiles?.some((file) => file.path === path)) return artifactLink(workspace.id, sessionId, path);
+			if (session?.artifactFiles?.some((file) => file.path === path)) return artifactLink(workspace.id, sessionId, path, workspace.hostId && workspace.hostId !== "local" ? workspace.hostId : undefined);
 		}
 	}
 	return undefined;
