@@ -122,9 +122,15 @@ and record the memory limit in force. Do not set or change it. The 24 GB figure
 in the backlog is the value to compare against only if the live limit is still
 24 GB; if it differs, record the live value and say so in the report.
 
-Create a local directory outside the repository for raw samples, for example
-`~/ao-baseline-<YYYYMMDD>/`. Do not commit raw samples, deployment logs,
-credentials or host identities.
+Create a local directory outside the repository for raw samples and keep it in
+`RUN_DIR` for every command below:
+
+```sh
+RUN_DIR="$HOME/ao-baseline-$(date -u +%Y%m%d)"
+mkdir -p "$RUN_DIR"
+```
+
+Do not commit raw samples, deployment logs, credentials or host identities.
 
 ## 4. Capture protocol
 
@@ -158,8 +164,8 @@ per minute and a footer:
 ```sh
 railway ssh --project <project> --environment <environment> \
   --service <hub-service> -- cat /tmp/ao-baseline/hub.jsonl \
-  > ~/ao-baseline/hub.jsonl
-wc -l ~/ao-baseline/hub.jsonl
+  > "$RUN_DIR/hub.jsonl"
+wc -l "$RUN_DIR/hub.jsonl"
 ```
 
 The hub route covers the daemon, every live session (including the
@@ -174,17 +180,20 @@ as AO's total and `own` as the non-session remainder.
 
 ### 4.2 Each worker host
 
-On each of `Linux`, `IMac` and `Z600`, from a checkout of this repository:
+On each of `Linux`, `IMac` and `Z600`, from a checkout of this repository, set
+the same `RUN_DIR` path and create it on that host:
 
 ```sh
 cd <checkout>
+RUN_DIR="$HOME/ao-baseline-$(date -u +%Y%m%d)"
+mkdir -p "$RUN_DIR"
 ao status   # record the "port:" line; the default is 3001
 node scripts/railway/resource-sample.mjs \
   --label z600 \
   --base-url "http://127.0.0.1:<port>" \
   --interval 60 --duration 3600 \
   --ps 'claude|codex|opencode|tmux' \
-  --out ~/ao-baseline/z600.jsonl
+  --out "$RUN_DIR/z600.jsonl"
 ```
 
 Repeat with `--label linux` and `--label imac`, and keep the same paths on each
@@ -205,9 +214,15 @@ summary and the limit status:
 
 ```sh
 railway usage projects --project <project> \
-  | tee ~/ao-baseline/railway-usage-<start|end>.txt
+  | tee "$RUN_DIR/railway-usage-start.txt"
 railway usage limit status --target workspace \
-  | tee ~/ao-baseline/railway-limits-<start|end>.txt
+  | tee "$RUN_DIR/railway-limits-start.txt"
+
+# after the window
+railway usage projects --project <project> \
+  | tee "$RUN_DIR/railway-usage-end.txt"
+railway usage limit status --target workspace \
+  | tee "$RUN_DIR/railway-limits-end.txt"
 ```
 
 `railway usage projects` is a period summary per service, not a time series.
