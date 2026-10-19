@@ -740,12 +740,13 @@ func (o *Observer) discoverSubjects(ctx context.Context) (map[string]*subject, [
 	if err != nil {
 		return nil, nil, err
 	}
+	now := o.clock().UTC()
 	projects := map[domain.ProjectID]domain.ProjectRecord{}
 	scanRepos := map[domain.ProjectID][]ports.SCMRepo{}
 	out := map[string]*subject{}
 	var sessionRepos []sessionRepo
 	for _, sess := range sessions {
-		if sess.IsTerminated {
+		if !trackTerminatedPRs(sess, now) {
 			continue
 		}
 		branch := strings.TrimSpace(sess.Metadata.Branch)
@@ -811,6 +812,22 @@ func (o *Observer) discoverSubjects(ctx context.Context) (map[string]*subject, [
 		}
 	}
 	return out, sessionRepos, nil
+}
+
+// terminatedPRRefreshWindow bounds how long a terminated session keeps its
+// PRs refreshed: a merge often arrives after the worker exited.
+const terminatedPRRefreshWindow = 14 * 24 * time.Hour
+
+// trackTerminatedPRs reports whether the session's PRs stay in the refresh
+// set. A terminated session's UpdatedAt dates its termination.
+func trackTerminatedPRs(sess domain.SessionRecord, now time.Time) bool {
+	if !sess.IsTerminated {
+		return true
+	}
+	if sess.UpdatedAt.IsZero() {
+		return false
+	}
+	return now.Sub(sess.UpdatedAt) <= terminatedPRRefreshWindow
 }
 
 // The stored origin remains usable when the checkout is temporarily unavailable.

@@ -2137,6 +2137,52 @@ func TestPoll_StaleOpenPRForcedRefreshAfterMaxAge(t *testing.T) {
 	}
 }
 
+// TestPoll_KeepsUnsettledPRsOfRecentlyTerminatedSession: a terminated session
+// keeps its PRs refreshed for a bounded window, then is left alone.
+func TestPoll_KeepsUnsettledPRsOfRecentlyTerminatedSession(t *testing.T) {
+	// A person often merges a PR after the worker exited, and the
+	// completed-task outcome is derived from these facts.
+	now := time.Unix(1000, 0).UTC()
+	terminated := domain.SessionRecord{
+		ID: "p-1", ProjectID: "p", IsTerminated: true,
+		Metadata: domain.SessionMetadata{Branch: "feat"},
+	}
+	mergedObs := testObs(1)
+	mergedObs.PR.Merged = true
+	mergedObs.PR.State = "merged"
+
+	poll := func(updatedAt time.Time) (*fakeStore, *fakeProvider) {
+		store := testStoreWithSession()
+		terminated.UpdatedAt = updatedAt
+		store.sessions = []domain.SessionRecord{terminated}
+		store.prs["p-1"] = []domain.PullRequest{knownPR(1)}
+		provider := &fakeProvider{observations: map[string]ports.SCMObservation{prKey(testRepo, 1): mergedObs}}
+		if err := newTestObserver(store, provider, &fakeLifecycle{}, now).Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		return store, provider
+	}
+
+	store, provider := poll(now.Add(-time.Hour))
+	if len(provider.fetchBatches) != 1 {
+		t.Fatalf("recently terminated session must stay refreshed, fetch batches = %d", len(provider.fetchBatches))
+	}
+	merged := false
+	for _, write := range store.writes {
+		if write.pr.Number == 1 && write.pr.Merged {
+			merged = true
+		}
+	}
+	if !merged {
+		t.Fatalf("merge observed after termination was not persisted, writes = %#v", store.writes)
+	}
+
+	store, provider = poll(now.Add(-(terminatedPRRefreshWindow + time.Hour)))
+	if len(provider.fetchBatches) != 0 || len(store.writes) != 0 {
+		t.Fatalf("session past the window must be left alone, batches = %d writes = %d", len(provider.fetchBatches), len(store.writes))
+	}
+}
+
 // TestDiscoverSubjects_NonGitPathDoesNotBackfill confirms the backfill is
 // best-effort: a non-git project path leaves RepoOriginURL empty without
 // erroring or persisting a stub, so the project is simply skipped.
