@@ -260,12 +260,10 @@ func sessionInputFieldLines(schema map[string]any) []string {
 		return nil
 	}
 	required := make(map[string]bool, len(properties))
-	switch values := schema["required"].(type) {
-	case []any:
-		for _, value := range values {
-			if name, ok := value.(string); ok {
-				required[name] = true
-			}
+	requiredNames, _ := schema["required"].([]any)
+	for _, value := range requiredNames {
+		if name, ok := value.(string); ok {
+			required[name] = true
 		}
 	}
 	names := make([]string, 0, len(properties))
