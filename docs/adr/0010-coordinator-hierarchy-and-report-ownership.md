@@ -447,7 +447,7 @@ Transition table:
 | `claimed` | Acceptance timeout after a written prompt | Same token | Log the delivery id; set `acknowledged_at`, `delivery_state='acknowledged'` | `acknowledged` |
 | `claimed` | Process dies | — | Startup `RequeueClaimedReports` clears the token | `pending` |
 | `claimed` | Owner terminates mid-submit | Submit fails with a terminal error | Release, then resolve on the next pass | `pending` |
-| `claimed` | Worker session terminated | Pending reports are due at once | Deliver the queue once, then acknowledge it; `Create` refuses the session | `acknowledged` |
+| `pending` | Worker session terminated | — | Make the session's pending reports due at once; the next claim delivers the queue once and acknowledges it; `Create` refuses further reports for the session | `pending` |
 | `claimed` | Ownership changes | — | The claimed batch keeps its frozen `delivery_owner_id` | `claimed` |
 | `acknowledged` | — | — | Terminal; never re-delivered | `acknowledged` |
 
@@ -473,13 +473,16 @@ Group backoff is exponential from the existing 5 s floor to a 5 minute ceiling,
 derived from `delivery_attempts`. `DeferReportBatch` uses
 `max(available_at, now+delay)`, so a deferral never moves a report earlier.
 A failed delivery is never dropped; pending age is the operator signal
-(CO-4.2.1). Two cases end a report's life without a successful turn: an
+(CO-4.2.1). One case ends a report's life without a successful turn: an
 acceptance timeout after a written prompt, which is consumed so it cannot be
-re-sent, and a report of a terminated worker session, which is flushed once
-and cannot be created again. A group whose recipient cannot be resolved (no
-live root) is deferred without a claim, using the same backoff, so an absent
-root cannot spin the scheduler; CO-2.2.1 adds the store operation that pushes
-`available_at` for a pending group.
+re-sent. A terminated worker's queue is different: it goes through the same
+claim, submit, and acknowledge path as any other batch, so it ends with a
+successful turn, and a failed delivery releases it back to pending with
+`available_at=min(available_at, now)` and retries it. Only its stream ends,
+because `Create` refuses further reports for that session. A group whose
+recipient cannot be resolved (no live root) is deferred without a claim, using
+the same backoff, so an absent root cannot spin the scheduler; CO-2.2.1 adds
+the store operation that pushes `available_at` for a pending group.
 
 Partial multi-owner delivery:
 
@@ -507,7 +510,7 @@ design:
    nil only after `SendSemantic` observed the exact message accepted, and the
    ack follows that return; a queued message is never acceptance. The one
    exception is `domain.ErrSemanticAcceptanceTimeout`, which `SendSemantic`
-   returns only after the pane write succeeded: the prompt is delivered even
+   returns only after the pane write succeeded: the prompt was written even
    though its hook never reported the batch id, so that batch is acknowledged
    once and is never re-sent.
 2. **One live claim per report.** The claim is a conditional update on
@@ -541,7 +544,9 @@ Failure windows and their bound:
 | --- | --- | --- |
 | Crash after acceptance, before ack | The report may be delivered again | Same batch key; target dedupe while its checkpoint matches; otherwise one duplicate. At-least-once, unchanged from the remote-report ADR |
 | Acceptance hook never arrives after a written prompt | The batch is acknowledged and never re-sent | Loss window: a prompt written but never submitted by its harness is not recovered by AO |
-| Terminated worker with queued reports | The queue is delivered once, then nothing | New reports are refused (`409 SESSION_TERMINATED`); a queued report is dropped if that one delivery never happens |
+| Terminated worker with queued reports | Its queue is delivered by the next pass, then the stream ends | New reports are refused (`409 SESSION_TERMINATED`); a failed delivery returns the batch to pending and retries, so it is not dropped |
+| CLI outbox entry replayed after its session terminated | The report is dropped | `daemon/outbox.go` removes an entry the API rejects with a 4xx, and `409 SESSION_TERMINATED` is one |
+| Delivery error after the prompt write, other than an acceptance timeout | The next pass writes the prompt again | At-least-once: a cancelled wait (`ctx.Err()`), a terminated target, or any other error releases the batch while the prompt may already be written |
 | Crash with claimed rows | Requeued at startup | No loss; the old claim is gone, so re-resolution may route to a new owner if ownership changed |
 | Reassignment during a claim (automatic only) | The claimed batch goes to the old owner; the new owner gets later reports | The old owner receives an ownership-removed notice; no duplicate |
 | Live-but-exited coordinator | Submit fails; the group keeps the same recipient | Defer with backoff; no reroute. The reaper's termination trigger later sets the owner to `NULL`, then resolution uses the root |
@@ -1002,7 +1007,8 @@ Compatibility rules:
   and an API test.
 - Reports queued in the CLI outbox before an upgrade are replayed as ordinary
   report rows; ownership is resolved at delivery, so enqueue time does not
-  matter.
+  matter, except that a replay for a session terminated meanwhile is rejected
+  with `409 SESSION_TERMINATED` and removed from the outbox.
 - Existing coordinator-like identifiers in the tree (auto-review, usage
   sampling, agent readiness, report delivery) are unrelated subsystems and are
   untouched.

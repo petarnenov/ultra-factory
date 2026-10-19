@@ -217,7 +217,8 @@ repeats. Reports route to the active project orchestrator at each attempt and
 remain pending when none is active. AO never spawns an orchestrator to deliver
 a report. A terminated worker's queued reports are delivered once and then the
 stream ends: `ao report` for a terminated session fails with
-`409 SESSION_TERMINATED`.
+`409 SESSION_TERMINATED`, and a report still queued in the CLI outbox for such
+a session is discarded when its replay is rejected.
 
 Scheduled delivery and exact same-turn user-message piggyback use Chat's
 durable semantic message boundary. Supported TUIs confirm delivery through
