@@ -68,6 +68,15 @@ test('keeps a reference after a stray backtick in an earlier paragraph', () => {
   assert.deepEqual(extractIssueReferences(body), [268]);
 });
 
+test('handles CRLF line endings in the stray-backtick case', () => {
+  const body = 'Press the ` key.\r\n\r\nCloses #268.\r\n\r\nRun `npm test`.';
+  assert.deepEqual(extractIssueReferences(body), [268]);
+});
+
+test('ignores a CRLF inline code span that wraps a line', () => {
+  assert.deepEqual(extractIssueReferences('Use `add "Closes #123"\r\nto it` now.'), []);
+});
+
 test('ignores a quoted failure message and a placeholder', () => {
   const body = 'The check said `#412 references #123`; replace `Closes #123`.';
   assert.deepEqual(extractIssueReferences(body), []);

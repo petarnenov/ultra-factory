@@ -22,10 +22,11 @@ const prioritySet = new Set(PRIORITY_LABELS);
 const isMain = process.argv[1]
   && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
-// Fenced blocks and inline code hold literal text such as a placeholder or a
-// quoted message, not references. A code span may wrap a line, not a paragraph.
+// Inline code and fenced blocks are literal text; spans may wrap one line but
+// not a paragraph. Normalise CRLF first: web-edited bodies use it.
 export function prosaicText(text) {
   return String(text ?? '')
+    .replace(/\r\n?/g, '\n')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`(?:[^`\n]|\n(?![ \t]*\n))*`/g, ' ');
 }
