@@ -251,7 +251,7 @@ type hostScopedIdentityResolver interface {
 // accountScopedIdentityResolver is the optional capability of resolving the
 // identity behind a project-bound account rather than the machine-level token.
 type accountScopedIdentityResolver interface {
-	AuthenticatedIdentityForAccount(ctx context.Context, account string) (ports.SCMIdentity, error)
+	AuthenticatedIdentityForAccount(ctx context.Context, host, account string) (ports.SCMIdentity, error)
 }
 
 // SCMCredentialsAvailable returns true if ANY sub-provider has usable credentials.
@@ -319,7 +319,7 @@ func (m *Provider) AuthenticatedIdentityForProvider(ctx context.Context, provide
 
 // AuthenticatedIdentityForAccount resolves the identity behind one project's
 // bound account, when the sub-provider supports scoped credentials.
-func (m *Provider) AuthenticatedIdentityForAccount(ctx context.Context, provider, account string) (ports.SCMIdentity, error) {
+func (m *Provider) AuthenticatedIdentityForAccount(ctx context.Context, provider, host, account string) (ports.SCMIdentity, error) {
 	p, err := m.resolve(provider)
 	if err != nil {
 		return ports.SCMIdentity{}, err
@@ -328,5 +328,5 @@ func (m *Provider) AuthenticatedIdentityForAccount(ctx context.Context, provider
 	if !ok {
 		return ports.SCMIdentity{}, fmt.Errorf("scm multi: provider %q does not implement account-scoped identity", provider)
 	}
-	return resolver.AuthenticatedIdentityForAccount(ctx, account)
+	return resolver.AuthenticatedIdentityForAccount(ctx, host, account)
 }

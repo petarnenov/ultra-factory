@@ -2437,3 +2437,37 @@ func TestEmptyCloneOnboardingCreatesFirstWorkspace(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectGitHubAccountIsPerMachine(t *testing.T) {
+	ctx := context.Background()
+	machineA := newManager(t)
+	machineB := newManager(t)
+	path := gitRepo(t)
+	a, err := machineA.Add(ctx, project.AddInput{Path: path})
+	if err != nil {
+		t.Fatalf("machine A Add: %v", err)
+	}
+	b, err := machineB.Add(ctx, project.AddInput{Path: path})
+	if err != nil {
+		t.Fatalf("machine B Add: %v", err)
+	}
+	if _, err := machineA.SetConfig(ctx, a.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+	}}); err != nil {
+		t.Fatalf("machine A SetConfig: %v", err)
+	}
+	gotA, err := machineA.Get(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("machine A Get: %v", err)
+	}
+	gotB, err := machineB.Get(ctx, b.ID)
+	if err != nil {
+		t.Fatalf("machine B Get: %v", err)
+	}
+	if gotA.Project.Config == nil || gotA.Project.Config.GitHubAccount() != "work-account" {
+		t.Fatalf("machine A account = %#v", gotA.Project.Config)
+	}
+	if gotB.Project.Config != nil && gotB.Project.Config.GitHubAccount() != "" {
+		t.Fatalf("machine B account = %q, want untouched", gotB.Project.Config.GitHubAccount())
+	}
+}

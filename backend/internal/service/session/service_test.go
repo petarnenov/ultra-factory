@@ -5942,6 +5942,7 @@ func TestRequestKillMapsNotFound(t *testing.T) {
 func TestToSpawnAPIErrorMapsSCMIdentityUnavailableToBlockedConflict(t *testing.T) {
 	err := &scmidentity.UnavailableError{
 		ProjectID: "widgets",
+		Host:      "github.com",
 		Account:   "work-account",
 		Machine:   "worker-1",
 		Cause:     errors.New("no token"),
@@ -5954,7 +5955,7 @@ func TestToSpawnAPIErrorMapsSCMIdentityUnavailableToBlockedConflict(t *testing.T
 	if apiErr.Kind != apierr.KindConflict || apiErr.Code != "SCM_IDENTITY_UNAVAILABLE" {
 		t.Fatalf("mapped = %+v", apiErr)
 	}
-	for _, key := range []string{"projectId", "account", "machine", "fix", "blocked"} {
+	for _, key := range []string{"projectId", "host", "account", "machine", "fix", "blocked"} {
 		if _, ok := apiErr.Details[key]; !ok {
 			t.Fatalf("details %v missing %q", apiErr.Details, key)
 		}

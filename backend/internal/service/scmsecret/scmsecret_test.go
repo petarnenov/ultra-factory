@@ -12,20 +12,24 @@ import (
 
 const fakeToken = "fake-test-token-value"
 
-func TestGitHubTokenRoundTrip(t *testing.T) {
+func TestGitHubTokenRoundTripPerHost(t *testing.T) {
 	store := New(t.TempDir())
 	ctx := context.Background()
-	if err := store.SetGitHubToken(ctx, "work-account", fakeToken); err != nil {
+	if err := store.SetGitHubToken(ctx, "github.com", "work-account", fakeToken); err != nil {
 		t.Fatalf("SetGitHubToken: %v", err)
 	}
-	got, err := store.GitHubToken(ctx, "work-account")
-	if err != nil {
-		t.Fatalf("GitHubToken: %v", err)
+	if err := store.SetGitHubToken(ctx, "ghe.example.com", "work-account", "enterprise-token"); err != nil {
+		t.Fatalf("SetGitHubToken enterprise: %v", err)
 	}
-	if got != fakeToken {
-		t.Fatalf("token = %q, want stored token", got)
+	public, err := store.GitHubToken(ctx, "github.com", "work-account")
+	if err != nil || public != fakeToken {
+		t.Fatalf("public token = (%q, %v)", public, err)
 	}
-	path := filepath.Join(store.dataDir, "secrets", "github", "work-account")
+	enterprise, err := store.GitHubToken(ctx, "ghe.example.com", "work-account")
+	if err != nil || enterprise != "enterprise-token" {
+		t.Fatalf("enterprise token = (%q, %v)", enterprise, err)
+	}
+	path := filepath.Join(store.dataDir, "secrets", "github", "github.com", "work-account")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("stat token: %v", err)
@@ -44,9 +48,21 @@ func TestGitHubTokenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGitHubTokenDefaultsToGitHubCom(t *testing.T) {
+	store := New(t.TempDir())
+	ctx := context.Background()
+	if err := store.SetGitHubToken(ctx, "", "work-account", fakeToken); err != nil {
+		t.Fatalf("SetGitHubToken: %v", err)
+	}
+	got, err := store.GitHubToken(ctx, "github.com", "work-account")
+	if err != nil || got != fakeToken {
+		t.Fatalf("token = (%q, %v)", got, err)
+	}
+}
+
 func TestGitHubTokenMissing(t *testing.T) {
 	store := New(t.TempDir())
-	_, err := store.GitHubToken(context.Background(), "nobody")
+	_, err := store.GitHubToken(context.Background(), "github.com", "nobody")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
@@ -58,14 +74,14 @@ func TestGitHubTokenRejectsInsecureFile(t *testing.T) {
 	}
 	store := New(t.TempDir())
 	ctx := context.Background()
-	if err := store.SetGitHubToken(ctx, "work-account", fakeToken); err != nil {
+	if err := store.SetGitHubToken(ctx, "github.com", "work-account", fakeToken); err != nil {
 		t.Fatalf("SetGitHubToken: %v", err)
 	}
-	path := filepath.Join(store.dataDir, "secrets", "github", "work-account")
+	path := filepath.Join(store.dataDir, "secrets", "github", "github.com", "work-account")
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	_, err := store.GitHubToken(ctx, "work-account")
+	_, err := store.GitHubToken(ctx, "github.com", "work-account")
 	if !errors.Is(err, ErrInsecurePermissions) {
 		t.Fatalf("err = %v, want ErrInsecurePermissions", err)
 	}
@@ -74,61 +90,88 @@ func TestGitHubTokenRejectsInsecureFile(t *testing.T) {
 	}
 }
 
-func TestListGitHubLoginsNeverReturnsValues(t *testing.T) {
+func TestListGitHubAccountsNeverReturnsValues(t *testing.T) {
 	store := New(t.TempDir())
 	ctx := context.Background()
-	for _, login := range []string{"hobby", "Work-Account"} {
-		if err := store.SetGitHubToken(ctx, login, fakeToken); err != nil {
-			t.Fatalf("SetGitHubToken(%s): %v", login, err)
+	for _, account := range []struct{ host, login string }{
+		{"github.com", "hobby"},
+		{"github.com", "Work-Account"},
+		{"ghe.example.com", "work-account"},
+	} {
+		if err := store.SetGitHubToken(ctx, account.host, account.login, fakeToken); err != nil {
+			t.Fatalf("SetGitHubToken(%+v): %v", account, err)
 		}
 	}
-	got, err := store.GitHubToken(ctx, "work-account")
+	got, err := store.ListGitHubAccounts(ctx)
+	if err != nil {
+		t.Fatalf("ListGitHubAccounts: %v", err)
+	}
+	want := []Account{
+		{Host: "ghe.example.com", Login: "work-account"},
+		{Host: "github.com", Login: "hobby"},
+		{Host: "github.com", Login: "work-account"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("accounts = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("accounts = %+v, want %+v", got, want)
+		}
+	}
+	if strings.Contains(strings.Join([]string{got[0].Login, got[1].Login, got[2].Login}, ""), fakeToken) {
+		t.Fatal("list returned a token value")
+	}
+}
+
+func TestCaseInsensitiveHostAndLogin(t *testing.T) {
+	store := New(t.TempDir())
+	ctx := context.Background()
+	if err := store.SetGitHubToken(ctx, "GHE.Example.com", "Work-Account", fakeToken); err != nil {
+		t.Fatalf("SetGitHubToken: %v", err)
+	}
+	got, err := store.GitHubToken(ctx, "ghe.example.com", "work-account")
 	if err != nil || got != fakeToken {
 		t.Fatalf("case-insensitive lookup = (%q, %v)", got, err)
-	}
-	logins, err := store.ListGitHubLogins(ctx)
-	if err != nil {
-		t.Fatalf("ListGitHubLogins: %v", err)
-	}
-	if len(logins) != 2 || logins[0] != "hobby" || logins[1] != "work-account" {
-		t.Fatalf("logins = %v, want [hobby work-account]", logins)
-	}
-	for _, login := range logins {
-		if strings.Contains(login, fakeToken) {
-			t.Fatal("list returned a token value")
-		}
 	}
 }
 
 func TestDeleteGitHubTokenIsIdempotent(t *testing.T) {
 	store := New(t.TempDir())
 	ctx := context.Background()
-	if err := store.SetGitHubToken(ctx, "work-account", fakeToken); err != nil {
+	if err := store.SetGitHubToken(ctx, "github.com", "work-account", fakeToken); err != nil {
 		t.Fatalf("SetGitHubToken: %v", err)
 	}
-	if err := store.DeleteGitHubToken(ctx, "work-account"); err != nil {
+	if err := store.DeleteGitHubToken(ctx, "github.com", "work-account"); err != nil {
 		t.Fatalf("DeleteGitHubToken: %v", err)
 	}
-	if err := store.DeleteGitHubToken(ctx, "work-account"); err != nil {
+	if err := store.DeleteGitHubToken(ctx, "github.com", "work-account"); err != nil {
 		t.Fatalf("second DeleteGitHubToken: %v", err)
 	}
-	if _, err := store.GitHubToken(ctx, "work-account"); !errors.Is(err, ErrNotFound) {
+	if _, err := store.GitHubToken(ctx, "github.com", "work-account"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
 
-func TestRejectsUnsafeLogins(t *testing.T) {
+func TestRejectsUnsafeHostsAndLogins(t *testing.T) {
 	store := New(t.TempDir())
-	for _, login := range []string{"", " ", "../escape", "ghp_not_a_valid_login", "bad login"} {
-		if err := store.SetGitHubToken(context.Background(), login, fakeToken); err == nil {
-			t.Fatalf("SetGitHubToken(%q) = nil, want error", login)
+	for _, tc := range []struct{ host, login string }{
+		{"", ""},
+		{"https://github.com", "work-account"},
+		{"github.com/path", "work-account"},
+		{"github.com", "../escape"},
+		{"github.com", "ghp_not_a_valid_login"},
+		{"github.com", "bad login"},
+	} {
+		if err := store.SetGitHubToken(context.Background(), tc.host, tc.login, fakeToken); err == nil {
+			t.Fatalf("SetGitHubToken(%+v) = nil, want error", tc)
 		}
 	}
 }
 
 func TestRejectsMultilineToken(t *testing.T) {
 	store := New(t.TempDir())
-	err := store.SetGitHubToken(context.Background(), "work-account", "first\nsecond")
+	err := store.SetGitHubToken(context.Background(), "github.com", "work-account", "first\nsecond")
 	if err == nil {
 		t.Fatal("multiline token accepted")
 	}

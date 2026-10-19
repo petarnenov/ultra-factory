@@ -4514,6 +4514,12 @@ paths:
         schema:
           description: GitHub account login.
           type: string
+      - description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+        in: query
+        name: host
+        schema:
+          description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+          type: string
       responses:
         "200":
           content:
@@ -4545,6 +4551,12 @@ paths:
         required: true
         schema:
           description: GitHub account login.
+          type: string
+      - description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+        in: query
+        name: host
+        schema:
+          description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
           type: string
       requestBody:
         content:
@@ -14878,11 +14890,21 @@ components:
           - "null"
           - boolean
       type: object
+    GitHubSecretAccount:
+      properties:
+        host:
+          type: string
+        login:
+          type: string
+      required:
+      - host
+      - login
+      type: object
     GitHubSecretAccountsResponse:
       properties:
         accounts:
           items:
-            type: string
+            $ref: '#/components/schemas/GitHubSecretAccount'
           type: array
       required:
       - accounts
@@ -14891,10 +14913,13 @@ components:
       properties:
         account:
           type: string
+        host:
+          type: string
         status:
           type: string
       required:
       - status
+      - host
       - account
       type: object
     GitPreparationEvent:

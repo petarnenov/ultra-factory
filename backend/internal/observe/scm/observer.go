@@ -44,16 +44,15 @@ const (
 	BatchSize = 25
 )
 
-// identityKey scopes GitHub by project account and GitLab by host. An unbound
-// GitHub project keeps the machine-level identity.
+// identityKey keeps provider, host, and an optional bound account separate.
 func identityKey(provider, host, account string) string {
-	if provider == "github" {
+	key := strings.ToLower(provider) + "|" + strings.ToLower(strings.TrimSpace(host))
+	if strings.EqualFold(provider, "github") {
 		if account = strings.ToLower(strings.TrimSpace(account)); account != "" {
-			return provider + "|" + account
+			key += "|" + account
 		}
-		return provider
 	}
-	return provider + "|" + host
+	return key
 }
 
 // Provider is the normalized SCM provider contract used by the observer.
@@ -1176,7 +1175,7 @@ func (o *Observer) discoverNewPRs(ctx context.Context, sessionRepos []sessionRep
 // accountIdentityResolver is the optional capability of resolving an identity
 // behind a project-bound account instead of the machine-level token.
 type accountIdentityResolver interface {
-	AuthenticatedIdentityForAccount(ctx context.Context, provider, account string) (ports.SCMIdentity, error)
+	AuthenticatedIdentityForAccount(ctx context.Context, provider, host, account string) (ports.SCMIdentity, error)
 }
 
 // resolveIdentities resolves each provider scope once per poll. Unknown or bot
@@ -1198,7 +1197,7 @@ func (o *Observer) resolveIdentities(ctx context.Context, sessionRepos []session
 		var id ports.SCMIdentity
 		var err error
 		if account != "" && hasAccountResolver {
-			id, err = scoped.AuthenticatedIdentityForAccount(ctx, sr.repo.Provider, account)
+			id, err = scoped.AuthenticatedIdentityForAccount(ctx, sr.repo.Provider, sr.repo.Host, account)
 		} else {
 			id, err = o.scopedIdentityResolver.AuthenticatedIdentityForProvider(ctx, sr.repo.Provider, sr.repo.Host)
 		}

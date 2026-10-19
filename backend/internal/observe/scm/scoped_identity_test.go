@@ -315,11 +315,11 @@ func fetchedNumbers(batches [][]ports.SCMPRRef) map[int]bool {
 }
 
 func TestIdentityKeyScopesGitHubByProjectAccount(t *testing.T) {
-	if got := identityKey("github", "github.com", ""); got != "github" {
-		t.Fatalf("unbound github key = %q, want github", got)
+	if got := identityKey("github", "github.com", ""); got != "github|github.com" {
+		t.Fatalf("unbound github key = %q, want github|github.com", got)
 	}
-	if got := identityKey("github", "github.com", "Work-Account"); got != "github|work-account" {
-		t.Fatalf("bound github key = %q, want normalized account", got)
+	if got := identityKey("github", "github.com", "Work-Account"); got != "github|github.com|work-account" {
+		t.Fatalf("bound github key = %q, want host and normalized account", got)
 	}
 	// GitLab remains host scoped.
 	if got := identityKey("gitlab", "gitlab.com", "ignored"); got != "gitlab|gitlab.com" {
@@ -365,6 +365,6 @@ type fakeAccountIdentityResolver struct {
 	accounts map[string]ports.SCMIdentity
 }
 
-func (f *fakeAccountIdentityResolver) AuthenticatedIdentityForAccount(_ context.Context, _, account string) (ports.SCMIdentity, error) {
+func (f *fakeAccountIdentityResolver) AuthenticatedIdentityForAccount(_ context.Context, _, _, account string) (ports.SCMIdentity, error) {
 	return f.accounts[account], nil
 }

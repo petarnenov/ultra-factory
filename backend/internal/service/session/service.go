@@ -1645,6 +1645,7 @@ func toSpawnAPIError(err error) error {
 	if errors.As(err, &scmUnavailable) {
 		return apierr.Conflict("SCM_IDENTITY_UNAVAILABLE", scmUnavailable.Error(), map[string]any{
 			"projectId": scmUnavailable.ProjectID,
+			"host":      scmUnavailable.Host,
 			"account":   scmUnavailable.Account,
 			"machine":   scmUnavailable.Machine,
 			"fix":       scmUnavailable.FixCommand(),

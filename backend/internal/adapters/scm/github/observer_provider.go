@@ -50,7 +50,7 @@ func (p *Provider) ParseRepository(remote string) (ports.SCMRepo, bool) {
 
 // RepoPRListGuard checks GitHub's cheap open-PR-list ETag guard.
 func (p *Provider) RepoPRListGuard(ctx context.Context, repo ports.SCMRepo, etag string) (ports.SCMGuardResult, error) {
-	scoped, err := p.withAccountToken(ctx, repo.Account)
+	scoped, err := p.withAccountToken(ctx, repo.Host, repo.Account)
 	if err != nil {
 		return ports.SCMGuardResult{}, err
 	}
@@ -71,7 +71,7 @@ func (p *Provider) RepoPRListGuard(ctx context.Context, repo ports.SCMRepo, etag
 // those updated after updatedAfter (zero = full listing). It paginates the REST
 // pulls endpoint using state=open and sort=updated
 func (p *Provider) ListPRsByRepo(ctx context.Context, repo ports.SCMRepo, updatedAfter time.Time) ([]ports.SCMPRObservation, error) {
-	scoped, err := p.withAccountToken(ctx, repo.Account)
+	scoped, err := p.withAccountToken(ctx, repo.Host, repo.Account)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (p *Provider) CommitChecksGuard(ctx context.Context, repo ports.SCMRepo, he
 	if strings.TrimSpace(headSHA) == "" {
 		return ports.SCMGuardResult{}, fmt.Errorf("%w: empty head sha", ErrNotFound)
 	}
-	scoped, err := p.withAccountToken(ctx, repo.Account)
+	scoped, err := p.withAccountToken(ctx, repo.Host, repo.Account)
 	if err != nil {
 		return ports.SCMGuardResult{}, err
 	}
@@ -247,26 +247,28 @@ func (p *Provider) FetchPullRequests(ctx context.Context, refs []ports.SCMPRRef)
 		return nil, nil
 	}
 	type accountGroup struct {
+		host    string
+		account string
 		indices []int
 		refs    []ports.SCMPRRef
 	}
 	groups := map[string]*accountGroup{}
 	order := make([]string, 0, 1)
 	for i, ref := range refs {
-		account := ref.Repo.Account
-		group, ok := groups[account]
+		key := strings.ToLower(ref.Repo.Host) + "\x00" + strings.ToLower(ref.Repo.Account)
+		group, ok := groups[key]
 		if !ok {
-			group = &accountGroup{}
-			groups[account] = group
-			order = append(order, account)
+			group = &accountGroup{host: ref.Repo.Host, account: ref.Repo.Account}
+			groups[key] = group
+			order = append(order, key)
 		}
 		group.indices = append(group.indices, i)
 		group.refs = append(group.refs, ref)
 	}
 	out := make([]ports.SCMObservation, len(refs))
-	for _, account := range order {
-		group := groups[account]
-		scoped, err := p.withAccountToken(ctx, account)
+	for _, key := range order {
+		group := groups[key]
+		scoped, err := p.withAccountToken(ctx, group.host, group.account)
 		if err != nil {
 			return nil, err
 		}
@@ -325,7 +327,7 @@ func (p *Provider) FetchFailedCheckLogTail(ctx context.Context, repo ports.SCMRe
 	if check.ProviderID == "" {
 		return "", nil
 	}
-	scoped, err := p.withAccountToken(ctx, repo.Account)
+	scoped, err := p.withAccountToken(ctx, repo.Host, repo.Account)
 	if err != nil {
 		return "", err
 	}
@@ -346,7 +348,7 @@ func (p *Provider) FetchFailedCheckLogTail(ctx context.Context, repo ports.SCMRe
 
 // FetchReviewThreads fetches review threads separately from the fast PR/CI path.
 func (p *Provider) FetchReviewThreads(ctx context.Context, ref ports.SCMPRRef) (ports.SCMReviewObservation, error) {
-	scoped, err := p.withAccountToken(ctx, ref.Repo.Account)
+	scoped, err := p.withAccountToken(ctx, ref.Repo.Host, ref.Repo.Account)
 	if err != nil {
 		return ports.SCMReviewObservation{}, err
 	}
@@ -883,7 +885,7 @@ func makeGitHubRepo(host, owner, name string) ports.SCMRepo {
 }
 
 func isGitHubHost(host string) bool {
-	return host == "github.com" || host == "www.github.com" || host == "api.github.com" || strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io")
+	return host == "github.com" || host == "www.github.com" || host == "api.github.com" || strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") || strings.HasSuffix(host, ".ghe.com")
 }
 
 func graphQLString(s string) string {

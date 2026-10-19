@@ -12,6 +12,7 @@ import (
 type secretCapture struct {
 	method string
 	path   string
+	query  string
 	body   []byte
 }
 
@@ -21,6 +22,7 @@ func secretServer(t *testing.T, response string) (*httptest.Server, *secretCaptu
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capture.method = r.Method
 		capture.path = r.URL.Path
+		capture.query = r.URL.RawQuery
 		data, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Errorf("read request body: %v", err)
@@ -41,7 +43,7 @@ func secretServer(t *testing.T, response string) (*httptest.Server, *secretCaptu
 func TestSecretSetReadsTokenFromStdin(t *testing.T) {
 	const fakeToken = "fake-test-token-value"
 	cfg := setConfigEnv(t)
-	srv, capture := secretServer(t, `{"status":"ok","account":"work-account"}`)
+	srv, capture := secretServer(t, `{"status":"ok","host":"github.com","account":"work-account"}`)
 	writeRunFileFor(t, cfg, srv)
 
 	out, errOut, err := executeCLI(t, Deps{
@@ -68,7 +70,7 @@ func TestSecretSetReadsTokenFromStdin(t *testing.T) {
 
 func TestSecretListShowsLoginsOnly(t *testing.T) {
 	cfg := setConfigEnv(t)
-	srv, capture := secretServer(t, `{"accounts":["hobby","work-account"]}`)
+	srv, capture := secretServer(t, `{"accounts":[{"host":"github.com","login":"hobby"},{"host":"ghe.example.com","login":"work-account"}]}`)
 	writeRunFileFor(t, cfg, srv)
 
 	out, errOut, err := executeCLI(t, Deps{
@@ -80,8 +82,8 @@ func TestSecretListShowsLoginsOnly(t *testing.T) {
 	if capture.method != http.MethodGet || capture.path != "/api/v1/secrets/github" {
 		t.Fatalf("request = %s %s, want GET /api/v1/secrets/github", capture.method, capture.path)
 	}
-	if !strings.Contains(out, "github/hobby") || !strings.Contains(out, "github/work-account") {
-		t.Fatalf("output = %q, want both logins", out)
+	if !strings.Contains(out, "github/github.com/hobby") || !strings.Contains(out, "github/ghe.example.com/work-account") {
+		t.Fatalf("output = %q, want both host/logins", out)
 	}
 	if strings.Contains(out, "fake-test-token") {
 		t.Fatal("list output contained a token")
@@ -90,7 +92,7 @@ func TestSecretListShowsLoginsOnly(t *testing.T) {
 
 func TestSecretRemove(t *testing.T) {
 	cfg := setConfigEnv(t)
-	srv, capture := secretServer(t, `{"status":"ok","account":"work-account"}`)
+	srv, capture := secretServer(t, `{"status":"ok","host":"github.com","account":"work-account"}`)
 	writeRunFileFor(t, cfg, srv)
 
 	_, errOut, err := executeCLI(t, Deps{
@@ -111,5 +113,29 @@ func TestSecretSetRejectsUnsupportedProvider(t *testing.T) {
 	}
 	if ExitCode(err) != 2 {
 		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	}
+}
+
+func TestSecretSetAndRemovePassGitHubHost(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := secretServer(t, `{"status":"ok","host":"ghe.example.com","account":"work-account"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	if _, errOut, err := executeCLI(t, Deps{
+		In:           strings.NewReader("fake-test-token-value\n"),
+		ProcessAlive: func(int) bool { return true },
+	}, "secret", "set", "github", "work-account", "--host", "ghe.example.com"); err != nil {
+		t.Fatalf("set: unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if capture.query != "host=ghe.example.com" {
+		t.Fatalf("set query = %q, want host", capture.query)
+	}
+	if _, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "secret", "rm", "github", "work-account", "--host", "ghe.example.com"); err != nil {
+		t.Fatalf("rm: unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if capture.query != "host=ghe.example.com" {
+		t.Fatalf("rm query = %q, want host", capture.query)
 	}
 }

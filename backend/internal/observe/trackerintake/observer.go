@@ -341,8 +341,8 @@ func trackerRepo(project domain.ProjectRecord, cfg domain.TrackerIntakeConfig) (
 
 // parseRepoNative extracts the provider-native repo identifier ("owner/repo"
 // or "group/subgroup/repo") from a remote URL. For GitHub it accepts
-// github.com, *.github.com, and *.ghe.io hosts. For GitLab it accepts any
-// host (self-managed hosts are validated by the SCM provider at fetch time).
+// github.com, *.github.com, and *.ghe.io/*.ghe.com hosts. For GitLab it
+// accepts any host (self-managed hosts are validated by the SCM provider).
 func parseRepoNative(remote string, provider domain.TrackerProvider) (string, bool) {
 	remote = strings.TrimSpace(remote)
 	if remote == "" {
@@ -357,7 +357,7 @@ func parseRepoNative(remote string, provider domain.TrackerProvider) (string, bo
 	if u, err := url.Parse(remote); err == nil && u.Host != "" {
 		if provider == domain.TrackerProviderGitHub {
 			host := strings.TrimPrefix(strings.ToLower(u.Host), "www.")
-			if host == "github.com" || strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") {
+			if host == "github.com" || strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") || strings.HasSuffix(host, ".ghe.com") {
 				return cleanRepoPath(u.Path, provider), true
 			}
 			return "", false

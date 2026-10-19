@@ -46,14 +46,21 @@ type PutGitHubSecretRequest struct {
 	Token string `json:"token" minLength:"1"`
 }
 
-// GitHubSecretAccountsResponse lists stored GitHub logins without values.
+// GitHubSecretAccount is one stored host/login pair without a value.
+type GitHubSecretAccount struct {
+	Host  string `json:"host"`
+	Login string `json:"login"`
+}
+
+// GitHubSecretAccountsResponse lists stored GitHub accounts without values.
 type GitHubSecretAccountsResponse struct {
-	Accounts []string `json:"accounts"`
+	Accounts []GitHubSecretAccount `json:"accounts"`
 }
 
 // GitHubSecretMutationResponse acknowledges a stored or removed login.
 type GitHubSecretMutationResponse struct {
 	Status  string `json:"status"`
+	Host    string `json:"host"`
 	Account string `json:"account"`
 }
 
@@ -211,6 +218,11 @@ type CodexAccountSwitchIDParam struct {
 // GitHub secret routes.
 type GitHubLoginParam struct {
 	Login string `path:"login" description:"GitHub account login."`
+}
+
+// GitHubSecretHostQuery selects the GitHub host for a secret route.
+type GitHubSecretHostQuery struct {
+	Host string `query:"host" description:"GitHub host, for example geowealth.ghe.com. Defaults to github.com."`
 }
 
 // ListProjectsResponse is the body of GET /api/v1/projects.

@@ -592,6 +592,7 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"GithubpatRepo":                  "GitHubRepo",
 	// httpd/controllers: machine-local SCM secret wire envelopes
 	"ControllersPutGitHubSecretRequest":       "PutGitHubSecretRequest",
+	"ControllersGitHubSecretAccount":          "GitHubSecretAccount",
 	"ControllersGitHubSecretAccountsResponse": "GitHubSecretAccountsResponse",
 	"ControllersGitHubSecretMutationResponse": "GitHubSecretMutationResponse",
 }
@@ -3470,7 +3471,7 @@ func prOperations() []operation {
 		{
 			method: http.MethodPut, path: "/api/v1/secrets/github/{login}", id: "putGitHubSecret", tag: "secrets",
 			summary:    "Store a machine-local GitHub token for an account",
-			pathParams: []any{controllers.GitHubLoginParam{}},
+			pathParams: []any{controllers.GitHubLoginParam{}, controllers.GitHubSecretHostQuery{}},
 			reqBody:    controllers.PutGitHubSecretRequest{},
 			resps: []respUnit{
 				{http.StatusOK, controllers.GitHubSecretMutationResponse{}},
@@ -3486,7 +3487,7 @@ func prOperations() []operation {
 		{
 			method: http.MethodDelete, path: "/api/v1/secrets/github/{login}", id: "deleteGitHubSecret", tag: "secrets",
 			summary:    "Remove a machine-local GitHub token for an account",
-			pathParams: []any{controllers.GitHubLoginParam{}},
+			pathParams: []any{controllers.GitHubLoginParam{}, controllers.GitHubSecretHostQuery{}},
 			resps: []respUnit{
 				{http.StatusOK, controllers.GitHubSecretMutationResponse{}},
 				{http.StatusBadRequest, envelope.APIError{}},

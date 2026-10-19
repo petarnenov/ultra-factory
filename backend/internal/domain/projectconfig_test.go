@@ -177,6 +177,7 @@ func TestInferTrackerProvider(t *testing.T) {
 		{"https github", "https://github.com/acme/demo.git", TrackerProviderGitHub},
 		{"ssh github", "git@github.com:acme/demo.git", TrackerProviderGitHub},
 		{"ghe host", "https://ghe.corp.ghe.io/acme/demo.git", TrackerProviderGitHub},
+		{"ghe.com host", "https://acme.ghe.com/acme/demo.git", TrackerProviderGitHub},
 		{"github with port", "https://github.com:443/org/repo.git", TrackerProviderGitHub},
 		{"ssh github with port", "ssh://git@github.com:2222/org/repo.git", TrackerProviderGitHub},
 		{"https gitlab.com", "https://gitlab.com/group/repo.git", TrackerProviderGitLab},

@@ -11,7 +11,7 @@ import (
 // AccountTokenSource resolves a project-bound GitHub login to a token on the
 // machine running the daemon. Implementations must never log the token.
 type AccountTokenSource interface {
-	TokenForAccount(ctx context.Context, account string) (string, error)
+	TokenForAccount(ctx context.Context, host, account string) (string, error)
 }
 
 type accountTokenContextKey struct{}
@@ -32,34 +32,39 @@ func accountTokenFromContext(ctx context.Context) (string, bool) {
 
 // withAccountToken resolves account for one call. An account whose token is
 // missing is an auth-class failure, not a silent fallback to another account.
-func (p *Provider) withAccountToken(ctx context.Context, account string) (context.Context, error) {
+func (p *Provider) withAccountToken(ctx context.Context, host, account string) (context.Context, error) {
 	account = strings.TrimSpace(account)
 	if account == "" || p.accounts == nil {
 		return ctx, nil
 	}
-	token, err := p.accounts.TokenForAccount(ctx, account)
+	token, err := p.accounts.TokenForAccount(ctx, host, account)
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve GitHub account %q: %w", ErrAuthFailed, account, err)
+		return nil, fmt.Errorf("%w: resolve GitHub account %q on %q: %w", ErrAuthFailed, account, host, err)
 	}
 	return WithAccountToken(ctx, token), nil
 }
 
 // AuthenticatedIdentityForAccount returns the identity behind a project-bound
-// login, caching one result per account for the provider's lifetime.
-func (p *Provider) AuthenticatedIdentityForAccount(ctx context.Context, account string) (ports.SCMIdentity, error) {
+// login, caching one result per host/account for the provider's lifetime.
+func (p *Provider) AuthenticatedIdentityForAccount(ctx context.Context, host, account string) (ports.SCMIdentity, error) {
 	account = strings.TrimSpace(account)
 	if account == "" {
 		return p.AuthenticatedIdentity(ctx)
 	}
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		host = "github.com"
+	}
+	cacheKey := host + "|" + account
 	p.accountIdentityMu.Lock()
 	defer p.accountIdentityMu.Unlock()
 	if p.accountIdentities == nil {
 		p.accountIdentities = map[string]ports.SCMIdentity{}
 	}
-	if identity, ok := p.accountIdentities[account]; ok {
+	if identity, ok := p.accountIdentities[cacheKey]; ok {
 		return identity, nil
 	}
-	scoped, err := p.withAccountToken(ctx, account)
+	scoped, err := p.withAccountToken(ctx, host, account)
 	if err != nil {
 		return ports.SCMIdentity{}, err
 	}
@@ -67,6 +72,6 @@ func (p *Provider) AuthenticatedIdentityForAccount(ctx context.Context, account 
 	if err != nil {
 		return ports.SCMIdentity{}, err
 	}
-	p.accountIdentities[account] = identity
+	p.accountIdentities[cacheKey] = identity
 	return identity, nil
 }

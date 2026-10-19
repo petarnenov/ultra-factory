@@ -1674,7 +1674,7 @@ type fakeSCMTokenStore struct {
 	err   error
 }
 
-func (f fakeSCMTokenStore) GitHubToken(context.Context, string) (string, error) {
+func (f fakeSCMTokenStore) GitHubToken(context.Context, string, string) (string, error) {
 	return f.token, f.err
 }
 

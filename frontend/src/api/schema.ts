@@ -5066,11 +5066,16 @@ export interface components {
             owner?: string;
             private?: null | boolean;
         };
+        GitHubSecretAccount: {
+            host: string;
+            login: string;
+        };
         GitHubSecretAccountsResponse: {
-            accounts: string[];
+            accounts: components["schemas"]["GitHubSecretAccount"][];
         };
         GitHubSecretMutationResponse: {
             account: string;
+            host: string;
             status: string;
         };
         GitPreparationEvent: {
@@ -12754,7 +12759,10 @@ export interface operations {
     };
     putGitHubSecret: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description GitHub host, for example geowealth.ghe.com. Defaults to github.com. */
+                host?: string;
+            };
             header?: never;
             path: {
                 /** @description GitHub account login. */
@@ -12799,7 +12807,10 @@ export interface operations {
     };
     deleteGitHubSecret: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description GitHub host, for example geowealth.ghe.com. Defaults to github.com. */
+                host?: string;
+            };
             header?: never;
             path: {
                 /** @description GitHub account login. */

@@ -1,5 +1,5 @@
-// Package scmsecret stores per-machine SCM credentials under the AO data
-// directory. The token leaves only as an in-memory session value.
+// Package scmsecret stores per-machine, per-host SCM credentials under the AO
+// data directory. Tokens leave only as in-memory session values.
 package scmsecret
 
 import (
@@ -15,12 +15,18 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
-// ErrNotFound reports that no token is stored for the requested login.
+// ErrNotFound reports that no token is stored for the requested host and login.
 var ErrNotFound = errors.New("scm secret: no token stored for this account")
 
 // ErrInsecurePermissions reports a token file readable by another user on
 // platforms where Go can represent those mode bits.
 var ErrInsecurePermissions = errors.New("scm secret: token file permissions are too broad")
+
+// Account identifies one stored GitHub host/login pair.
+type Account struct {
+	Host  string `json:"host"`
+	Login string `json:"login"`
+}
 
 // Store is a machine-local GitHub token store rooted at $AO_DATA_DIR.
 type Store struct {
@@ -37,20 +43,27 @@ func (s *Store) githubDir() string {
 	return filepath.Join(s.dataDir, "secrets", "github")
 }
 
-func (s *Store) path(login string) (string, error) {
+func (s *Store) path(host, login string) (string, error) {
 	if s == nil || s.dataDir == "" {
 		return "", errors.New("scm secret: AO data directory is not configured")
+	}
+	normalizedHost, err := domain.NormalizeGitHubHost(host)
+	if err != nil {
+		return "", fmt.Errorf("scm secret: invalid GitHub host %q: %w", host, err)
+	}
+	if strings.TrimSpace(login) == "" {
+		return "", errors.New("scm secret: login is required")
 	}
 	if err := domain.ValidateGitHubAccount(login); err != nil {
 		return "", fmt.Errorf("scm secret: invalid GitHub login %q: %w", login, err)
 	}
-	// GitHub logins are case-insensitive; keep one secret per login.
-	return filepath.Join(s.githubDir(), strings.ToLower(login)), nil
+	// Both host and login are case-insensitive.
+	return filepath.Join(s.githubDir(), normalizedHost, strings.ToLower(login)), nil
 }
 
-// GitHubToken returns the token stored for login on this machine.
-func (s *Store) GitHubToken(_ context.Context, login string) (string, error) {
-	path, err := s.path(login)
+// GitHubToken returns the token stored for host/login on this machine.
+func (s *Store) GitHubToken(_ context.Context, host, login string) (string, error) {
+	path, err := s.path(host, login)
 	if err != nil {
 		return "", err
 	}
@@ -78,10 +91,10 @@ func (s *Store) GitHubToken(_ context.Context, login string) (string, error) {
 	return token, nil
 }
 
-// SetGitHubToken stores token for login with owner-only permissions. The write
-// is atomic so a crash cannot leave a partial token in place.
-func (s *Store) SetGitHubToken(_ context.Context, login, token string) error {
-	path, err := s.path(login)
+// SetGitHubToken stores token for host/login with owner-only permissions. The
+// write is atomic so a crash cannot leave a partial token in place.
+func (s *Store) SetGitHubToken(_ context.Context, host, login, token string) error {
+	path, err := s.path(host, login)
 	if err != nil {
 		return err
 	}
@@ -92,16 +105,18 @@ func (s *Store) SetGitHubToken(_ context.Context, login, token string) error {
 	if strings.ContainsAny(token, "\r\n\x00") {
 		return errors.New("scm secret: token must be a single line")
 	}
-	if err := os.MkdirAll(s.githubDir(), 0o700); err != nil {
+	hostDir := filepath.Dir(path)
+	if err := os.MkdirAll(hostDir, 0o700); err != nil {
 		return fmt.Errorf("scm secret: create secret directory: %w", err)
 	}
-	// MkdirAll leaves an existing directory's mode alone, so tighten it here.
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(s.githubDir(), 0o700); err != nil { //nolint:gosec // G302: directories need 0700, not 0600.
-			return fmt.Errorf("scm secret: secure secret directory: %w", err)
+		for _, dir := range []string{s.githubDir(), hostDir} {
+			if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // G302: directories need 0700, not 0600.
+				return fmt.Errorf("scm secret: secure secret directory: %w", err)
+			}
 		}
 	}
-	tmp, err := os.CreateTemp(s.githubDir(), ".token-*")
+	tmp, err := os.CreateTemp(hostDir, ".token-*")
 	if err != nil {
 		return fmt.Errorf("scm secret: create temp token file: %w", err)
 	}
@@ -141,8 +156,8 @@ func (s *Store) SetGitHubToken(_ context.Context, login, token string) error {
 }
 
 // DeleteGitHubToken removes a stored token. A missing token is not an error.
-func (s *Store) DeleteGitHubToken(_ context.Context, login string) error {
-	path, err := s.path(login)
+func (s *Store) DeleteGitHubToken(_ context.Context, host, login string) error {
+	path, err := s.path(host, login)
 	if err != nil {
 		return err
 	}
@@ -152,28 +167,46 @@ func (s *Store) DeleteGitHubToken(_ context.Context, login string) error {
 	return nil
 }
 
-// ListGitHubLogins returns the stored logins, never the token values.
-func (s *Store) ListGitHubLogins(_ context.Context) ([]string, error) {
+// ListGitHubAccounts returns stored host/login pairs, never token values.
+func (s *Store) ListGitHubAccounts(_ context.Context) ([]Account, error) {
 	if s == nil || s.dataDir == "" {
 		return nil, errors.New("scm secret: AO data directory is not configured")
 	}
-	entries, err := os.ReadDir(s.githubDir())
+	hosts, err := os.ReadDir(s.githubDir())
 	if errors.Is(err, os.ErrNotExist) {
-		return []string{}, nil
+		return []Account{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scm secret: list secret directory: %w", err)
 	}
-	logins := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+	accounts := make([]Account, 0, len(hosts))
+	for _, hostEntry := range hosts {
+		if !hostEntry.IsDir() || strings.HasPrefix(hostEntry.Name(), ".") {
 			continue
 		}
-		if domain.ValidateGitHubAccount(entry.Name()) != nil {
+		host, err := domain.NormalizeGitHubHost(hostEntry.Name())
+		if err != nil || host != hostEntry.Name() {
 			continue
 		}
-		logins = append(logins, entry.Name())
+		logins, err := os.ReadDir(filepath.Join(s.githubDir(), hostEntry.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("scm secret: list host directory: %w", err)
+		}
+		for _, loginEntry := range logins {
+			if loginEntry.IsDir() || strings.HasPrefix(loginEntry.Name(), ".") {
+				continue
+			}
+			if domain.ValidateGitHubAccount(loginEntry.Name()) != nil {
+				continue
+			}
+			accounts = append(accounts, Account{Host: host, Login: loginEntry.Name()})
+		}
 	}
-	sort.Strings(logins)
-	return logins, nil
+	sort.Slice(accounts, func(i, j int) bool {
+		if accounts[i].Host != accounts[j].Host {
+			return accounts[i].Host < accounts[j].Host
+		}
+		return accounts[i].Login < accounts[j].Login
+	})
+	return accounts, nil
 }

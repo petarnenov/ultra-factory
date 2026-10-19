@@ -24,7 +24,7 @@ func (p *Provider) RequestReview(ctx context.Context, request ports.SCMReviewReq
 	if reviewer == "" {
 		return fmt.Errorf("github scm: reviewer is required")
 	}
-	scoped, err := p.withAccountToken(ctx, request.PR.Repo.Account)
+	scoped, err := p.withAccountToken(ctx, request.PR.Repo.Host, request.PR.Repo.Account)
 	if err != nil {
 		return err
 	}

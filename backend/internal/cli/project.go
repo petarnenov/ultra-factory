@@ -377,6 +377,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.BoolVar(&opts.terminateOnPRMerge, "terminate-on-pr-merge", false, "Terminate spawned sessions for this project after all their PRs merge and their agents quiesce")
 	f.BoolVar(&opts.clear, "clear", false, "Clear all config")
 	f.BoolVar(&opts.json, "json", false, "Output the updated project as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

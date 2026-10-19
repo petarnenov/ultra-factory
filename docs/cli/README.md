@@ -90,9 +90,9 @@ commit and records which tree the verdict read. See
 | `ao project get <id>`               | `GET /api/v1/projects/{id}`                    |
 | `ao project set-config <id>`        | `PUT /api/v1/projects/{id}/config`             |
 | `ao project rm <id>`                | `DELETE /api/v1/projects/{id}`                 |
-| `ao secret set github <login>`      | `PUT /api/v1/secrets/github/{login}` (token from stdin) |
+| `ao secret set github <login> [--host <host>]` | `PUT /api/v1/secrets/github/{login}?host=` (token from stdin) |
 | `ao secret ls`                      | `GET /api/v1/secrets/github`                   |
-| `ao secret rm github <login>`       | `DELETE /api/v1/secrets/github/{login}`        |
+| `ao secret rm github <login> [--host <host>]` | `DELETE /api/v1/secrets/github/{login}?host=` |
 | `ao agent ls`                       | `POST /api/v1/agents/readiness/ensure` (`display`) |
 | `ao agent ls --refresh`             | `POST /api/v1/agents/refresh` (forced checks) |
 | `ao automation create/list/get/update/delete/runs` | `POST/GET/PATCH/DELETE /api/v1/automations` |
