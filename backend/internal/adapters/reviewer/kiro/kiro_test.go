@@ -78,7 +78,7 @@ func TestReviewCommandBuildsReadOnlyInteractiveTUI(t *testing.T) {
 		t.Fatalf("shell policy = %+v", cfg.ToolsSettings.Shell)
 	}
 	for _, command := range []string{
-		`gh api repos/o/r/pulls/1/reviews --jq 'map(select(.state == "PENDING"))[0].id'`,
+		`gh api --paginate repos/o/r/pulls/1/reviews --jq 'map(select(.state == "PENDING"))[]?.id'`,
 		`gh api --method DELETE repos/o/r/pulls/1/reviews/5576898552`,
 	} {
 		matched := false

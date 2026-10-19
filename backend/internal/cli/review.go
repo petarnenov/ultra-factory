@@ -323,10 +323,8 @@ func (c *commandContext) submitReviewBatch(cmd *cobra.Command, session string, o
 	return err
 }
 
-// postReviewJSON retries only transport-level daemon unavailability. The
-// service accepts an identical completed result idempotently, so replay is safe
-// even when a connection drops after the daemon committed the first request.
-// Validation/API errors still return immediately and are never retried.
+// postReviewJSON retries only transport-level daemon unavailability. Identical
+// completed or failed results replay idempotently; validation errors do not retry.
 func (c *commandContext) postReviewJSON(ctx context.Context, path string, body submitReviewRequest, out *reviewRunResponse) error {
 	retryCtx, cancel := context.WithTimeout(ctx, reviewSubmitRetryWindow)
 	defer cancel()

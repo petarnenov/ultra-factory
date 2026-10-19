@@ -513,7 +513,7 @@ var reviewerSubmitCommandPattern = regexp.MustCompile(`^printf '%s' ` + reviewer
 // reviewerClearPendingReviewPattern admits the two exact commands that clear a
 // stale draft review: list the pending id, then delete that review.
 var reviewerClearPendingReviewPattern = regexp.MustCompile(`^(?:` +
-	`gh api repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/[0-9]+/reviews --jq 'map\(select\(\.state == "PENDING"\)\)\[0\]\.id'` +
+	`gh api --paginate repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/[0-9]+/reviews --jq 'map\(select\(\.state == "PENDING"\)\)\[\]\?\.id'` +
 	`|gh api --method DELETE repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/[0-9]+/reviews/[0-9]+` +
 	`)$`)
 

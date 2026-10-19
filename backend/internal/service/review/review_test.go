@@ -370,6 +370,39 @@ func TestSubmitRecordsUnpublishedReviewAsFailedAndDeliversFindings(t *testing.T)
 	}
 }
 
+func TestSubmitReplaysUnpublishedReviewWithoutDuplicatingDelivery(t *testing.T) {
+	st := &fakeStore{
+		ok: true,
+		run: domain.ReviewRun{
+			ID: "run-1", SessionID: "mer-1", PRURL: "https://github.com/acme/app/pull/42",
+			Status: domain.ReviewRunRunning,
+		},
+	}
+	delivery := &fakeWorkerDelivery{}
+	sink := &recordingSink{}
+	svc := New(nil, st, WithWorkerDelivery(delivery), WithTelemetry(sink))
+
+	body := "src/auth.go:42: close the token file before returning"
+	for i := 0; i < 2; i++ {
+		run, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictChangesRequested, body, "")
+		if err != nil {
+			t.Fatalf("Submit %d: %v", i, err)
+		}
+		if run.Status != domain.ReviewRunFailed {
+			t.Fatalf("Submit %d run = %+v, want failed", i, run)
+		}
+	}
+	if st.updateCalls != 1 {
+		t.Fatalf("update calls = %d, want 1 across the replay", st.updateCalls)
+	}
+	if len(delivery.sends) != 1 {
+		t.Fatalf("deliveries = %d, want 1 across the replay", len(delivery.sends))
+	}
+	if got := len(sink.named("ao.review.publish_failed")); got != 1 {
+		t.Fatalf("ao.review.publish_failed count = %d, want 1 across the replay", got)
+	}
+}
+
 func TestUnpublishedReviewDeliveryRespectsDisabledInjection(t *testing.T) {
 	disabled := false
 	st := &fakeStore{

@@ -154,7 +154,7 @@ func shellAllowedCommands(inv ports.ReviewInvocation) []string {
 		`^` + base64Pipe + `gh api --method POST repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews --input - --jq '[.]id'$`,
 		`^` + base64Pipe + `ao review submit --session ` + session + ` --reviews -$`,
 		// Clearing a stale draft review before the POST needs no JSON input.
-		`^gh api repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews --jq 'map\(select\(\.state == "PENDING"\)\)\[0\]\.id'$`,
+		`^gh api --paginate repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews --jq 'map\(select\(\.state == "PENDING"\)\)\[\]\?\.id'$`,
 		`^gh api --method DELETE repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews/[0-9]+$`,
 	}
 }

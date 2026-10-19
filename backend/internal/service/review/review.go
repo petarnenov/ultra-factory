@@ -911,6 +911,13 @@ func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, revi
 		}
 	case domain.ReviewRunDelivered:
 		return run, nil
+	case domain.ReviewRunFailed:
+		// A retry after a dropped connection may replay the identical failed
+		// submission. Return the recorded run instead of reporting it superseded.
+		if githubReviewID == "" && run.Body == unpublishedReviewRecordBody(verdict, body) {
+			return run, nil
+		}
+		return domain.ReviewRun{}, fmt.Errorf("%w: review run %q is not running", errRunSuperseded, runID)
 	default:
 		return domain.ReviewRun{}, fmt.Errorf("%w: review run %q is not running", errRunSuperseded, runID)
 	}

@@ -2252,10 +2252,10 @@ func TestHooks_ReviewerPermissionRequestAnswersInsteadOfBlocking(t *testing.T) {
 	}{
 		{"ao review submit pipe", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' ` + submitJSON + ` | ao review submit --session worker-7 --reviews -"}}`, "allow"},
 		{"gh api review post", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{ \"event\": \"COMMENT\", \"body\": \"ok\" }' | gh api --method POST repos/acme/app/pulls/12/reviews --input - --jq '.id'"}}`, "allow"},
-		{"clear pending review", `{"tool_name":"Bash","tool_input":{"command":"gh api repos/acme/app/pulls/12/reviews --jq 'map(select(.state == \"PENDING\"))[0].id'"}}`, "allow"},
+		{"clear pending review", `{"tool_name":"Bash","tool_input":{"command":"gh api --paginate repos/acme/app/pulls/12/reviews --jq 'map(select(.state == \"PENDING\"))[]?.id'"}}`, "allow"},
 		{"delete pending review", `{"tool_name":"Bash","tool_input":{"command":"gh api --method DELETE repos/acme/app/pulls/12/reviews/5576898552"}}`, "allow"},
 		{"delete other resource", `{"tool_name":"Bash","tool_input":{"command":"gh api --method DELETE repos/acme/app/issues/12"}}`, "deny"},
-		{"list pending review pipeline", `{"tool_name":"Bash","tool_input":{"command":"gh api repos/acme/app/pulls/12/reviews --jq 'map(select(.state == \"PENDING\"))[0].id' | head -n1"}}`, "deny"},
+		{"list pending review pipeline", `{"tool_name":"Bash","tool_input":{"command":"gh api --paginate repos/acme/app/pulls/12/reviews --jq 'map(select(.state == \"PENDING\"))[]?.id' | head -n1"}}`, "deny"},
 		{"delete pending review without worker session", `{"tool_name":"Bash","tool_input":{"command":"gh api --method DELETE repos/acme/app/pulls/12/reviews/5576898552"}}`, "deny"},
 		{"other worker session", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{}' | ao review submit --session worker-9 --reviews -"}}`, "deny"},
 		{"unset worker session id", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{}' | ao review submit --session worker-7 --reviews -"}}`, "deny"},

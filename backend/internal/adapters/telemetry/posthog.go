@@ -182,6 +182,14 @@ var remotePayloadAllowlist = map[string]map[string]struct{}{
 		"trigger":            {},
 		"verdict":            {},
 	},
+	"ao.review.publish_failed": {
+		"auto_inject":        {},
+		"body_bytes":         {},
+		"harness":            {},
+		"intended_verdict":   {},
+		"posted_to_provider": {},
+		"trigger":            {},
+	},
 	"ao.review.cancelled": {
 		"cancelled_runs": {},
 	},
