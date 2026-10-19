@@ -38,8 +38,7 @@ orchestrator may change it and says why in an issue comment.
 | `priority:medium`   | Normal work. The default for a newly filed issue.                   | Bind a GitHub account to a project.                 |
 | `priority:low`      | Nice to have; nothing shipped is blocked.                           | A feature request with no current owner.            |
 
-The label sets live in the repository. In a fork or a new clone of the issue
-tracker, create them with:
+The label sets live in the issue tracker. Create them in a fork with:
 
 ```bash
 gh label create chore --description "Maintenance, tooling, CI, or dependency work" --color "fef2c0"
