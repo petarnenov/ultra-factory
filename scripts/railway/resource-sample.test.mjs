@@ -134,6 +134,37 @@ test('captureSample keeps the usage reading when ps fails', async () => {
 	assert.equal(record.processError, 'ps not found');
 });
 
+test('parsePs drops the sampler and its parent before filtering', () => {
+	const text = [
+		'  100    50  0.0   900 node /tmp/resource-sample.mjs --ps bff/src/main.ts',
+		'   50     1  0.0   800 sh -c node /tmp/resource-sample.mjs --ps bff',
+		'   42     1  1.5  5678 node /opt/ao/hub/bff/src/main.ts',
+	].join('\n');
+	const rows = parsePs(text, ['bff/src/main.ts'], [100, 50]);
+	assert.deepEqual(rows.map((row) => row.pid), [42]);
+});
+
+test('captureSample keeps its own and parent pids out of injected ps rows', async () => {
+	const calls = [];
+	const record = await captureSample(
+		{ label: 'hub', baseUrl: 'http://127.0.0.1:3001', ps: ['bff'] },
+		{
+			excludePids: [100, 50],
+			fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+			psImpl: async (patterns, excludePids) => {
+				calls.push({ patterns, excludePids });
+				return [
+					{ pid: 100, command: 'node ... --ps bff' },
+					{ pid: 50, command: 'sh -c node ... --ps bff' },
+					{ pid: 42, command: 'node bff/src/main.ts' },
+				];
+			},
+		},
+	);
+	assert.deepEqual(calls, [{ patterns: ['bff'], excludePids: [100, 50] }]);
+	assert.deepEqual(record.processes.map((row) => row.pid), [42]);
+});
+
 test('captureSample rejects a non-OK route response', async () => {
 	await assert.rejects(
 		captureSample(

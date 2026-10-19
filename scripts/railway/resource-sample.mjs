@@ -86,8 +86,11 @@ export function nextTick(nowMs, intervalMs) {
 	return Math.ceil(nowMs / intervalMs) * intervalMs;
 }
 
-export function parsePs(text, patterns = []) {
+// parsePs drops excluded pids before filtering, so the sampler's own command
+// line and its parent shell cannot match the pattern text they carry.
+export function parsePs(text, patterns = [], excludePids = []) {
 	const filters = patterns.map((pattern) => new RegExp(pattern));
+	const excluded = new Set(excludePids);
 	const rows = [];
 	for (const line of text.split('\n')) {
 		const match = /^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*\S)\s*$/.exec(line);
@@ -101,6 +104,9 @@ export function parsePs(text, patterns = []) {
 			rssKb: Number(match[4]),
 			command: match[5],
 		};
+		if (excluded.has(row.pid)) {
+			continue;
+		}
 		if (filters.length > 0 && !filters.some((filter) => filter.test(row.command))) {
 			continue;
 		}
@@ -109,11 +115,11 @@ export function parsePs(text, patterns = []) {
 	return rows;
 }
 
-export async function readProcesses(patterns = []) {
+export async function readProcesses(patterns = [], excludePids = [process.pid, process.ppid]) {
 	const { stdout } = await execFileAsync('ps', ['-eo', PS_FORMAT], {
 		maxBuffer: 8 * 1024 * 1024,
 	});
-	return parsePs(stdout, patterns);
+	return parsePs(stdout, patterns, excludePids);
 }
 
 export async function fetchUsage(fetchImpl, baseUrl, timeoutMs = 10000) {
@@ -134,8 +140,13 @@ export async function captureSample(opts, deps = {}) {
 	let processes = [];
 	let processError;
 	if (opts.ps.length > 0) {
+		const excludePids = deps.excludePids ?? [process.pid, process.ppid];
 		try {
-			processes = await (deps.psImpl ? deps.psImpl(opts.ps) : readProcesses(opts.ps));
+			processes = await (deps.psImpl
+				? deps.psImpl(opts.ps, excludePids)
+				: readProcesses(opts.ps, excludePids));
+			// Injected readers must not reintroduce the sampler itself.
+			processes = processes.filter((row) => !excludePids.includes(row.pid));
 		} catch (err) {
 			processError = err instanceof Error ? err.message : String(err);
 		}

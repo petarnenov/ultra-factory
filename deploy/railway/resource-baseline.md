@@ -164,7 +164,9 @@ wc -l ~/ao-baseline/hub.jsonl
 
 The hub route covers the daemon, every live session (including the
 orchestrator) and reviewer panes. The `ps` patterns add the BFF, the supervisor,
-the tick loop and `tailscaled` where enabled. The route's `app.own` excludes
+the tick loop and `tailscaled` where enabled. The sampler drops its own PID and
+its parent shell PID before applying those filters, so the pattern text in its
+own command line cannot appear as a sample. The route's `app.own` excludes
 session trees; do not add `app.own` and `sessions[]` together without first
 confirming that the session roots are not also descendants of the daemon. The
 route already deduplicates those roots in `app.rssBytes`; treat `app.rssBytes`
