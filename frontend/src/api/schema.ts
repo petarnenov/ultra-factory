@@ -12760,7 +12760,7 @@ export interface operations {
     putGitHubSecret: {
         parameters: {
             query?: {
-                /** @description GitHub host, for example geowealth.ghe.com. Defaults to github.com. */
+                /** @description GitHub host (default github.com). */
                 host?: string;
             };
             header?: never;
@@ -12808,7 +12808,7 @@ export interface operations {
     deleteGitHubSecret: {
         parameters: {
             query?: {
-                /** @description GitHub host, for example geowealth.ghe.com. Defaults to github.com. */
+                /** @description GitHub host (default github.com). */
                 host?: string;
             };
             header?: never;

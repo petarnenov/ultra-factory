@@ -222,7 +222,7 @@ type GitHubLoginParam struct {
 
 // GitHubSecretHostQuery selects the GitHub host for a secret route.
 type GitHubSecretHostQuery struct {
-	Host string `query:"host" description:"GitHub host, for example geowealth.ghe.com. Defaults to github.com."`
+	Host string `query:"host" description:"GitHub host (default github.com)."`
 }
 
 // ListProjectsResponse is the body of GET /api/v1/projects.

@@ -4514,11 +4514,11 @@ paths:
         schema:
           description: GitHub account login.
           type: string
-      - description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+      - description: GitHub host (default github.com).
         in: query
         name: host
         schema:
-          description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+          description: GitHub host (default github.com).
           type: string
       responses:
         "200":
@@ -4552,11 +4552,11 @@ paths:
         schema:
           description: GitHub account login.
           type: string
-      - description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+      - description: GitHub host (default github.com).
         in: query
         name: host
         schema:
-          description: GitHub host, for example geowealth.ghe.com. Defaults to github.com.
+          description: GitHub host (default github.com).
           type: string
       requestBody:
         content:
