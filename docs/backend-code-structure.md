@@ -307,6 +307,14 @@ graph TD
 
 ---
 
+### `internal/agentlaunch`
+
+**Purpose:** Resolves one launch configuration (harness, model, and effort) for a worker, orchestrator, or reviewer.
+
+Precedence is explicit directive, then the target machine's Project Settings for the role, then that machine's harness default, otherwise the launch blocks with the machine's valid harnesses, models, and effort levels. The result also carries the source of each value (`explicit`, `settings`, or `machine-default`) and the machine label, which the session manager records as launch provenance. `session_manager` and `review` call this package; it does not create sessions or start processes.
+
+---
+
 ### `internal/lifecycle`
 
 **Purpose:** Canonical write path for durable session lifecycle facts. Reduces observations into minimal persisted state.

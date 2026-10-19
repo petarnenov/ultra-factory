@@ -284,6 +284,10 @@ func (m *Manager) launchChatController(ctx context.Context, in chatSpawn) (domai
 				BrowserCapabilityVerifier: in.record.Metadata.BrowserCapabilityVerifier,
 				Model:                     agentConfig.Model,
 				Effort:                    agentConfig.Effort,
+				HarnessSource:             in.cfg.HarnessSource,
+				ModelSource:               in.cfg.ModelSource,
+				EffortSource:              in.cfg.EffortSource,
+				AgentConfigMachine:        in.cfg.AgentConfigMachine,
 			}
 			committedConversation, commitErr := m.markChatControllerSpawned(
 				ctx, id, metadata, started.Conversation, started.ProviderBoundary,

@@ -28,6 +28,9 @@ export type ChangedFile = {
 
 export type SessionKind = "worker" | "orchestrator";
 
+/** Which layer supplied a resolved launch value. */
+export type AgentConfigSource = "explicit" | "settings" | "machine-default";
+
 /** Lifecycle state of a single pull request, mirrors the daemon's enum. */
 export type PRState = "open" | "draft" | "merged" | "closed";
 
@@ -122,6 +125,13 @@ export type WorkspaceSession = {
 	/** Raw issue/task identifier from the daemon. Intake ids are provider-prefixed. */
 	issueId?: string;
 	provider: AgentProvider;
+	/** Resolved model, effort, and the layer and machine that supplied them. */
+	model?: string;
+	effort?: string;
+	harnessSource?: AgentConfigSource;
+	modelSource?: AgentConfigSource;
+	effortSource?: AgentConfigSource;
+	agentConfigMachine?: string;
 	/** Reviewer selected for this session; absent means use the project default. */
 	reviewerHarness?: ReviewerHarnessId;
 	/** Per-session reviewer override, including hidden fields preserved across saves. */

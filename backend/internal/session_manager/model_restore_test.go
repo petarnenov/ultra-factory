@@ -33,7 +33,7 @@ func TestClaudeSessionModelSurvivesRestore(t *testing.T) {
 			{name: "role_default", projectModel: "opus", projectEffort: "low", roleModel: "sonnet", roleEffort: "high", wantModel: "sonnet", wantEffort: "high"},
 			{name: "project_default", projectModel: "opus", projectEffort: "medium", wantModel: "opus", wantEffort: "medium"},
 			{name: "custom_provider_model", projectModel: "opus", spawnModel: "provider/model-vNext", wantModel: "provider/model-vNext"},
-			{name: "agent_default"},
+			{name: "agent_default", wantModel: "opus"},
 			{name: "legacy_unknown", spawnModel: "haiku", wantModel: "haiku", legacy: true},
 		} {
 			for _, operation := range []string{"restore", "native_resume", "restore_all", "saved_prompt", "chat_restore", "chat_resume"} {
@@ -79,7 +79,7 @@ func TestClaudeSessionModelSurvivesRestore(t *testing.T) {
 							LookPath: func(string) (string, error) { return "/bin/true", nil },
 						})
 						manager.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
-							{ID: "opus", Efforts: []string{"low", "medium", "high"}},
+							{ID: "opus", IsDefault: true, Efforts: []string{"low", "medium", "high"}},
 							{ID: "sonnet", Efforts: []string{"low", "medium", "high"}},
 							{ID: "haiku", Efforts: []string{"low", "medium", "high"}},
 							{ID: "provider/model-vNext"},

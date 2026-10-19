@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
@@ -106,6 +107,11 @@ type Deps struct {
 	Checkout CheckoutManager
 	// ChatRecoveryDone gates operations that could mistake a recovering reviewer for an exited one.
 	ChatRecoveryDone <-chan struct{}
+	// ModelCatalog validates reviewer harness/model/effort against the machine
+	// catalog. Nil keeps focused tests on the static catalog only.
+	ModelCatalog agentlaunch.Catalog
+	// MachineLabel names this machine in resolution errors.
+	MachineLabel string
 
 	// Clock and NewID are injectable for deterministic tests.
 	Clock func() time.Time
@@ -125,6 +131,8 @@ type Engine struct {
 	newID      func() string
 
 	chatRecoveryDone <-chan struct{}
+	modelCatalog     agentlaunch.Catalog
+	machineLabel     string
 
 	// triggerMu guards triggerLocks; triggerLocks holds one mutex per worker
 	// session so concurrent Trigger calls for the same worker serialise (see
@@ -162,6 +170,8 @@ func New(d Deps) *Engine {
 		triggerLocks: make(map[domain.SessionID]*sync.Mutex),
 
 		chatRecoveryDone: d.ChatRecoveryDone,
+		modelCatalog:     d.ModelCatalog,
+		machineLabel:     d.MachineLabel,
 	}
 }
 
@@ -373,24 +383,33 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	if err != nil {
 		return TriggerResult{}, err
 	}
-	resolvedHarness := harness
 	resolvedConfig := config
 	hasHarnessOverride := override != ""
 	hasConfigOverride := false
 	if hasHarnessOverride {
 		harness = override
-		if override == resolvedHarness {
-			config = mergeReviewerAgentConfig(resolvedConfig, overrideConfig)
-			hasConfigOverride = config != resolvedConfig
-		} else if !overrideConfig.IsZero() {
-			config = mergeReviewerAgentConfig(domain.AgentConfig{}, overrideConfig)
-		} else {
-			config = domain.AgentConfig{}
-		}
+		// Settings are the next level after the explicit harness, even when the
+		// override selects another agent, and are validated against it.
+		config = mergeReviewerAgentConfig(resolvedConfig, overrideConfig)
+		hasConfigOverride = config != resolvedConfig
 	} else if !overrideConfig.IsZero() {
 		config = mergeReviewerAgentConfig(config, overrideConfig)
 		hasConfigOverride = config != resolvedConfig
 	}
+	// Validate the selected reviewer against this machine's catalog before any
+	// run is created. Invalid input blocks with the valid options.
+	resolved, err := agentlaunch.Resolve(ctx, agentlaunch.Request{
+		Machine:               e.machineLabel,
+		ProjectID:             string(worker.ProjectID),
+		Harness:               domain.AgentHarness(harness),
+		Role:                  config,
+		Catalog:               e.modelCatalog,
+		SkipPermissionDefault: true,
+	})
+	if err != nil {
+		return TriggerResult{}, fmt.Errorf("%w: reviewer config: %w", ErrInvalid, err)
+	}
+	config = resolved.Config
 	reviewRows, err := e.store.ListReviewsBySession(ctx, workerID)
 	if err != nil {
 		return TriggerResult{}, err

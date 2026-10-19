@@ -1043,6 +1043,34 @@ function ActivityTimeline({ hostId, prs, session }: { hostId?: string; prs: Sess
 		createdAt,
 	);
 
+	// Show the resolved launch configuration and which layer and machine
+	// supplied the harness, model, and effort this session runs with.
+	const resolvedAgent = [
+		session.model ?? "",
+		session.effort ? `${session.effort} effort` : "",
+	].filter(Boolean);
+	const resolvedSource = session.modelSource ?? session.harnessSource;
+	if (session.harnessSource || resolvedAgent.length > 0) {
+		const detail = [
+			session.provider,
+			resolvedAgent.join(", "),
+			resolvedSource ? `from ${resolvedSource}` : "",
+			session.agentConfigMachine ? `on ${session.agentConfigMachine}` : "",
+		].filter(Boolean).join(" ");
+		pushEvent(
+			{
+				tone: "neutral",
+				content: (
+					<>
+						{appI18n.t("inspector.timeline.resolvedAgent")} <span className="text-passive">{detail}</span>
+					</>
+				),
+				timestamp: formatTimeCompact(createdAt),
+			},
+			createdAt,
+		);
+	}
+
 	for (const commit of history.data?.commits.slice(0, TIMELINE_COMMIT_LIMIT) ?? []) {
 		pushEvent(
 			{
