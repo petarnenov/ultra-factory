@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.15.0] - 2026-10-19
+
+### Features
+
+- **railway:** automate agent CLI pin updates (#246) (fb865aa00)
+
 ## [0.14.0] - 2026-10-18
 
 ### Features
