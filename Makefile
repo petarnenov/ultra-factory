@@ -9,6 +9,10 @@ SHELL := /bin/bash
 ARGS ?=
 NPM_DIRS := . frontend packages/cloud-client packages/product-ui packages/hub-bff
 
+# Local validation caps: shared machines run one heavy check at a time.
+GO_TEST_PARALLELISM ?= 2
+AO_VITEST_MAX_FORKS ?= 2
+
 DAEMON_CHANNEL ?= main
 DAEMON_UPDATE_CMD ?= apply
 # Default to the repository this checkout came from.
@@ -99,16 +103,18 @@ daemon-update: ## Run this host's installed updater; DAEMON_UPDATE_CMD=apply|che
 
 ##@ Test and lint
 
-test: test-backend test-frontend ## Run backend and frontend unit tests
+test: ## Run backend and frontend unit tests
+	@$(MAKE) --no-print-directory test-backend
+	@$(MAKE) --no-print-directory test-frontend
 
 test-backend: ## Run backend Go tests
-	cd backend && go test ./...
+	cd backend && go test -p $(GO_TEST_PARALLELISM) ./...
 
 test-race: ## Run backend Go tests with the race detector
-	cd backend && go test -race ./...
+	cd backend && go test -race -p $(GO_TEST_PARALLELISM) ./...
 
 test-frontend: ## Run frontend Vitest unit tests
-	npm --prefix frontend run test
+	AO_VITEST_MAX_FORKS=$(AO_VITEST_MAX_FORKS) npm --prefix frontend run test
 
 test-e2e: ## Run frontend Playwright e2e tests
 	npm --prefix frontend run test:e2e
@@ -121,7 +127,7 @@ test-daemon-update: ## Run the daemon self-update script tests
 	@bash scripts/install-self-update.test.sh all
 
 lint: ## Backend go test + golangci-lint (pinned)
-	npm run lint
+	GO_TEST_PARALLELISM=$(GO_TEST_PARALLELISM) npm run lint
 
 vet: ## Run go vet on the backend
 	cd backend && go vet ./...
@@ -129,7 +135,11 @@ vet: ## Run go vet on the backend
 typecheck: ## Typecheck the frontend
 	npm run frontend:typecheck
 
-check: lint vet typecheck test-frontend ## Run the main local checks before a PR
+check: ## Run the main local checks before a PR
+	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory vet
+	@$(MAKE) --no-print-directory typecheck
+	@$(MAKE) --no-print-directory test-frontend
 
 # check-all mirrors the CI job set that runs locally, without the backend race
 # suite (run `make test-race` for that) and without Docker or OS-specific runners.
@@ -142,7 +152,7 @@ check-all: ## Run every CI check that runs locally (no Docker or OS-specific run
 		if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
 	@cd backend && go build ./...
 	@cd backend && go vet ./...
-	@npm run lint
+	@GO_TEST_PARALLELISM=$(GO_TEST_PARALLELISM) npm run lint
 	@echo "==> storage and API drift"
 	@npm run sqlc
 	@git diff --exit-code -- backend/internal/storage/sqlite/gen
@@ -155,7 +165,7 @@ check-all: ## Run every CI check that runs locally (no Docker or OS-specific run
 	@echo "==> frontend typecheck and unit tests"
 	@npm run frontend:typecheck
 	@npm --prefix frontend run typecheck:e2e
-	@npm --prefix frontend run test
+	@AO_VITEST_MAX_FORKS=$(AO_VITEST_MAX_FORKS) npm --prefix frontend run test
 	@echo "==> scripts and their tests"
 	@npm run version:test
 	@bash scripts/ao-self-update.test.sh all
