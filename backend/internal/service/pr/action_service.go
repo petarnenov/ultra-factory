@@ -39,30 +39,6 @@ type actionReader interface {
 	FetchReviewThreads(ctx context.Context, ref ports.SCMPRRef) (ports.SCMReviewObservation, error)
 }
 
-// projectAccountStore is the optional storage capability used to scope a PR
-// action to the project's bound GitHub account. Fakes that lack it keep the
-// machine-level token, which is today's behavior.
-type projectAccountStore interface {
-	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
-	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
-}
-
-func (s *ActionService) accountForPR(ctx context.Context, pr domain.PullRequest) string {
-	store, ok := s.store.(projectAccountStore)
-	if !ok || pr.SessionID == "" {
-		return ""
-	}
-	rec, ok, err := store.GetSession(ctx, pr.SessionID)
-	if err != nil || !ok {
-		return ""
-	}
-	project, ok, err := store.GetProject(ctx, string(rec.ProjectID))
-	if err != nil || !ok {
-		return ""
-	}
-	return project.Config.GitHubAccount()
-}
-
 // ActionDeps contains the storage and SCM boundaries used by ActionService.
 type ActionDeps struct {
 	Store        actionStore
@@ -91,6 +67,28 @@ type ActionService struct {
 }
 
 var _ ActionManager = (*ActionService)(nil)
+
+// projectAccountStore scopes a PR action to the project's bound GitHub account.
+type projectAccountStore interface {
+	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
+	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
+}
+
+func (s *ActionService) accountForPR(ctx context.Context, pr domain.PullRequest) string {
+	store, ok := s.store.(projectAccountStore)
+	if !ok || pr.SessionID == "" {
+		return ""
+	}
+	rec, ok, err := store.GetSession(ctx, pr.SessionID)
+	if err != nil || !ok {
+		return ""
+	}
+	project, ok, err := store.GetProject(ctx, string(rec.ProjectID))
+	if err != nil || !ok {
+		return ""
+	}
+	return project.Config.GitHubAccount()
+}
 
 // NewActionService builds the guarded pull request action service.
 func NewActionService(deps ActionDeps) *ActionService {

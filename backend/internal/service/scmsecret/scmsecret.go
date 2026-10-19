@@ -97,7 +97,7 @@ func (s *Store) SetGitHubToken(_ context.Context, login, token string) error {
 	}
 	// MkdirAll leaves an existing directory's mode alone, so tighten it here.
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(s.githubDir(), 0o700); err != nil {
+		if err := os.Chmod(s.githubDir(), 0o700); err != nil { //nolint:gosec // G302: directories need 0700, not 0600.
 			return fmt.Errorf("scm secret: secure secret directory: %w", err)
 		}
 	}
