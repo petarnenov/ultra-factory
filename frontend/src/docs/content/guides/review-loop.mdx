@@ -35,13 +35,21 @@ ao review cancel <worker-session-id>
 
 Reviewer runs are separate from worker sessions. Their verdict and body are recorded against the worker.
 
-### Reviews on another machine
+### Reviewing a worker on another machine
 
-The reviewer is invoked once over the worker's checkout and enforces read-only by construction, so the pass runs on the machine that owns that checkout. A worker on a paired host is reviewed on that host.
+The reviewer is invoked once over the worker's checkout and enforces read-only by construction, so the pass runs on the machine that owns that checkout. A worker on a paired host is reviewed on that host:
 
-There is no remote review trigger yet: `ao review trigger` does not accept `--host`. Until [#255](https://github.com/petarnenov/ultra-factory/issues/255) lands, the trigger is run by hand on the worker's machine; that manual step is temporary. Do not start a review-only worker elsewhere as a substitute.
+```bash
+ao review trigger --host build-box <worker-session-id>
+ao review ls --host build-box <worker-session-id>
+ao review cancel --host build-box <worker-session-id>
+```
+
+Pass the worker id explicitly: session ids are per machine, so the local `AO_SESSION_ID` is never forwarded as a remote worker. The request goes to the daemon that owns the worker, and only that daemon launches the reviewer. Its checkout, reviewer selection, read-only permission policy, verdict record, and review-comment delivery all stay on that host; a review is never run over a checkout on the orchestrator's machine. Do not start a review-only worker elsewhere as a substitute.
 
 Before a pass, check that the worker is idle or exited, everything is committed and pushed, the pull request is open, and the reviewer is given the evaluated head SHA. These conditions keep the pass on the pull request instead of an uncommitted or outdated tree. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
+
+Before a pass starts, AO also verifies that the worker checkout is at the PR head commit and has a clean tree. If the checkout is on another commit, mid-edit, or dirty, AO creates a disposable detached worktree at the head commit and reviews that instead. The run records the reviewed commit and whether it read the worker checkout or a disposable worktree; the disposable worktree is removed when the pass ends. A rerun still reviews the run's target commit, not whatever the worker's branch points to now. `ao review ls --host <machine> <worker>` shows the same status and verdict you would see locally, and `--rerun` keeps the usual same-head semantics across hosts.
 
 ### Reviews requested by agents
 

@@ -320,9 +320,9 @@ The user agreed this process on 2026-10-19. It decides where work may run.
   and `gh pr checks` are authoritative.
 - **Reviews run where the worker's checkout lives.** AO's reviewer is invoked
   once over the worker's checkout with an enforced read-only guarantee, so it
-  is started on the machine that owns the worker. Until the remote review
-  trigger lands (#255), run `ao review trigger` by hand on that machine; this
-  is temporary. Do not start a review-only worker on the hub as a substitute.
+  is started on the machine that owns the worker. `ao review trigger|ls|cancel
+  --host` runs a review on that machine from another orchestrator. Do not start
+  a review-only worker on the hub as a substitute.
 - **Preconditions before a review.** The worker is idle or exited; everything
   is committed and pushed; the pull request is open; and the reviewer is given
   the evaluated head SHA. These protect against reviewing a tree that is not

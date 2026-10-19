@@ -237,6 +237,40 @@ func TestCleanupOwnedReviewControllerWorkSettlesItsTurn(t *testing.T) {
 	}
 }
 
+func TestReviewRunCheckoutRoundTrip(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "mer")
+	rec, err := s.CreateSession(ctx, sampleRecord("mer"))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := s.UpsertReview(ctx, domain.Review{
+		ID: "rev-checkout", SessionID: rec.ID, ProjectID: rec.ProjectID,
+		Harness: domain.ReviewerClaudeCode, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert review: %v", err)
+	}
+	run := domain.ReviewRun{
+		ID: "run-checkout", ReviewID: "rev-checkout", SessionID: rec.ID, Harness: domain.ReviewerClaudeCode,
+		PRURL: "https://example/pr/1", TargetSHA: "sha1", Status: domain.ReviewRunRunning, CreatedAt: now,
+	}
+	if err := s.InsertReviewRun(ctx, run); err != nil {
+		t.Fatalf("insert review run: %v", err)
+	}
+	if ok, err := s.UpdateReviewRunCheckout(ctx, run.ID, "sha1", domain.ReviewCheckoutDisposable, "batch-1"); err != nil || !ok {
+		t.Fatalf("UpdateReviewRunCheckout ok=%v err=%v", ok, err)
+	}
+	got, ok, err := s.GetReviewRun(ctx, run.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetReviewRun ok=%v err=%v", ok, err)
+	}
+	if got.ReviewedSHA != "sha1" || got.ReviewedTree != domain.ReviewCheckoutDisposable || got.ReviewedCheckoutKey != "batch-1" {
+		t.Fatalf("review checkout = %q/%q/%q, want sha1/disposable_worktree/batch-1", got.ReviewedSHA, got.ReviewedTree, got.ReviewedCheckoutKey)
+	}
+}
+
 func TestInsertReviewRunDuplicatePRSHAMapsToSentinel(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

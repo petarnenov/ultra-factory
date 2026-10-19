@@ -16578,6 +16578,13 @@ components:
           type: string
         reviewId:
           type: string
+        reviewedSha:
+          type: string
+        reviewedTree:
+          enum:
+          - worker_checkout
+          - disposable_worktree
+          type: string
         sessionId:
           type: string
         status:

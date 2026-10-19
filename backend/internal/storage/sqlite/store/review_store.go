@@ -239,25 +239,44 @@ func (s *Store) InsertReviewRun(ctx context.Context, r domain.ReviewRun) error {
 		r.TriggerSource = domain.ReviewTriggerManual
 	}
 	err := s.qw.InsertReviewRun(ctx, gen.InsertReviewRunParams{
-		ID:               r.ID,
-		ReviewID:         r.ReviewID,
-		SessionID:        r.SessionID,
-		BatchID:          r.BatchID,
-		Harness:          r.Harness,
-		TriggerSource:    r.TriggerSource,
-		PRURL:            r.PRURL,
-		TargetSha:        r.TargetSHA,
-		Status:           r.Status,
-		Verdict:          r.Verdict,
-		Body:             r.Body,
-		GithubReviewID:   r.GithubReviewID,
-		CreatedAt:        r.CreatedAt,
-		AutoInjectReview: r.AutoInjectReview,
+		ID:                  r.ID,
+		ReviewID:            r.ReviewID,
+		SessionID:           r.SessionID,
+		BatchID:             r.BatchID,
+		Harness:             r.Harness,
+		TriggerSource:       r.TriggerSource,
+		PRURL:               r.PRURL,
+		TargetSha:           r.TargetSHA,
+		ReviewedSha:         r.ReviewedSHA,
+		ReviewedTree:        string(r.ReviewedTree),
+		ReviewedCheckoutKey: r.ReviewedCheckoutKey,
+		Status:              r.Status,
+		Verdict:             r.Verdict,
+		Body:                r.Body,
+		GithubReviewID:      r.GithubReviewID,
+		CreatedAt:           r.CreatedAt,
+		AutoInjectReview:    r.AutoInjectReview,
 	})
 	if isSQLiteUnique(err) {
 		return fmt.Errorf("insert review run for session %s pr %s sha %s: %w", r.SessionID, r.PRURL, r.TargetSHA, domain.ErrDuplicateReviewRun)
 	}
 	return err
+}
+
+// UpdateReviewRunCheckout records the verified commit and tree a reviewer read.
+func (s *Store) UpdateReviewRunCheckout(ctx context.Context, id, reviewedSHA string, tree domain.ReviewCheckoutTree, checkoutKey string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	n, err := s.qw.UpdateReviewRunCheckout(ctx, gen.UpdateReviewRunCheckoutParams{
+		ReviewedSha:         reviewedSHA,
+		ReviewedTree:        string(tree),
+		ReviewedCheckoutKey: checkoutKey,
+		ID:                  id,
+	})
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // UpdateReviewRunResult sets the status/verdict/body and the GitHub review id of
@@ -490,21 +509,24 @@ func reviewRunFromRow(r gen.ReviewRun) domain.ReviewRun {
 		deliveredAt = &t
 	}
 	return domain.ReviewRun{
-		ID:               r.ID,
-		ReviewID:         r.ReviewID,
-		SessionID:        r.SessionID,
-		BatchID:          r.BatchID,
-		Harness:          r.Harness,
-		TriggerSource:    r.TriggerSource,
-		PRURL:            r.PRURL,
-		TargetSHA:        r.TargetSha,
-		Status:           r.Status,
-		Verdict:          r.Verdict,
-		Body:             r.Body,
-		GithubReviewID:   r.GithubReviewID,
-		CreatedAt:        r.CreatedAt,
-		DeliveredAt:      deliveredAt,
-		AutoInjectReview: r.AutoInjectReview,
+		ID:                  r.ID,
+		ReviewID:            r.ReviewID,
+		SessionID:           r.SessionID,
+		BatchID:             r.BatchID,
+		Harness:             r.Harness,
+		TriggerSource:       r.TriggerSource,
+		PRURL:               r.PRURL,
+		TargetSHA:           r.TargetSha,
+		ReviewedSHA:         r.ReviewedSha,
+		ReviewedTree:        domain.ReviewCheckoutTree(r.ReviewedTree),
+		ReviewedCheckoutKey: r.ReviewedCheckoutKey,
+		Status:              r.Status,
+		Verdict:             r.Verdict,
+		Body:                r.Body,
+		GithubReviewID:      r.GithubReviewID,
+		CreatedAt:           r.CreatedAt,
+		DeliveredAt:         deliveredAt,
+		AutoInjectReview:    r.AutoInjectReview,
 	}
 }
 

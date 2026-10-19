@@ -350,6 +350,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		return nil, nil, nil, fmt.Errorf("reviewer resolver: %w", err)
 	}
 	reviewerChat, _ := chat.(reviewcore.ReviewerChatController)
+	reviewCheckout := reviewcore.NewGitCheckout(cfg.DataDir)
 	reviewEngine := reviewcore.New(reviewcore.Deps{
 		// The manager's installer gate is bound after the installer is built.
 		HarnessUse: mgr,
@@ -357,6 +358,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		Sessions:   store,
 		PRs:        store,
 		Projects:   store,
+		Checkout:   reviewCheckout,
 		Launcher: reviewcore.NewLauncher(reviewers, runtime, cfg.DataDir,
 			reviewcore.WithRunFilePath(cfg.RunFilePath),
 			reviewcore.WithAgentAuth(reviewerAgentAuth{readiness: agentReadiness}),
@@ -368,6 +370,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		reviewsvc.WithTelemetry(telemetry),
 		reviewsvc.WithNotificationSink(notifications),
 		reviewsvc.WithCodexAccountOperationGate(codexOperationGate),
+		reviewsvc.WithCheckoutReleaser(reviewCheckout),
 	}
 	if scmProvider != nil {
 		reviewOpts = append(reviewOpts,
