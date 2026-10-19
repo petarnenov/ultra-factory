@@ -1,6 +1,11 @@
 # ao stop
 
-Stop the AO daemon.
+> **Operator-only.** `ao stop` is refused inside an AO agent session
+> (`AO_SESSION_ID` is set), and a daemon started by a host supervisor such as
+> the Railway hub refuses the loopback shutdown request. Ask the operator to
+> restart the hosted service instead.
+
+Stop the AO daemon from a shell outside AO.
 
 ## Syntax
 

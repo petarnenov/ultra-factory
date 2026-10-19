@@ -183,8 +183,8 @@ func refuseDaemonControlInAgentSession(command string) error {
 		return nil
 	}
 	return fmt.Errorf("`ao %s` is refused inside an AO agent session (AO_SESSION_ID is set): "+
-		"it controls the daemon that runs this session. Ask the operator to restart the daemon "+
-		"or the hosted service instead", command)
+		"it controls the daemon that runs this session. Run it from a shell outside AO, "+
+		"or ask the operator to restart the daemon or hosted service", command)
 }
 
 // sandboxedDaemonMessage explains an unreachable daemon to an agent: a sandbox

@@ -112,6 +112,7 @@ it without registry credentials, make it public under the owner's
 | `AO_DATA_DIR` | `/data/ao` |
 | `AO_RUN_FILE` | `/data/ao/running.json` |
 | `AO_HARNESS_UPDATE_CHECKS` | `off` |
+| `AO_SUPERVISED` | `1` for the default daemon; loopback `/shutdown` is refused, so restart the Railway service instead |
 | `EXPOSE` | `3011` (remote-host listener) |
 | `HEALTHCHECK` | `GET http://127.0.0.1:3001/healthz` inside the container |
 

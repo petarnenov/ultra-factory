@@ -152,6 +152,26 @@ func TestEmbeddedReviewGuidanceSeparatesExternalReviewFromOwnership(t *testing.T
 	}
 }
 
+// TestEmbeddedDaemonControlGuidanceMarksOperatorOnly keeps the agent catalog in
+// step with the CLI refusal for commands that control the daemon.
+func TestEmbeddedDaemonControlGuidanceMarksOperatorOnly(t *testing.T) {
+	for _, path := range []string{
+		"using-ao/SKILL.md",
+		"using-ao/references.md",
+		"using-ao/commands/start.md",
+		"using-ao/commands/stop.md",
+	} {
+		body, err := files.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.ToLower(strings.Join(strings.Fields(string(body)), " "))
+		if !strings.Contains(text, "operator-only") || !strings.Contains(text, "refused inside") {
+			t.Fatalf("%s does not mark daemon control as operator-only and refused", path)
+		}
+	}
+}
+
 // TestInstall_WritesSkillAndIsIdempotent: Install must lay down the embedded
 // skill (SKILL.md plus a commands file) under <dataDir>/skills/using-ao, and a
 // second run must clobber cleanly, leaving no stale files. This is the whole

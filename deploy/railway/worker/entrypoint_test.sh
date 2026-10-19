@@ -121,9 +121,16 @@ run no-creds
 [[ -z $(calls) && ! -e $home/.gitconfig ]] || fail "no-creds: gh or git configured without env"
 [[ $out == *"credentials from env: none"* ]] || fail "no-creds: credential summary: $out"
 
+# The default daemon is supervised so loopback /shutdown refuses to stop the
+# hosted worker; an explicit replacement command is not marked.
+run supervised
+[[ $status == 0 ]] || fail "supervised: exit $status: $out"
+[[ $out == *"supervised daemon: AO_SUPERVISED=1"* ]] || fail "supervised: marker missing: $out"
+
 # A given command replaces the daemon.
 run command -- sh -c 'echo hi'
 [[ $out == *"would exec: sh -c echo hi"* ]] || fail "command: $out"
+[[ $out != *"AO_SUPERVISED=1"* ]] || fail "command: custom command inherited the daemon marker"
 
 # An existing disabled config is left alone, with a hint.
 run disabled

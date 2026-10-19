@@ -25,13 +25,19 @@ trigger: "Using the ao CLI in an AO workspace: creating Cues, spawning workers, 
 | `preview` | Start a session-owned app or open an exact URL/file | Running and showing the worker's relevant app, Markdown, HTML, PDF, or image | [commands/preview.md](commands/preview.md) |
 | `render` | Show a self-contained HTML page inline in a chat thread | Answering with a chart, table, diagram, or mockup | [commands/render.md](commands/render.md) |
 | `browser` | Inspect and control the session's shared live browser | Verifying a web app through snapshots, interactions, waits, screenshots, console, and errors | [commands/browser.md](commands/browser.md) |
-| `start` | Fetch (if needed) and open the AO desktop app | Launching the app | [commands/start.md](commands/start.md) |
-| `stop` | Stop the AO daemon | Shutting down AO | [commands/stop.md](commands/stop.md) |
+| `start` | Fetch (if needed) and open the AO desktop app (operator-only) | Launching the app from a user shell | [commands/start.md](commands/start.md) |
+| `stop` | Stop the AO daemon (operator-only) | Stopping a local daemon from a user shell | [commands/stop.md](commands/stop.md) |
 | `status` | Show daemon status | Verifying the daemon is up and healthy | [commands/status.md](commands/status.md) |
 | `doctor` | Run local health checks | Diagnosing AO setup problems | [commands/doctor.md](commands/doctor.md) |
 | `import` | Import projects from a legacy AO install | Migrating from the old flat-file store | [commands/import.md](commands/import.md) |
 | `version` | Print version information | Checking installed version | - |
 | `completion` | Generate shell completion scripts | Setting up tab completion | - |
+
+`ao start`, `ao stop`, and `ao daemon` are operator-only. They are refused
+inside an AO agent session (`AO_SESSION_ID` is set), and a daemon started by a
+host supervisor (for example the Railway hub) also refuses `ao stop`. Never run
+them from an agent session; ask the operator to restart the daemon or hosted
+service instead.
 
 ## Conventions
 

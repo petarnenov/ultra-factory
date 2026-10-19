@@ -21,6 +21,12 @@ if (($# == 0)); then
 	set -- ao daemon
 fi
 
+# A hosted worker's daemon may not stop itself through loopback /shutdown:
+# restart the Railway service instead (same marker as the hub supervisor).
+if [[ $* == "ao daemon" ]]; then
+	export AO_SUPERVISED=1
+fi
+
 # Railway mounts volumes owned by root, and build-time ownership does not carry
 # over. With RAILWAY_RUN_UID=0 it chowns the volume, then drops to uid 10001.
 if [[ $(id -u) == 0 && $dry_run != 1 ]]; then
@@ -175,6 +181,7 @@ apply_account_token
 configure_credentials
 
 if [[ $dry_run == 1 ]]; then
+	[[ $* == "ao daemon" ]] && log "dry run; supervised daemon: AO_SUPERVISED=1"
 	log "dry run; would exec: $*"
 	exit 0
 fi
