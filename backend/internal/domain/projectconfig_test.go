@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestProjectConfigValidate(t *testing.T) {
 	tests := []struct {
@@ -70,6 +73,14 @@ func TestProjectConfigValidate(t *testing.T) {
 		{"tracker intake assignee with whitespace", ProjectConfig{TrackerIntake: TrackerIntakeConfig{Enabled: true, Assignee: " alice"}}, true},
 		{"auto review enabled", ProjectConfig{AutoReview: true}, false},
 		{"auto review disabled", ProjectConfig{AutoReview: false}, false},
+		{"github account", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "octocat"}}}, false},
+		{"github account with hyphen", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "work-account"}}}, false},
+		{"github account clears with empty", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: ""}}}, false},
+		{"github account whitespace", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: " octocat"}}}, true},
+		{"github account token", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "not_a_token"}}}, true},
+		{"github account path", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "../octocat"}}}, true},
+		{"github account too long", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: strings.Repeat("a", 40)}}}, true},
+		{"github account starts with hyphen", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "-octocat"}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,6 +177,7 @@ func TestInferTrackerProvider(t *testing.T) {
 		{"https github", "https://github.com/acme/demo.git", TrackerProviderGitHub},
 		{"ssh github", "git@github.com:acme/demo.git", TrackerProviderGitHub},
 		{"ghe host", "https://ghe.corp.ghe.io/acme/demo.git", TrackerProviderGitHub},
+		{"ghe.com host", "https://acme.ghe.com/acme/demo.git", TrackerProviderGitHub},
 		{"github with port", "https://github.com:443/org/repo.git", TrackerProviderGitHub},
 		{"ssh github with port", "ssh://git@github.com:2222/org/repo.git", TrackerProviderGitHub},
 		{"https gitlab.com", "https://gitlab.com/group/repo.git", TrackerProviderGitLab},
@@ -242,5 +254,8 @@ func TestProjectConfigIsZero(t *testing.T) {
 	}
 	if (ProjectConfig{TerminateOnPRMerge: true}).IsZero() {
 		t.Fatal("config with terminateOnPrMerge enabled should not be zero")
+	}
+	if (ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "octocat"}}}).IsZero() {
+		t.Fatal("config with a GitHub account should not be zero")
 	}
 }

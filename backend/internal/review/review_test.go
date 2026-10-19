@@ -11,6 +11,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
@@ -3392,5 +3393,28 @@ func TestFailedReviewLaunchKeepsArchivedReviewerHidden(t *testing.T) {
 				t.Fatalf("failed trigger reopened archive: %+v, %v", saved, err)
 			}
 		})
+	}
+}
+
+type reviewFakeTokens struct{ token string }
+
+func (f reviewFakeTokens) GitHubToken(context.Context, string, string) (string, error) {
+	return f.token, nil
+}
+
+func TestProjectEnvInjectsBoundGitHubIdentity(t *testing.T) {
+	const fakeToken = "fake-test-token-value"
+	eng := New(Deps{
+		Projects: fakeProjects{cfg: domain.ProjectConfig{
+			SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+		}},
+		SCMIdentity: scmidentity.New(reviewFakeTokens{token: fakeToken}, func() (string, error) { return "worker-1", nil }),
+	})
+	env, err := eng.projectEnv(context.Background(), "widgets")
+	if err != nil {
+		t.Fatalf("projectEnv: %v", err)
+	}
+	if got := env["GH_TOKEN"]; got != fakeToken {
+		t.Fatalf("GH_TOKEN = %q, want bound token", got)
 	}
 }

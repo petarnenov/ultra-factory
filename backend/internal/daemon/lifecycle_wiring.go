@@ -31,8 +31,10 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/reaper"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	reviewcore "github.com/aoagents/agent-orchestrator/backend/internal/review"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	reviewsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/review"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/scmsecret"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
@@ -317,6 +319,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		Scratch:  scratchWS,
 		Projects: store,
 	})
+	scmIdentity := scmidentity.New(scmsecret.New(cfg.DataDir), nil)
 	mgr := sessionmanager.New(sessionmanager.Deps{
 		Runtime:             runtime,
 		Agents:              agents,
@@ -338,9 +341,10 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		ReconcileWorkers:    startupReconcileWorkers,
 		CodexOperationGate:  codexOperationGate,
 		DefaultHarness:      defaultAgentHarness(cfg.Agent),
+		SCMIdentity:         scmIdentity,
 	})
 	mgr.SetAgentReadiness(agentReadiness)
-	scmProvider := newMultiSCMProvider(cfg.GitLab, log)
+	scmProvider := newMultiSCMProvider(cfg.GitLab, cfg.DataDir, log)
 	// Attach the operator's GitHub login to product telemetry only when its carrier
 	// event can actually be sent, and guard the typed nil from newMultiSCMProvider
 	// so the interface stays nil (degrading to anonymous) rather than wrapping a
@@ -384,12 +388,13 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 	reviewCheckout := reviewcore.NewGitCheckout(cfg.DataDir)
 	reviewEngine := reviewcore.New(reviewcore.Deps{
 		// The manager's installer gate is bound after the installer is built.
-		HarnessUse: mgr,
-		Store:      store,
-		Sessions:   store,
-		PRs:        store,
-		Projects:   store,
-		Checkout:   reviewCheckout,
+		HarnessUse:  mgr,
+		Store:       store,
+		Sessions:    store,
+		PRs:         store,
+		Projects:    store,
+		SCMIdentity: scmIdentity,
+		Checkout:    reviewCheckout,
 		Launcher: reviewcore.NewLauncher(reviewers, runtime, cfg.DataDir,
 			reviewcore.WithRunFilePath(cfg.RunFilePath),
 			reviewcore.WithAgentAuth(reviewerAgentAuth{readiness: agentReadiness}),

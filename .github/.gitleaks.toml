@@ -39,6 +39,10 @@ title = "gitleaks config"
     description = "Github Personal Access Token"
     regex = '''ghp_[0-9a-zA-Z]{36}'''
     tags = ["key", "Github"]
+    [rules.allowlist]
+        description = "Synthetic PAT-shaped fixtures in project SCM secret tests, never a live credential"
+        files = ['''^backend/internal/(domain/projectconfig_test|service/scmsecret/scmsecret_test|scmidentity/scmidentity_test|session_manager/manager_test|httpd/controllers/secrets_test|cli/secret_test)\.go$''']
+        regexes = ['''ghp_FAKE[0-9A-Za-z]{32}''', '''ghp_a{36}''']
 [[rules]]
     description = "Github OAuth Access Token"
     regex = '''gho_[0-9a-zA-Z]{36}'''

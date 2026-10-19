@@ -155,5 +155,5 @@ func isCLIGitHubHost(host string) bool {
 	}
 	host = strings.ToLower(host)
 	return host == "github.com" || host == "www.github.com" || host == "api.github.com" ||
-		strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io")
+		strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") || strings.HasSuffix(host, ".ghe.com")
 }

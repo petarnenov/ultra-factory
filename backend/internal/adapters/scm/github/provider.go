@@ -28,6 +28,9 @@ type ProviderOptions struct {
 	Client     *Client
 	HTTPClient *http.Client
 	Token      TokenSource
+	// Accounts resolves a project-bound account login to a machine-local token.
+	// Nil keeps today's machine-level token for every repository.
+	Accounts AccountTokenSource
 	// SkipTokenPreflight defers token validation until the first provider call.
 	// Daemon wiring uses this so gh-token shell-out never blocks readiness.
 	SkipTokenPreflight bool
@@ -42,11 +45,14 @@ type ProviderOptions struct {
 // loop in v1 — the loop is a follow-up PR (#35); this adapter is the
 // observation primitive that loop will call.
 type Provider struct {
-	client           *Client
-	logger           *slog.Logger
-	identityMu       sync.Mutex
-	identity         ports.SCMIdentity
-	identityResolved bool
+	client            *Client
+	logger            *slog.Logger
+	accounts          AccountTokenSource
+	identityMu        sync.Mutex
+	identity          ports.SCMIdentity
+	identityResolved  bool
+	accountIdentityMu sync.Mutex
+	accountIdentities map[string]ports.SCMIdentity
 }
 
 // NewProvider returns a Provider. If opts.Client is supplied it is used
@@ -75,7 +81,7 @@ func NewProvider(opts ProviderOptions) (*Provider, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Provider{client: c, logger: logger}, nil
+	return &Provider{client: c, logger: logger, accounts: opts.Accounts}, nil
 }
 
 // SCMCredentialsAvailable checks whether this provider can obtain a token. The
@@ -83,7 +89,15 @@ func NewProvider(opts ProviderOptions) (*Provider, error) {
 // daemon readiness is not blocked by shelling out to gh auth token and idle
 // daemons do not warn about missing credentials.
 func (p *Provider) SCMCredentialsAvailable(ctx context.Context) (bool, error) {
-	if p.client == nil || p.client.tokens == nil {
+	if p.client == nil {
+		return true, nil
+	}
+	// A project-bound account is resolved per repository, so a missing
+	// machine-level token does not prove this provider has no credentials.
+	if p.accounts != nil {
+		return true, nil
+	}
+	if p.client.tokens == nil {
 		return true, nil
 	}
 	if _, err := p.client.tokens.Token(ctx); err != nil {
@@ -103,6 +117,16 @@ func (p *Provider) AuthenticatedIdentity(ctx context.Context) (ports.SCMIdentity
 	if p.identityResolved {
 		return p.identity, nil
 	}
+	identity, err := p.authenticatedIdentity(ctx)
+	if err != nil {
+		return ports.SCMIdentity{}, err
+	}
+	p.identity = identity
+	p.identityResolved = true
+	return p.identity, nil
+}
+
+func (p *Provider) authenticatedIdentity(ctx context.Context) (ports.SCMIdentity, error) {
 	resp, err := p.client.doREST(ctx, http.MethodGet, "/user", nil, nil)
 	if err != nil {
 		return ports.SCMIdentity{}, err
@@ -114,12 +138,10 @@ func (p *Provider) AuthenticatedIdentity(ctx context.Context) (ports.SCMIdentity
 	if err := json.Unmarshal(resp.Body, &user); err != nil {
 		return ports.SCMIdentity{}, fmt.Errorf("github scm: decode authenticated user: %w", err)
 	}
-	p.identity = ports.SCMIdentity{
+	return ports.SCMIdentity{
 		Login: strings.TrimSpace(user.Login),
 		Human: strings.EqualFold(strings.TrimSpace(user.Type), "User"),
-	}
-	p.identityResolved = true
-	return p.identity, nil
+	}, nil
 }
 
 // Observe fetches the current state of one PR by its github.com URL and
@@ -646,17 +668,15 @@ func parsePRURL(prURL string) (string, string, int, error) {
 		return "", "", 0, fmt.Errorf("%w: parse url: %w", ErrNotFound, err)
 	}
 	host := strings.ToLower(u.Host)
-	// Accept github.com (web) and api.github.com (REST/GraphQL). GitHub
-	// Enterprise hosts must end in .github.com or .ghe.io (GitHub's own
-	// dedicated TLDs); anything else looks like a bad URL or a different
-	// SCM and is rejected.
+	// Accept github.com and api.github.com. Enterprise hosts must end in
+	// .github.com, .ghe.io, or .ghe.com; anything else is another SCM.
 	switch {
 	case host == "":
 		// Allow path-only URLs (parsePRURL is also exercised via API
 		// paths without a host in some tests).
 	case host == "github.com", host == "www.github.com", host == "api.github.com":
 		// canonical
-	case strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io"):
+	case strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") || strings.HasSuffix(host, ".ghe.com"):
 		// enterprise
 	default:
 		return "", "", 0, fmt.Errorf("%w: host %q is not a github host", ErrNotFound, host)

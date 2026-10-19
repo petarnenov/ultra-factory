@@ -1,7 +1,9 @@
 package project_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -640,6 +642,57 @@ func TestManager_AddDoesNotRepeatFirstProjectTelemetry(t *testing.T) {
 	if firstProjectCount != 1 {
 		t.Fatalf("first project telemetry count = %d, want 1", firstProjectCount)
 	}
+}
+
+func TestManager_SetConfigPersistsProjectGitHubAccount(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlitetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	m := project.NewWithDeps(project.Deps{Store: store})
+	path := gitRepo(t)
+	created, err := m.Add(ctx, project.AddInput{
+		Path: path,
+		Config: &domain.ProjectConfig{
+			SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "hobby"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if created.Config == nil || created.Config.GitHubAccount() != "hobby" {
+		t.Fatalf("added config = %#v, want hobby account", created.Config)
+	}
+	updated, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+	}})
+	if err != nil {
+		t.Fatalf("SetConfig: %v", err)
+	}
+	if updated.Config == nil || updated.Config.GitHubAccount() != "work-account" {
+		t.Fatalf("updated config = %#v, want work-account", updated.Config)
+	}
+	got, err := m.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Project.Config == nil || got.Project.Config.GitHubAccount() != "work-account" {
+		t.Fatalf("reloaded config = %#v, want work-account", got.Project.Config)
+	}
+	if bytes.Contains(mustJSON(t, got.Project.Config), []byte("ghp_")) {
+		t.Fatal("project config contains a token-like value")
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return data
 }
 
 func TestManager_SetConfigRejectsScratchGitOnlyFields(t *testing.T) {
@@ -2382,5 +2435,39 @@ func TestEmptyCloneOnboardingCreatesFirstWorkspace(t *testing.T) {
 				t.Fatalf("first workspace commit: %s, %v", out, err)
 			}
 		})
+	}
+}
+
+func TestProjectGitHubAccountIsPerMachine(t *testing.T) {
+	ctx := context.Background()
+	machineA := newManager(t)
+	machineB := newManager(t)
+	path := gitRepo(t)
+	a, err := machineA.Add(ctx, project.AddInput{Path: path})
+	if err != nil {
+		t.Fatalf("machine A Add: %v", err)
+	}
+	b, err := machineB.Add(ctx, project.AddInput{Path: path})
+	if err != nil {
+		t.Fatalf("machine B Add: %v", err)
+	}
+	if _, err := machineA.SetConfig(ctx, a.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+	}}); err != nil {
+		t.Fatalf("machine A SetConfig: %v", err)
+	}
+	gotA, err := machineA.Get(ctx, a.ID)
+	if err != nil {
+		t.Fatalf("machine A Get: %v", err)
+	}
+	gotB, err := machineB.Get(ctx, b.ID)
+	if err != nil {
+		t.Fatalf("machine B Get: %v", err)
+	}
+	if gotA.Project.Config == nil || gotA.Project.Config.GitHubAccount() != "work-account" {
+		t.Fatalf("machine A account = %#v", gotA.Project.Config)
+	}
+	if gotB.Project.Config != nil && gotB.Project.Config.GitHubAccount() != "" {
+		t.Fatalf("machine B account = %q, want untouched", gotB.Project.Config.GitHubAccount())
 	}
 }

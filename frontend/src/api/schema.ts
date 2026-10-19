@@ -1653,6 +1653,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/secrets/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List machine-local GitHub logins without token values */
+        get: operations["listGitHubSecrets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/secrets/github/{login}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Store a machine-local GitHub token for an account */
+        put: operations["putGitHubSecret"];
+        post?: never;
+        /** Remove a machine-local GitHub token for an account */
+        delete: operations["deleteGitHubSecret"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -4929,6 +4964,9 @@ export interface components {
             lastActivityAt: string;
             state: string;
         };
+        DomainGitHubSCMConfig: {
+            account?: string;
+        };
         DomainReviewerConfig: {
             agentConfig?: components["schemas"]["AgentConfig"];
             harness: string;
@@ -4939,6 +4977,9 @@ export interface components {
             harness: string;
             mode: string;
             reviewId: string;
+        };
+        DomainSCMConfig: {
+            github?: components["schemas"]["DomainGitHubSCMConfig"];
         };
         DomainSideReference: {
             conversationId: string;
@@ -5025,6 +5066,18 @@ export interface components {
             name?: string;
             owner?: string;
             private?: null | boolean;
+        };
+        GitHubSecretAccount: {
+            host: string;
+            login: string;
+        };
+        GitHubSecretAccountsResponse: {
+            accounts: components["schemas"]["GitHubSecretAccount"][];
+        };
+        GitHubSecretMutationResponse: {
+            account: string;
+            host: string;
+            status: string;
         };
         GitPreparationEvent: {
             /** @enum {string} */
@@ -5493,6 +5546,7 @@ export interface components {
             postCreate?: string[];
             preRemove?: string[];
             reviewers?: components["schemas"]["DomainReviewerConfig"][];
+            scm?: components["schemas"]["DomainSCMConfig"];
             sessionPrefix?: string;
             symlinks?: string[];
             terminateOnPrMerge?: boolean;
@@ -5561,6 +5615,9 @@ export interface components {
             pat: string;
             refreshToken?: string;
             refreshTokenExpiresIn?: number;
+        };
+        PutGitHubSecretRequest: {
+            token: string;
         };
         RegisterPushDeviceRequest: {
             /** @description Human-friendly device label. */
@@ -12684,6 +12741,127 @@ export interface operations {
             };
             /** @description Not Implemented */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listGitHubSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubSecretAccountsResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    putGitHubSecret: {
+        parameters: {
+            query?: {
+                /** @description GitHub host (default github.com). */
+                host?: string;
+            };
+            header?: never;
+            path: {
+                /** @description GitHub account login. */
+                login: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutGitHubSecretRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubSecretMutationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    deleteGitHubSecret: {
+        parameters: {
+            query?: {
+                /** @description GitHub host (default github.com). */
+                host?: string;
+            };
+            header?: never;
+            path: {
+                /** @description GitHub account login. */
+                login: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubSecretMutationResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

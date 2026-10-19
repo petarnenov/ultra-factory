@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -33,6 +34,9 @@ type ProjectConfig struct {
 	// Env are extra environment variables forwarded into worker session
 	// runtimes. The AO_ namespace is reserved for AO-owned variables.
 	Env map[string]string `json:"env,omitempty"`
+	// SCM selects the provider identity AO uses for this project. It carries
+	// only an account login; the token lives in the machine's secret store.
+	SCM SCMConfig `json:"scm,omitempty"`
 	// Symlinks are repo-relative paths symlinked into each session workspace.
 	Symlinks []string `json:"symlinks,omitempty"`
 	// PostCreate are shell commands run in the workspace after it is created.
@@ -91,6 +95,41 @@ type ProjectConfig struct {
 	// Read at spawn, when the worker prompt is built.
 	WorkersRequestReview bool `json:"workersRequestReview,omitempty"`
 }
+
+// SCMConfig selects the provider identity for a project. v1 supports one
+// GitHub account per project; GitLab keeps its machine-level configuration.
+type SCMConfig struct {
+	GitHub GitHubSCMConfig `json:"github,omitempty"`
+}
+
+// GitHubSCMConfig binds a project to one GitHub account login. It never
+// carries a token: tokens live in the machine-local secret store.
+type GitHubSCMConfig struct {
+	Account string `json:"account,omitempty"`
+}
+
+// GitHubAccount returns the bound GitHub login, or "" when the project has no
+// project-level GitHub identity.
+func (c ProjectConfig) GitHubAccount() string {
+	return strings.TrimSpace(c.SCM.GitHub.Account)
+}
+
+// ValidateGitHubAccount rejects values that are not GitHub logins. The account
+// is a secret-store key and an API value, never a token or a path.
+func ValidateGitHubAccount(account string) error {
+	if account == "" {
+		return nil
+	}
+	if account != strings.TrimSpace(account) {
+		return fmt.Errorf("scm.github.account: must not have leading or trailing whitespace")
+	}
+	if len(account) > 39 || !githubAccountPattern.MatchString(account) {
+		return fmt.Errorf("scm.github.account: %q is not a GitHub login", account)
+	}
+	return nil
+}
+
+var githubAccountPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$`)
 
 // AggregateProjectRef identifies one project on one remote AO host.
 type AggregateProjectRef struct {
@@ -244,6 +283,9 @@ func (c ProjectConfig) Validate() error {
 		return err
 	}
 	if err := validateNameComponent("sessionPrefix", c.SessionPrefix); err != nil {
+		return err
+	}
+	if err := ValidateGitHubAccount(c.SCM.GitHub.Account); err != nil {
 		return err
 	}
 	seenEnv := make(map[string]bool, len(c.Env))

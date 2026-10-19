@@ -23,6 +23,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionguard"
 	"github.com/aoagents/agent-orchestrator/backend/internal/skillassets"
@@ -444,6 +445,9 @@ type Manager struct {
 	taskPreparationsMu          sync.Mutex
 	taskPreparations            map[domain.TaskPreparationToken]*taskPreparation
 	taskPreparationTTL          time.Duration
+	// scmIdentity resolves a project's bound GitHub account to a machine-local
+	// token at launch. Nil keeps today's machine-level credential fallback.
+	scmIdentity *scmidentity.Resolver
 	// Snapshot before the listener binds; background cleanup must never reclaim
 	// a preparation opened in this daemon after the listener is live.
 	startupTaskPreparations []domain.SessionRecord
@@ -829,6 +833,9 @@ type Deps struct {
 	// Logger receives spawn-time diagnostics (e.g. when the session PATH
 	// cannot be pinned to the daemon binary). Nil defaults to slog.Default().
 	Logger *slog.Logger
+	// SCMIdentity resolves a project's bound GitHub account to a machine-local
+	// token immediately before launch. Nil preserves today's fallback.
+	SCMIdentity *scmidentity.Resolver
 	// DefaultHarness is the machine's AO_AGENT default, used when neither the
 	// spawn nor the role config names a harness.
 	DefaultHarness domain.AgentHarness
@@ -863,6 +870,7 @@ func New(d Deps) *Manager {
 		taskPreparations:               make(map[domain.TaskPreparationToken]*taskPreparation),
 		asyncChatSpawns:                make(map[domain.SessionID]*asyncChatSpawnRun),
 		taskPreparationTTL:             defaultTaskPreparationTTL,
+		scmIdentity:                    d.SCMIdentity,
 		openTranscriptFile:             os.Open,
 		lookPath:                       d.LookPath,
 		executable:                     d.Executable,
@@ -959,6 +967,9 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	}
 	project, err := m.loadProject(ctx, cfg.ProjectID)
 	if err != nil {
+		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
+	}
+	if err := m.applySCMIdentity(ctx, &project); err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
 	}
 	standalone := cfg.ProjectID == ""
@@ -5749,6 +5760,76 @@ func spawnEnvForOS(id domain.SessionID, project domain.ProjectID, issue domain.I
 	return env
 }
 
+// applySCMIdentity resolves the project's bound SCM account before durable
+// state exists. A missing token fails the spawn instead of a blind launch.
+func (m *Manager) applySCMIdentity(ctx context.Context, project *domain.ProjectRecord) error {
+	if m.scmIdentity == nil || project == nil {
+		return nil
+	}
+	resolved, err := m.scmIdentity.Resolve(ctx, *project)
+	if err != nil {
+		return err
+	}
+	if len(resolved.Env) == 0 {
+		return nil
+	}
+	project.Config.Env = agentlaunch.MergeEnv(project.Config.Env, resolved.Env)
+	return nil
+}
+
+// ambientSCMCredentialEnv lists machine-level GitHub credentials that a bound
+// project must never inherit when its own token cannot be resolved.
+var ambientSCMCredentialEnv = []string{
+	"GH_TOKEN",
+	"GITHUB_TOKEN",
+	"GH_ENTERPRISE_TOKEN",
+	"GITHUB_ENTERPRISE_TOKEN",
+	"GH_HOST",
+}
+
+// stripAmbientSCMCredentials removes every machine-level GitHub credential
+// from env so a relaunch cannot silently use a different account.
+func stripAmbientSCMCredentials(env map[string]string) {
+	for _, key := range ambientSCMCredentialEnv {
+		deleteProtectedEnv(env, key, envKeysCaseInsensitive)
+	}
+}
+
+// injectProjectSCMIdentity re-resolves a project's account for relaunches.
+// A bound project without a token loses machine GitHub credentials here.
+func (m *Manager) injectProjectSCMIdentity(projectID domain.ProjectID, env map[string]string) map[string]string {
+	if m.scmIdentity == nil || projectID == "" || m.store == nil {
+		return env
+	}
+	ctx := m.backgroundContext
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	row, ok, err := m.store.GetProject(ctx, string(projectID))
+	if err != nil || !ok {
+		return env
+	}
+	account := row.Config.GitHubAccount()
+	if account == "" {
+		return env
+	}
+	resolved, err := m.scmIdentity.Resolve(ctx, row)
+	if err != nil {
+		host := ""
+		if derived, hostErr := scmidentity.GitHubHost(row); hostErr == nil {
+			host = derived
+		}
+		stripAmbientSCMCredentials(env)
+		m.logger.Warn("session env: project SCM token unavailable; GitHub credentials withheld",
+			"projectID", projectID, "account", account, "host", host, "error", err)
+		return env
+	}
+	if len(resolved.Env) == 0 {
+		return env
+	}
+	return agentlaunch.MergeEnv(env, resolved.Env)
+}
+
 // runtimeEnv is spawnEnv plus the hook PATH pin: the session's PATH puts the
 // running daemon's own directory first, so the bare `ao` in workspace hook
 // commands resolves to the daemon that installed them rather than whatever
@@ -5759,6 +5840,7 @@ func spawnEnvForOS(id domain.SessionID, project domain.ProjectID, issue domain.I
 func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueID, projectEnv map[string]string) map[string]string {
 	caseInsensitive := envKeysCaseInsensitive
 	env := spawnEnvForOS(id, project, issue, m.dataDir, projectEnv, caseInsensitive)
+	env = m.injectProjectSCMIdentity(project, env)
 	// Project configuration must never redirect AO-owned hook callbacks to a
 	// different daemon. New receives the resolved absolute path in production;
 	// the environment fallback keeps focused embedders and tests compatible.

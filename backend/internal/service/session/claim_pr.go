@@ -104,6 +104,7 @@ func (s *Service) ClaimPR(ctx context.Context, id domain.SessionID, ref string, 
 	if err != nil {
 		return ClaimPRResult{}, err
 	}
+	repo.Account = project.Config.GitHubAccount()
 	refSpec := ports.SCMPRRef{Repo: repo, Number: number, URL: prURL}
 	obs, err := s.fetchClaimObservation(ctx, refSpec)
 	if err != nil {
