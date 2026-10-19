@@ -140,8 +140,10 @@ func TestDeliverExternalSubmitsToTheActiveOrchestratorWithHostAttribution(t *tes
 		Outputs: []domain.ReportOutput{{Kind: domain.ReportOutputPRCreated, Reference: "https://github.com/o/r/pull/9"}},
 	}}
 
-	if err := c.DeliverExternal(context.Background(), "p", reports); !errors.Is(err, ErrNoActiveOrchestrator) {
-		t.Fatalf("without an orchestrator err = %v", err)
+	if _, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host-build", RemoteSessionID: "widgets-3", RemoteProjectID: "widgets", ProjectID: "p", CreatedAt: now,
+	}); err != nil || ok {
+		t.Fatalf("without an orchestrator ok=%v err=%v", ok, err)
 	}
 	if len(delivery.submissions) != 0 {
 		t.Fatal("submitted without an orchestrator")
@@ -151,7 +153,7 @@ func TestDeliverExternalSubmitsToTheActiveOrchestratorWithHostAttribution(t *tes
 		{ID: "old", ProjectID: "p", Kind: domain.KindOrchestrator, IsTerminated: true, CreatedAt: now},
 		{ID: "respawned", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now.Add(time.Second)},
 	}
-	if err := c.DeliverExternal(context.Background(), "p", reports); err != nil {
+	if err := c.DeliverExternal(context.Background(), "p", "respawned", reports); err != nil {
 		t.Fatal(err)
 	}
 	if len(delivery.submissions) != 1 || delivery.submissions[0].target != "respawned" {
@@ -167,7 +169,7 @@ func TestDeliverExternalSubmitsToTheActiveOrchestratorWithHostAttribution(t *tes
 	}
 
 	delivery.submitErr = errors.New("busy")
-	if err := c.DeliverExternal(context.Background(), "p", reports); err == nil {
+	if err := c.DeliverExternal(context.Background(), "p", "respawned", reports); err == nil {
 		t.Fatal("a refused submission must surface so the caller does not acknowledge")
 	}
 }

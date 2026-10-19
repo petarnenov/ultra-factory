@@ -34,25 +34,39 @@ WHERE delivery_state = 'pending'
 ORDER BY available_at, created_at, id
 LIMIT ?;
 
--- name: ListPendingReportsByProjectSchedule :many
-SELECT * FROM reports
-WHERE project_id = ? AND delivery_state = 'pending'
-ORDER BY available_at, created_at, id
-LIMIT ?;
+-- name: ListPendingReportsByRecipientSchedule :many
+SELECT r.id, r.session_id, r.project_id, r.state, r.note, r.message, r.created_at,
+    r.delivery_state, r.available_at, r.settlement_deadline, r.repeat_count,
+    r.claim_token, r.claimed_at, r.delivery_attempts, r.acknowledged_at,
+    r.last_error, r.delivery_batch_id, r.delivery_owner_id
+FROM reports r
+JOIN sessions s ON s.id = r.session_id
+WHERE r.project_id = sqlc.arg(project_id) AND r.delivery_state = 'pending'
+  AND COALESCE(s.owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+ORDER BY r.available_at, r.created_at, r.id
+LIMIT sqlc.arg(limit);
 
--- name: AssignPendingReportsToBatch :exec
+-- name: AssignPendingReportsToRecipient :exec
 UPDATE reports
 SET delivery_batch_id = sqlc.arg(delivery_batch_id)
-WHERE project_id = sqlc.arg(project_id) AND delivery_state = 'pending'
-  AND delivery_batch_id = '';
+WHERE reports.project_id = sqlc.arg(project_id) AND reports.delivery_state = 'pending'
+  AND reports.delivery_batch_id = ''
+  AND reports.session_id IN (
+      SELECT id FROM sessions
+      WHERE COALESCE(owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+  );
 
--- name: ClaimPendingReportsByBatch :many
+-- name: ClaimPendingReportsByRecipient :many
 UPDATE reports
 SET delivery_state = 'claimed', claim_token = sqlc.arg(claim_token),
     claimed_at = sqlc.arg(claimed_at), delivery_attempts = delivery_attempts + 1,
-    last_error = ''
-WHERE project_id = sqlc.arg(project_id) AND delivery_state = 'pending'
-  AND delivery_batch_id = sqlc.arg(delivery_batch_id)
+    delivery_owner_id = sqlc.arg(recipient_session_id), last_error = ''
+WHERE reports.project_id = sqlc.arg(project_id) AND reports.delivery_state = 'pending'
+  AND reports.delivery_batch_id = sqlc.arg(delivery_batch_id)
+  AND reports.session_id IN (
+      SELECT id FROM sessions
+      WHERE COALESCE(owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+  )
 RETURNING *;
 
 -- name: AcknowledgeReportBatch :many

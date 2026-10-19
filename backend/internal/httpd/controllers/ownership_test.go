@@ -269,7 +269,7 @@ func TestSessionOwnerWriteRejectionsUseADRErrorCodes(t *testing.T) {
 	if _, err := reports.Create(context.Background(), reportsvc.CreateInput{SessionID: f.worker.ID, State: domain.ReportCheckpoint, Note: "in flight"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.ClaimPendingReportBatch(context.Background(), "ao", "claim-token", f.now); err != nil {
+	if _, err := f.store.ClaimPendingReportBatch(context.Background(), "ao", f.root.ID, f.root.ID, "claim-token", f.now); err != nil {
 		t.Fatal(err)
 	}
 	body, status, _ := doRequest(t, srv, http.MethodPut, workerPath, ownerBody(f.coordinator.ID, f.root.ID))

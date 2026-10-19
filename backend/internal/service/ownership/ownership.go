@@ -12,6 +12,11 @@ func IsLiveRoot(rec domain.SessionRecord, project domain.ProjectID) bool {
 	return rec.Kind == domain.KindOrchestrator && !rec.IsTerminated && rec.ProjectID == project
 }
 
+// IsLiveCoordinator reports whether rec is a live coordinator in project.
+func IsLiveCoordinator(rec domain.SessionRecord, project domain.ProjectID) bool {
+	return rec.Kind == domain.KindCoordinator && !rec.IsTerminated && rec.ProjectID == project
+}
+
 // RequireLiveRoot accepts only the project's live root as an ownership writer.
 func RequireLiveRoot(rec domain.SessionRecord, project domain.ProjectID) error {
 	if IsLiveRoot(rec, project) {
@@ -24,7 +29,7 @@ func RequireLiveRoot(rec domain.SessionRecord, project domain.ProjectID) error {
 // SpawnOwner derives a worker's owner from its spawn parent: only a live
 // same-project coordinator owns it, everything else leaves it root-owned.
 func SpawnOwner(parent domain.SessionRecord, project domain.ProjectID) *domain.SessionID {
-	if project == "" || parent.Kind != domain.KindCoordinator || parent.IsTerminated || parent.ProjectID != project {
+	if !IsLiveCoordinator(parent, project) {
 		return nil
 	}
 	id := parent.ID

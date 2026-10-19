@@ -38,7 +38,7 @@ func TestAcknowledgePendingSessionReportsTouchesOnlyThatWorkersPendingReports(t 
 	if _, err := s.CreateReport(ctx, pendingReport("rpt_claimed", worker, now)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ClaimPendingReportBatch(ctx, "ao", "own-delivery", now); err != nil {
+	if _, err := s.ClaimPendingReportBatch(ctx, "ao", "root", "root", "own-delivery", now); err != nil {
 		t.Fatal(err)
 	}
 	for _, rec := range []domain.ReportRecord{
