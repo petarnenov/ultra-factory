@@ -88,9 +88,19 @@ const devApiTarget = process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001";
 
 // Local runs cap Vitest at two forks; 0 keeps Vitest's own limit for CI.
 // Vitest 4 names this option maxWorkers (the old poolOptions is gone).
-const configuredMaxForks = process.env.AO_VITEST_MAX_FORKS;
-const vitestMaxForks =
-	configuredMaxForks === "0" ? undefined : Number(configuredMaxForks ?? 2);
+const configuredMaxForks = process.env.AO_VITEST_MAX_FORKS?.trim();
+if (
+	configuredMaxForks !== undefined &&
+	configuredMaxForks !== "" &&
+	!/^\d+$/.test(configuredMaxForks)
+) {
+	throw new Error(
+		`AO_VITEST_MAX_FORKS must be a non-negative integer, got "${configuredMaxForks}"`,
+	);
+}
+const parsedMaxForks =
+	configuredMaxForks === undefined || configuredMaxForks === "" ? 2 : Number(configuredMaxForks);
+const vitestMaxForks = parsedMaxForks === 0 ? undefined : parsedMaxForks;
 
 export default defineConfig({
 	// Relative asset URLs so dist-web works from any mount path; the router uses
