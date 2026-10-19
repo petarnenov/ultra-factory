@@ -103,9 +103,11 @@ func NewStore(writeDB, readDB *sql.DB) *Store {
 	}
 }
 
-// SetSessionIDHostToken scopes newly allocated session ids to this host. Call
-// it once before serving spawns; an empty token keeps the legacy id format.
+// SetSessionIDHostToken scopes newly allocated session ids to this host. Set it
+// before any session can be allocated; empty keeps the legacy id format.
 func (s *Store) SetSessionIDHostToken(token string) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	s.sessionIDHostToken = token
 }
 
