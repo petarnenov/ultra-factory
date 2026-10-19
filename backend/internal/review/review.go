@@ -420,6 +420,15 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	if err != nil {
 		return TriggerResult{}, err
 	}
+	if changed, err := e.timeoutRunningRuns(ctx, workerID, runs, reviewRows); err != nil {
+		return TriggerResult{}, err
+	} else if changed {
+		// A pass that timed out must not block the retry the caller asked for.
+		runs, err = e.store.ListReviewRunsBySession(ctx, workerID)
+		if err != nil {
+			return TriggerResult{}, err
+		}
+	}
 	reviewRow, hasReview, err := e.store.GetReviewBySessionAndHarness(ctx, workerID, harness)
 	if err != nil {
 		return TriggerResult{}, err
@@ -1768,6 +1777,14 @@ func (e *Engine) listLocked(ctx stdctx.Context, workerID domain.SessionID, selec
 	reviewRows, err := e.store.ListReviewsBySession(ctx, workerID)
 	if err != nil {
 		return SessionReviews{}, err
+	}
+	if changed, err := e.timeoutRunningRuns(ctx, workerID, runs, reviewRows); err != nil {
+		return SessionReviews{}, err
+	} else if changed {
+		runs, err = e.store.ListReviewRunsBySession(ctx, workerID)
+		if err != nil {
+			return SessionReviews{}, err
+		}
 	}
 	active := []domain.ReviewerSurface{}
 	if reviewerRowActive(reviewRow, runs) {

@@ -69,6 +69,9 @@ func TestGreenPRViolationMatchesReviewState(t *testing.T) {
 		"AO review running": {func(_ *PullRequest, w *Worker) {
 			w.Reviews[0].Status = "running"
 		}, []string{base + "; AO review is running"}},
+		"AO review timed out": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].Status = "needs_review"
+		}, []string{base + "; AO review is needs_review"}},
 		"no AO review for this head": {func(_ *PullRequest, w *Worker) {
 			w.Reviews = nil
 		}, []string{base + "; no current-head AO native approval"}},
