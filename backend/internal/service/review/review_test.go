@@ -36,6 +36,22 @@ type fakeNotificationSink struct {
 	intents []ports.NotificationIntent
 }
 
+type fakeWorkerDelivery struct {
+	sends []struct {
+		session domain.SessionID
+		message string
+	}
+	err error
+}
+
+func (f *fakeWorkerDelivery) Send(_ context.Context, session domain.SessionID, message string) error {
+	f.sends = append(f.sends, struct {
+		session domain.SessionID
+		message string
+	}{session: session, message: message})
+	return f.err
+}
+
 type fakeCheckoutReleaser struct {
 	released []string
 }
@@ -312,6 +328,106 @@ func TestSubmitRecordsTheResultWithoutASeparateDelivery(t *testing.T) {
 	}
 }
 
+// A review whose POST never reached GitHub has no id. Record the pass as
+// failed and deliver the findings instead of a changes_requested nobody sees.
+func TestSubmitRecordsUnpublishedReviewAsFailedAndDeliversFindings(t *testing.T) {
+	st := &fakeStore{
+		ok: true,
+		run: domain.ReviewRun{
+			ID: "run-1", SessionID: "mer-1", PRURL: "https://github.com/acme/app/pull/42",
+			TargetSHA: "sha1", Status: domain.ReviewRunRunning,
+			Harness: domain.ReviewerClaudeCode, TriggerSource: domain.ReviewTriggerAuto,
+		},
+	}
+	delivery := &fakeWorkerDelivery{}
+	sink := &recordingSink{}
+	svc := New(nil, st, WithWorkerDelivery(delivery), WithTelemetry(sink))
+
+	body := "src/auth.go:42: close the token file before returning"
+	run, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictChangesRequested, body, "")
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if run.Status != domain.ReviewRunFailed || run.Verdict != domain.VerdictNone || run.GithubReviewID != "" {
+		t.Fatalf("run = %+v, want failed with no verdict and no GitHub review id", run)
+	}
+	if !strings.Contains(st.run.Body, unpublishedReviewRecordNote) || !strings.Contains(st.run.Body, body) {
+		t.Fatalf("record body does not state the publish failure and keep the findings:\n%s", st.run.Body)
+	}
+	if len(delivery.sends) != 1 || delivery.sends[0].session != "mer-1" {
+		t.Fatalf("delivery = %+v, want one message to the worker", delivery.sends)
+	}
+	for _, want := range []string{"The review did not land", "Reviewer findings:", body, "ao review trigger"} {
+		if !strings.Contains(delivery.sends[0].message, want) {
+			t.Fatalf("worker delivery missing %q:\n%s", want, delivery.sends[0].message)
+		}
+	}
+	if got := len(sink.named("ao.review.publish_failed")); got != 1 {
+		t.Fatalf("ao.review.publish_failed count = %d, want 1", got)
+	}
+	if got := len(sink.named("ao.review.submitted")); got != 0 {
+		t.Fatalf("ao.review.submitted count = %d, want 0 for an unpublished review", got)
+	}
+}
+
+func TestSubmitReplaysUnpublishedReviewWithoutDuplicatingDelivery(t *testing.T) {
+	st := &fakeStore{
+		ok: true,
+		run: domain.ReviewRun{
+			ID: "run-1", SessionID: "mer-1", PRURL: "https://github.com/acme/app/pull/42",
+			Status: domain.ReviewRunRunning,
+		},
+	}
+	delivery := &fakeWorkerDelivery{}
+	sink := &recordingSink{}
+	svc := New(nil, st, WithWorkerDelivery(delivery), WithTelemetry(sink))
+
+	body := "src/auth.go:42: close the token file before returning"
+	for i := 0; i < 2; i++ {
+		run, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictChangesRequested, body, "")
+		if err != nil {
+			t.Fatalf("Submit %d: %v", i, err)
+		}
+		if run.Status != domain.ReviewRunFailed {
+			t.Fatalf("Submit %d run = %+v, want failed", i, run)
+		}
+	}
+	if st.updateCalls != 1 {
+		t.Fatalf("update calls = %d, want 1 across the replay", st.updateCalls)
+	}
+	if len(delivery.sends) != 1 {
+		t.Fatalf("deliveries = %d, want 1 across the replay", len(delivery.sends))
+	}
+	if got := len(sink.named("ao.review.publish_failed")); got != 1 {
+		t.Fatalf("ao.review.publish_failed count = %d, want 1 across the replay", got)
+	}
+}
+
+func TestUnpublishedReviewDeliveryRespectsDisabledInjection(t *testing.T) {
+	disabled := false
+	st := &fakeStore{
+		ok:                      true,
+		sessionAutoInjectReview: &disabled,
+		run: domain.ReviewRun{
+			ID: "run-1", SessionID: "mer-1", PRURL: "https://github.com/acme/app/pull/42",
+			Status: domain.ReviewRunRunning,
+		},
+	}
+	delivery := &fakeWorkerDelivery{}
+	svc := New(nil, st, WithWorkerDelivery(delivery))
+
+	run, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictApproved, "", "")
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if run.Status != domain.ReviewRunFailed {
+		t.Fatalf("run = %+v, want failed", run)
+	}
+	if len(delivery.sends) != 0 {
+		t.Fatalf("delivery = %+v, want none while auto-inject is off", delivery.sends)
+	}
+}
+
 func TestApplyReviewActivitySignalPersistsNativeReviewerSessionID(t *testing.T) {
 	st := &fakeStore{
 		reviewOK: true,
@@ -478,7 +594,7 @@ func TestSubmitEmitsChangesRequestedNotification(t *testing.T) {
 	sink := &fakeNotificationSink{}
 	svc := New(nil, st, WithNotificationSink(sink))
 
-	if _, err := svc.Submit(context.Background(), "mer-1", "run-2", domain.VerdictChangesRequested, "fix it", ""); err != nil {
+	if _, err := svc.Submit(context.Background(), "mer-1", "run-2", domain.VerdictChangesRequested, "fix it", "987"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	if len(sink.intents) != 1 || sink.intents[0].Type != domain.NotificationReviewChangesRequested {
@@ -501,8 +617,8 @@ func TestSubmitManySkipsSupersededRunAndRecordsSiblings(t *testing.T) {
 	svc := New(nil, st, WithClock(func() time.Time { return now }))
 
 	runs, err := svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{
-		{RunID: "run-1", Verdict: domain.VerdictChangesRequested, Body: "fix pr1"},
-		{RunID: "run-2", Verdict: domain.VerdictChangesRequested, Body: "fix pr2"},
+		{RunID: "run-1", Verdict: domain.VerdictChangesRequested, Body: "fix pr1", GithubReviewID: "987"},
+		{RunID: "run-2", Verdict: domain.VerdictChangesRequested, Body: "fix pr2", GithubReviewID: "988"},
 	})
 	if err != nil {
 		t.Fatalf("SubmitMany must record valid siblings when one run was superseded: %v", err)
@@ -525,7 +641,7 @@ func TestSubmitManyReleasesDisposableCheckoutAfterBatchCompletes(t *testing.T) {
 	svc := New(nil, st, WithCheckoutReleaser(checkout))
 
 	if _, err := svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{{
-		RunID: "run-1", Verdict: domain.VerdictApproved,
+		RunID: "run-1", Verdict: domain.VerdictApproved, GithubReviewID: "987",
 	}}); err != nil {
 		t.Fatalf("SubmitMany: %v", err)
 	}
@@ -547,7 +663,7 @@ func TestSubmitManyKeepsCheckoutWhileBatchSiblingRuns(t *testing.T) {
 	svc := New(nil, st, WithCheckoutReleaser(checkout))
 
 	if _, err := svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{{
-		RunID: "run-1", Verdict: domain.VerdictApproved,
+		RunID: "run-1", Verdict: domain.VerdictApproved, GithubReviewID: "987",
 	}}); err != nil {
 		t.Fatalf("SubmitMany: %v", err)
 	}
@@ -708,7 +824,10 @@ func TestSubmitNeverReportsReviewProseOrRepoIdentifiers(t *testing.T) {
 			t.Fatalf("payload carries a body key: %#v", ev.Payload)
 		}
 	}
-	if p := sink.named("ao.review.submitted")[0].Payload; p["posted_to_provider"] != false {
+	if got := sink.named("ao.review.submitted"); len(got) != 0 {
+		t.Fatalf("ao.review.submitted count = %d, want 0 when nothing was posted", len(got))
+	}
+	if p := sink.named("ao.review.publish_failed")[0].Payload; p["posted_to_provider"] != false {
 		t.Fatalf("posted_to_provider = %#v, want false when nothing was posted", p["posted_to_provider"])
 	}
 }
@@ -728,7 +847,7 @@ func TestResubmitDoesNotDoubleReport(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		if _, err := svc.Submit(context.Background(), "worker-1", "run-1",
-			domain.VerdictApproved, "", ""); err != nil {
+			domain.VerdictApproved, "", "987"); err != nil {
 			t.Fatalf("Submit %d: %v", i, err)
 		}
 	}
@@ -745,7 +864,7 @@ func TestServiceWithoutTelemetrySinkStaysSilent(t *testing.T) {
 		run: domain.ReviewRun{ID: "run-1", SessionID: "worker-1", Status: domain.ReviewRunRunning},
 	}
 	svc := New(nil, store)
-	if _, err := svc.Submit(context.Background(), "worker-1", "run-1", domain.VerdictApproved, "", ""); err != nil {
+	if _, err := svc.Submit(context.Background(), "worker-1", "run-1", domain.VerdictApproved, "", "987"); err != nil {
 		t.Fatalf("Submit without a sink: %v", err)
 	}
 }
@@ -888,7 +1007,7 @@ func TestSubmitReportsPassShapeNotItsContents(t *testing.T) {
 
 	body := "rename this symbol"
 	if _, err := svc.Submit(context.Background(), "worker-1", "run-1",
-		domain.VerdictChangesRequested, body, ""); err != nil {
+		domain.VerdictChangesRequested, body, "987"); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
 	p := sink.named("ao.review.submitted")[0].Payload
