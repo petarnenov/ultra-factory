@@ -28,7 +28,10 @@ import (
 // ControlDeps carries the daemon-control hooks the router exposes, such as the
 // callback that requests a graceful shutdown.
 type ControlDeps struct {
-	RequestShutdown   func()
+	RequestShutdown func()
+	// ShutdownRefusal, when non-empty, refuses POST /shutdown with that reason.
+	// A supervised daemon sets it so no in-process client stops the host.
+	ShutdownRefusal   string
 	AgentSwitchPolicy AgentSwitchPolicyControl
 }
 
@@ -181,6 +184,14 @@ func mountControl(r chi.Router, deps ControlDeps) {
 			envelope.WriteJSON(w, http.StatusForbidden, map[string]any{
 				"status":  "forbidden",
 				"service": daemonmeta.ServiceName,
+			})
+			return
+		}
+		if deps.ShutdownRefusal != "" {
+			envelope.WriteJSON(w, http.StatusConflict, map[string]any{
+				"status":  "shutdown_refused",
+				"service": daemonmeta.ServiceName,
+				"message": deps.ShutdownRefusal,
 			})
 			return
 		}

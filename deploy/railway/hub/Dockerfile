@@ -117,5 +117,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
         curl --fail --silent --show-error --output /dev/null http://127.0.0.1:3001/readyz
 
 # tini reaps children and forwards SIGTERM to the supervisor, which stops both
-# processes. If either exits, the supervisor exits and the container restarts.
+# processes. Any exit, even a clean one, is non-zero so restart applies.
 ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/usr/local/bin/ao-hub-supervisor.sh"]

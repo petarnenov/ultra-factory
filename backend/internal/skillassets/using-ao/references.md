@@ -30,7 +30,7 @@ Natural-language-to-command mappings for common AO tasks.
 | Clean up terminated sessions | `ao session cleanup` |
 | Make a Docker container this session starts survive AO cleanup | `docker run --label ao.session=$AO_SESSION_ID --label ao.spare=true ...` |
 | See a session's details | `ao session get <id>` |
-| Open the desktop app | `ao start` |
+| Open the desktop app (operator-only; refused inside AO sessions) | `ao start` |
 | Check the daemon is up | `ao status` |
 | Run health checks | `ao doctor` |
 | Clear the preview panel | `ao preview clear` |

@@ -69,6 +69,48 @@ func TestShutdownGuard(t *testing.T) {
 	}
 }
 
+// TestShutdownRefusedWhenSupervised verifies a supervised daemon answers the
+// loopback shutdown route with a refusal and never fires the callback.
+func TestShutdownRefusedWhenSupervised(t *testing.T) {
+	fired := make(chan struct{}, 1)
+	r := NewRouterWithControl(config.Config{}, discardLogger(), nil, APIDeps{}, ControlDeps{
+		RequestShutdown: func() { fired <- struct{}{} },
+		ShutdownRefusal: "this daemon runs under a host supervisor",
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:3001/shutdown", nil)
+	req.Host = "127.0.0.1:3001"
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode refusal: %v", err)
+	}
+	if body["status"] != "shutdown_refused" || body["message"] != "this daemon runs under a host supervisor" {
+		t.Fatalf("refusal body = %#v", body)
+	}
+	select {
+	case <-fired:
+		t.Fatal("shutdown fired while supervised")
+	default:
+	}
+}
+
+func TestSupervisedShutdownRefusal(t *testing.T) {
+	t.Setenv("AO_SUPERVISED", "")
+	if got := supervisedShutdownRefusal(); got != "" {
+		t.Fatalf("unsupervised refusal = %q, want empty", got)
+	}
+	t.Setenv("AO_SUPERVISED", "1")
+	if got := supervisedShutdownRefusal(); got == "" {
+		t.Fatal("supervised daemon did not refuse shutdown")
+	}
+}
+
 func TestAgentSwitchPolicyControlRoutesAreTypedAndLoopbackOnly(t *testing.T) {
 	policy := &policyControlFake{
 		prepareAck: ports.AgentSwitchFailurePolicyAcknowledgement{

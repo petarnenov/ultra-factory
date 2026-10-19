@@ -39,7 +39,7 @@ This reference omits internal commands such as `daemon`, `hooks`, `launch`, `age
 
 ### `ao start`
 
-Opens the installed desktop app. If the app is missing, the legacy launcher can download the latest release first. The desktop app starts and supervises the daemon.
+Opens the installed desktop app. If the app is missing, the legacy launcher can download the latest release first. The desktop app starts and supervises the daemon. This command is operator-only and is refused inside an AO agent session (`AO_SESSION_ID` is set).
 
 | Flag | Purpose |
 | --- | --- |
@@ -49,7 +49,7 @@ For a new installation, download the desktop app from the [installation guide](/
 
 ### `ao stop`
 
-Asks the loopback daemon to shut down after checking that the run file identifies Orchestrator.
+Asks the loopback daemon to shut down after checking that the run file identifies Orchestrator. It is refused inside an AO agent session (`AO_SESSION_ID` is set), and a daemon started by a host supervisor such as the Railway hub refuses the shutdown; restart the hosted service from the platform instead.
 
 | Flag | Purpose |
 | --- | --- |

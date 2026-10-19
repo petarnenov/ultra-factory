@@ -68,6 +68,7 @@ func NewWithDeps(cfg config.Config, log *slog.Logger, termMgr *terminal.Manager,
 	srv.http = &http.Server{
 		Handler: NewRouterWithControl(cfg, log, termMgr, deps, ControlDeps{
 			RequestShutdown:   srv.requestShutdown,
+			ShutdownRefusal:   supervisedShutdownRefusal(),
 			AgentSwitchPolicy: deps.AgentSwitchPolicy,
 		}),
 		// ReadHeaderTimeout guards against slow-loris even on loopback;
@@ -177,3 +178,13 @@ func (s *Server) requestShutdown() {
 // RequestShutdown triggers the same clean shutdown as POST /shutdown: it makes
 // Run return so the daemon exits without tearing down sessions. Idempotent.
 func (s *Server) RequestShutdown() { s.requestShutdown() }
+
+// supervisedShutdownRefusal refuses /shutdown for a daemon started by a host
+// supervisor such as the Railway hub, where stopping it stops the host.
+func supervisedShutdownRefusal() string {
+	if os.Getenv("AO_SUPERVISED") != "1" {
+		return ""
+	}
+	return "this daemon runs under a host supervisor; stopping it takes down the whole host. " +
+		"Restart the service from the platform instead."
+}
