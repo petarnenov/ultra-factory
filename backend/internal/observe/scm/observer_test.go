@@ -2190,7 +2190,7 @@ func TestPoll_KeepsUnsettledPRsOfRecentlyTerminatedSession(t *testing.T) {
 
 	// Legacy rows carry no termination activity stamp; UpdatedAt is the
 	// fallback until their next termination writes one.
-	store, provider = poll(time.Time{}, now.Add(-time.Hour))
+	_, provider = poll(time.Time{}, now.Add(-time.Hour))
 	if len(provider.fetchBatches) != 1 {
 		t.Fatalf("legacy recently terminated session must stay refreshed, fetch batches = %d", len(provider.fetchBatches))
 	}
