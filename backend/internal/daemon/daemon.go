@@ -729,6 +729,21 @@ func Run() error {
 			}
 			return nil
 		},
+		OnRecovered: func(reportCtx context.Context, rec domain.SessionRecord, progress domain.SessionProgress, _ domain.SessionHealth) error {
+			note := fmt.Sprintf("AO health monitor: session %s resumed progress. The earlier stall report is superseded.", rec.ID)
+			if !progress.LastStallAt.IsZero() {
+				note = fmt.Sprintf("AO health monitor: session %s resumed progress after %s; the earlier stall report is superseded.", rec.ID, time.Since(progress.LastStallAt).Round(time.Second))
+			}
+			if _, err := reportSvc.Create(reportCtx, reportsvc.CreateInput{
+				SessionID: rec.ID,
+				State:     domain.ReportCheckpoint,
+				Note:      note,
+			}); err != nil {
+				log.Warn("session health: recovery report failed", "session", rec.ID, "err", err)
+				return err
+			}
+			return nil
+		},
 	})
 	healthDone := healthObserver.Start(ctx)
 	defer func() {

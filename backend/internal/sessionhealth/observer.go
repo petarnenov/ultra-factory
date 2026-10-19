@@ -31,6 +31,8 @@ type ObserverConfig struct {
 	Logger *slog.Logger
 	// OnStalled reports one stall crossing. An error retries the next pass.
 	OnStalled func(context.Context, domain.SessionRecord, domain.SessionHealth) error
+	// OnRecovered follows up a reported episode after real progress resumes.
+	OnRecovered func(context.Context, domain.SessionRecord, domain.SessionProgress, domain.SessionHealth) error
 	// Messenger optionally sends a checkpoint request to a stalled session.
 	// Nil disables it.
 	Messenger ports.AgentMessenger
@@ -41,15 +43,16 @@ type ObserverConfig struct {
 // Observer evaluates derived health for every session on a tick. It is not a
 // detector of terminal output; it only reads durable progress facts.
 type Observer struct {
-	store      ObserverStore
-	notifier   Notifier
-	cfg        Config
-	tick       time.Duration
-	clock      func() time.Time
-	logger     *slog.Logger
-	onStalled  func(context.Context, domain.SessionRecord, domain.SessionHealth) error
-	messenger  ports.AgentMessenger
-	checkpoint bool
+	store       ObserverStore
+	notifier    Notifier
+	cfg         Config
+	tick        time.Duration
+	clock       func() time.Time
+	logger      *slog.Logger
+	onStalled   func(context.Context, domain.SessionRecord, domain.SessionHealth) error
+	onRecovered func(context.Context, domain.SessionRecord, domain.SessionProgress, domain.SessionHealth) error
+	messenger   ports.AgentMessenger
+	checkpoint  bool
 }
 
 // NewObserver builds a health observer.
@@ -57,7 +60,8 @@ func NewObserver(store ObserverStore, notifier Notifier, cfg ObserverConfig) *Ob
 	o := &Observer{
 		store: store, notifier: notifier, cfg: cfg.Health, tick: cfg.Tick,
 		clock: cfg.Clock, logger: cfg.Logger, onStalled: cfg.OnStalled,
-		messenger: cfg.Messenger, checkpoint: cfg.RequestCheckpoint,
+		onRecovered: cfg.OnRecovered,
+		messenger:   cfg.Messenger, checkpoint: cfg.RequestCheckpoint,
 	}
 	if o.cfg.ProviderSilence <= 0 {
 		o.cfg = DefaultConfig()
@@ -158,6 +162,11 @@ func (o *Observer) evaluate(ctx context.Context, rec domain.SessionRecord, progr
 		return nil
 	}
 	if !active && !progress.LastNotifiedProgressAt.IsZero() {
+		if o.onRecovered != nil && rec.Kind == domain.KindWorker && rec.ProjectID != "" {
+			if err := o.onRecovered(ctx, rec, progress, health); err != nil {
+				return err
+			}
+		}
 		if o.notifier != nil {
 			_ = o.notifier.Resolve(ctx, ports.NotificationResolution{
 				Type:       domain.NotificationSessionStalled,

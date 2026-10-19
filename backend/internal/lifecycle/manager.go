@@ -998,9 +998,6 @@ retryProjection:
 	if s.Valid {
 		s = m.applyToolPrecedenceLocked(id, rec.Activity.State, s)
 	}
-	if s.Valid {
-		m.recordActivityProgress(ctx, id, s, now)
-	}
 	if !s.Valid && !metadataChanged {
 		m.mu.Unlock()
 		return nil
@@ -1079,6 +1076,7 @@ retryProjection:
 				return nil
 			}
 			m.mu.Unlock()
+			m.recordActivityProgress(ctx, id, s, now)
 			return m.acknowledgeAgentSwitchTarget(ctx, id, s, now)
 		}
 		m.mu.Unlock()
@@ -1126,6 +1124,7 @@ retryProjection:
 	resolutions := needsInputResolutions(rec, next, now)
 	waitingEvents := m.waitingInputEvents(next, prevState, prevAt, now)
 	m.mu.Unlock()
+	m.recordActivityProgress(ctx, id, s, now)
 	if err := m.acknowledgeAgentSwitchTarget(ctx, id, s, now); err != nil {
 		return err
 	}

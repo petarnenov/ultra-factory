@@ -87,4 +87,42 @@ func TestSessionProgressMergesSignalsAndKeepsHistory(t *testing.T) {
 	}
 }
 
+func TestSessionProgressCDCEmitsOnInsertStallAndRecovery(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "progress-cdc")
+	session, err := s.CreateSession(ctx, sampleRecord("progress-cdc"))
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	baseSeq, _ := s.LatestSeq(ctx)
+	if err := s.RecordSessionProgress(ctx, session.ID, domain.SessionProgressUpdate{
+		LastNotifiedFor: now, StallCountDelta: 1, LastStallAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.EventsAfter(ctx, baseSeq, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || string(events[0].Type) != "session_updated" {
+		t.Fatalf("insert stall events = %+v, want one session_updated", events)
+	}
+
+	baseSeq, _ = s.LatestSeq(ctx)
+	if err := s.RecordSessionProgress(ctx, session.ID, domain.SessionProgressUpdate{
+		ClearLastNotified: true, LastStallFor: 5 * time.Minute,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	events, err = s.EventsAfter(ctx, baseSeq, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || string(events[0].Type) != "session_updated" {
+		t.Fatalf("recovery events = %+v, want one session_updated", events)
+	}
+}
+
 func stringPointer(value string) *string { return &value }

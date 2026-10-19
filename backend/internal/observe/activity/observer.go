@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -200,11 +201,36 @@ func (o *Observer) reconcile(ctx context.Context, session domain.SessionRecord, 
 	}
 }
 
+var (
+	terminalTimerPattern   = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:ms|s|m|h|sec|secs|second|seconds|min|mins|minute|minutes|hour|hours)\b`)
+	terminalClockPattern   = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})?\b`)
+	terminalPercentPattern = regexp.MustCompile(`\b\d+(?:\.\d+)?%`)
+	terminalWaitPattern    = regexp.MustCompile(`(?i)\b(?:esc|ctrl\+c)\s+to\s+(?:interrupt|cancel)\b`)
+	terminalSpinners       = strings.NewReplacer(
+		"✻", "", "✽", "", "✶", "", "✳", "", "✢", "", "·", "",
+		"•", "", "●", "", "○", "", "◐", "", "◓", "", "◑", "", "◒", "",
+		"⠋", "", "⠙", "", "⠹", "", "⠸", "", "⠼", "", "⠴", "", "⠦", "",
+		"⠧", "", "⠇", "", "⠏", "", "◴", "", "◷", "", "◶", "", "◵", "",
+		"◰", "", "◳", "", "◲", "", "◱", "",
+	)
+)
+
+// normalizeTerminalProgress strips spinner and timer redraw churn so a hung
+// TUI session does not keep looking busy.
+func normalizeTerminalProgress(output string) string {
+	normalized := terminalSpinners.Replace(output)
+	normalized = terminalTimerPattern.ReplaceAllString(normalized, "<time>")
+	normalized = terminalClockPattern.ReplaceAllString(normalized, "<clock>")
+	normalized = terminalPercentPattern.ReplaceAllString(normalized, "<pct>")
+	normalized = terminalWaitPattern.ReplaceAllString(normalized, "<wait>")
+	return strings.Join(strings.Fields(normalized), " ")
+}
+
 func (o *Observer) recordTerminalProgress(ctx context.Context, sink progressSink, session domain.SessionRecord, output string, now time.Time) {
 	if strings.TrimSpace(output) == "" {
 		return
 	}
-	hash := sha256.Sum256([]byte(output))
+	hash := sha256.Sum256([]byte(normalizeTerminalProgress(output)))
 	if previous, seen := o.terminalHashes[session.ID]; seen && previous == hash {
 		return
 	}

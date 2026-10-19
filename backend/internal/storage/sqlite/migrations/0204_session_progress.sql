@@ -23,11 +23,26 @@ CREATE INDEX session_progress_stall_count_idx ON session_progress(stall_count);
 
 -- +goose StatementBegin
 -- Only health crossings are broadcast live; heartbeat writes stay quiet.
-CREATE TRIGGER session_progress_cdc_health
+CREATE TRIGGER session_progress_cdc_health_insert
+AFTER INSERT ON session_progress
+WHEN NEW.stall_count > 0 OR NEW.blocked_reason <> ''
+BEGIN
+    INSERT INTO change_log (project_id, session_id, event_type, payload, created_at)
+    SELECT s.project_id, s.id, 'session_updated',
+        json_object('id', s.id, 'healthChanged', json('true')),
+        CURRENT_TIMESTAMP
+    FROM sessions s
+    WHERE s.id = NEW.session_id AND s.project_id IS NOT NULL;
+END;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE TRIGGER session_progress_cdc_health_update
 AFTER UPDATE ON session_progress
 WHEN NEW.stall_count <> OLD.stall_count
     OR NEW.last_stall_for_seconds <> OLD.last_stall_for_seconds
     OR NEW.blocked_reason <> OLD.blocked_reason
+    OR NEW.last_notified_progress_at IS NOT OLD.last_notified_progress_at
 BEGIN
     INSERT INTO change_log (project_id, session_id, event_type, payload, created_at)
     SELECT s.project_id, s.id, 'session_updated',
@@ -40,7 +55,8 @@ END;
 
 -- +goose Down
 -- +goose StatementBegin
-DROP TRIGGER session_progress_cdc_health;
+DROP TRIGGER session_progress_cdc_health_update;
+DROP TRIGGER session_progress_cdc_health_insert;
 DROP INDEX session_progress_stall_count_idx;
 DROP TABLE session_progress;
 -- +goose StatementEnd

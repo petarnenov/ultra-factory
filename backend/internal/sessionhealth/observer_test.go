@@ -99,12 +99,16 @@ func TestObserverReportsOneStallEpisodeAndResolvesOnRecovery(t *testing.T) {
 		},
 	}
 	notifier := &fakeNotifier{}
-	reports := 0
+	reports, recoveries := 0, 0
 	observer := NewObserver(store, notifier, ObserverConfig{
 		Health: DefaultConfig(),
 		Clock:  func() time.Time { return now },
 		OnStalled: func(context.Context, domain.SessionRecord, domain.SessionHealth) error {
 			reports++
+			return nil
+		},
+		OnRecovered: func(context.Context, domain.SessionRecord, domain.SessionProgress, domain.SessionHealth) error {
+			recoveries++
 			return nil
 		},
 	})
@@ -143,6 +147,9 @@ func TestObserverReportsOneStallEpisodeAndResolvesOnRecovery(t *testing.T) {
 	}
 	if store.progress["s-1"].LastStallForSeconds == 0 {
 		t.Fatalf("last stall duration was not recorded: %+v", store.progress["s-1"])
+	}
+	if recoveries != 1 {
+		t.Fatalf("recoveries = %d, want 1", recoveries)
 	}
 }
 

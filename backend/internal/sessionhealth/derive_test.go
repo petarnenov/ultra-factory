@@ -39,6 +39,20 @@ func TestDeriveLongToolInsideBudgetIsNotStalled(t *testing.T) {
 	}
 }
 
+func TestDeriveKeepsFreshestProgressAsLastAtInsideLongTool(t *testing.T) {
+	now := time.Unix(10_000, 0).UTC()
+	terminalAt := now.Add(-5 * time.Minute)
+	progress := domain.SessionProgress{
+		TerminalAt:     terminalAt,
+		InFlightTool:   "Bash",
+		InFlightToolAt: now.Add(-61 * time.Minute),
+	}
+	health := Derive(activeRecord(), progress, now, DefaultConfig())
+	if health.State != domain.SessionHealthOK || health.LastAt == nil || !health.LastAt.Equal(terminalAt) {
+		t.Fatalf("health = %+v, want ok with lastAt at the freshest progress", health)
+	}
+}
+
 func TestDeriveLongToolBeyondBudgetStalls(t *testing.T) {
 	now := time.Unix(10_000, 0).UTC()
 	progress := domain.SessionProgress{

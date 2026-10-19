@@ -50,6 +50,26 @@ func TestChatToolBoundariesRecordNamedProgress(t *testing.T) {
 	}
 }
 
+func TestChatDeltaHeartbeatsAreThrottled(t *testing.T) {
+	progress := &fakeProgress{}
+	c := &Controller{sessionID: "s-1", progress: progress}
+	now := time.Unix(10_000, 0).UTC()
+	c.recordProgress(context.Background(), ports.ChatEvent{Kind: ports.ChatEventMessageDelta, Delta: "a"}, now)
+	c.recordProgress(context.Background(), ports.ChatEvent{Kind: ports.ChatEventMessageDelta, Delta: "b"}, now.Add(time.Second))
+	if len(progress.signals) != 1 {
+		t.Fatalf("signals = %+v, want one throttled provider heartbeat", progress.signals)
+	}
+	c.recordProgress(context.Background(), ports.ChatEvent{Kind: ports.ChatEventMessageDelta, Delta: "c"}, now.Add(6*time.Second))
+	if len(progress.signals) != 2 {
+		t.Fatalf("signals = %+v, want a later heartbeat", progress.signals)
+	}
+	// A turn boundary is never throttled.
+	c.recordProgress(context.Background(), ports.ChatEvent{Kind: ports.ChatEventTurnCompleted}, now.Add(7*time.Second))
+	if len(progress.signals) != 3 {
+		t.Fatalf("signals = %+v, want the turn boundary", progress.signals)
+	}
+}
+
 func TestChatUsageIsNotProgress(t *testing.T) {
 	progress := &fakeProgress{}
 	c := &Controller{sessionID: "s-1", progress: progress}

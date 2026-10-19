@@ -112,9 +112,9 @@ func DeriveWithReachability(rec domain.SessionRecord, progress domain.SessionPro
 		if toolAt.IsZero() {
 			toolAt = last
 		}
-		health.LastAt = timePointer(toolAt)
 		if toolAt.After(last) {
 			last, class = toolAt, ClassTool
+			health.LastAt = timePointer(last)
 			health.Class = string(class)
 		}
 		if nonNegative(now.Sub(toolAt)) <= budget {

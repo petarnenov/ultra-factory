@@ -55,6 +55,29 @@ func TestHookToolBoundariesRecordNamedProgress(t *testing.T) {
 	}
 }
 
+type rejectedProgressStore struct {
+	*progressFakeStore
+}
+
+func (s *rejectedProgressStore) UpdateSessionFromActivitySignal(context.Context, domain.SessionRecord, int64) (bool, error) {
+	return false, nil
+}
+
+func TestRejectedActivitySignalDoesNotRecordProgress(t *testing.T) {
+	store := &rejectedProgressStore{progressFakeStore: &progressFakeStore{fakeStore: newFakeStore()}}
+	store.sessions["s-1"] = working("s-1")
+	m := New(store, nil)
+	if err := m.ApplyActivitySignal(context.Background(), "s-1", ports.ActivitySignal{
+		Valid: true, State: domain.ActivityActive, Event: "pre-tool-use",
+		ToolName: "Bash", ToolUseID: "tool-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.updates) != 0 {
+		t.Fatalf("rejected signal recorded progress: %+v", store.updates)
+	}
+}
+
 func TestHookStateOnlySignalsAreNotProgress(t *testing.T) {
 	store := &progressFakeStore{fakeStore: newFakeStore()}
 	m := New(store, nil)

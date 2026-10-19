@@ -213,6 +213,8 @@ type Controller struct {
 	store                  Store
 	activity               ActivityRecorder
 	progress               ProgressRecorder
+	progressMu             sync.Mutex
+	providerProgressAt     time.Time
 	log                    *slog.Logger
 	newID                  IDFactory
 	now                    Clock
@@ -3483,18 +3485,22 @@ func (c *Controller) recordProgress(ctx context.Context, event ports.ChatEvent, 
 	if event.Kind == ports.ChatEventCommandOutputDelta && chatGitAuthFailure(event.Delta) {
 		_ = c.progress.RecordBlocked(ctx, c.sessionID, "git_credential_missing", now)
 	}
-	provider := false
+	providerForced, providerThrottled := false, false
 	switch event.Kind {
 	case ports.ChatEventTurnStarted, ports.ChatEventTurnCompleted,
-		ports.ChatEventMessageDelta, ports.ChatEventMessageCompleted,
-		ports.ChatEventCommandOutputDelta, ports.ChatEventCommandInput,
-		ports.ChatEventReasoningDelta, ports.ChatEventActivityText,
-		ports.ChatEventTurnDiff, ports.ChatEventPlanUpdated,
-		ports.ChatEventActivityStarted, ports.ChatEventActivityCompleted,
-		ports.ChatEventError:
-		provider = true
+		ports.ChatEventMessageCompleted, ports.ChatEventActivityStarted,
+		ports.ChatEventActivityCompleted, ports.ChatEventError:
+		providerForced = true
+	case ports.ChatEventMessageDelta, ports.ChatEventCommandOutputDelta,
+		ports.ChatEventCommandInput, ports.ChatEventReasoningDelta,
+		ports.ChatEventActivityText, ports.ChatEventTurnDiff,
+		ports.ChatEventPlanUpdated:
+		providerThrottled = true
 	}
-	if provider {
+	if providerForced {
+		c.markProviderProgress(now)
+	}
+	if providerForced || (providerThrottled && c.shouldRecordProviderProgress(now)) {
 		_ = c.progress.RecordProgress(ctx, c.sessionID, sessionhealth.Signal{Class: sessionhealth.ClassProvider, At: now})
 	}
 	if event.ActivityKind != domain.ActivityKindCommand && event.ActivityKind != domain.ActivityKindMCPTool {
@@ -3514,6 +3520,24 @@ func (c *Controller) recordProgress(ctx context.Context, event ports.ChatEvent, 
 			Class: sessionhealth.ClassTool, At: now, ToolName: toolName, ToolEnd: true,
 		})
 	}
+}
+
+func (c *Controller) markProviderProgress(now time.Time) {
+	c.progressMu.Lock()
+	c.providerProgressAt = now
+	c.progressMu.Unlock()
+}
+
+// shouldRecordProviderProgress throttles high-frequency stream deltas to one
+// durable write per five seconds. Turn and tool boundaries are never throttled.
+func (c *Controller) shouldRecordProviderProgress(now time.Time) bool {
+	c.progressMu.Lock()
+	defer c.progressMu.Unlock()
+	if !c.providerProgressAt.IsZero() && now.Sub(c.providerProgressAt) < 5*time.Second {
+		return false
+	}
+	c.providerProgressAt = now
+	return true
 }
 
 // chatGitAuthFailure recognizes the git credential error in streamed command

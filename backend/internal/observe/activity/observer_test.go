@@ -374,6 +374,39 @@ func TestPollRecordsTerminalProgressOnlyWhenOutputChanges(t *testing.T) {
 	}
 }
 
+func TestPollIgnoresSpinnerAndTimerRedraws(t *testing.T) {
+	now := time.Unix(500, 0).UTC()
+	sink := &progressFakeSink{}
+	runtime := &fakeRuntime{output: "✻ Thinking… (312s · esc to interrupt)\n› Add tests\n"}
+	observer := New(
+		fakeSessions{rows: []domain.SessionRecord{activeSession(now, domain.HarnessClaudeCode)}},
+		sink,
+		runtime,
+		fakeAgents{domain.HarnessClaudeCode: claudecode.New()},
+		Config{Clock: func() time.Time { return now }, Logger: testLogger()},
+	)
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 1 {
+		t.Fatalf("progress = %+v, want one initial heartbeat", sink.progress)
+	}
+	runtime.output = "✻ Thinking… (313s · esc to interrupt)\n› Add tests\n"
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 1 {
+		t.Fatalf("timer redraw recorded progress: %+v", sink.progress)
+	}
+	runtime.output = "✔ Added tests\n"
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 2 {
+		t.Fatalf("real output did not record progress: %+v", sink.progress)
+	}
+}
+
 func TestPollRecordsGitAuthFailureAsBlocked(t *testing.T) {
 	now := time.Unix(500, 0).UTC()
 	sink := &progressFakeSink{}
