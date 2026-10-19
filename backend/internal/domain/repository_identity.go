@@ -26,10 +26,27 @@ func RepositoryProvider(host string) string {
 		host = hostname
 	}
 	host = strings.ToLower(host)
-	if host == "github.com" || host == "www.github.com" || host == "api.github.com" || strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") {
+	if host == "github.com" || host == "www.github.com" || host == "api.github.com" || strings.HasSuffix(host, ".github.com") || strings.HasSuffix(host, ".ghe.io") || strings.HasSuffix(host, ".ghe.com") {
 		return "github"
 	}
 	return "gitlab"
+}
+
+// NormalizeGitHubHost canonicalizes a GitHub host used as a secret-store key.
+// An empty host means github.com. Hosts are lowercase and may include a port.
+func NormalizeGitHubHost(host string) (string, error) {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return "github.com", nil
+	}
+	if strings.ContainsAny(host, `/\?#@ `) {
+		return "", fmt.Errorf("scm.github.host: %q is not a host", host)
+	}
+	u, err := url.Parse("https://" + host)
+	if err != nil || u.Scheme != "https" || u.Host != host || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return "", fmt.Errorf("scm.github.host: %q is not a host", host)
+	}
+	return host, nil
 }
 
 // ParseRepositoryIdentity accepts repository URLs and Git SSH remotes, never PR URLs.

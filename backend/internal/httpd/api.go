@@ -72,7 +72,10 @@ type APIDeps struct {
 	Installer controllers.Installer
 	AgentAuth controllers.AgentAuthService
 	// GitHub is the local GitHub PAT + repos surface.
-	GitHub            controllers.GitHubPATService
+	GitHub controllers.GitHubPATService
+	// Secrets is the machine-local project SCM credential surface. It exposes
+	// logins only; tokens never enter a response body.
+	Secrets           controllers.SecretService
 	AgentSwitchPolicy AgentSwitchPolicyControl
 	// LinkPreview unfurls external URLs for the renderer's hover cards; nil
 	// leaves the route answering 501.
@@ -148,6 +151,7 @@ type API struct {
 	agentAuth     *controllers.AgentAuthController
 	linkPreview   *controllers.LinkPreviewController
 	github        *controllers.GitHubController
+	secrets       *controllers.SecretsController
 	events        *EventsController
 }
 
@@ -208,6 +212,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		agentAuth:     &controllers.AgentAuthController{Svc: deps.AgentAuth},
 		linkPreview:   &controllers.LinkPreviewController{Svc: deps.LinkPreview},
 		github:        &controllers.GitHubController{Svc: deps.GitHub},
+		secrets:       &controllers.SecretsController{Svc: deps.Secrets},
 		events:        &EventsController{Source: deps.CDC, Live: deps.Events},
 	}
 }
@@ -270,6 +275,7 @@ func (a *API) Register(root chi.Router) {
 			a.agentAuth.Register(r)
 			a.linkPreview.Register(r)
 			a.github.Register(r)
+			a.secrets.Register(r)
 			// Sibling REST controllers plug in here.
 		})
 		// Long-lived streams intentionally bypass the REST timeout middleware.

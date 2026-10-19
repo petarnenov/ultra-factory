@@ -32,6 +32,11 @@ func (p *Provider) MergePullRequest(ctx context.Context, request ports.SCMMergeR
 	if !mergeHeadSHAPattern.MatchString(expectedHead) {
 		return ports.SCMMergeResult{}, fmt.Errorf("github scm: invalid expected head sha")
 	}
+	scoped, err := p.withAccountToken(ctx, request.PR.Repo.Host, request.PR.Repo.Account)
+	if err != nil {
+		return ports.SCMMergeResult{}, err
+	}
+	ctx = scoped
 
 	payload := struct {
 		SHA         string `json:"sha"`

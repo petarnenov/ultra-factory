@@ -77,7 +77,7 @@ describe("CompletedTasksView", () => {
 		expect(rows.map((row) => row.textContent)).toEqual(["Remote task", "Local task"]);
 		expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
 		expect(screen.getByRole("status")).toHaveTextContent("host-c: Host host-c is not connected");
-		const remoteRow = rows[0].closest("tr");
+		const remoteRow = rows[0].closest("li");
 		expect(remoteRow).not.toBeNull();
 		expect(within(remoteRow as HTMLElement).getAllByText("Unavailable").length).toBeGreaterThanOrEqual(3);
 		expect(within(remoteRow as HTMLElement).queryByText("0")).toBeNull();
@@ -85,6 +85,44 @@ describe("CompletedTasksView", () => {
 
 		await userEvent.click(rows[0]);
 		expect(onSelect).toHaveBeenCalledWith({ ref: { hostId: "host-b", projectId: "ao" }, sessionId: "ao-1" });
+	});
+
+	it("summarizes what a card delivered and says so when no PR was recorded", async () => {
+		hosts.get.mockResolvedValue({
+			data: {
+				hostId: "machine-a",
+				tasks: [
+					task({
+						outcome: "merged",
+						prs: [
+							{
+								url: "https://github.com/o/r/pull/1",
+								number: 1,
+								state: "merged",
+								title: "feat: add completed-task cards",
+								additions: 120,
+								deletions: 8,
+								changedFiles: 5,
+							},
+						],
+					}),
+					task({ sessionId: "ao-2", title: "Sync main into dev", outcome: "no_pr", prs: [] }),
+				],
+			},
+		});
+		mount([{ hostId: "local", projectId: "ao" }]);
+
+		const delivered = (await screen.findByRole("button", { name: "Open report for Add completed tasks" })).closest("li");
+		expect(delivered).not.toBeNull();
+		expect(within(delivered as HTMLElement).getByText("Merged")).toBeInTheDocument();
+		expect(within(delivered as HTMLElement).getByText("feat: add completed-task cards")).toBeInTheDocument();
+		expect(within(delivered as HTMLElement).getByText("+120 -8 in 5 files")).toBeInTheDocument();
+		expect(within(delivered as HTMLElement).getByText("#1")).toBeInTheDocument();
+
+		const empty = (await screen.findByRole("button", { name: "Open report for Sync main into dev" })).closest("li");
+		expect(empty).not.toBeNull();
+		expect(within(empty as HTMLElement).getByText("No PR")).toBeInTheDocument();
+		expect(within(empty as HTMLElement).getByText("No pull request was recorded.")).toBeInTheDocument();
 	});
 
 	it("filters by outcome through the daemon query and shows empty and error states", async () => {
@@ -120,7 +158,7 @@ describe("CompletedTasksView", () => {
 
 	it("renders a report with stage totals, partial usage, and unrecorded configuration", async () => {
 		const report: CompletedTaskReport = {
-			...task({ outcome: "cancelled", tokens: { inputTokens: 900, cachedInputTokens: null, outputTokens: 90, completeness: "partial" } }),
+			...task({ outcome: "unfinished", tokens: { inputTokens: 900, cachedInputTokens: null, outputTokens: 90, completeness: "partial" } }),
 			config: { completeness: "unavailable", segments: [] },
 			runs: [{ bindingId: 1, harness: "claude-code", nativeRootId: "root-1", model: "claude-opus-5-5", eventCount: 3, inputTokens: 900, cachedInputTokens: null, outputTokens: 90, completeness: "partial" }],
 			stages: {
@@ -147,7 +185,7 @@ describe("CompletedTasksView", () => {
 		expect(screen.getByText(/times are approximate and short stays may be missing/)).toBeInTheDocument();
 		expect(screen.getByText(/Configuration changes were not recorded/)).toHaveTextContent("claude-code · claude-opus-5-5 · medium");
 		expect(screen.getAllByText("Partial").length).toBeGreaterThanOrEqual(2);
-		expect(screen.getByText("Cancelled")).toBeInTheDocument();
+		expect(screen.getByText("Unfinished")).toBeInTheDocument();
 		expect(screen.getByText("This machine")).toBeInTheDocument();
 	});
 

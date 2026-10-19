@@ -5,6 +5,8 @@
 		"lint": "cd backend && go test ./... && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --path-mode=abs",
 		"comment:check": "node scripts/comment-policy/check.mjs",
 		"comment:test": "node --test scripts/comment-policy/check.test.mjs && cd backend && go test ./cmd/commentpolicy",
+		"issue:check": "node scripts/issue-policy/check.mjs",
+		"issue:test": "node --test scripts/issue-policy/check.test.mjs",
 		"version:bump": "node scripts/version-bump.mjs",
 		"version:test": "node --test scripts/version-bump.test.mjs",
 		"frontend:typecheck": "npm --prefix frontend run typecheck",

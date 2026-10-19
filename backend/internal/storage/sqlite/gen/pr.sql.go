@@ -549,6 +549,10 @@ SELECT
     pr.updated_at,
     pr.state_changed_at,
     pr.ci_observed_at,
+    pr.title,
+    pr.additions,
+    pr.deletions,
+    pr.changed_files,
     last_review.submitted_at AS last_review_at,
     EXISTS (
         SELECT 1
@@ -613,6 +617,10 @@ type ListPRFactsBySessionRow struct {
 	UpdatedAt                time.Time
 	StateChangedAt           sql.NullTime
 	CIObservedAt             sql.NullTime
+	Title                    string
+	Additions                int64
+	Deletions                int64
+	ChangedFiles             int64
 	LastReviewAt             sql.NullTime
 	ExternalComments         bool
 	ReviewComments           bool
@@ -647,6 +655,10 @@ func (q *Queries) ListPRFactsBySession(ctx context.Context, sessionID domain.Ses
 			&i.UpdatedAt,
 			&i.StateChangedAt,
 			&i.CIObservedAt,
+			&i.Title,
+			&i.Additions,
+			&i.Deletions,
+			&i.ChangedFiles,
 			&i.LastReviewAt,
 			&i.ExternalComments,
 			&i.ReviewComments,
@@ -729,6 +741,10 @@ SELECT
     pr.updated_at,
     pr.state_changed_at,
     pr.ci_observed_at,
+    pr.title,
+    pr.additions,
+    pr.deletions,
+    pr.changed_files,
     last_review.submitted_at AS last_review_at,
     EXISTS (
         SELECT 1
@@ -796,6 +812,10 @@ type ListPRFactsBySessionsRow struct {
 	UpdatedAt                time.Time
 	StateChangedAt           sql.NullTime
 	CIObservedAt             sql.NullTime
+	Title                    string
+	Additions                int64
+	Deletions                int64
+	ChangedFiles             int64
 	LastReviewAt             sql.NullTime
 	ExternalComments         bool
 	ReviewComments           bool
@@ -829,6 +849,10 @@ func (q *Queries) ListPRFactsBySessions(ctx context.Context, jsonEach interface{
 			&i.UpdatedAt,
 			&i.StateChangedAt,
 			&i.CIObservedAt,
+			&i.Title,
+			&i.Additions,
+			&i.Deletions,
+			&i.ChangedFiles,
 			&i.LastReviewAt,
 			&i.ExternalComments,
 			&i.ReviewComments,

@@ -387,6 +387,10 @@ func (c *Client) storeCacheEntry(cacheKey, etag string, body []byte) {
 }
 
 func (c *Client) authorize(ctx context.Context, req *http.Request) error {
+	if token, ok := accountTokenFromContext(ctx); ok {
+		req.Header.Set("Authorization", "Bearer "+token)
+		return nil
+	}
 	if c.tokens == nil {
 		return nil
 	}

@@ -3256,8 +3256,9 @@ paths:
           enum:
           - merged
           - closed
-          - cancelled
           - failed
+          - unfinished
+          - no_pr
           type: string
       - description: Page size, 1 to 200. Defaults to 50.
         in: query
@@ -4484,6 +4485,108 @@ paths:
       summary: Report a reviewer-owned hook signal
       tags:
       - reviews
+  /api/v1/secrets/github:
+    get:
+      operationId: listGitHubSecrets
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSecretAccountsResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: List machine-local GitHub logins without token values
+      tags:
+      - secrets
+  /api/v1/secrets/github/{login}:
+    delete:
+      operationId: deleteGitHubSecret
+      parameters:
+      - description: GitHub account login.
+        in: path
+        name: login
+        required: true
+        schema:
+          description: GitHub account login.
+          type: string
+      - description: GitHub host (default github.com).
+        in: query
+        name: host
+        schema:
+          description: GitHub host (default github.com).
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSecretMutationResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Remove a machine-local GitHub token for an account
+      tags:
+      - secrets
+    put:
+      operationId: putGitHubSecret
+      parameters:
+      - description: GitHub account login.
+        in: path
+        name: login
+        required: true
+        schema:
+          description: GitHub account login.
+          type: string
+      - description: GitHub host (default github.com).
+        in: query
+        name: host
+        schema:
+          description: GitHub host (default github.com).
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutGitHubSecretRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSecretMutationResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Store a machine-local GitHub token for an account
+      tags:
+      - secrets
   /api/v1/sessions:
     get:
       operationId: listSessions
@@ -12763,6 +12866,12 @@ components:
       type: object
     CompletedTaskPR:
       properties:
+        additions:
+          type: integer
+        changedFiles:
+          type: integer
+        deletions:
+          type: integer
         number:
           type: integer
         state:
@@ -12772,12 +12881,18 @@ components:
           - merged
           - closed
           type: string
+        title:
+          type: string
         url:
           type: string
       required:
       - url
       - number
       - state
+      - title
+      - additions
+      - deletions
+      - changedFiles
       type: object
     CompletedTaskReportResponse:
       properties:
@@ -12809,8 +12924,9 @@ components:
           enum:
           - merged
           - closed
-          - cancelled
           - failed
+          - unfinished
+          - no_pr
           type: string
         projectId:
           type: string
@@ -12988,8 +13104,9 @@ components:
           enum:
           - merged
           - closed
-          - cancelled
           - failed
+          - unfinished
+          - no_pr
           type: string
         projectId:
           type: string
@@ -13237,6 +13354,8 @@ components:
           - settings
           - machine-default
           type: string
+        health:
+          $ref: '#/components/schemas/SessionHealth'
         hibernatedAt:
           format: date-time
           type:
@@ -13424,6 +13543,7 @@ components:
       - status
       - kanbanColumn
       - displayStatus
+      - health
       - lastEventAt
       - prs
       type: object
@@ -14535,6 +14655,11 @@ components:
       - state
       - lastActivityAt
       type: object
+    DomainGitHubSCMConfig:
+      properties:
+        account:
+          type: string
+      type: object
     DomainReviewerConfig:
       properties:
         agentConfig:
@@ -14560,6 +14685,11 @@ components:
       - mode
       - reviewId
       - harness
+      type: object
+    DomainSCMConfig:
+      properties:
+        github:
+          $ref: '#/components/schemas/DomainGitHubSCMConfig'
       type: object
     DomainSideReference:
       properties:
@@ -14777,6 +14907,38 @@ components:
           type:
           - "null"
           - boolean
+      type: object
+    GitHubSecretAccount:
+      properties:
+        host:
+          type: string
+        login:
+          type: string
+      required:
+      - host
+      - login
+      type: object
+    GitHubSecretAccountsResponse:
+      properties:
+        accounts:
+          items:
+            $ref: '#/components/schemas/GitHubSecretAccount'
+          type: array
+      required:
+      - accounts
+      type: object
+    GitHubSecretMutationResponse:
+      properties:
+        account:
+          type: string
+        host:
+          type: string
+        status:
+          type: string
+      required:
+      - status
+      - host
+      - account
       type: object
     GitPreparationEvent:
       properties:
@@ -16028,6 +16190,8 @@ components:
           items:
             $ref: '#/components/schemas/DomainReviewerConfig'
           type: array
+        scm:
+          $ref: '#/components/schemas/DomainSCMConfig'
         sessionPrefix:
           type: string
         symlinks:
@@ -16188,6 +16352,14 @@ components:
           type: integer
       required:
       - pat
+      type: object
+    PutGitHubSecretRequest:
+      properties:
+        token:
+          minLength: 1
+          type: string
+      required:
+      - token
       type: object
     RegisterPushDeviceRequest:
       properties:
@@ -16845,6 +17017,56 @@ components:
       required:
       - commits
       - unpushed
+      type: object
+    SessionHealth:
+      properties:
+        class:
+          enum:
+          - provider
+          - tool
+          - terminal
+          - git
+          type: string
+        inFlightTool:
+          type: string
+        lastProgressAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        lastStallAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        lastStallForSeconds:
+          format: int64
+          type: integer
+        reason:
+          type: string
+        silentForSeconds:
+          format: int64
+          type: integer
+        since:
+          format: date-time
+          type:
+          - "null"
+          - string
+        stallCount:
+          type: integer
+        state:
+          enum:
+          - ok
+          - stalled
+          - blocked
+          - unreachable
+          - unknown
+          type: string
+        thresholdSeconds:
+          format: int64
+          type: integer
+      required:
+      - state
       type: object
     SessionInterfaceTransition:
       properties:

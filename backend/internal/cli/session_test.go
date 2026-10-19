@@ -123,8 +123,21 @@ func sessionJSON(id, project, kind, status string, terminated bool) string {
 		"createdAt":    "2026-06-02T11:00:00Z",
 		"updatedAt":    "2026-06-02T12:00:00Z",
 		"status":       status,
+		"health": map[string]any{
+			"state":            healthState(status),
+			"class":            "provider",
+			"silentForSeconds": 900,
+			"thresholdSeconds": 900,
+		},
 	})
 	return string(b)
+}
+
+func healthState(status string) string {
+	if status == "working" {
+		return "stalled"
+	}
+	return "ok"
 }
 
 func jsonQuote(s string) string {
@@ -225,6 +238,9 @@ func TestSessionList_JSONOutputDecodes(t *testing.T) {
 	// `session get --json` already carries the display name; `ls --json` must too so scripts can tell sessions apart.
 	if got.Data[0].DisplayName != "Current Name" {
 		t.Fatalf("displayName = %q, want %q", got.Data[0].DisplayName, "Current Name")
+	}
+	if got.Data[0].Health.State != "stalled" || got.Data[0].Health.SilentForSeconds != 900 {
+		t.Fatalf("health = %+v, want stalled with silence", got.Data[0].Health)
 	}
 }
 

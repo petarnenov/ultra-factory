@@ -40,6 +40,30 @@ type ReportOutputRequest struct {
 	Label     string `json:"label,omitempty"`
 }
 
+// PutGitHubSecretRequest stores a machine-local GitHub token by login. No
+// response ever echoes the token back.
+type PutGitHubSecretRequest struct {
+	Token string `json:"token" minLength:"1"`
+}
+
+// GitHubSecretAccount is one stored host/login pair without a value.
+type GitHubSecretAccount struct {
+	Host  string `json:"host"`
+	Login string `json:"login"`
+}
+
+// GitHubSecretAccountsResponse lists stored GitHub accounts without values.
+type GitHubSecretAccountsResponse struct {
+	Accounts []GitHubSecretAccount `json:"accounts"`
+}
+
+// GitHubSecretMutationResponse acknowledges a stored or removed login.
+type GitHubSecretMutationResponse struct {
+	Status  string `json:"status"`
+	Host    string `json:"host"`
+	Account string `json:"account"`
+}
+
 // CreateReportResponse returns only the durable identifier needed to correlate
 // a successful submission without echoing report contents.
 type CreateReportResponse struct {
@@ -188,6 +212,17 @@ type CodexAccountLoginIDParam struct {
 // CodexAccountSwitchIDParam documents a durable Codex account switch identifier.
 type CodexAccountSwitchIDParam struct {
 	SwitchID string `path:"switchId" description:"Durable Codex account switch identifier."`
+}
+
+// GitHubLoginParam documents the {login} path parameter for machine-local
+// GitHub secret routes.
+type GitHubLoginParam struct {
+	Login string `path:"login" description:"GitHub account login."`
+}
+
+// GitHubSecretHostQuery selects the GitHub host for a secret route.
+type GitHubSecretHostQuery struct {
+	Host string `query:"host" description:"GitHub host (default github.com)."`
 }
 
 // ListProjectsResponse is the body of GET /api/v1/projects.
@@ -3571,16 +3606,21 @@ type CompletedTaskParams struct {
 
 // ListCompletedTasksQuery filters and pages completed tasks.
 type ListCompletedTasksQuery struct {
-	Outcome string `query:"outcome,omitempty" enum:"merged,closed,cancelled,failed" description:"Only tasks with this outcome."`
+	Outcome string `query:"outcome,omitempty" enum:"merged,closed,failed,unfinished,no_pr" description:"Only tasks with this outcome."`
 	Limit   int    `query:"limit,omitempty" description:"Page size, 1 to 200. Defaults to 50."`
 	Cursor  string `query:"cursor,omitempty" description:"Cursor from the previous page."`
 }
 
-// CompletedTaskPR is one PR attributed to a completed task.
+// CompletedTaskPR is one PR attributed to a completed task. Title and the
+// diff totals stay empty/zero until an observation carries them.
 type CompletedTaskPR struct {
-	URL    string `json:"url"`
-	Number int    `json:"number"`
-	State  string `json:"state" enum:"draft,open,merged,closed"`
+	URL          string `json:"url"`
+	Number       int    `json:"number"`
+	State        string `json:"state" enum:"draft,open,merged,closed"`
+	Title        string `json:"title"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	ChangedFiles int    `json:"changedFiles"`
 }
 
 // CompletedTaskTokens are summed token counts. A null count was never
@@ -3601,7 +3641,7 @@ type CompletedTaskSummary struct {
 	Title          string              `json:"title"`
 	IssueID        string              `json:"issueId,omitempty"`
 	PRs            []CompletedTaskPR   `json:"prs"`
-	Outcome        string              `json:"outcome" enum:"merged,closed,cancelled,failed"`
+	Outcome        string              `json:"outcome" enum:"merged,closed,failed,unfinished,no_pr"`
 	CreatedAt      time.Time           `json:"createdAt"`
 	CompletedAt    *time.Time          `json:"completedAt"`
 	ElapsedSeconds *int64              `json:"elapsedSeconds"`

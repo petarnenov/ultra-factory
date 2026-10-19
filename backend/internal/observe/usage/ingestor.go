@@ -71,6 +71,7 @@ type Ingestor struct {
 	onPricingError   func(error)
 	requestRepair    func()
 	openTranscript   func(string) (*os.File, error)
+	readSnapshot     snapshotReader
 	afterRead        func()
 }
 
@@ -101,6 +102,7 @@ func NewIngestor(store ingestorStore, cfg IngestorConfig) *Ingestor {
 		onPricingError:   cfg.OnPricingError,
 		requestRepair:    cfg.RequestAttributionRepair,
 		openTranscript:   os.Open,
+		readSnapshot:     readOpencodeV2Snapshot,
 	}
 }
 
@@ -119,6 +121,9 @@ func (i *Ingestor) Ingest(ctx context.Context, sourceID int64) (IngestResult, er
 	result := IngestResult{
 		SyncWatch: source.Source.State == domain.UsageSourceError &&
 			source.Source.LastErrorCode == domain.UsageErrorArtifactMissing,
+	}
+	if source.Source.Kind == domain.UsageSourceOpencodeV2 {
+		return i.ingestSnapshot(ctx, source, now)
 	}
 	parserState, err := decodeParserState(source.Source)
 	if err != nil {
@@ -303,68 +308,9 @@ func (i *Ingestor) Ingest(ctx context.Context, sourceID int64) (IngestResult, er
 			errors.New("transcript changed during ingestion"),
 		)
 	}
-	apply := func() error {
-		return i.store.ApplyUsageChunk(
-			ctx,
-			source.Source.ID,
-			source.Source.ByteOffset,
-			source.Source.UpdatedAt,
-			parsed.Cursor,
-			parsed.Events,
-		)
-	}
-	if i.pricing != nil {
-		apply = func() error {
-			return i.pricing.WithSnapshot(ctx, func(snapshot *pricing.Snapshot) error {
-				for index := range parsed.Events {
-					// Live ingestion prices only what the transcript or the
-					// binding's route hint named outright. Resolving the model
-					// against the catalog would turn "one catalog lists this
-					// name" into a billed provider and a dollar amount in the
-					// same write, for a session whose route may simply not have
-					// been recorded yet. Deriving it is the legacy repairer's
-					// job, once no hook is coming.
-					estimate, estimateErr := snapshot.Estimate(parsed.Events[index])
-					if estimateErr != nil {
-						parsed.Events[index].Costs.PricingVersion = snapshot.ProviderVersion(parsed.Events[index].BillingProviderID)
-						i.onPricingError(fmt.Errorf("estimate usage event %q: %w", parsed.Events[index].SourceEventKey, estimateErr))
-						continue
-					}
-					parsed.Events[index].Costs = domain.UsageEventCosts{
-						InputCostNanos:       estimate.InputNanos,
-						CachedInputCostNanos: estimate.CachedInputNanos,
-						OutputCostNanos:      estimate.OutputNanos,
-						EstimatedCostNanos:   estimate.TotalNanos,
-						PricingVersion:       estimate.PricingVersion,
-					}
-				}
-				return i.store.ApplyUsageChunk(
-					ctx,
-					source.Source.ID,
-					source.Source.ByteOffset,
-					source.Source.UpdatedAt,
-					parsed.Cursor,
-					parsed.Events,
-				)
-			})
-		}
-	}
-	if err := apply(); err != nil {
+	if err := i.applyEvents(ctx, source, parsed.Cursor, parsed.Events); err != nil {
 		if errors.Is(err, domain.ErrUsageSourceEventConflict) {
-			if _, markErr := i.store.MarkUsageSourceState(
-				ctx,
-				source.Source.ID,
-				domain.UsageSourceComplete,
-				domain.UsageErrorSourceEventConflict,
-				nil,
-				now,
-			); markErr != nil {
-				return result, errors.Join(err, markErr)
-			}
-			if source.BindingState == domain.UsageBindingFinalizing {
-				return result, i.completeBinding(ctx, source.Source.BindingID, now)
-			}
-			return result, nil
+			return result, i.settleConflict(ctx, source, now, err)
 		}
 		return result, fmt.Errorf("apply usage source %d: %w", source.Source.ID, err)
 	}

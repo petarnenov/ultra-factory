@@ -804,6 +804,22 @@ type SessionInterfaceTransitionMessage struct {
 	AuthoredByUser  bool
 }
 
+type SessionProgress struct {
+	SessionID              string
+	ProviderAt             sql.NullTime
+	ToolAt                 sql.NullTime
+	TerminalAt             sql.NullTime
+	GitAt                  sql.NullTime
+	InFlightTool           string
+	InFlightToolAt         sql.NullTime
+	BlockedAt              sql.NullTime
+	BlockedReason          string
+	LastNotifiedProgressAt sql.NullTime
+	StallCount             int64
+	LastStallAt            sql.NullTime
+	LastStallForSeconds    int64
+}
+
 type SessionStageTransition struct {
 	ID        int64
 	SessionID string

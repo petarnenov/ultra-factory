@@ -2,12 +2,16 @@ package activity
 
 import (
 	"context"
+	"crypto/sha256"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 )
 
 // Default activity observation settings.
@@ -38,6 +42,13 @@ type outputReader interface {
 	GetOutput(ctx context.Context, handle ports.RuntimeHandle, lines int) (string, error)
 }
 
+// progressSink is the optional durable progress write. The lifecycle manager
+// implements it; focused fakes in tests may not.
+type progressSink interface {
+	RecordProgress(ctx context.Context, id domain.SessionID, signal sessionhealth.Signal) error
+	RecordBlocked(ctx context.Context, id domain.SessionID, reason string, at time.Time) error
+}
+
 // Observer reconciles stale hook activity from adapter-owned terminal markers.
 type Observer struct {
 	sessions    sessionSource
@@ -49,20 +60,24 @@ type Observer struct {
 	outputLines int
 	clock       func() time.Time
 	logger      *slog.Logger
+	// terminalHashes remembers the last output seen per PTY session so a
+	// heartbeat is written only when the terminal actually produced something.
+	terminalHashes map[domain.SessionID][32]byte
 }
 
 // New builds an activity observer.
 func New(sessions sessionSource, sink activitySink, runtime outputReader, agents ports.AgentResolver, cfg Config) *Observer {
 	o := &Observer{
-		sessions:    sessions,
-		sink:        sink,
-		runtime:     runtime,
-		agents:      agents,
-		tick:        cfg.Tick,
-		staleAfter:  cfg.StaleAfter,
-		outputLines: cfg.OutputLines,
-		clock:       cfg.Clock,
-		logger:      cfg.Logger,
+		sessions:       sessions,
+		sink:           sink,
+		runtime:        runtime,
+		agents:         agents,
+		tick:           cfg.Tick,
+		staleAfter:     cfg.StaleAfter,
+		outputLines:    cfg.OutputLines,
+		clock:          cfg.Clock,
+		logger:         cfg.Logger,
+		terminalHashes: map[domain.SessionID][32]byte{},
 	}
 	if o.tick <= 0 {
 		o.tick = DefaultTickInterval
@@ -106,7 +121,31 @@ func (o *Observer) Poll(ctx context.Context) error {
 }
 
 func (o *Observer) reconcile(ctx context.Context, session domain.SessionRecord, now time.Time) {
-	if session.IsTerminated || session.Metadata.RuntimeHandleID == "" || o.agents == nil {
+	if session.IsTerminated {
+		delete(o.terminalHashes, session.ID)
+		return
+	}
+	if session.Metadata.RuntimeHandleID == "" {
+		return
+	}
+	handle := ports.RuntimeHandle{ID: session.Metadata.RuntimeHandleID}
+	progress, hasProgress := o.sink.(progressSink)
+	// PTY progress is read once and reused by the detector below. Chat sessions
+	// have no runtime handle and never reach this path.
+	var (
+		output     string
+		outputErr  error
+		outputRead bool
+	)
+	if hasProgress && domain.NormalizeSessionMode(session.Mode) != domain.SessionModeChat &&
+		session.Activity.State == domain.ActivityActive {
+		output, outputErr = o.runtime.GetOutput(ctx, handle, o.outputLines)
+		outputRead = true
+		if outputErr == nil {
+			o.recordTerminalProgress(ctx, progress, session, output, now)
+		}
+	}
+	if o.agents == nil {
 		return
 	}
 	agent, ok := o.agents.Agent(session.Harness)
@@ -133,9 +172,11 @@ func (o *Observer) reconcile(ctx context.Context, session domain.SessionRecord, 
 		session.Activity.State != domain.ActivityWaitingInput {
 		return
 	}
-	output, err := o.runtime.GetOutput(ctx, ports.RuntimeHandle{ID: session.Metadata.RuntimeHandleID}, o.outputLines)
-	if err != nil {
-		o.logger.Debug("activity observer: terminal output unavailable", "session", session.ID, "err", err)
+	if !outputRead {
+		output, outputErr = o.runtime.GetOutput(ctx, handle, o.outputLines)
+	}
+	if outputErr != nil {
+		o.logger.Debug("activity observer: terminal output unavailable", "session", session.ID, "err", outputErr)
 		return
 	}
 	state, ok := detector.DetectTerminalActivity(output)
@@ -147,7 +188,7 @@ func (o *Observer) reconcile(ctx context.Context, session domain.SessionRecord, 
 	if state == domain.ActivityWaitingInput {
 		event = "terminal-waiting-input"
 	}
-	err = o.sink.ApplyActivitySignal(ctx, session.ID, ports.ActivitySignal{
+	err := o.sink.ApplyActivitySignal(ctx, session.ID, ports.ActivitySignal{
 		Valid:            true,
 		State:            state,
 		Timestamp:        now,
@@ -157,5 +198,65 @@ func (o *Observer) reconcile(ctx context.Context, session domain.SessionRecord, 
 	})
 	if err != nil {
 		o.logger.Error("activity observer: reconciliation failed", "session", session.ID, "err", err)
+	}
+}
+
+var (
+	terminalTimerPattern   = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?\s*(?:ms|s|m|h|sec|secs|second|seconds|min|mins|minute|minutes|hour|hours)\b`)
+	terminalClockPattern   = regexp.MustCompile(`\b\d{1,2}:\d{2}(?::\d{2})?\b`)
+	terminalPercentPattern = regexp.MustCompile(`\b\d+(?:\.\d+)?%`)
+	terminalWaitPattern    = regexp.MustCompile(`(?i)\b(?:esc|ctrl\+c)\s+to\s+(?:interrupt|cancel)\b`)
+	terminalSpinners       = strings.NewReplacer(
+		"✻", "", "✽", "", "✶", "", "✳", "", "✢", "", "·", "",
+		"•", "", "●", "", "○", "", "◐", "", "◓", "", "◑", "", "◒", "",
+		"⠋", "", "⠙", "", "⠹", "", "⠸", "", "⠼", "", "⠴", "", "⠦", "",
+		"⠧", "", "⠇", "", "⠏", "", "◴", "", "◷", "", "◶", "", "◵", "",
+		"◰", "", "◳", "", "◲", "", "◱", "",
+	)
+)
+
+// normalizeTerminalProgress strips spinner and timer redraw churn so a hung
+// TUI session does not keep looking busy.
+func normalizeTerminalProgress(output string) string {
+	normalized := terminalSpinners.Replace(output)
+	normalized = terminalTimerPattern.ReplaceAllString(normalized, "<time>")
+	normalized = terminalClockPattern.ReplaceAllString(normalized, "<clock>")
+	normalized = terminalPercentPattern.ReplaceAllString(normalized, "<pct>")
+	normalized = terminalWaitPattern.ReplaceAllString(normalized, "<wait>")
+	return strings.Join(strings.Fields(normalized), " ")
+}
+
+func (o *Observer) recordTerminalProgress(ctx context.Context, sink progressSink, session domain.SessionRecord, output string, now time.Time) {
+	if strings.TrimSpace(output) == "" {
+		return
+	}
+	hash := sha256.Sum256([]byte(normalizeTerminalProgress(output)))
+	if previous, seen := o.terminalHashes[session.ID]; seen && previous == hash {
+		return
+	}
+	o.terminalHashes[session.ID] = hash
+	if err := sink.RecordProgress(ctx, session.ID, sessionhealth.Signal{
+		Class: sessionhealth.ClassTerminal, At: now,
+	}); err != nil {
+		o.logger.Debug("activity observer: terminal progress write failed", "session", session.ID, "err", err)
+	}
+	if reason := gitAuthFailureReason(output); reason != "" {
+		if err := sink.RecordBlocked(ctx, session.ID, reason, now); err != nil {
+			o.logger.Debug("activity observer: blocked write failed", "session", session.ID, "err", err)
+		}
+	}
+}
+
+// gitAuthFailureReason recognizes a missing git credential in shell output.
+// The next real output clears the blocked fact.
+func gitAuthFailureReason(output string) string {
+	lower := strings.ToLower(output)
+	switch {
+	case strings.Contains(lower, "could not read username for"):
+		return "git_credential_missing"
+	case strings.Contains(lower, "fatal: authentication failed"):
+		return "git_credential_missing"
+	default:
+		return ""
 	}
 }

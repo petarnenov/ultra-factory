@@ -16,10 +16,12 @@ in [gemini-cli.md](gemini-cli.md).
 | Doc                                                    | What it covers                                                                                                        |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | [documentation-map.md](documentation-map.md)           | Human-facing docs vs the machine-readable contract layer, source of truth per concern, and the CI gates that hold it. |
+| [issue-policy.md](issue-policy.md)                     | Issue type and priority labels, the pull request check that enforces them, and its two narrow exemptions.            |
 | [documentation-coverage.md](documentation-coverage.md) | Stable-release baseline, covered user paths, and hands-on verification still needed. |
 | [Public manual sources](../frontend/src/docs/content/index.mdx) | Existing user guides, configuration, capability catalog, CLI reference, and mobile access pages. |
 | [architecture.md](architecture.md)                     | Current backend model, package layout, status derivation, persistence/CDC, and load-bearing rules.                    |
 | [scm-observer.md](scm-observer.md)                     | SCM subsystem: polling pipeline, durable-state invariants, PR identity model, and the rename/transfer design.         |
+| [scm-identity.md](scm-identity.md)                     | Per-project GitHub account binding, machine-local token storage, resolution order, and security rules.              |
 | [backend-code-structure.md](backend-code-structure.md) | Package ownership rules for the Go backend: domain, services, ports, adapters, storage, HTTP, CLI, and daemon wiring. |
 | [cli/README.md](cli/README.md)                         | CLI commands and daemon control surface.                                                                              |
 | [cloud-development.md](cloud-development.md)           | Current public Cloud sources, local stack, tests, and hosted-environment boundaries. |

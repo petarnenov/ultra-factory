@@ -902,7 +902,7 @@ describe("Sidebar", () => {
 		const user = userEvent.setup();
 		renderSidebar();
 		await user.click(screen.getByLabelText("Project actions for Project One"));
-		await user.click(await screen.findByRole("menuitem", { name: "Open aggregate Kanban" }));
+		await user.click(await screen.findByRole("menuitem", { name: "Aggregate Kanban" }));
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/projects/$projectId/aggregate",
 			params: { projectId: "proj-1" },

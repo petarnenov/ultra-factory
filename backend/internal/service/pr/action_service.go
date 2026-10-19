@@ -68,6 +68,28 @@ type ActionService struct {
 
 var _ ActionManager = (*ActionService)(nil)
 
+// projectAccountStore scopes a PR action to the project's bound GitHub account.
+type projectAccountStore interface {
+	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
+	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
+}
+
+func (s *ActionService) accountForPR(ctx context.Context, pr domain.PullRequest) string {
+	store, ok := s.store.(projectAccountStore)
+	if !ok || pr.SessionID == "" {
+		return ""
+	}
+	rec, ok, err := store.GetSession(ctx, pr.SessionID)
+	if err != nil || !ok {
+		return ""
+	}
+	project, ok, err := store.GetProject(ctx, string(rec.ProjectID))
+	if err != nil || !ok {
+		return ""
+	}
+	return project.Config.GitHubAccount()
+}
+
 // NewActionService builds the guarded pull request action service.
 func NewActionService(deps ActionDeps) *ActionService {
 	resolve := deps.ResolveStore
@@ -126,6 +148,7 @@ func (s *ActionService) Merge(ctx context.Context, request MergeRequest) (MergeR
 	if !ok {
 		return MergeResult{}, fmt.Errorf("%w: pull request repository is unknown", ErrPRPreconditions)
 	}
+	repo.Account = s.accountForPR(ctx, tracked)
 	ref := ports.SCMPRRef{Repo: repo, Number: tracked.Number, URL: tracked.URL}
 	fresh, review, err := s.fetchMergeReadiness(ctx, ref)
 	if err != nil {
@@ -257,6 +280,7 @@ func (s *ActionService) ResolveComments(ctx context.Context, prID string, commen
 	if !ok {
 		return ResolveResult{}, fmt.Errorf("%w: pull request repository is unknown", ErrPRPreconditions)
 	}
+	repo.Account = s.accountForPR(ctx, pr)
 	ref := ports.SCMPRRef{Repo: repo, Number: pr.Number, URL: pr.URL}
 
 	// Refresh the provider view before mutating anything. This both supplies the

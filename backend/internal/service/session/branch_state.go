@@ -2,12 +2,15 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 )
 
 // branchStateWriter is the narrow store write for observed branch facts.
@@ -64,6 +67,9 @@ func (s *Service) reconcileBranchStates(ctx context.Context, writer branchStateW
 	if s.branchTips == nil {
 		s.branchTips = map[domain.SessionID]string{}
 	}
+	if s.worktreeTips == nil {
+		s.worktreeTips = map[domain.SessionID]string{}
+	}
 
 	type projectLookup struct {
 		rec domain.ProjectRecord
@@ -107,6 +113,11 @@ func (s *Service) reconcileBranchStates(ctx context.Context, writer branchStateW
 				delete(s.branchTips, id)
 			}
 		}
+		for id := range s.worktreeTips {
+			if !live[id] {
+				delete(s.worktreeTips, id)
+			}
+		}
 	}
 
 	for _, targets := range repos {
@@ -142,11 +153,18 @@ func (s *Service) reconcileBranchTarget(ctx context.Context, writer branchStateW
 	}
 	rec := target.rec
 	fingerprint := local + " " + remote + " " + base
-	if rec.BranchState != nil && s.branchTips[rec.ID] == fingerprint {
+	root := rec.Metadata.WorkspacePath
+	worktree, worktreeKnown := "", false
+	if rec.Activity.State == domain.ActivityActive || rec.Activity.State == domain.ActivityWaitingInput {
+		worktree, worktreeKnown = readWorktreeFingerprint(ctx, root)
+	}
+	branchUnchanged := rec.BranchState != nil && s.branchTips[rec.ID] == fingerprint
+	worktreeUnchanged := !worktreeKnown || s.worktreeTips[rec.ID] == worktree
+	if branchUnchanged && worktreeUnchanged {
 		return nil
 	}
+	s.recordGitProgress(ctx, rec, s.now())
 
-	root := rec.Metadata.WorkspacePath
 	var state domain.SessionBranchState
 	if base != "" {
 		commits, ok := gitRevListCount(ctx, root, base+".."+local)
@@ -175,6 +193,9 @@ func (s *Service) reconcileBranchTarget(ctx context.Context, writer branchStateW
 		}
 	}
 	s.branchTips[rec.ID] = fingerprint
+	if worktreeKnown {
+		s.worktreeTips[rec.ID] = worktree
+	}
 	return nil
 }
 
@@ -272,6 +293,26 @@ func readGitHead(root string) (commonDir, branch, head string, ok bool) {
 		return filepath.Clean(commonDir), branch, "", ok
 	}
 	return filepath.Clean(commonDir), "", text, text != ""
+}
+
+// recordGitProgress writes a best-effort git heartbeat after a change.
+func (s *Service) recordGitProgress(ctx context.Context, rec domain.SessionRecord, at time.Time) {
+	store, ok := s.store.(sessionhealth.ProgressStore)
+	if !ok {
+		return
+	}
+	_ = store.RecordSessionProgress(ctx, rec.ID, domain.SessionProgressUpdate{GitAt: at.UTC()})
+}
+
+// readWorktreeFingerprint hashes tracked working-tree state only. Untracked
+// build output churns without agent progress.
+func readWorktreeFingerprint(ctx context.Context, root string) (string, bool) {
+	out, err := gitWorkspaceOutput(ctx, root, "status", "--porcelain=v1", "--untracked-files=no")
+	if err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256([]byte(out))
+	return string(sum[:]), true
 }
 
 func gitRevListCount(ctx context.Context, root, rangeSpec string) (int, bool) {

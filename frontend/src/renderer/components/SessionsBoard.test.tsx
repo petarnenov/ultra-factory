@@ -281,6 +281,32 @@ describe("SessionsBoard", () => {
 		expect(presentation.lastUserMessageAt).toBe("2026-01-01T09:00:00Z");
 	});
 
+	it("shows a stalled badge from derived health", () => {
+		const presentation = toBoardSessionPresentation(
+			boardSession({
+				id: "stalled-session",
+				status: "working",
+				title: "stalled task",
+				health: { state: "stalled", silentForSeconds: 900, thresholdSeconds: 900 },
+			}),
+		);
+
+		expect(presentation.statusPresentation?.label).toBe("Stalled 15m");
+	});
+
+	it("shows a blocked badge with its reason class", () => {
+		const presentation = toBoardSessionPresentation(
+			boardSession({
+				id: "blocked-session",
+				status: "needs_input",
+				title: "blocked task",
+				health: { state: "blocked", silentForSeconds: 1200, thresholdSeconds: 1200 },
+			}),
+		);
+
+		expect(presentation.statusPresentation?.label).toBe("Blocked 20m");
+	});
+
 	it("localizes dynamic card actions and pull request lifecycle labels", async () => {
 		await appI18n.changeLanguage("zh-CN");
 		workspaceQueryMock.mockReturnValue({

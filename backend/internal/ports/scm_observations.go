@@ -28,6 +28,9 @@ type SCMRepo struct {
 	Name string
 	// Repo is the display/stable full repository name, usually "owner/name".
 	Repo string
+	// Account is the project-bound SCM login, when configured. Empty means the
+	// adapter's machine-level credential fallback applies. Never a token.
+	Account string
 }
 
 // SCMPRRef identifies a pull request within a provider-neutral repository.

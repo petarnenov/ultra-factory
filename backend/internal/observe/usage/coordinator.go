@@ -234,8 +234,12 @@ func (c *Coordinator) run(ctx context.Context) {
 		now := c.now().UTC()
 		for _, source := range sources {
 			live[source.ID] = struct{}{}
-			path := canonicalTranscriptPath(source.ArtifactPath)
-			nextPaths[path] = append(nextPaths[path], source.ID)
+			// A snapshot source is read once; watching its store would ingest
+			// on every provider write.
+			if !snapshotSourceKind(source.Kind) {
+				path := canonicalTranscriptPath(source.ArtifactPath)
+				nextPaths[path] = append(nextPaths[path], source.ID)
+			}
 			if source.NextRetryAt != nil && source.NextRetryAt.After(now) {
 				scheduleRetry(source.ID, *source.NextRetryAt)
 				continue

@@ -293,6 +293,9 @@ type SessionRecord struct {
 	// read back as SessionModeTUI.
 	Mode     SessionMode `json:"mode" enum:"chat,tui"`
 	Activity Activity    `json:"activity"`
+	// Progress is the durable heartbeat set, read from session_progress.
+	// It is never written by the generic session update.
+	Progress SessionProgress `json:"-"`
 	// FirstSignalAt is when the FIRST agent hook callback arrived for the
 	// current spawn/restore: raw signal receipt, independent of the derived
 	// activity state. Zero means no hook has ever reported, which deriveStatus
@@ -361,6 +364,85 @@ type SessionBranchState struct {
 	// Unpushed is how many branch commits are not on RemoteBranch. It equals
 	// Commits while RemoteBranch is empty.
 	Unpushed int `json:"unpushed"`
+}
+
+// SessionProgress is the durable heartbeat state for one session. Health is
+// derived from these facts at read time and is never stored.
+type SessionProgress struct {
+	ProviderAt     time.Time `json:"providerAt,omitempty"`
+	ToolAt         time.Time `json:"toolAt,omitempty"`
+	TerminalAt     time.Time `json:"terminalAt,omitempty"`
+	GitAt          time.Time `json:"gitAt,omitempty"`
+	InFlightTool   string    `json:"inFlightTool,omitempty"`
+	InFlightToolAt time.Time `json:"inFlightToolAt,omitempty"`
+	// BlockedAt and BlockedReason record a durable blocked observation.
+	// Health still derives whether the session is currently blocked.
+	BlockedAt     time.Time `json:"blockedAt,omitempty"`
+	BlockedReason string    `json:"blockedReason,omitempty"`
+	// LastNotifiedProgressAt makes one report idempotent per silent episode.
+	LastNotifiedProgressAt time.Time `json:"lastNotifiedProgressAt,omitempty"`
+	// StallCount and the last-stall facts support threshold tuning.
+	StallCount          int       `json:"stallCount,omitempty"`
+	LastStallAt         time.Time `json:"lastStallAt,omitempty"`
+	LastStallForSeconds int64     `json:"lastStallForSeconds,omitempty"`
+}
+
+// SessionProgressUpdate is one partial progress write. Zero timestamps and nil
+// pointers leave the stored value unchanged.
+type SessionProgressUpdate struct {
+	ProviderAt        time.Time
+	ToolAt            time.Time
+	TerminalAt        time.Time
+	GitAt             time.Time
+	InFlightTool      *string
+	InFlightToolAt    time.Time
+	ClearInFlight     bool
+	BlockedAt         time.Time
+	BlockedReason     *string
+	ClearBlocked      bool
+	LastNotifiedFor   time.Time
+	ClearLastNotified bool
+	StallCountDelta   int
+	LastStallAt       time.Time
+	LastStallFor      time.Duration
+}
+
+// SessionHealthState is the derived progress health of a working session.
+// It is computed at read time and is never persisted.
+type SessionHealthState string
+
+// Derived session health states.
+const (
+	// SessionHealthOK means the session has recent progress from a real signal
+	// class, is inside a long-tool budget, or is intentionally not working.
+	SessionHealthOK SessionHealthState = "ok"
+	// SessionHealthStalled means the session says it is working, its agent
+	// process is alive, and no progress signal arrived inside its budget.
+	SessionHealthStalled SessionHealthState = "stalled"
+	// SessionHealthBlocked means the session is paused on input or reported a
+	// blocked fact (for example a missing git credential) past its budget.
+	SessionHealthBlocked SessionHealthState = "blocked"
+	// SessionHealthUnreachable means the owning host could not be reached. It is
+	// distinct from stalled: the agent may be working while AO cannot see it.
+	SessionHealthUnreachable SessionHealthState = "unreachable"
+	// SessionHealthUnknown means there is not enough durable evidence yet.
+	SessionHealthUnknown SessionHealthState = "unknown"
+)
+
+// SessionHealth is the read-time health view for a session. The service layer
+// derives it from SessionProgress, activity, and termination facts.
+type SessionHealth struct {
+	State               SessionHealthState `json:"state" enum:"ok,stalled,blocked,unreachable,unknown"`
+	Reason              string             `json:"reason,omitempty"`
+	Class               string             `json:"class,omitempty" enum:"provider,tool,terminal,git"`
+	Since               *time.Time         `json:"since,omitempty"`
+	LastAt              *time.Time         `json:"lastProgressAt,omitempty"`
+	SilentForSeconds    int64              `json:"silentForSeconds,omitempty"`
+	ThresholdSeconds    int64              `json:"thresholdSeconds,omitempty"`
+	InFlightTool        string             `json:"inFlightTool,omitempty"`
+	StallCount          int                `json:"stallCount,omitempty"`
+	LastStallAt         *time.Time         `json:"lastStallAt,omitempty"`
+	LastStallForSeconds int64              `json:"lastStallForSeconds,omitempty"`
 }
 
 // SessionProvisionStepID names one stage of an asynchronous Chat start.
@@ -494,7 +576,10 @@ type Session struct {
 	// important current fact about the session at the stage it sits in. It is
 	// derived after the column, from the facts that column reads, and ships in
 	// renderable form so clients print it without a mapping table of their own.
-	DisplayStatus     DisplayStatus         `json:"displayStatus" enum:"Working,Blocked,Exited,No signal,Awaiting PR,Fixing CI failures,Addressing comments,Needs review,Review scheduled,Reviewing,Review failed,Review pending,Draft,CI failing,Commented,Changes requested,Needs human review,Mergeable,Approved,Merged,Closed without merge,Terminated"`
+	DisplayStatus DisplayStatus `json:"displayStatus" enum:"Working,Blocked,Exited,No signal,Awaiting PR,Fixing CI failures,Addressing comments,Needs review,Review scheduled,Reviewing,Review failed,Review pending,Draft,CI failing,Commented,Changes requested,Needs human review,Mergeable,Approved,Merged,Closed without merge,Terminated"`
+	// Health is the read-time progress health. It is derived from durable
+	// progress heartbeats and never persisted.
+	Health            SessionHealth         `json:"health"`
 	TerminalHandleID  string                `json:"terminalHandleId,omitempty"`
 	ArtifactFiles     []SessionArtifactFile `json:"-"`
 	ActiveAgentSwitch *AgentSwitch          `json:"-"`

@@ -2014,6 +2014,8 @@ func TestSourceKindForHarness(t *testing.T) {
 		{harness: domain.HarnessClaudeCode, want: domain.UsageSourceClaudeMain, ok: true},
 		{harness: domain.HarnessCodex, want: domain.UsageSourceCodexRollout, ok: true},
 		{harness: domain.HarnessKimi, want: domain.UsageSourceKimiWire, ok: true},
+		{harness: domain.HarnessOpenCodeV2, want: domain.UsageSourceOpencodeV2, ok: true},
+		{harness: domain.HarnessOpenCode, ok: false},
 		{harness: domain.HarnessAider, ok: false},
 	}
 	for _, tt := range tests {
