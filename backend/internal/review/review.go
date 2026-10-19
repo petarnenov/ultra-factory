@@ -64,6 +64,7 @@ type Store interface {
 	ClearReviewerHandleByHarness(ctx stdctx.Context, id domain.SessionID, harness domain.ReviewerHarness) error
 	InsertReviewRun(ctx stdctx.Context, r domain.ReviewRun) error
 	UpdateReviewRunResult(ctx stdctx.Context, id string, status domain.ReviewRunStatus, verdict domain.ReviewVerdict, body, githubReviewID string, autoInjectReview bool) (bool, error)
+	UpdateReviewRunCheckout(ctx stdctx.Context, id, reviewedSHA string, tree domain.ReviewCheckoutTree, checkoutKey string) (bool, error)
 	UpdateReviewAgentSessionID(ctx stdctx.Context, id, agentSessionID string) (bool, error)
 	SupersedeStaleRunningReviewRuns(ctx stdctx.Context, sessionID domain.SessionID, prURL, targetSHA, body string) (int64, error)
 	CancelRunningReviewRunsBySession(ctx stdctx.Context, sessionID domain.SessionID, body string) (int64, error)
@@ -101,6 +102,9 @@ type Deps struct {
 	PRs        PRs
 	Projects   Projects
 	Launcher   Launcher
+	// Checkout verifies the worker checkout at each pass's target commit and
+	// materializes a disposable worktree when the worker tree cannot be used.
+	Checkout CheckoutManager
 	// ChatRecoveryDone gates operations that could mistake a recovering reviewer for an exited one.
 	ChatRecoveryDone <-chan struct{}
 	// ModelCatalog validates reviewer harness/model/effort against the machine
@@ -122,6 +126,7 @@ type Engine struct {
 	prs        PRs
 	projects   Projects
 	launcher   Launcher
+	checkout   CheckoutManager
 	clock      func() time.Time
 	newID      func() string
 
@@ -148,6 +153,10 @@ func New(d Deps) *Engine {
 	if newID == nil {
 		newID = uuid.NewString
 	}
+	checkout := d.Checkout
+	if checkout == nil {
+		checkout = workerCheckout{}
+	}
 	return &Engine{
 		store:        d.Store,
 		harnessUse:   d.HarnessUse,
@@ -155,6 +164,7 @@ func New(d Deps) *Engine {
 		prs:          d.PRs,
 		projects:     d.Projects,
 		launcher:     d.Launcher,
+		checkout:     checkout,
 		clock:        clock,
 		newID:        newID,
 		triggerLocks: make(map[domain.SessionID]*sync.Mutex),
@@ -628,12 +638,31 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	queueRuns = append(queueRuns, created...)
 	queue := reviewQueue(queueRuns)
 	launchRun := queueRuns[0]
+	prepared, err := e.prepareLaunchCheckout(ctx, worker, queueRuns)
+	if err != nil {
+		return TriggerResult{}, failRuns(0, err)
+	}
+	checkoutOwned := prepared.Disposable
+	if checkoutOwned {
+		defer func() {
+			if checkoutOwned {
+				_ = e.checkout.Release(stdctx.WithoutCancel(ctx), prepared.Key)
+			}
+		}()
+	}
+	for _, run := range queueRuns {
+		reviewedSHA, tree := reviewedCheckoutForRun(run, prepared)
+		if _, err := e.store.UpdateReviewRunCheckout(ctx, run.ID, reviewedSHA, tree, prepared.Key); err != nil {
+			return TriggerResult{}, failRuns(0, fmt.Errorf("record reviewed checkout: %w", err))
+		}
+	}
 	launchAgentSessionID := reviewRow.AgentSessionID
 	if hasConfigOverride || selectedMode == domain.ReviewerInterfaceChat {
 		launchAgentSessionID = ""
 	}
 	persistedAgentSessionID := launchAgentSessionID
-	if !hasConfigOverride && reviewRow.ReviewerHandleID != "" && reviewerPaneReusable(reviewRow, hadRunningReviewer) {
+	previousCheckoutDisposable := lastReviewRunCheckout(runs, harness) == domain.ReviewCheckoutDisposable
+	if !hasConfigOverride && !prepared.Disposable && !previousCheckoutDisposable && reviewRow.ReviewerHandleID != "" && reviewerPaneReusable(reviewRow, hadRunningReviewer) {
 		alive, err := e.launcher.Alive(ctx, reviewRow.ReviewerHandleID, reviewRow.ReviewerLaunchID)
 		if err != nil {
 			return TriggerResult{}, failRuns(0, err)
@@ -650,7 +679,7 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 			return TriggerResult{}, failRuns(0, err)
 		}
 		defer releaseHarness()
-		if err := e.launcher.Preflight(ctx, harness, worker.Metadata.WorkspacePath, selectedMode); err != nil {
+		if err := e.launcher.Preflight(ctx, harness, prepared.Path, selectedMode); err != nil {
 			return TriggerResult{}, failRuns(0, fmt.Errorf("reviewer preflight: %w", err))
 		}
 		// A review owns one Chat controller. Stop it while its durable fence
@@ -686,6 +715,7 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 		launchSpec.ProjectEnv = projectEnv
 		launchSpec.InterfaceMode = selectedMode
 		launchSpec.DeferInitialMessage = deferInitialMessage
+		applyPreparedCheckout(&launchSpec, prepared)
 		if selectedMode == domain.ReviewerInterfaceChat && !hasConfigOverride {
 			launchSpec.ProviderConversationID = reviewRow.ProviderConversationID
 		}
@@ -703,6 +733,7 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	} else {
 		launchSpec := reviewLaunchSpec(worker, harness, config, launchRun, queue, 0, reviewRow.AgentSessionID, reviewRow.ReviewerLaunchID)
 		launchSpec.InterfaceMode = selectedMode
+		applyPreparedCheckout(&launchSpec, prepared)
 		if err := e.launcher.Notify(ctx, handleID, launchSpec); err != nil {
 			return TriggerResult{}, failRuns(0, fmt.Errorf("notify reviewer: %w", err))
 		}
@@ -718,6 +749,9 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 			return TriggerResult{}, failRuns(0, err)
 		}
 	}
+	// A superseded pass can no longer submit, so its disposable checkout is
+	// released once no sibling run in that batch is still running.
+	e.releaseFinishedCheckouts(ctx, workerID, runs)
 	if hasConfigOverride && persistedAgentSessionID == "" && reviewRow.ID != "" {
 		if _, err := e.store.UpdateReviewAgentSessionID(ctx, reviewRow.ID, ""); err != nil {
 			if previousReview.IsArchived || modeChanging {
@@ -758,6 +792,7 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 		if deferInitialMessage {
 			launchSpec := reviewLaunchSpec(worker, harness, config, launchRun, queue, 0, persistedAgentSessionID, reviewRow.ReviewerLaunchID)
 			launchSpec.InterfaceMode = selectedMode
+			applyPreparedCheckout(&launchSpec, prepared)
 			if err := e.launcher.Notify(ctx, handleID, launchSpec); err != nil {
 				return TriggerResult{}, rollbackReplacement(fmt.Errorf("notify replacement reviewer: %w", err))
 			}
@@ -765,11 +800,18 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	}
 	for i := range created {
 		created[i].ReviewID = reviewRow.ID
+		created[i].ReviewedSHA, created[i].ReviewedTree = reviewedCheckoutForRun(created[i], prepared)
+		created[i].ReviewedCheckoutKey = prepared.Key
+	}
+	for i := range restarted {
+		restarted[i].ReviewedSHA, restarted[i].ReviewedTree = reviewedCheckoutForRun(restarted[i], prepared)
+		restarted[i].ReviewedCheckoutKey = prepared.Key
 	}
 	triggerRuns := append([]domain.ReviewRun{}, created...)
 	triggerRuns = append(triggerRuns, runs...)
 	resultRun := launchRun
 	createdFlag := len(created) > 0 || len(restarted) > 0
+	checkoutOwned = false
 	return TriggerResult{Run: resultRun, ReviewerHandleID: legacyReviewerHandle(reviewRow), Created: createdFlag, Reviews: reviews, Runs: triggerRuns, CreatedRuns: created, ReviewerSurface: reviewerSurface(reviewRow)}, nil
 }
 
@@ -923,6 +965,17 @@ func reviewRunsContainRunningForHarness(runs []domain.ReviewRun, harness domain.
 		}
 	}
 	return false
+}
+
+// lastReviewRunCheckout returns the newest run's tree for this reviewer. A
+// pane launched over a disposable worktree must not be reused after release.
+func lastReviewRunCheckout(runs []domain.ReviewRun, harness domain.ReviewerHarness) domain.ReviewCheckoutTree {
+	for _, run := range runs {
+		if run.Harness == harness || run.Harness == "" {
+			return run.ReviewedTree
+		}
+	}
+	return ""
 }
 
 func (e *Engine) destroyOtherReviewerHandles(ctx stdctx.Context, workerID domain.SessionID, selected domain.ReviewerHarness, reviews []domain.Review) error {
@@ -1098,8 +1151,21 @@ func (e *Engine) restorePersistedChatReviewerLocked(ctx stdctx.Context, worker d
 		return RestoreReviewerResult{}, err
 	}
 	defer releaseHarness()
-	launch, err := e.launcher.RestoreTerminal(ctx, LaunchSpec{ReviewSessionID: review.ID, LaunchID: launchID, WorkerID: worker.ID, ProjectID: worker.ProjectID, ProjectEnv: projectEnv, Harness: review.Harness, WorkspacePath: worker.Metadata.WorkspacePath, AgentSessionID: review.AgentSessionID, ProviderConversationID: review.ProviderConversationID, PreviousRuns: previousRuns, InterfaceMode: review.InterfaceMode})
+	prepared, hasCheckout, err := e.restoreCheckout(ctx, worker, previousRuns)
 	if err != nil {
+		if failErr := e.failRunningRestoredRuns(ctx, previousRuns, err.Error()); failErr != nil {
+			return RestoreReviewerResult{}, errors.Join(err, failErr)
+		}
+		e.releaseFinishedCheckouts(ctx, worker.ID, previousRuns)
+		return RestoreReviewerResult{}, err
+	}
+	spec := LaunchSpec{ReviewSessionID: review.ID, LaunchID: launchID, WorkerID: worker.ID, ProjectID: worker.ProjectID, ProjectEnv: projectEnv, Harness: review.Harness, WorkspacePath: worker.Metadata.WorkspacePath, AgentSessionID: review.AgentSessionID, ProviderConversationID: review.ProviderConversationID, PreviousRuns: previousRuns, InterfaceMode: review.InterfaceMode}
+	if hasCheckout {
+		applyPreparedCheckout(&spec, prepared)
+	}
+	launch, err := e.launcher.RestoreTerminal(ctx, spec)
+	if err != nil {
+		e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 		return RestoreReviewerResult{}, fmt.Errorf("restore reviewer: %w", err)
 	}
 	agentSessionID := review.AgentSessionID
@@ -1222,7 +1288,15 @@ func (e *Engine) restoreReviewerLocked(
 		return RestoreReviewerResult{}, err
 	}
 	defer releaseHarness()
-	launch, err := e.launcher.RestoreTerminal(ctx, LaunchSpec{
+	prepared, hasCheckout, err := e.restoreCheckout(ctx, worker, previousRuns)
+	if err != nil {
+		if failErr := e.failRunningRestoredRuns(ctx, previousRuns, err.Error()); failErr != nil {
+			return RestoreReviewerResult{}, errors.Join(err, failErr)
+		}
+		e.releaseFinishedCheckouts(ctx, worker.ID, previousRuns)
+		return RestoreReviewerResult{}, err
+	}
+	spec := LaunchSpec{
 		ReviewSessionID:      reviewRow.ID,
 		LaunchID:             launchID,
 		WorkerID:             worker.ID,
@@ -1235,8 +1309,13 @@ func (e *Engine) restoreReviewerLocked(
 		RequireNativeHistory: harness == domain.ReviewerCodex && strings.TrimSpace(agentSessionID) != "",
 		PreviousRuns:         previousRuns,
 		InterfaceMode:        reviewRow.InterfaceMode,
-	})
+	}
+	if hasCheckout {
+		applyPreparedCheckout(&spec, prepared)
+	}
+	launch, err := e.launcher.RestoreTerminal(ctx, spec)
 	if err != nil {
+		e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 		restoreErr := fmt.Errorf("restore reviewer: %w", err)
 		if wasExited {
 			// The relaunch failed, so the reviewer is still gone.
@@ -1253,8 +1332,10 @@ func (e *Engine) restoreReviewerLocked(
 		const reason = "reviewer native conversation was unavailable during restore; retry the review"
 		if err := e.failRunningRestoredRuns(ctx, previousRuns, reason); err != nil {
 			_ = e.launcher.Destroy(ctx, launch.HandleID)
+			e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 			return RestoreReviewerResult{}, err
 		}
+		e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 	}
 	if launch.AgentSessionID != "" {
 		agentSessionID = launch.AgentSessionID
@@ -1379,7 +1460,156 @@ func (e *Engine) cancelStaleRunningRuns(ctx stdctx.Context, workerID domain.Sess
 			return false, err
 		}
 	}
+	e.releaseFinishedCheckouts(ctx, workerID, runs)
 	return true, nil
+}
+
+// releaseFinishedCheckouts removes terminal passes' disposable worktrees. It
+// skips a batch with a running pass so a sibling keeps its checkout.
+func (e *Engine) releaseFinishedCheckouts(ctx stdctx.Context, workerID domain.SessionID, runs []domain.ReviewRun) {
+	keys := make(map[string]bool)
+	for _, run := range runs {
+		if strings.TrimSpace(run.ReviewedCheckoutKey) == "" && run.ReviewedTree != domain.ReviewCheckoutDisposable {
+			continue
+		}
+		keys[CheckoutKey(run)] = true
+	}
+	if len(keys) == 0 {
+		return
+	}
+	running, err := e.store.ListRunningReviewRunsBySession(ctx, workerID)
+	if err != nil {
+		return
+	}
+	for _, run := range running {
+		delete(keys, CheckoutKey(run))
+	}
+	for key := range keys {
+		_ = e.checkout.Release(stdctx.WithoutCancel(ctx), key)
+	}
+}
+
+// CheckoutKey names the checkout a run was verified against for cleanup and
+// restore. It is exported so the service can release the same key.
+func CheckoutKey(run domain.ReviewRun) string {
+	if key := strings.TrimSpace(run.ReviewedCheckoutKey); key != "" {
+		return key
+	}
+	if key := strings.TrimSpace(run.BatchID); key != "" {
+		return key
+	}
+	return run.ID
+}
+
+// prepareLaunchCheckout resolves the verified checkout for a pass. A disposable
+// worktree serves one commit, so a queue spanning several heads is refused.
+func (e *Engine) prepareLaunchCheckout(ctx stdctx.Context, worker domain.SessionRecord, queueRuns []domain.ReviewRun) (PreparedCheckout, error) {
+	if len(queueRuns) == 0 {
+		return PreparedCheckout{}, fmt.Errorf("%w: no review run to prepare", ErrInvalid)
+	}
+	launch := queueRuns[0]
+	key := strings.TrimSpace(launch.BatchID)
+	if key == "" {
+		key = launch.ID
+	}
+	prepared, err := e.checkout.Prepare(ctx, CheckoutRequest{
+		Key:           key,
+		WorkspacePath: worker.Metadata.WorkspacePath,
+		TargetSHA:     launch.TargetSHA,
+		PRURL:         launch.PRURL,
+	})
+	if err != nil {
+		if errors.Is(err, ErrCheckoutMismatch) || errors.Is(err, ErrInvalid) {
+			return PreparedCheckout{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		return PreparedCheckout{}, fmt.Errorf("prepare review checkout: %w", err)
+	}
+	if prepared.Disposable {
+		for _, run := range queueRuns {
+			if run.TargetSHA == "" || strings.EqualFold(run.TargetSHA, launch.TargetSHA) {
+				continue
+			}
+			_ = e.checkout.Release(ctx, prepared.Key)
+			return PreparedCheckout{}, fmt.Errorf(
+				"%w: review queue covers commits %s and %s, so one disposable checkout cannot verify every head; review one PR at a time with --pr",
+				ErrInvalid, shortCheckoutSHA(launch.TargetSHA), shortCheckoutSHA(run.TargetSHA))
+		}
+	}
+	return prepared, nil
+}
+
+func applyPreparedCheckout(spec *LaunchSpec, prepared PreparedCheckout) {
+	spec.WorkspacePath = prepared.Path
+	spec.CheckoutSHA = prepared.SHA
+	spec.CheckoutTree = prepared.Tree
+}
+
+func (e *Engine) releasePreparedCheckout(ctx stdctx.Context, prepared PreparedCheckout, has bool) {
+	if has && prepared.Disposable {
+		_ = e.checkout.Release(stdctx.WithoutCancel(ctx), prepared.Key)
+	}
+}
+
+// reviewedCheckoutForRun records verification only when the run's target
+// matches the prepared checkout; other queued heads stay unverified.
+func reviewedCheckoutForRun(run domain.ReviewRun, prepared PreparedCheckout) (string, domain.ReviewCheckoutTree) {
+	if run.TargetSHA == "" || !strings.EqualFold(run.TargetSHA, prepared.SHA) {
+		return "", ""
+	}
+	return prepared.SHA, prepared.Tree
+}
+
+// restoreCheckout reopens or re-verifies the tree of a running pass before its
+// pane is recreated, so a restored pass never reads an unverified worker tree.
+func (e *Engine) restoreCheckout(ctx stdctx.Context, worker domain.SessionRecord, runs []domain.ReviewRun) (PreparedCheckout, bool, error) {
+	for _, run := range runs {
+		if run.Status != domain.ReviewRunRunning || run.Verdict != domain.VerdictNone {
+			continue
+		}
+		if run.ReviewedTree == domain.ReviewCheckoutDisposable {
+			prepared, err := e.checkout.Reopen(ctx, CheckoutKey(run))
+			if err != nil {
+				return PreparedCheckout{}, false, err
+			}
+			return prepared, true, nil
+		}
+		prepared, err := e.checkout.Prepare(ctx, CheckoutRequest{
+			Key:           CheckoutKey(run),
+			WorkspacePath: worker.Metadata.WorkspacePath,
+			TargetSHA:     run.TargetSHA,
+			PRURL:         run.PRURL,
+		})
+		if err != nil {
+			if errors.Is(err, ErrCheckoutMismatch) || errors.Is(err, ErrInvalid) {
+				return PreparedCheckout{}, false, fmt.Errorf("%w: %w", ErrInvalid, err)
+			}
+			return PreparedCheckout{}, false, fmt.Errorf("verify restored review checkout: %w", err)
+		}
+		if prepared.Disposable {
+			if err := e.persistRestoredCheckout(ctx, runs, run, prepared); err != nil {
+				_ = e.checkout.Release(stdctx.WithoutCancel(ctx), prepared.Key)
+				return PreparedCheckout{}, false, err
+			}
+		}
+		return prepared, true, nil
+	}
+	return PreparedCheckout{}, false, nil
+}
+
+// persistRestoredCheckout records a restore's newly materialized worktree on
+// every running run sharing its key, so release and later restores see it.
+func (e *Engine) persistRestoredCheckout(ctx stdctx.Context, runs []domain.ReviewRun, restored domain.ReviewRun, prepared PreparedCheckout) error {
+	key := CheckoutKey(restored)
+	for _, run := range runs {
+		if run.Status != domain.ReviewRunRunning || run.Verdict != domain.VerdictNone || CheckoutKey(run) != key {
+			continue
+		}
+		reviewedSHA, tree := reviewedCheckoutForRun(run, prepared)
+		if _, err := e.store.UpdateReviewRunCheckout(ctx, run.ID, reviewedSHA, tree, prepared.Key); err != nil {
+			return fmt.Errorf("record restored review checkout: %w", err)
+		}
+	}
+	return nil
 }
 
 func reviewLaunchSpec(
@@ -1750,6 +1980,7 @@ func (e *Engine) Cancel(ctx stdctx.Context, workerID domain.SessionID) (CancelRe
 	if err != nil {
 		return CancelResult{}, err
 	}
+	e.releaseFinishedCheckouts(ctx, workerID, cancelled)
 	return CancelResult{ReviewerHandleID: primary.ReviewerHandleID, Reviews: Plan(prs, runs), CancelledRuns: cancelled}, nil
 }
 
@@ -1882,6 +2113,7 @@ func (e *Engine) terminateReviewer(ctx stdctx.Context, workerID domain.SessionID
 	if _, err := e.store.CancelRunningReviewRunsBySession(ctx, workerID, body); err != nil {
 		return TerminateResult{}, err
 	}
+	e.releaseFinishedCheckouts(ctx, workerID, running)
 	if archive {
 		if err := e.store.ArchiveReviewsBySession(ctx, workerID, e.clock()); err != nil {
 			return TerminateResult{}, err

@@ -5732,6 +5732,9 @@ export interface components {
             id: string;
             prUrl: string;
             reviewId: string;
+            reviewedSha?: string;
+            /** @enum {string} */
+            reviewedTree?: "worker_checkout" | "disposable_worktree";
             sessionId: string;
             status: string;
             targetSha: string;

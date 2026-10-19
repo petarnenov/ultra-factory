@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
@@ -31,6 +32,24 @@ func TestReviewTextsIncludesMultiPRQueue(t *testing.T) {
 		"do not use a heredoc",
 		"ao review submit --session mer-1 --reviews -",
 		`"reviews": [`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestReviewTextsNamesVerifiedDisposableCheckout(t *testing.T) {
+	spec := launchSpec()
+	spec.WorkspacePath = "/tmp/review-worktree"
+	spec.CheckoutSHA = "0123456789abcdef"
+	spec.CheckoutTree = domain.ReviewCheckoutDisposable
+
+	prompt, _ := reviewTexts(spec)
+	for _, want := range []string{
+		"Verified checkout: /tmp/review-worktree at commit 0123456789abcdef",
+		"disposable detached worktree",
+		"The worker's own checkout is not used for this pass.",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)

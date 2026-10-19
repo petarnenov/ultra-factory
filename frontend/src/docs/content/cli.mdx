@@ -189,7 +189,9 @@ ao session ls --host build-box
 ao send --host build-box --session widgets-3 --message "CI failed on lint; fix it."
 ```
 
-These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, and `agent ls`. Other commands reject it.
+These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`. Other commands reject it.
+
+- **Reviews run on the worker's host:** `review trigger|ls|cancel --host` call the owning daemon's review routes. Pass the worker id explicitly, because session ids are per machine. Only that daemon launches the reviewer, so its checkout, read-only policy, verdict, and comment delivery stay on the host that owns the worker; the requesting machine never reviews its own checkout as a fallback. See the [review loop](/guides/review-loop#reviewing-a-worker-on-another-machine) for the verified-checkout behavior.
 
 - **Project matching:** without `--project`, `spawn --host` picks the remote project whose repository matches the current project, whether the remote is SSH or HTTPS. If none or several match, it lists the remote project IDs.
 - **Resolution is per machine:** `spawn --host` uses the target machine's Project Settings for the role, then that machine's harness defaults, and validates against that machine's harness catalog. A missing or invalid value blocks the spawn with the target machine's valid harnesses, models, and effort levels; it never falls back to this machine's configuration.
@@ -200,7 +202,7 @@ A machine that runs its own orchestrator cannot host workers started from anothe
 
 A remote worker's reports go to the orchestrator that spawned it. The orchestrator does not wait for a report to inspect state; `ao session ls --host` and the pull-request views show it directly.
 
-Reviews run on the machine that owns the worker's checkout, under the reviewer's read-only guarantee. There is no remote review trigger yet: `ao review trigger` does not accept `--host`, so until [#255](https://github.com/petarnenov/ultra-factory/issues/255) lands, this manual trigger is temporary and runs on the worker's machine. Before a pass, the worker is idle or exited, everything is committed and pushed, the pull request is open, and the reviewer is given the evaluated head SHA. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
+Reviews run on the machine that owns the worker's checkout, under the reviewer's read-only guarantee. `ao review trigger`, `ao review ls`, and `ao review cancel` accept `--host`, so an orchestrator can start, inspect, or stop a worker's review on its paired host without running a reviewer locally. Pass the worker id explicitly: session ids are per machine. Before a pass, the worker is idle or exited, everything is committed and pushed, the pull request is open, and the reviewer is given the evaluated head SHA; AO verifies the checkout at that commit with a clean tree and uses a disposable detached worktree when it cannot. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
 
 Inside a worker, `ao report "Progress summary"` sends a report to its existing orchestrator. Reporting requires `AO_SESSION_ID`; it does not create an orchestrator or claim a PR.
 

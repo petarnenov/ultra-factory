@@ -736,3 +736,199 @@ func TestReviewListDefaultsToCallingSession(t *testing.T) {
 		t.Fatalf("path = %q, want the calling session", capture.path)
 	}
 }
+
+func TestReviewTriggerReportsHeadSHAFromRuns(t *testing.T) {
+	cfg := setReviewEnv(t)
+	srv, _ := reviewServer(t, http.StatusCreated, `{"created":true,"runs":[{"id":"run-9","harness":"codex","prUrl":"https://github.com/acme/app/pull/9","targetSha":"fedcba9876543210","status":"running"}]}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "review", "trigger", "mer-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "codex reviewing https://github.com/acme/app/pull/9 at fedcba987654 (run run-9)") {
+		t.Fatalf("stdout = %q, want the running run's head SHA", out)
+	}
+}
+
+func TestReviewTriggerHostRunsOnTheWorkersDaemon(t *testing.T) {
+	setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "orchestrator-1")
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/reviews/trigger", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusCreated, map[string]any{
+			"created": true, "autoInjectEnabled": true,
+			"reviews": []map[string]any{{
+				"prUrl": "https://github.com/acme/app/pull/4", "prNumber": 4, "status": "running",
+				"latestRun": map[string]any{
+					"id": "run-4", "harness": "codex", "prUrl": "https://github.com/acme/app/pull/4",
+					"targetSha": "0123456789abcdef", "status": "running",
+				},
+			}},
+		})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "review", "trigger", "--host", "build-box", "widgets-3", "--rerun")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	got, ok := remote.find(http.MethodPost, "/api/v1/sessions/widgets-3/reviews/trigger")
+	if !ok {
+		t.Fatalf("trigger never reached the remote host; saw %+v", remote.recorded())
+	}
+	if got.auth != "Bearer pw" || got.expectedHost != "host-build" {
+		t.Fatalf("headers auth=%q expected=%q", got.auth, got.expectedHost)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(got.body), &body); err != nil {
+		t.Fatalf("decode remote body %q: %v", got.body, err)
+	}
+	if body["rerun"] != true || body["enableAutoInject"] != true || body["source"] != "agent" {
+		t.Fatalf("remote trigger body = %v", body)
+	}
+	for _, want := range []string{
+		"started a new review for widgets-3 on build-box",
+		"codex reviewing https://github.com/acme/app/pull/4 at 0123456789ab (run run-4)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout = %q, want %q", out, want)
+		}
+	}
+}
+
+func TestReviewListHostShowsRemoteVerdict(t *testing.T) {
+	setReviewEnv(t)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodGet, "/api/v1/sessions/widgets-3/reviews", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]any{
+			"reviewerHandleId": "handle-1",
+			"reviews": []map[string]any{{
+				"prUrl": "https://github.com/acme/app/pull/4", "prNumber": 4, "title": "Fix auth",
+				"targetSha": "0123456789abcdef", "status": "changes_requested",
+				"latestRun": map[string]any{"id": "run-4", "verdict": "changes_requested"},
+			}},
+		})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "review", "ls", "--host", "build-box", "widgets-3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if _, ok := remote.find(http.MethodGet, "/api/v1/sessions/widgets-3/reviews"); !ok {
+		t.Fatalf("list never reached the remote host; saw %+v", remote.recorded())
+	}
+	for _, want := range []string{"#4", "changes_requested", "Fix auth"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout = %q, want %q", out, want)
+		}
+	}
+}
+
+func TestReviewCancelHostStopsRemotePass(t *testing.T) {
+	setReviewEnv(t)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/reviews/cancel", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]any{"reviews": []any{}})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "review", "cancel", "--host", "build-box", "widgets-3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if _, ok := remote.find(http.MethodPost, "/api/v1/sessions/widgets-3/reviews/cancel"); !ok {
+		t.Fatalf("cancel never reached the remote host; saw %+v", remote.recorded())
+	}
+	if !strings.Contains(out, "cancelled review for widgets-3 on build-box") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
+func TestReviewHostRequiresExplicitWorkerSession(t *testing.T) {
+	setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "local-session-1")
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	for _, args := range [][]string{
+		{"review", "trigger", "--host", "build-box"},
+		{"review", "ls", "--host", "build-box"},
+		{"review", "cancel", "--host", "build-box"},
+	} {
+		_, _, err := executeCLI(t, aliveDeps(), args...)
+		if got := ExitCode(err); got != 2 {
+			t.Fatalf("%v exit code = %d, want 2; err=%v", args, got, err)
+		}
+		if err == nil || !strings.Contains(err.Error(), "session ids are per machine") {
+			t.Fatalf("%v err = %v, want the explicit remote session requirement", args, err)
+		}
+	}
+	if len(remote.recorded()) != 0 {
+		t.Fatalf("a missing worker id must not send a request: %+v", remote.recorded())
+	}
+}
+
+func TestReviewHostSurfacesRemoteFailureClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		code   string
+	}{
+		{name: "already running", status: http.StatusConflict, code: "REVIEW_ALREADY_RUNNING"},
+		{name: "head already reviewed", status: http.StatusConflict, code: "REVIEW_HEAD_ALREADY_REVIEWED"},
+		{name: "worker not found", status: http.StatusNotFound, code: "REVIEW_NOT_FOUND"},
+		{name: "no eligible PR", status: http.StatusUnprocessableEntity, code: "REVIEW_INVALID"},
+		{name: "unauthorized reviewer harness", status: http.StatusConflict, code: "REVIEWER_AUTH_REQUIRED"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setReviewEnv(t)
+			remote := newFakeRemoteHost(t, "host-build", "pw")
+			remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/reviews/trigger", func(w http.ResponseWriter, _ *http.Request) {
+				writeTestJSON(w, tc.status, map[string]string{"message": "review: conflict", "code": tc.code})
+			})
+			writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+			_, _, err := executeCLI(t, aliveDeps(), "review", "trigger", "--host", "build-box", "widgets-3")
+			if got := ExitCode(err); got != 1 {
+				t.Fatalf("exit code = %d, want 1; err=%v", got, err)
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.code) {
+				t.Fatalf("err = %v, want %s", err, tc.code)
+			}
+		})
+	}
+}
+
+func TestReviewHostFlagHelp(t *testing.T) {
+	for _, args := range [][]string{
+		{"review", "trigger", "--help"},
+		{"review", "ls", "--help"},
+		{"review", "cancel", "--help"},
+	} {
+		out, _, err := executeCLI(t, Deps{}, args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if !strings.Contains(out, "--host string") {
+			t.Fatalf("%v help does not show `--host string`:\n%s", args, out)
+		}
+	}
+}
+
+func TestReviewHostReportsOfflineHost(t *testing.T) {
+	cfg := setReviewEnv(t)
+	local := startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.srv.Close()
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	_, _, err := executeCLI(t, aliveDeps(), "review", "ls", "--host", "build-box", "widgets-3")
+	if err == nil || !strings.Contains(err.Error(), `remote host "build-box"`) {
+		t.Fatalf("err = %v, want the offline host named", err)
+	}
+	if local.saw("GET /api/v1/sessions/widgets-3/reviews") {
+		t.Fatal("an offline remote host must not fall back to the local daemon")
+	}
+}

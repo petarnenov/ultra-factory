@@ -205,6 +205,7 @@ var shippedMigrations = map[int64]string{
 	200: "0200_remote_spawned_sessions.sql",
 	201: "0201_remote_report_history.sql",
 	202: "0202_task_report_history.sql",
+	203: "0203_review_run_reviewed_checkout.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they
