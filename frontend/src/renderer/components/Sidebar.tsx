@@ -37,6 +37,7 @@ import {
 	Search,
 	Settings,
 	Smartphone,
+	SquareKanban,
 	Trash2,
 	User,
 	X,
@@ -1867,6 +1868,7 @@ const ProjectItem = memo(function ProjectItem({
 										</DropdownMenuItem>
 										{!workspace.hostId && workspace.kind !== CLOUD_PROJECT_KIND && workspace.id !== STANDALONE_WORKSPACE_ID ? (
 											<DropdownMenuItem onSelect={() => selection.goAggregateProject(workspace.id)}>
+												<SquareKanban aria-hidden="true" />
 												{t("shell.openAggregateKanban")}
 											</DropdownMenuItem>
 										) : null}
