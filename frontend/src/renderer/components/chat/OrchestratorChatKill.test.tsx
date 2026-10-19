@@ -6,7 +6,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSession } from "../../types/workspace";
 import { TooltipProvider } from "../ui/tooltip";
 
-const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
+const { navigateMock, postMock } = vi.hoisted(() => ({
+	navigateMock: vi.fn(),
+	postMock: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => navigateMock,
+}));
 
 vi.mock("../../lib/api-client", () => ({
 	apiClient: {
@@ -50,6 +57,7 @@ function Wrapper({ children }: { children: ReactNode }) {
 
 describe("OrchestratorChatKill", () => {
 	beforeEach(() => {
+		navigateMock.mockReset();
 		postMock.mockReset();
 	});
 
@@ -83,5 +91,9 @@ describe("OrchestratorChatKill", () => {
 				{ params: { path: { sessionId: session.id } } },
 			),
 		);
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/projects/$projectId",
+			params: { projectId: session.workspaceId },
+		});
 	});
 });

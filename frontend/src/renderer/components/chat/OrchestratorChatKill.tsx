@@ -1,21 +1,29 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Square } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { workspaceQueryKeyForHost } from "../../hooks/useWorkspaceQuery";
 import {
 	clearTerminateSessionState,
 	useTerminateSession,
 	useTerminateSessionState,
 } from "../../hooks/useTerminateSession";
-import type { WorkspaceSession } from "../../types/workspace";
+import { projectNavigateTarget, sessionNavigateTarget } from "../../lib/navigate-to-session";
+import {
+	resolveNextNavigationAfterSessionKill,
+	type WorkspaceSession,
+	type WorkspaceSummary,
+} from "../../types/workspace";
 import { SessionArchiveDialog, type SessionArchiveChoice } from "../SessionArchiveDialog";
 import { TopbarActionError, TopbarButton } from "../TopbarButton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 /** Terminates the orchestrator from its own chat header.
- * It reuses the inspector's confirmation and kill mutation. */
+ * It reuses the inspector's confirmation, mutation, and navigation. */
 export function OrchestratorChatKill({ hostId, session }: { hostId?: string; session: WorkspaceSession }) {
 	const { t } = useTranslation();
+	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [confirmOpen, setConfirmOpen] = useState(false);
 	const kill = useTerminateSession();
@@ -24,8 +32,18 @@ export function OrchestratorChatKill({ hostId, session }: { hostId?: string; ses
 
 	const confirmKill = ({ deleteArtifacts }: SessionArchiveChoice) => {
 		setConfirmOpen(false);
-		// Stay on the terminated chat so the terminal state remains visible.
+		const workspaces =
+			queryClient.getQueryData<WorkspaceSummary[]>(workspaceQueryKeyForHost(hostId)) ?? [];
+		const workspace = workspaces.find((candidate) => candidate.id === ownedSession.workspaceId);
+		const nextNav = resolveNextNavigationAfterSessionKill(workspace, ownedSession.id);
 		kill.mutate({ ...ownedSession, deleteArtifacts });
+		if (nextNav.target === "session") {
+			void navigate(
+				sessionNavigateTarget(ownedSession.workspaceId, nextNav.sessionId, hostId),
+			);
+			return;
+		}
+		void navigate(projectNavigateTarget(ownedSession.workspaceId, hostId));
 	};
 
 	return (
