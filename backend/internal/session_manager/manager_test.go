@@ -3,6 +3,7 @@ package sessionmanager
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/lifecycle"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/scmsecret"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 )
 
@@ -1590,6 +1593,88 @@ func TestSend_RejectsAttachmentWithEmptyWorkspace(t *testing.T) {
 	if len(msg.msgs) != 0 {
 		t.Errorf("messenger calls = %v, want none: the send must not proceed after the attachment write fails", msg.msgs)
 	}
+}
+
+func TestSpawnInjectsBoundGitHubTokenWithoutPersistingIt(t *testing.T) {
+	const fakeToken = "ghp_FAKE222222222222222222222222222222"
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
+		Worker: domain.RoleOverride{Harness: domain.HarnessClaudeCode},
+		SCM:    domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+	}}
+	rt := &fakeRuntime{}
+	ws := &fakeWorkspace{}
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime: rt, Agents: fakeAgents{}, Workspace: ws, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st}, LookPath: lookPath,
+		SCMIdentity: scmidentity.New(fakeSCMTokenStore{token: fakeToken}, func() (string, error) { return "worker-1", nil }),
+	})
+
+	rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if got := rt.lastCfg.Env["GH_TOKEN"]; got != fakeToken {
+		t.Fatalf("runtime GH_TOKEN = %q, want bound token", got)
+	}
+	persisted, ok := st.sessions[rec.ID]
+	if !ok {
+		t.Fatalf("session %s was not persisted", rec.ID)
+	}
+	data, err := json.Marshal(persisted)
+	if err != nil {
+		t.Fatalf("marshal persisted session: %v", err)
+	}
+	if strings.Contains(string(data), fakeToken) {
+		t.Fatal("persisted session record contains the token")
+	}
+	if strings.Contains(persisted.Metadata.Prompt, fakeToken) || strings.Contains(persisted.Metadata.LatestUserPrompt, fakeToken) {
+		t.Fatal("session prompt metadata contains the token")
+	}
+}
+
+func TestSpawnFailsFastWhenBoundAccountHasNoToken(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
+		Worker: domain.RoleOverride{Harness: domain.HarnessClaudeCode},
+		SCM:    domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+	}}
+	rt := &fakeRuntime{}
+	ws := &fakeWorkspace{}
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime: rt, Agents: fakeAgents{}, Workspace: ws, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st}, LookPath: lookPath,
+		SCMIdentity: scmidentity.New(fakeSCMTokenStore{err: scmsecret.ErrNotFound}, func() (string, error) { return "worker-1", nil }),
+	})
+
+	_, _, _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker})
+	var unavailable *scmidentity.UnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("err = %v, want *scmidentity.UnavailableError", err)
+	}
+	if unavailable.ProjectID != "mer" || unavailable.Account != "work-account" || unavailable.Machine != "worker-1" {
+		t.Fatalf("unavailable = %+v", unavailable)
+	}
+	if st.num != 0 {
+		t.Fatalf("spawn created %d sessions before failing", st.num)
+	}
+	if ws.createCount != 0 || rt.created != 0 {
+		t.Fatalf("workspace/runtime started before failing: ws=%d rt=%d", ws.createCount, rt.created)
+	}
+	if strings.Contains(err.Error(), "ghp_") {
+		t.Fatal("failure leaked a token")
+	}
+}
+
+type fakeSCMTokenStore struct {
+	token string
+	err   error
+}
+
+func (f fakeSCMTokenStore) GitHubToken(context.Context, string) (string, error) {
+	return f.token, f.err
 }
 
 func newManager() (*Manager, *fakeStore, *fakeRuntime, *fakeWorkspace) {

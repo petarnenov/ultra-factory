@@ -4484,6 +4484,96 @@ paths:
       summary: Report a reviewer-owned hook signal
       tags:
       - reviews
+  /api/v1/secrets/github:
+    get:
+      operationId: listGitHubSecrets
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSecretAccountsResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: List machine-local GitHub logins without token values
+      tags:
+      - secrets
+  /api/v1/secrets/github/{login}:
+    delete:
+      operationId: deleteGitHubSecret
+      parameters:
+      - description: GitHub account login.
+        in: path
+        name: login
+        required: true
+        schema:
+          description: GitHub account login.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSecretMutationResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Remove a machine-local GitHub token for an account
+      tags:
+      - secrets
+    put:
+      operationId: putGitHubSecret
+      parameters:
+      - description: GitHub account login.
+        in: path
+        name: login
+        required: true
+        schema:
+          description: GitHub account login.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PutGitHubSecretRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubSecretMutationResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Store a machine-local GitHub token for an account
+      tags:
+      - secrets
   /api/v1/sessions:
     get:
       operationId: listSessions
@@ -14513,6 +14603,11 @@ components:
       - state
       - lastActivityAt
       type: object
+    DomainGitHubSCMConfig:
+      properties:
+        account:
+          type: string
+      type: object
     DomainReviewerConfig:
       properties:
         agentConfig:
@@ -14538,6 +14633,11 @@ components:
       - mode
       - reviewId
       - harness
+      type: object
+    DomainSCMConfig:
+      properties:
+        github:
+          $ref: '#/components/schemas/DomainGitHubSCMConfig'
       type: object
     DomainSideReference:
       properties:
@@ -14755,6 +14855,25 @@ components:
           type:
           - "null"
           - boolean
+      type: object
+    GitHubSecretAccountsResponse:
+      properties:
+        accounts:
+          items:
+            type: string
+          type: array
+      required:
+      - accounts
+      type: object
+    GitHubSecretMutationResponse:
+      properties:
+        account:
+          type: string
+        status:
+          type: string
+      required:
+      - status
+      - account
       type: object
     GitPreparationEvent:
       properties:
@@ -16006,6 +16125,8 @@ components:
           items:
             $ref: '#/components/schemas/DomainReviewerConfig'
           type: array
+        scm:
+          $ref: '#/components/schemas/DomainSCMConfig'
         sessionPrefix:
           type: string
         symlinks:
@@ -16166,6 +16287,14 @@ components:
           type: integer
       required:
       - pat
+      type: object
+    PutGitHubSecretRequest:
+      properties:
+        token:
+          minLength: 1
+          type: string
+      required:
+      - token
       type: object
     RegisterPushDeviceRequest:
       properties:

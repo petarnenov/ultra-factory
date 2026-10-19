@@ -40,6 +40,23 @@ type ReportOutputRequest struct {
 	Label     string `json:"label,omitempty"`
 }
 
+// PutGitHubSecretRequest stores a machine-local GitHub token by login. No
+// response ever echoes the token back.
+type PutGitHubSecretRequest struct {
+	Token string `json:"token" minLength:"1"`
+}
+
+// GitHubSecretAccountsResponse lists stored GitHub logins without values.
+type GitHubSecretAccountsResponse struct {
+	Accounts []string `json:"accounts"`
+}
+
+// GitHubSecretMutationResponse acknowledges a stored or removed login.
+type GitHubSecretMutationResponse struct {
+	Status  string `json:"status"`
+	Account string `json:"account"`
+}
+
 // CreateReportResponse returns only the durable identifier needed to correlate
 // a successful submission without echoing report contents.
 type CreateReportResponse struct {
@@ -188,6 +205,12 @@ type CodexAccountLoginIDParam struct {
 // CodexAccountSwitchIDParam documents a durable Codex account switch identifier.
 type CodexAccountSwitchIDParam struct {
 	SwitchID string `path:"switchId" description:"Durable Codex account switch identifier."`
+}
+
+// GitHubLoginParam documents the {login} path parameter for machine-local
+// GitHub secret routes.
+type GitHubLoginParam struct {
+	Login string `path:"login" description:"GitHub account login."`
 }
 
 // ListProjectsResponse is the body of GET /api/v1/projects.

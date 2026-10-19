@@ -20,6 +20,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 )
 
@@ -5934,5 +5935,30 @@ func TestRequestKillMapsNotFound(t *testing.T) {
 	}
 	if result != (sessionmanager.KillResult{}) {
 		t.Fatalf("RequestKill result = %+v; want empty result", result)
+	}
+}
+
+func TestToSpawnAPIErrorMapsSCMIdentityUnavailableToBlockedConflict(t *testing.T) {
+	err := &scmidentity.UnavailableError{
+		ProjectID: "widgets",
+		Account:   "work-account",
+		Machine:   "worker-1",
+		Cause:     errors.New("no token"),
+	}
+	mapped := toSpawnAPIError(err)
+	var apiErr *apierr.Error
+	if !errors.As(mapped, &apiErr) {
+		t.Fatalf("mapped error = %T, want *apierr.Error", mapped)
+	}
+	if apiErr.Kind != apierr.KindConflict || apiErr.Code != "SCM_IDENTITY_UNAVAILABLE" {
+		t.Fatalf("mapped = %+v", apiErr)
+	}
+	for _, key := range []string{"projectId", "account", "machine", "fix", "blocked"} {
+		if _, ok := apiErr.Details[key]; !ok {
+			t.Fatalf("details %v missing %q", apiErr.Details, key)
+		}
+	}
+	if apiErr.Details["blocked"] != true {
+		t.Fatalf("blocked = %#v, want true", apiErr.Details["blocked"])
 	}
 }

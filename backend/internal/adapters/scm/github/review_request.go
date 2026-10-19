@@ -24,6 +24,11 @@ func (p *Provider) RequestReview(ctx context.Context, request ports.SCMReviewReq
 	if reviewer == "" {
 		return fmt.Errorf("github scm: reviewer is required")
 	}
+	scoped, err := p.withAccountToken(ctx, request.PR.Repo.Account)
+	if err != nil {
+		return err
+	}
+	ctx = scoped
 
 	payload := struct {
 		Reviewers []string `json:"reviewers"`

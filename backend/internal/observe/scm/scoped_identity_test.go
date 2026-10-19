@@ -15,9 +15,8 @@ import (
 // fakeScopedIdentityResolver implements ports.ScopedIdentityResolver for tests.
 // It returns a per-provider identity or error.
 type fakeScopedIdentityResolver struct {
-	// identities is keyed by identityKey(provider, host) so tests can
-	// return different identities for the same provider on different hosts
-	// (e.g. gitlab.com vs a self-managed GitLab).
+	// identities is keyed by identityKey(provider, host, "") for the
+	// machine-level identity.
 	identities map[string]ports.SCMIdentity
 	errs       map[string]error
 	calls      []string
@@ -25,7 +24,7 @@ type fakeScopedIdentityResolver struct {
 
 func (r *fakeScopedIdentityResolver) AuthenticatedIdentityForProvider(_ context.Context, provider, host string) (ports.SCMIdentity, error) {
 	r.calls = append(r.calls, provider)
-	key := identityKey(provider, host)
+	key := identityKey(provider, host, "")
 	if err, ok := r.errs[key]; ok {
 		return ports.SCMIdentity{}, err
 	}
@@ -120,8 +119,8 @@ func TestPoll_TwoGitLabHostsIdentityResolution(t *testing.T) {
 	}}
 	scoped := &fakeScopedIdentityResolver{
 		identities: map[string]ports.SCMIdentity{
-			identityKey("gitlab", "gitlab.com"):      {Login: "comuser", Human: true},
-			identityKey("gitlab", "gitlab.internal"): {Login: "internaluser", Human: true},
+			identityKey("gitlab", "gitlab.com", ""):      {Login: "comuser", Human: true},
+			identityKey("gitlab", "gitlab.internal", ""): {Login: "internaluser", Human: true},
 		},
 	}
 	obs := New(provider, store, &fakeLifecycle{}, Config{
@@ -182,8 +181,8 @@ func TestPoll_PerProviderIdentityResolution(t *testing.T) {
 	}}
 	scoped := &fakeScopedIdentityResolver{
 		identities: map[string]ports.SCMIdentity{
-			identityKey("github", "github.com"): {Login: "octocat", Human: true},
-			identityKey("gitlab", "gitlab.com"): {Login: "gitlabuser", Human: true},
+			identityKey("github", "github.com", ""): {Login: "octocat", Human: true},
+			identityKey("gitlab", "gitlab.com", ""): {Login: "gitlabuser", Human: true},
 		},
 	}
 	obs := New(provider, store, &fakeLifecycle{}, Config{
@@ -247,10 +246,10 @@ func TestPoll_ScopedIdentityPartialFailure(t *testing.T) {
 	// GitHub identity resolves fine; GitLab identity fails.
 	scoped := &fakeScopedIdentityResolver{
 		identities: map[string]ports.SCMIdentity{
-			identityKey("github", "github.com"): {Login: "octocat", Human: true},
+			identityKey("github", "github.com", ""): {Login: "octocat", Human: true},
 		},
 		errs: map[string]error{
-			identityKey("gitlab", "gitlab.com"): errors.New("gitlab token expired"),
+			identityKey("gitlab", "gitlab.com", ""): errors.New("gitlab token expired"),
 		},
 	}
 	obs := New(provider, store, &fakeLifecycle{}, Config{
@@ -313,4 +312,59 @@ func fetchedNumbers(batches [][]ports.SCMPRRef) map[int]bool {
 		}
 	}
 	return m
+}
+
+func TestIdentityKeyScopesGitHubByProjectAccount(t *testing.T) {
+	if got := identityKey("github", "github.com", ""); got != "github" {
+		t.Fatalf("unbound github key = %q, want github", got)
+	}
+	if got := identityKey("github", "github.com", "Work-Account"); got != "github|work-account" {
+		t.Fatalf("bound github key = %q, want normalized account", got)
+	}
+	// GitLab remains host scoped.
+	if got := identityKey("gitlab", "gitlab.com", "ignored"); got != "gitlab|gitlab.com" {
+		t.Fatalf("gitlab key = %q", got)
+	}
+}
+
+func TestWithProjectAccountOnlyAppliesToGitHub(t *testing.T) {
+	proj := domain.ProjectRecord{Config: domain.ProjectConfig{
+		SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+	}}
+	gh := withProjectAccount(ports.SCMRepo{Provider: "github"}, proj)
+	if gh.Account != "work-account" {
+		t.Fatalf("github account = %q", gh.Account)
+	}
+	gitlab := withProjectAccount(ports.SCMRepo{Provider: "gitlab"}, proj)
+	if gitlab.Account != "" {
+		t.Fatalf("gitlab account = %q, want empty", gitlab.Account)
+	}
+}
+
+func TestScopedIdentityUsesAccountResolver(t *testing.T) {
+	provider := &fakeProvider{}
+	scoped := &fakeAccountIdentityResolver{
+		fakeScopedIdentityResolver: fakeScopedIdentityResolver{
+			identities: map[string]ports.SCMIdentity{},
+		},
+		accounts: map[string]ports.SCMIdentity{
+			"work-account": {Login: "work-account", Human: true},
+		},
+	}
+	obs := New(provider, &fakeStore{}, nil, Config{Logger: quietSlog(), ScopedIdentityResolver: scoped})
+	identities := obs.resolveIdentities(context.Background(), []sessionRepo{
+		{repo: ports.SCMRepo{Provider: "github", Host: "github.com", Account: "work-account"}},
+	})
+	if got := identities[identityKey("github", "github.com", "work-account")].Login; got != "work-account" {
+		t.Fatalf("identity = %q, want account identity", got)
+	}
+}
+
+type fakeAccountIdentityResolver struct {
+	fakeScopedIdentityResolver
+	accounts map[string]ports.SCMIdentity
+}
+
+func (f *fakeAccountIdentityResolver) AuthenticatedIdentityForAccount(_ context.Context, _, account string) (ports.SCMIdentity, error) {
+	return f.accounts[account], nil
 }

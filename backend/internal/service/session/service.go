@@ -19,6 +19,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
 	"github.com/aoagents/agent-orchestrator/backend/internal/telemetrymeta"
@@ -1634,6 +1635,16 @@ func toSpawnAPIError(err error) error {
 	}
 	if mapped := toAPIError(err); !errors.Is(mapped, err) {
 		return mapped
+	}
+	var scmUnavailable *scmidentity.UnavailableError
+	if errors.As(err, &scmUnavailable) {
+		return apierr.Conflict("SCM_IDENTITY_UNAVAILABLE", scmUnavailable.Error(), map[string]any{
+			"projectId": scmUnavailable.ProjectID,
+			"account":   scmUnavailable.Account,
+			"machine":   scmUnavailable.Machine,
+			"fix":       scmUnavailable.FixCommand(),
+			"blocked":   true,
+		})
 	}
 	switch {
 	case errors.Is(err, sessionmanager.ErrClientRequestConflict):

@@ -44,13 +44,16 @@ const (
 	BatchSize = 25
 )
 
-// identityKey builds the cache key for a per-provider, per-host identity.
-// GitHub repos carry Host="github.com" but GitHub identity is not
-// host-scoped, so all GitHub hosts collapse to the same key. GitLab repos
-// on self-managed hosts get a distinct key from gitlab.com.
-func identityKey(provider, host string) string {
+// identityKey builds the cache key for a provider identity. GitHub repos bound
+// to a project account are scoped per account because the machine may hold
+// several logins on the same host; an unbound GitHub project keeps the
+// machine-level identity. GitLab remains provider+host scoped.
+func identityKey(provider, host, account string) string {
 	if provider == "github" {
-		return provider // GitHub identity is not host-scoped
+		if account = strings.ToLower(strings.TrimSpace(account)); account != "" {
+			return provider + "|" + account
+		}
+		return provider
 	}
 	return provider + "|" + host
 }
@@ -772,7 +775,7 @@ func (o *Observer) discoverSubjects(ctx context.Context) (map[string]*subject, [
 			projects[sess.ProjectID] = p
 			proj = p
 			if origin, ok := o.provider.ParseRepository(p.RepoOriginURL); ok {
-				scanRepos[sess.ProjectID] = o.resolveScanRepos(ctx, p, origin)
+				scanRepos[sess.ProjectID] = o.resolveScanRepos(ctx, p, withProjectAccount(origin, p))
 			}
 		}
 		repos := append([]ports.SCMRepo(nil), scanRepos[sess.ProjectID]...)
@@ -825,6 +828,7 @@ func (o *Observer) resolveScanRepos(ctx context.Context, proj domain.ProjectReco
 		if !ok {
 			continue
 		}
+		repo = withProjectAccount(repo, proj)
 		key := strings.ToLower(prKey(repo, 0))
 		if seen[key] {
 			continue
@@ -833,6 +837,13 @@ func (o *Observer) resolveScanRepos(ctx context.Context, proj domain.ProjectReco
 		repos = append(repos, repo)
 	}
 	return repos
+}
+
+func withProjectAccount(repo ports.SCMRepo, proj domain.ProjectRecord) ports.SCMRepo {
+	if repo.Provider == "github" {
+		repo.Account = proj.Config.GitHubAccount()
+	}
+	return repo
 }
 
 func checkoutSessionRepos(sess domain.SessionRecord, branch string, workspace bool, checkouts ...[]ports.SCMRepo) []sessionRepo {
@@ -880,7 +891,8 @@ func (o *Observer) workspaceSCMSessionRepos(ctx context.Context, proj domain.Pro
 			continue
 		}
 		childPath := filepath.Join(proj.Path, filepath.FromSlash(child.RelativePath))
-		checkouts = append(checkouts, o.resolveScanRepos(ctx, domain.ProjectRecord{Path: childPath}, repo))
+		childProject := domain.ProjectRecord{Path: childPath, Config: proj.Config}
+		checkouts = append(checkouts, o.resolveScanRepos(ctx, childProject, withProjectAccount(repo, proj)))
 	}
 	return checkoutSessionRepos(sess, branch, true, checkouts...), nil
 }
@@ -891,7 +903,14 @@ func repoForTrackedPR(pr domain.PullRequest, repos []ports.SCMRepo) (ports.SCMRe
 		if !ok || owner == "" || name == "" {
 			return ports.SCMRepo{}, false
 		}
-		return ports.SCMRepo{Provider: pr.Provider, Host: pr.Host, Owner: owner, Name: name, Repo: pr.Repo}, true
+		repo := ports.SCMRepo{Provider: pr.Provider, Host: pr.Host, Owner: owner, Name: name, Repo: pr.Repo}
+		for _, candidate := range repos {
+			if matchesTrackedPRRepo(pr, candidate) {
+				repo.Account = candidate.Account
+				break
+			}
+		}
+		return repo, true
 	}
 	if pr.Repo != "" {
 		for _, repo := range repos {
@@ -1004,7 +1023,7 @@ func (o *Observer) discoverNewPRs(ctx context.Context, sessionRepos []sessionRep
 	listedRepos = map[string]bool{}
 	pullsByRepo := map[string][]ports.SCMPRObservation{}
 	for repoKey, repo := range repos {
-		if _, ok := identities[identityKey(repo.Provider, repo.Host)]; !ok {
+		if _, ok := identities[identityKey(repo.Provider, repo.Host, repo.Account)]; !ok {
 			// Do not acknowledge discoveries we could not attribute. Clear even
 			// an older cursor/ETag so recovery retries a full listing after an
 			// identity outage longer than the incremental overlap window.
@@ -1083,7 +1102,7 @@ func (o *Observer) discoverNewPRs(ctx context.Context, sessionRepos []sessionRep
 			if pr.Number <= 0 || pr.SourceBranch == "" {
 				continue
 			}
-			id := identities[identityKey(repo.Provider, repo.Host)]
+			id := identities[identityKey(repo.Provider, repo.Host, repo.Account)]
 			if !strings.EqualFold(strings.TrimSpace(pr.Author), id.Login) {
 				continue
 			}
@@ -1156,23 +1175,37 @@ func (o *Observer) discoverNewPRs(ctx context.Context, sessionRepos []sessionRep
 	return listedPRs, listedRepos
 }
 
-// resolveIdentities resolves each provider/host once per poll. Unknown or bot
+// accountIdentityResolver is the optional capability of resolving an identity
+// behind a project-bound account instead of the machine-level token.
+type accountIdentityResolver interface {
+	AuthenticatedIdentityForAccount(ctx context.Context, provider, account string) (ports.SCMIdentity, error)
+}
+
+// resolveIdentities resolves each provider scope once per poll. Unknown or bot
 // accounts disable discovery only for that scope; other accounts keep working.
 func (o *Observer) resolveIdentities(ctx context.Context, sessionRepos []sessionRepo) map[string]ports.SCMIdentity {
 	if o.scopedIdentityResolver == nil {
 		return nil
 	}
+	scoped, hasAccountResolver := o.scopedIdentityResolver.(accountIdentityResolver)
 	seen := map[string]bool{}
 	identities := map[string]ports.SCMIdentity{}
 	for _, sr := range sessionRepos {
-		ik := identityKey(sr.repo.Provider, sr.repo.Host)
+		account := sr.repo.Account
+		ik := identityKey(sr.repo.Provider, sr.repo.Host, account)
 		if seen[ik] {
 			continue
 		}
 		seen[ik] = true
-		id, err := o.scopedIdentityResolver.AuthenticatedIdentityForProvider(ctx, sr.repo.Provider, sr.repo.Host)
+		var id ports.SCMIdentity
+		var err error
+		if account != "" && hasAccountResolver {
+			id, err = scoped.AuthenticatedIdentityForAccount(ctx, sr.repo.Provider, account)
+		} else {
+			id, err = o.scopedIdentityResolver.AuthenticatedIdentityForProvider(ctx, sr.repo.Provider, sr.repo.Host)
+		}
 		if err != nil {
-			o.logger.Debug("scm observer: identity unavailable; automatic discovery disabled for scope", "provider", sr.repo.Provider, "host", sr.repo.Host, "err", err)
+			o.logger.Debug("scm observer: identity unavailable; automatic discovery disabled for scope", "provider", sr.repo.Provider, "host", sr.repo.Host, "account", account, "err", err)
 			continue
 		}
 		id.Login = strings.TrimSpace(id.Login)

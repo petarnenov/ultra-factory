@@ -50,6 +50,11 @@ func (p *Provider) ParseRepository(remote string) (ports.SCMRepo, bool) {
 
 // RepoPRListGuard checks GitHub's cheap open-PR-list ETag guard.
 func (p *Provider) RepoPRListGuard(ctx context.Context, repo ports.SCMRepo, etag string) (ports.SCMGuardResult, error) {
+	scoped, err := p.withAccountToken(ctx, repo.Account)
+	if err != nil {
+		return ports.SCMGuardResult{}, err
+	}
+	ctx = scoped
 	q := url.Values{}
 	q.Set("state", "open")
 	q.Set("sort", "updated")
@@ -66,6 +71,11 @@ func (p *Provider) RepoPRListGuard(ctx context.Context, repo ports.SCMRepo, etag
 // those updated after updatedAfter (zero = full listing). It paginates the REST
 // pulls endpoint using state=open and sort=updated
 func (p *Provider) ListPRsByRepo(ctx context.Context, repo ports.SCMRepo, updatedAfter time.Time) ([]ports.SCMPRObservation, error) {
+	scoped, err := p.withAccountToken(ctx, repo.Account)
+	if err != nil {
+		return nil, err
+	}
+	ctx = scoped
 	const perPage = 100
 	out := []ports.SCMPRObservation{}
 	for page := 1; ; page++ {
@@ -129,6 +139,11 @@ func (p *Provider) CommitChecksGuard(ctx context.Context, repo ports.SCMRepo, he
 	if strings.TrimSpace(headSHA) == "" {
 		return ports.SCMGuardResult{}, fmt.Errorf("%w: empty head sha", ErrNotFound)
 	}
+	scoped, err := p.withAccountToken(ctx, repo.Account)
+	if err != nil {
+		return ports.SCMGuardResult{}, err
+	}
+	ctx = scoped
 	q := url.Values{}
 	q.Set("per_page", strconv.Itoa(githubCheckRunsPageSize))
 	resp, err := p.client.doRESTWithETag(ctx, repoPath(repo.Owner, repo.Name, "commits", headSHA, "check-runs"), q, etag)
@@ -231,6 +246,47 @@ func (p *Provider) FetchPullRequests(ctx context.Context, refs []ports.SCMPRRef)
 	if len(refs) == 0 {
 		return nil, nil
 	}
+	type accountGroup struct {
+		indices []int
+		refs    []ports.SCMPRRef
+	}
+	groups := map[string]*accountGroup{}
+	order := make([]string, 0, 1)
+	for i, ref := range refs {
+		account := ref.Repo.Account
+		group, ok := groups[account]
+		if !ok {
+			group = &accountGroup{}
+			groups[account] = group
+			order = append(order, account)
+		}
+		group.indices = append(group.indices, i)
+		group.refs = append(group.refs, ref)
+	}
+	out := make([]ports.SCMObservation, len(refs))
+	for _, account := range order {
+		group := groups[account]
+		scoped, err := p.withAccountToken(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+		batch, err := p.fetchPullRequestBatch(scoped, group.refs)
+		if err != nil {
+			return nil, err
+		}
+		for i, observation := range batch {
+			out[group.indices[i]] = observation
+		}
+	}
+	return out, nil
+}
+
+// fetchPullRequestBatch issues one GraphQL request for refs sharing an
+// account token; callers group by account so one project cannot serve another.
+func (p *Provider) fetchPullRequestBatch(ctx context.Context, refs []ports.SCMPRRef) ([]ports.SCMObservation, error) {
+	if len(refs) == 0 {
+		return nil, nil
+	}
 	if len(refs) > 25 {
 		return nil, fmt.Errorf("github scm: batch size %d exceeds 25", len(refs))
 	}
@@ -269,6 +325,11 @@ func (p *Provider) FetchFailedCheckLogTail(ctx context.Context, repo ports.SCMRe
 	if check.ProviderID == "" {
 		return "", nil
 	}
+	scoped, err := p.withAccountToken(ctx, repo.Account)
+	if err != nil {
+		return "", err
+	}
+	ctx = scoped
 	jobID, err := strconv.ParseInt(check.ProviderID, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("github scm: parse check provider id %q: %w", check.ProviderID, err)
@@ -285,6 +346,11 @@ func (p *Provider) FetchFailedCheckLogTail(ctx context.Context, repo ports.SCMRe
 
 // FetchReviewThreads fetches review threads separately from the fast PR/CI path.
 func (p *Provider) FetchReviewThreads(ctx context.Context, ref ports.SCMPRRef) (ports.SCMReviewObservation, error) {
+	scoped, err := p.withAccountToken(ctx, ref.Repo.Account)
+	if err != nil {
+		return ports.SCMReviewObservation{}, err
+	}
+	ctx = scoped
 	latest, reviews, decision, pi, err := p.fetchReviewThreadPage(ctx, ref, "", true)
 	if err != nil {
 		return ports.SCMReviewObservation{}, err

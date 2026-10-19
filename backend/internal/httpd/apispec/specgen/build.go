@@ -590,6 +590,10 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	// httpd/controllers: GitHub PAT wire envelopes
 	"ControllersPutGitHubPATRequest": "PutGitHubPATRequest",
 	"GithubpatRepo":                  "GitHubRepo",
+	// httpd/controllers: machine-local SCM secret wire envelopes
+	"ControllersPutGitHubSecretRequest":       "PutGitHubSecretRequest",
+	"ControllersGitHubSecretAccountsResponse": "GitHubSecretAccountsResponse",
+	"ControllersGitHubSecretMutationResponse": "GitHubSecretMutationResponse",
 }
 
 // markRequestBodyRequired sets requestBody.required: true on the operation's
@@ -3460,6 +3464,34 @@ func prOperations() []operation {
 			method: http.MethodGet, path: "/api/v1/github/repos", id: "listGitHubRepos", tag: "github",
 			summary: "List repositories accessible with the stored GitHub token",
 			resps:   []respUnit{{http.StatusOK, map[string]any{"repos": []githubpat.Repo{}}}, {http.StatusUnauthorized, envelope.APIError{}}, {http.StatusInternalServerError, envelope.APIError{}}},
+		},
+		// Machine-local project SCM credentials. Tokens travel only in the
+		// request body and are never returned.
+		{
+			method: http.MethodPut, path: "/api/v1/secrets/github/{login}", id: "putGitHubSecret", tag: "secrets",
+			summary:    "Store a machine-local GitHub token for an account",
+			pathParams: []any{controllers.GitHubLoginParam{}},
+			reqBody:    controllers.PutGitHubSecretRequest{},
+			resps: []respUnit{
+				{http.StatusOK, controllers.GitHubSecretMutationResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/secrets/github", id: "listGitHubSecrets", tag: "secrets",
+			summary: "List machine-local GitHub logins without token values",
+			resps:   []respUnit{{http.StatusOK, controllers.GitHubSecretAccountsResponse{}}, {http.StatusInternalServerError, envelope.APIError{}}},
+		},
+		{
+			method: http.MethodDelete, path: "/api/v1/secrets/github/{login}", id: "deleteGitHubSecret", tag: "secrets",
+			summary:    "Remove a machine-local GitHub token for an account",
+			pathParams: []any{controllers.GitHubLoginParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.GitHubSecretMutationResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+			},
 		},
 	}
 }

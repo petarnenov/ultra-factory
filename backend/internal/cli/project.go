@@ -20,6 +20,7 @@ type projectAddOptions struct {
 	name              string
 	workerAgent       string
 	orchestratorAgent string
+	githubAccount     string
 	asWorkspace       bool
 }
 
@@ -104,6 +105,16 @@ type containerReapConfig struct {
 	Disabled bool `json:"disabled,omitempty"`
 }
 
+// scmConfig mirrors domain.SCMConfig. It carries only the account login; the
+// token never appears in project config.
+type scmConfig struct {
+	GitHub githubSCMConfig `json:"github,omitempty"`
+}
+
+type githubSCMConfig struct {
+	Account string `json:"account,omitempty"`
+}
+
 // projectConfig mirrors the daemon's typed domain.ProjectConfig for the CLI
 // client. The CLI sets common fields via flags and the whole object via
 // --config-json.
@@ -113,6 +124,7 @@ type projectConfig struct {
 	DefaultBranch     string               `json:"defaultBranch,omitempty"`
 	SessionPrefix     string               `json:"sessionPrefix,omitempty"`
 	Env               map[string]string    `json:"env,omitempty"`
+	SCM               scmConfig            `json:"scm,omitempty"`
 	Symlinks          []string             `json:"symlinks,omitempty"`
 	PostCreate        []string             `json:"postCreate,omitempty"`
 	AgentRules        string               `json:"agentRules,omitempty"`
@@ -149,6 +161,8 @@ type projectSetConfigOptions struct {
 	agentRules            string
 	agentRulesFile        string
 	orchestratorRules     string
+	githubAccount         string
+	githubAccountSet      bool
 	env                   []string
 	symlink               []string
 	postCreate            []string
@@ -274,10 +288,11 @@ func newProjectAddCommand(ctx *commandContext) *cobra.Command {
 			if opts.name != "" {
 				req.Name = &opts.name
 			}
-			if opts.workerAgent != "" || opts.orchestratorAgent != "" {
+			if opts.workerAgent != "" || opts.orchestratorAgent != "" || opts.githubAccount != "" {
 				req.Config = &projectConfig{
 					Worker:       roleOverride{Agent: opts.workerAgent},
 					Orchestrator: roleOverride{Agent: opts.orchestratorAgent},
+					SCM:          scmConfig{GitHub: githubSCMConfig{Account: opts.githubAccount}},
 				}
 			}
 			var res projectResult
@@ -294,6 +309,7 @@ func newProjectAddCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.name, "name", "", "Display name")
 	f.StringVar(&opts.workerAgent, "worker-agent", "", "Default worker session agent")
 	f.StringVar(&opts.orchestratorAgent, "orchestrator-agent", "", "Default orchestrator session agent")
+	f.StringVar(&opts.githubAccount, "github-account", "", "GitHub account login this project's sessions use (token stored per machine with `ao secret set`)")
 	f.BoolVar(&opts.asWorkspace, "as-workspace", false, "Register a parent folder as a workspace project (root-as-repo plus direct child repos)")
 	return cmd
 }
@@ -320,6 +336,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := strings.TrimSpace(args[0])
 			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
+			opts.githubAccountSet = cmd.Flags().Changed("github-account")
 			config, err := buildProjectConfig(opts)
 			if err != nil {
 				return err
@@ -347,6 +364,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.agentRules, "agent-rules", "", "Project-specific standing instructions for worker sessions")
 	f.StringVar(&opts.agentRulesFile, "agent-rules-file", "", "Repo-relative file containing worker standing instructions")
 	f.StringVar(&opts.orchestratorRules, "orchestrator-rules", "", "Project-specific standing instructions for orchestrator sessions")
+	f.StringVar(&opts.githubAccount, "github-account", "", "GitHub account login this project's sessions use; empty clears the binding")
 	f.StringArrayVar(&opts.env, "env", nil, "Env var KEY=VALUE forwarded into sessions (repeatable)")
 	f.StringArrayVar(&opts.symlink, "symlink", nil, "Repo-relative path to symlink into workspaces (repeatable)")
 	f.StringArrayVar(&opts.postCreate, "post-create", nil, "Command to run after workspace creation (repeatable)")
@@ -386,6 +404,7 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 		DefaultBranch:     opts.defaultBranch,
 		SessionPrefix:     opts.sessionPrefix,
 		Env:               env,
+		SCM:               scmConfig{GitHub: githubSCMConfig{Account: opts.githubAccount}},
 		Symlinks:          opts.symlink,
 		PostCreate:        opts.postCreate,
 		AgentRules:        opts.agentRules,
@@ -404,7 +423,7 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 	if opts.terminateOnPRMergeSet {
 		cfg.TerminateOnPRMerge = opts.terminateOnPRMerge
 	}
-	if !opts.terminateOnPRMergeSet && reflect.DeepEqual(cfg, projectConfig{}) {
+	if !opts.terminateOnPRMergeSet && !opts.githubAccountSet && reflect.DeepEqual(cfg, projectConfig{}) {
 		return projectConfig{}, usageError{errors.New("usage: provide at least one config flag, --config-json, or --clear")}
 	}
 	return cfg, nil
