@@ -61,8 +61,8 @@ func TestResolveGitHubComInjectsGHtoken(t *testing.T) {
 	if got := resolved.Env["GH_TOKEN"]; got != fakeToken {
 		t.Fatalf("GH_TOKEN = %q, want stored token", got)
 	}
-	if _, ok := resolved.Env["GH_HOST"]; ok {
-		t.Fatal("github.com environment must not set GH_HOST")
+	if got := resolved.Env["GH_HOST"]; got != "" {
+		t.Fatalf("GH_HOST = %q, want neutralized", got)
 	}
 	if len(tokens.lookups) != 1 || tokens.lookups[0] != "github.com/work-account" {
 		t.Fatalf("lookups = %v", tokens.lookups)

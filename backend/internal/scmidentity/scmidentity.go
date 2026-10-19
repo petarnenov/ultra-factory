@@ -157,7 +157,13 @@ func GitHubHost(project domain.ProjectRecord) (string, error) {
 func EnvForHost(host, token string) map[string]string {
 	host, err := domain.NormalizeGitHubHost(host)
 	if err != nil || host == "github.com" {
-		return map[string]string{"GH_TOKEN": token}
+		return map[string]string{
+			"GH_TOKEN":                token,
+			"GH_HOST":                 "",
+			"GH_ENTERPRISE_TOKEN":     "",
+			"GITHUB_ENTERPRISE_TOKEN": "",
+			"GITHUB_TOKEN":            "",
+		}
 	}
 	return map[string]string{
 		"GH_HOST":                 host,
