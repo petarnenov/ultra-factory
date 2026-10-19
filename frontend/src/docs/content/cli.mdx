@@ -198,7 +198,7 @@ A machine that runs its own orchestrator cannot host workers started from anothe
 
 A remote worker's reports go to the orchestrator that spawned it. The orchestrator does not wait for a report to inspect state; `ao session ls --host` and the pull-request views show it directly.
 
-Reviews run on the machine that owns the worker's checkout, under the reviewer's read-only guarantee. There is no remote review trigger yet: `ao review trigger` does not accept `--host`, so until [#255](https://github.com/petarnenov/ultra-factory/issues/255) lands, this manual trigger is temporary and runs on the worker's machine. Before a pass, the worker is idle or exited, everything is committed and pushed, the pull request is open, and the evaluated head SHA is known. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
+Reviews run on the machine that owns the worker's checkout, under the reviewer's read-only guarantee. There is no remote review trigger yet: `ao review trigger` does not accept `--host`, so until [#255](https://github.com/petarnenov/ultra-factory/issues/255) lands, this manual trigger is temporary and runs on the worker's machine. Before a pass, the worker is idle or exited, everything is committed and pushed, the pull request is open, and the reviewer is given the evaluated head SHA. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
 
 Inside a worker, `ao report "Progress summary"` sends a report to its existing orchestrator. Reporting requires `AO_SESSION_ID`; it does not create an orchestrator or claim a PR.
 
