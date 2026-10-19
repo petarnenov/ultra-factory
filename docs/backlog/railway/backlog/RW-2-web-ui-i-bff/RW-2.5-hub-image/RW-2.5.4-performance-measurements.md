@@ -3,7 +3,7 @@
 
 **Type:** operations + measurement. **Estimate:** 0.5 pd of operator time. **Story:** RW-2.5.
 
-Follow-up from RW-2.5.3 (#104): the performance checks that were not measured during the live hub validation. They are marked pending in the runbook's hub validation record (`deploy/railway/README.md`, "Logs and validation record").
+Follow-up from RW-2.5.3 (#104): the performance checks that were not measured during the live hub validation. They are marked pending in `deploy/railway/README.md` under **Validation record → Pending live checks**; the per-check results belong in the **Hub validation record (RW-2.5.3)** table above that list.
 
 ## Context
 - Measured so far: login-page assets TTFB 0.25–0.31 s from the client to `us-west2`; SSE streams observed open; terminal output verified (#104).
