@@ -3,6 +3,8 @@ package review
 import (
 	"fmt"
 	"strings"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 // reviewTexts returns the user-facing prompt and the system prompt to deliver to
@@ -56,12 +58,27 @@ Post your review as a comment on the pull request, stating clearly whether it ne
 
 func reviewQueueText(spec LaunchSpec) string {
 	if len(spec.ReviewQueue) <= 1 {
-		return fmt.Sprintf("\nReview task queue:\n* 1. %s (head commit %s, run %s)\n", spec.PRURL, spec.TargetSHA, spec.RunID)
+		return fmt.Sprintf("\nReview task queue:\n* 1. %s (head commit %s, run %s)\n%s", spec.PRURL, spec.TargetSHA, spec.RunID, reviewCheckoutText(spec))
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\nAO created %d review tasks for this worker session. Review every queued PR, then submit all results together.\n\nReview task queue:\n", len(spec.ReviewQueue))
 	for i, task := range spec.ReviewQueue {
 		fmt.Fprintf(&b, "* %d. %s (head commit %s, run %s)\n", i+1, task.PRURL, task.TargetSHA, task.RunID)
 	}
-	return b.String()
+	return b.String() + reviewCheckoutText(spec)
+}
+
+// reviewCheckoutText tells the reviewer which verified tree to read. It names
+// the disposable case because the worker checkout is not used for that pass.
+func reviewCheckoutText(spec LaunchSpec) string {
+	if strings.TrimSpace(spec.CheckoutSHA) == "" {
+		return ""
+	}
+	tree := "verified worker checkout"
+	extra := ""
+	if spec.CheckoutTree == domain.ReviewCheckoutDisposable {
+		tree = "disposable detached worktree"
+		extra = " The worker's own checkout is not used for this pass."
+	}
+	return fmt.Sprintf("\nVerified checkout: %s at commit %s (%s).%s\n", spec.WorkspacePath, spec.CheckoutSHA, tree, extra)
 }

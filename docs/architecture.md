@@ -57,6 +57,7 @@ The only persistent session state is:
 - `hibernated_at` — A Chat provider host was deliberately stopped after a settled idle turn; its native conversation can be resumed on new work.
 - `is_terminated` — Whether the session should be treated as over
 - `session_mode` plus its runtime/provider handle and generation — The currently committed controller epoch
+- Resolved agent provenance — `harnessSource`, `modelSource`, `effortSource`, and `agentConfigMachine` record which layer (`explicit`, `settings`, or `machine-default`) supplied each launch value and which machine's settings applied
 - `session_interface_transitions` — Durable checkpoints for an in-progress or completed TUI↔Chat handoff
 - PR facts — `pr`, `pr_checks`, `pr_comment` tables
 
@@ -352,6 +353,8 @@ flowchart TD
     Trigger2 --> Done([Session running])
 
 ```
+
+Before the session row is created, the spawn resolves the harness, model, and effort on the machine that will run the agent: an explicit directive, then that machine's Project Settings for the role, then the machine's harness default, otherwise the spawn blocks with the valid options. The resolved values, their source, and the resolving machine are stored in session metadata as `harnessSource`, `modelSource`, `effortSource`, and `agentConfigMachine`, so a resumed session and any client can tell where its launch configuration came from. Reviewer triggers use the same resolver before a review run is created.
 
 ### Session interface handoff
 

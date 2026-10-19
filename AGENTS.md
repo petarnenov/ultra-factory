@@ -25,7 +25,7 @@ This applies even when you talk to the user in another language: conversation ca
 From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`):
 
 ```bash
-npm run lint                         # backend go test ./... + golangci-lint v2.13.2
+npm run lint                         # backend go test ./... + golangci-lint v2.14.0
 npm run frontend:typecheck           # frontend TypeScript check
 npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
 npm run api                          # regenerate OpenAPI spec + frontend TS types (see API contract changes below)
@@ -141,6 +141,18 @@ For code entry points:
 - Do not add network calls to tests unless the package already has an integration/e2e pattern for them. Prefer `httptest`, fakes, and injected dependencies.
 - Do not commit local run state, daemon data, temporary worktrees, build outputs, or credentials.
 - All AO-owned app state lives under `~/.ao` only. The daemon's data dir, `running.json`, worktrees, and the Electron supervisor's `userData` (Chromium cache, cookies, local/session storage, crash dumps) must resolve under `~/.ao` (overridable via `AO_DATA_DIR`/`AO_RUN_FILE`). Never write to or otherwise use `~/Library/Application Support` or any other OS default app-data location for AO state. The sole read exception is an explicit, user-initiated browser-profile import: it may read only validated, known source-browser profile files, must never write to the source profile, must keep source paths out of the renderer, and must place every snapshot, staging file, and imported result under `~/.ao`. `main.ts` pins Electron's `userData` to `~/.ao/electron`; do not remove that override or rely on Electron's default path.
+
+## Orchestration and machine roles
+
+The user agreed this process on 2026-10-19. It decides where work may run.
+
+- **The hub runs only the orchestrator.** The Railway hub service runs the orchestrator session with the daemon, the BFF and the wake-up loop. Do not start implementation, fixes, tests or reviews on the hub. It is not a build machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so a Go change cannot be validated there.
+- **Work runs on the worker machines.** Start implementation, fixes, tests and reviews on a paired machine with `ao spawn --host`. A machine that runs its own orchestrator refuses a worker started from another machine with `LOCAL_ORCHESTRATOR_ACTIVE`, even when that local orchestrator belongs to another project, because it would claim the worker's reports. Observed on `IMac` with the local orchestrator `geowealth-1`. Check `ao orchestrator ls --host <H>` before starting a worker; stop that orchestrator or use another machine.
+- **Workers report to their orchestrator.** A worker sends reports to the orchestrator that spawned it. The orchestrator does not wait for a report before inspecting state.
+- **Reviews run where the worker's checkout lives.** The reviewer runs over that checkout with an enforced read-only guarantee. `ao review trigger|ls|cancel --host` runs them on the owning machine from another orchestrator. Before a pass: the worker is idle or exited, everything is committed and pushed, the PR is open, and the reviewer is given the evaluated head SHA. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
+- **Agent configuration is per machine.** Project Settings / Agents and the machine's harness defaults apply on that machine. Precedence is defined in #254; do not copy the hub's configuration to a worker.
+
+Runbook: `deploy/railway/README.md` ("Orchestration roles and the review flow"). Orchestrator instructions: `docs/backlog/railway/orchestrator-prompt.md` ("Machine roles and the orchestration process").
 
 ## API contract changes
 

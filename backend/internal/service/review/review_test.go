@@ -36,6 +36,15 @@ type fakeNotificationSink struct {
 	intents []ports.NotificationIntent
 }
 
+type fakeCheckoutReleaser struct {
+	released []string
+}
+
+func (f *fakeCheckoutReleaser) Release(_ context.Context, key string) error {
+	f.released = append(f.released, key)
+	return nil
+}
+
 func (f *fakeNotificationSink) Notify(_ context.Context, intent ports.NotificationIntent) error {
 	f.intents = append(f.intents, intent)
 	return nil
@@ -89,6 +98,19 @@ func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.S
 		enabled = *f.sessionAutoInjectReview
 	}
 	return domain.SessionRecord{ID: id, AutoInjectReview: enabled}, true, nil
+}
+
+func (f *fakeStore) ListRunningReviewRunsBySession(_ context.Context, _ domain.SessionID) ([]domain.ReviewRun, error) {
+	var running []domain.ReviewRun
+	for _, run := range f.batchRuns {
+		if run.Status == domain.ReviewRunRunning {
+			running = append(running, run)
+		}
+	}
+	if f.ok && f.run.Status == domain.ReviewRunRunning {
+		running = append(running, f.run)
+	}
+	return running, nil
 }
 
 func (f *fakeStore) SetSessionAutoInjectReview(_ context.Context, _ domain.SessionID, autoInject bool, _ time.Time) (bool, error) {
@@ -487,6 +509,50 @@ func TestSubmitManySkipsSupersededRunAndRecordsSiblings(t *testing.T) {
 	}
 	if len(runs) != 1 || runs[0].ID != "run-1" || runs[0].Status != domain.ReviewRunComplete {
 		t.Fatalf("want only run-1 recorded, got %+v", runs)
+	}
+}
+
+func TestSubmitManyReleasesDisposableCheckoutAfterBatchCompletes(t *testing.T) {
+	st := &fakeStore{
+		ok: true,
+		batchRuns: []domain.ReviewRun{{
+			ID: "run-1", SessionID: "mer-1", BatchID: "batch-1", PRURL: "pr1", TargetSHA: "sha1",
+			Status: domain.ReviewRunRunning, ReviewedTree: domain.ReviewCheckoutDisposable,
+		}},
+		prs: []domain.PullRequest{{URL: "pr1", HeadSHA: "sha1"}},
+	}
+	checkout := &fakeCheckoutReleaser{}
+	svc := New(nil, st, WithCheckoutReleaser(checkout))
+
+	if _, err := svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{{
+		RunID: "run-1", Verdict: domain.VerdictApproved,
+	}}); err != nil {
+		t.Fatalf("SubmitMany: %v", err)
+	}
+	if len(checkout.released) != 1 || checkout.released[0] != "batch-1" {
+		t.Fatalf("released = %v, want the completed batch's checkout", checkout.released)
+	}
+}
+
+func TestSubmitManyKeepsCheckoutWhileBatchSiblingRuns(t *testing.T) {
+	st := &fakeStore{
+		ok: true,
+		batchRuns: []domain.ReviewRun{
+			{ID: "run-1", SessionID: "mer-1", BatchID: "batch-1", PRURL: "pr1", TargetSHA: "sha1", Status: domain.ReviewRunRunning, ReviewedTree: domain.ReviewCheckoutDisposable},
+			{ID: "run-2", SessionID: "mer-1", BatchID: "batch-1", PRURL: "pr2", TargetSHA: "sha2", Status: domain.ReviewRunRunning, ReviewedTree: domain.ReviewCheckoutDisposable},
+		},
+		prs: []domain.PullRequest{{URL: "pr1", HeadSHA: "sha1"}, {URL: "pr2", HeadSHA: "sha2"}},
+	}
+	checkout := &fakeCheckoutReleaser{}
+	svc := New(nil, st, WithCheckoutReleaser(checkout))
+
+	if _, err := svc.SubmitMany(context.Background(), "mer-1", []SubmittedReview{{
+		RunID: "run-1", Verdict: domain.VerdictApproved,
+	}}); err != nil {
+		t.Fatalf("SubmitMany: %v", err)
+	}
+	if len(checkout.released) != 0 {
+		t.Fatalf("released = %v, want the checkout kept while run-2 is running", checkout.released)
 	}
 }
 

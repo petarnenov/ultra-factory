@@ -58,6 +58,14 @@ type sessionDTO struct {
 	Branch       string          `json:"branch,omitempty"`
 	BranchState  *branchStateDTO `json:"branchState,omitempty"`
 	PRs          []sessionPRDTO  `json:"prs"`
+	// Model, Effort, and their sources record the resolved launch
+	// configuration and the layer and machine that supplied it.
+	Model              string `json:"model,omitempty"`
+	Effort             string `json:"effort,omitempty"`
+	HarnessSource      string `json:"harnessSource,omitempty"`
+	ModelSource        string `json:"modelSource,omitempty"`
+	EffortSource       string `json:"effortSource,omitempty"`
+	AgentConfigMachine string `json:"agentConfigMachine,omitempty"`
 }
 
 type branchStateDTO struct {
@@ -1021,7 +1029,10 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"role", sessionRole(sess)},
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
-		{"harness", sess.Harness},
+		{"harness", formatResolvedValue(sess.Harness, sess.HarnessSource)},
+		{"model", formatResolvedValue(sess.Model, sess.ModelSource)},
+		{"effort", formatResolvedValue(sess.Effort, sess.EffortSource)},
+		{"agent machine", sess.AgentConfigMachine},
 		{"issue", sess.IssueID},
 		{"branch", formatBranchState(sess)},
 		{"terminated", fmt.Sprintf("%t", sess.IsTerminated)},
@@ -1045,6 +1056,18 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		}
 	}
 	return nil
+}
+
+// formatResolvedValue renders a resolved launch value with the layer that
+// supplied it, for example "opencode/deepseek-v4.1-flash (settings)".
+func formatResolvedValue(value, source string) string {
+	if value == "" {
+		return ""
+	}
+	if source == "" {
+		return value
+	}
+	return value + " (" + source + ")"
 }
 
 // formatBranchState renders the daemon's observed branch facts, for example

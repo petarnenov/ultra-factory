@@ -23,6 +23,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/codex"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/gitworktree"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/scratch"
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/lifecycle"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -1980,13 +1981,9 @@ func TestSpawnModelPersisted(t *testing.T) {
 	}
 }
 
-// A spawn that names a harness other than the role override's must not inherit
-// that role's model: it was tuned for the other agent and would reach the
-// selected harness as an unknown provider alias. The harness picks its own
-// default instead, while harness-neutral permissions still carry over.
-// Both roles resolve through the same override, so both leak the same way; the
-// orchestrator case is asserted explicitly rather than left implied.
-func TestSpawn_DropsRoleModelOnHarnessMismatch(t *testing.T) {
+// A spawn that names a harness other than the role override's still uses that
+// role's model and effort, validated against the selected harness.
+func TestSpawn_KeepsRoleConfigOnHarnessMismatch(t *testing.T) {
 	roleConfig := domain.RoleOverride{
 		Harness:     domain.HarnessOpenCode,
 		AgentConfig: domain.AgentConfig{Model: "custom/gpt-5.5", Permissions: domain.PermissionModeAuto},
@@ -2010,25 +2007,29 @@ func TestSpawn_DropsRoleModelOnHarnessMismatch(t *testing.T) {
 			})
 
 			rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
-				ProjectID: "mer", Kind: tc.kind, Harness: domain.HarnessCodex,
+				ProjectID: "mer", Kind: tc.kind, Harness: domain.HarnessCodex, HarnessExplicit: true,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if agent.lastConfig.Model != "" {
-				t.Fatalf("launch model = %q, want empty so codex uses its own default", agent.lastConfig.Model)
+			if agent.lastConfig.Model != "custom/gpt-5.5" {
+				t.Fatalf("launch model = %q, want the role model", agent.lastConfig.Model)
 			}
 			if agent.lastConfig.Permissions != domain.PermissionModeAuto {
 				t.Fatalf("launch permissions = %q, want auto (harness-neutral)", agent.lastConfig.Permissions)
 			}
-			// The mismatched model must not survive into the record the API
-			// and UI read back either.
 			stored, ok, err := st.GetSession(ctx, rec.ID)
 			if err != nil || !ok {
 				t.Fatalf("get session: err=%v ok=%v", err, ok)
 			}
-			if stored.Metadata.Model != "" {
-				t.Fatalf("persisted metadata model = %q, want empty", stored.Metadata.Model)
+			if stored.Metadata.Model != "custom/gpt-5.5" {
+				t.Fatalf("persisted metadata model = %q, want the role model", stored.Metadata.Model)
+			}
+			if stored.Metadata.ModelSource != domain.AgentConfigSourceSettings {
+				t.Fatalf("model source = %q, want settings", stored.Metadata.ModelSource)
+			}
+			if stored.Metadata.HarnessSource != domain.AgentConfigSourceExplicit {
+				t.Fatalf("harness source = %q, want explicit", stored.Metadata.HarnessSource)
 			}
 		})
 	}
@@ -11628,5 +11629,244 @@ func TestSpawn_PassesAOShellEnvWithoutCredentials(t *testing.T) {
 		if _, ok := env[secret]; ok {
 			t.Fatalf("ShellEnv carries %s: %v", secret, env)
 		}
+	}
+}
+
+// TestSpawn_ExplicitHarnessKeepsRoleModel reproduces #254: a role model and
+// effort must reach an explicitly selected harness, not its own default.
+func TestSpawn_ExplicitHarnessKeepsRoleModel(t *testing.T) {
+	const (
+		roleModel  = "opencode/deepseek-v4.1-flash"
+		roleEffort = "high"
+	)
+	role := domain.RoleOverride{
+		Harness:     domain.HarnessOpenCodeV2,
+		AgentConfig: domain.AgentConfig{Model: roleModel, Effort: roleEffort},
+	}
+	for _, tc := range []struct {
+		name string
+		kind domain.SessionKind
+	}{
+		{"worker", domain.KindWorker},
+		{"orchestrator", domain.KindOrchestrator},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
+				Worker: role, Orchestrator: role,
+			}}
+			agent := &recordingAgent{}
+			m := New(Deps{
+				Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{},
+				Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+				LookPath:     func(string) (string, error) { return "/bin/true", nil },
+				MachineLabel: "build-box",
+			})
+			m.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{
+				Models: []ports.AgentModelInfo{{ID: roleModel, Label: "DeepSeek V4.1 Flash", Efforts: []string{"low", "high"}}},
+			}})
+
+			rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+				ProjectID: "mer", Kind: tc.kind, Harness: domain.HarnessOpenCode,
+				HarnessExplicit: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if agent.lastConfig.Model != roleModel || agent.lastConfig.Effort != roleEffort {
+				t.Fatalf("launch config = %+v, want role model and effort", agent.lastConfig)
+			}
+			if rec.Metadata.Model != roleModel || rec.Metadata.Effort != roleEffort {
+				t.Fatalf("session config = %q/%q, want role model and effort", rec.Metadata.Model, rec.Metadata.Effort)
+			}
+			if rec.Metadata.ModelSource != domain.AgentConfigSourceSettings || rec.Metadata.EffortSource != domain.AgentConfigSourceSettings {
+				t.Fatalf("sources = %q/%q, want settings/settings", rec.Metadata.ModelSource, rec.Metadata.EffortSource)
+			}
+			if rec.Metadata.HarnessSource != domain.AgentConfigSourceExplicit {
+				t.Fatalf("harness source = %q, want explicit", rec.Metadata.HarnessSource)
+			}
+			if rec.Metadata.AgentConfigMachine != "build-box" {
+				t.Fatalf("machine = %q, want build-box", rec.Metadata.AgentConfigMachine)
+			}
+		})
+	}
+}
+
+// TestSpawnFallsBackToMachineDefaultHarness asserts a role without a configured
+// harness uses the target machine's AO_AGENT default instead of failing.
+func TestSpawnFallsBackToMachineDefaultHarness(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{}}
+	agent := &recordingAgent{}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath:       func(string) (string, error) { return "/bin/true", nil },
+		DefaultHarness: domain.HarnessOpenCodeV2,
+		MachineLabel:   "build-box",
+	})
+	m.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
+		{ID: "opencode-v2/default", IsDefault: true},
+	}}})
+
+	rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Harness != domain.HarnessOpenCodeV2 {
+		t.Fatalf("harness = %q, want the machine default", rec.Harness)
+	}
+	if rec.Metadata.HarnessSource != domain.AgentConfigSourceMachineDefault {
+		t.Fatalf("harness source = %q, want machine-default", rec.Metadata.HarnessSource)
+	}
+	if rec.Metadata.Model != "opencode-v2/default" || rec.Metadata.ModelSource != domain.AgentConfigSourceMachineDefault {
+		t.Fatalf("model = %q source %q, want the machine default", rec.Metadata.Model, rec.Metadata.ModelSource)
+	}
+	if rec.Metadata.AgentConfigMachine != "build-box" {
+		t.Fatalf("machine = %q, want build-box", rec.Metadata.AgentConfigMachine)
+	}
+}
+
+// TestSpawnBlocksSettingsModelInvalidForExplicitHarness covers the case where
+// only a harness is named and the Settings model is invalid for it.
+func TestSpawnBlocksSettingsModelInvalidForExplicitHarness(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
+		Worker: domain.RoleOverride{
+			Harness:     domain.HarnessOpenCodeV2,
+			AgentConfig: domain.AgentConfig{Model: "opencode-v2/deepseek", Effort: "high"},
+		},
+	}}
+	agent := &recordingAgent{}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath:     func(string) (string, error) { return "/bin/true", nil },
+		MachineLabel: "build-box",
+	})
+	m.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
+		{ID: "opencode/one", IsDefault: true, Efforts: []string{"low", "high"}},
+	}}})
+
+	_, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessOpenCode,
+		HarnessExplicit: true,
+	})
+	var resolutionErr *agentlaunch.Error
+	if !errors.As(err, &resolutionErr) {
+		t.Fatalf("err = %v, want a resolution error", err)
+	}
+	if resolutionErr.Field != "model" || resolutionErr.Machine != "build-box" {
+		t.Fatalf("error = %#v, want a model block on build-box", resolutionErr)
+	}
+	if len(resolutionErr.Models) != 1 {
+		t.Fatalf("valid models = %v, want the selected harness's model list", resolutionErr.Models)
+	}
+	if len(st.sessions) != 0 || agent.launchCalls != 0 {
+		t.Fatalf("blocked spawn created %d rows and launched %d times", len(st.sessions), agent.launchCalls)
+	}
+}
+
+// TestSpawnRecordsPrecedenceSources asserts the resolved configuration records
+// which precedence level and machine supplied each value.
+func TestSpawnRecordsPrecedenceSources(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
+		Worker: domain.RoleOverride{
+			Harness:     domain.HarnessOpenCode,
+			AgentConfig: domain.AgentConfig{Model: "opencode/settings"},
+		},
+	}}
+	agent := &recordingAgent{}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath:     func(string) (string, error) { return "/bin/true", nil },
+		MachineLabel: "build-box",
+	})
+	m.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
+		{ID: "opencode/default", IsDefault: true, Efforts: []string{"low", "medium"}, DefaultEffort: "medium"},
+		{ID: "opencode/settings", Efforts: []string{"low", "high"}},
+		{ID: "opencode/explicit", Efforts: []string{"low", "high"}},
+	}}})
+
+	// Settings model, machine-default effort for that model, explicit harness.
+	rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessOpenCode,
+		HarnessExplicit: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Metadata.HarnessSource != domain.AgentConfigSourceExplicit {
+		t.Fatalf("harness source = %q, want explicit", rec.Metadata.HarnessSource)
+	}
+	if rec.Metadata.Model != "opencode/settings" || rec.Metadata.ModelSource != domain.AgentConfigSourceSettings {
+		t.Fatalf("model = %q/%q, want settings", rec.Metadata.Model, rec.Metadata.ModelSource)
+	}
+
+	// Explicit model and effort beat Project Settings.
+	rec, _, _, err = m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessOpenCode,
+		HarnessExplicit: true,
+		AgentConfig:     ports.AgentConfig{Model: "opencode/explicit", Effort: "high"},
+		EffortOverride:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Metadata.Model != "opencode/explicit" || rec.Metadata.ModelSource != domain.AgentConfigSourceExplicit {
+		t.Fatalf("model = %q/%q, want explicit", rec.Metadata.Model, rec.Metadata.ModelSource)
+	}
+	if rec.Metadata.Effort != "high" || rec.Metadata.EffortSource != domain.AgentConfigSourceExplicit {
+		t.Fatalf("effort = %q/%q, want explicit", rec.Metadata.Effort, rec.Metadata.EffortSource)
+	}
+}
+
+// invalid explicit value launches nothing and carries the machine's options.
+func TestSpawnBlocksInvalidModelAndEffort(t *testing.T) {
+	cases := []struct {
+		name   string
+		config ports.AgentConfig
+		field  string
+	}{
+		{"invalid model", ports.AgentConfig{Model: "opencode/missing"}, "model"},
+		{"invalid effort", ports.AgentConfig{Model: "opencode/one", Effort: "ultra"}, "effort"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
+				Worker: domain.RoleOverride{Harness: domain.HarnessOpenCode},
+			}}
+			agent := &recordingAgent{}
+			m := New(Deps{
+				Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{},
+				Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+				LookPath:     func(string) (string, error) { return "/bin/true", nil },
+				MachineLabel: "build-box",
+			})
+			m.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
+				{ID: "opencode/one", IsDefault: true, Efforts: []string{"low", "high"}},
+			}}})
+
+			_, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+				ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessOpenCode,
+				HarnessExplicit: true, AgentConfig: tc.config,
+			})
+			var resolutionErr *agentlaunch.Error
+			if !errors.As(err, &resolutionErr) {
+				t.Fatalf("err = %v, want a resolution error", err)
+			}
+			if resolutionErr.Field != tc.field || resolutionErr.Machine != "build-box" {
+				t.Fatalf("error = %#v, want field %q on build-box", resolutionErr, tc.field)
+			}
+			if len(st.sessions) != 0 {
+				t.Fatalf("blocked spawn created %d session rows", len(st.sessions))
+			}
+			if agent.launchCalls != 0 {
+				t.Fatalf("blocked spawn launched %d times", agent.launchCalls)
+			}
+		})
 	}
 }

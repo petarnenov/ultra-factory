@@ -30,6 +30,8 @@ type reviewRun struct {
 	Harness        string     `json:"harness"`
 	PRURL          string     `json:"prUrl"`
 	TargetSHA      string     `json:"targetSha"`
+	ReviewedSHA    string     `json:"reviewedSha,omitempty"`
+	ReviewedTree   string     `json:"reviewedTree,omitempty"`
 	Status         string     `json:"status"`
 	Verdict        string     `json:"verdict"`
 	Body           string     `json:"body"`
@@ -166,8 +168,12 @@ func newReviewListCommand(ctx *commandContext) *cobra.Command {
 		Use:     "ls [worker-session-id]",
 		Aliases: []string{"list"},
 		Short:   "List reviews for a worker session (default: this session)",
+		Long:    "List reviews for a worker session (default: this session). With --host, pass the worker id explicitly: session ids are per machine.",
 		Args:    atMostOneArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireRemoteReviewSession(ctx, args, ""); err != nil {
+				return err
+			}
 			session := reviewTargetSession(args, "")
 			if session == "" {
 				return usageError{errors.New("usage: worker session id is required outside an AO session")}
@@ -184,6 +190,7 @@ func newReviewListCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output reviews as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -339,12 +346,14 @@ func newReviewCancelCommand(ctx *commandContext) *cobra.Command {
 		Use:     "cancel [worker-session-id]",
 		Aliases: []string{"stop"},
 		Short:   "Cancel every running review for a worker's PR (default: this session)",
+		Long:    "Cancel every running review for a worker's PR (default: this session). With --host, pass the worker id explicitly: session ids are per machine.",
 		Args:    atMostOneArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return ctx.stopReview(cmd, args, opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.session, "session", "", "Worker session id (or pass it as the positional argument)")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -371,7 +380,10 @@ again, or to add a different --agent alongside one that is still running.
 The worker session's review auto-inject is turned on so the reviewer's inline
 review comments are delivered to the worker; pass --no-inject to leave
 that setting unchanged. AO's review is internal: an approval is not a GitHub
-approval and does not authorize merging.`,
+approval and does not authorize merging.
+
+With --host, the pass runs on the paired host that owns the worker, over that
+worker's checkout. Pass the worker id explicitly: session ids are per machine.`,
 		Args: atMostOneArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return ctx.triggerReview(cmd, args, opts)
@@ -391,12 +403,16 @@ approval and does not authorize merging.`,
 	f.StringVar(&opts.effort, "effort", "", "Reviewer reasoning effort for this pass only")
 	f.BoolVar(&opts.rerun, "rerun", false, "Review heads that already have a review again, or add another reviewer alongside a running one")
 	f.BoolVar(&opts.noInject, "no-inject", false, "Leave the session's review auto-inject setting unchanged")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
 func (c *commandContext) triggerReview(cmd *cobra.Command, args []string, opts reviewTriggerOptions) error {
 	if strings.TrimSpace(os.Getenv(envReviewSessionID)) != "" {
 		return usageError{errors.New("ao review trigger cannot run inside a reviewer: reviewers review the requested PR and submit with `ao review submit`; they never start reviews")}
+	}
+	if err := requireRemoteReviewSession(c, args, opts.session); err != nil {
+		return err
 	}
 	session := reviewTargetSession(args, opts.session)
 	if session == "" {
@@ -426,10 +442,10 @@ func (c *commandContext) triggerReview(cmd *cobra.Command, args []string, opts r
 	if !res.Created {
 		// Only reachable from an older daemon that ignores the same-commit
 		// policy; a current daemon answers 409 instead.
-		_, err := fmt.Fprintf(out, "reused the existing review for %s\n", session)
+		_, err := fmt.Fprintf(out, "reused the existing review for %s%s\n", session, c.remoteHostSuffix())
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "started a new review for %s\n", session); err != nil {
+	if _, err := fmt.Fprintf(out, "started a new review for %s%s\n", session, c.remoteHostSuffix()); err != nil {
 		return err
 	}
 	for _, run := range startedRuns(res) {
@@ -448,13 +464,44 @@ func (c *commandContext) triggerReview(cmd *cobra.Command, args []string, opts r
 	return nil
 }
 
+// requireRemoteReviewSession rejects the local AO_SESSION_ID default when the
+// command targets another daemon: session ids are per machine.
+func requireRemoteReviewSession(c *commandContext, args []string, flag string) error {
+	if !c.targetsRemote() {
+		return nil
+	}
+	if len(args) == 1 || strings.TrimSpace(flag) != "" {
+		return nil
+	}
+	return usageError{errors.New("usage: worker session id is required with --host (session ids are per machine)")}
+}
+
+func (c *commandContext) remoteHostSuffix() string {
+	if c.remote != nil {
+		return " on " + c.remote.label
+	}
+	return ""
+}
+
 // startedRuns returns the running passes on the PR heads the trigger covered.
+// Runs is the fallback when a pass has no planned PR state, so the SHA shows.
 func startedRuns(res triggerReviewResponse) []reviewRun {
 	var out []reviewRun
-	for _, review := range res.Reviews {
-		if review.LatestRun != nil && review.LatestRun.Status == "running" {
-			out = append(out, *review.LatestRun)
+	seen := make(map[string]bool)
+	add := func(run reviewRun) {
+		if run.ID == "" || run.Status != "running" || seen[run.ID] {
+			return
 		}
+		seen[run.ID] = true
+		out = append(out, run)
+	}
+	for _, review := range res.Reviews {
+		if review.LatestRun != nil {
+			add(*review.LatestRun)
+		}
+	}
+	for _, run := range res.Runs {
+		add(run)
 	}
 	return out
 }
@@ -467,6 +514,9 @@ func shortReviewSHA(sha string) string {
 }
 
 func (c *commandContext) stopReview(cmd *cobra.Command, args []string, opts reviewSessionOptions) error {
+	if err := requireRemoteReviewSession(c, args, opts.session); err != nil {
+		return err
+	}
 	session := reviewTargetSession(args, opts.session)
 	if session == "" {
 		return usageError{errors.New("usage: worker session id is required (positional or --session) outside an AO session")}
@@ -475,7 +525,7 @@ func (c *commandContext) stopReview(cmd *cobra.Command, args []string, opts revi
 	if err := c.postJSON(cmd.Context(), path, struct{}{}, nil); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "cancelled review for %s\n", session)
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "cancelled review for %s%s\n", session, c.remoteHostSuffix())
 	return err
 }
 

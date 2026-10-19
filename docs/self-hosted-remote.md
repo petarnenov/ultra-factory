@@ -208,9 +208,10 @@ its outcome in `~/.ao/self-update/state.json`.
 The updater only pulls. It opens no inbound port and needs no credential
 because the release assets of this repository are public. A channel release is
 always a prerelease and never touches `/releases/latest`, which stays reserved
-for the desktop app. Publishing happens on a push to `main` or `feat/**` that
-touches the daemon or the updater, or from a manual run of the `Daemon update
-channel` workflow.
+for the desktop app. Publishing happens on a push to `main` that touches the
+daemon or the updater, or from a manual run of the `Daemon update channel`
+workflow (its `ref` and `channel` inputs are the way to publish a
+feature-branch channel).
 
 ```json
 {

@@ -786,9 +786,13 @@ func TestHostFlagRoutesEveryOptedInCommandToTheRemoteHost(t *testing.T) {
 		{args: []string{"project", "get", "widgets"}, method: http.MethodGet, path: "/api/v1/projects/widgets"},
 		{args: []string{"orchestrator", "ls"}, method: http.MethodGet, path: "/api/v1/orchestrators"},
 		{args: []string{"agent", "ls"}, method: http.MethodPost, path: "/api/v1/agents/readiness/ensure"},
+		{args: []string{"review", "ls", "widgets-3"}, method: http.MethodGet, path: "/api/v1/sessions/widgets-3/reviews"},
+		{args: []string{"review", "trigger", "widgets-3"}, method: http.MethodPost, path: "/api/v1/sessions/widgets-3/reviews/trigger"},
+		{args: []string{"review", "cancel", "widgets-3"}, method: http.MethodPost, path: "/api/v1/sessions/widgets-3/reviews/cancel"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			cfg := setConfigEnv(t)
+			t.Setenv("AO_REVIEW_SESSION_ID", "")
 			local := startLocalDaemon(t, cfg, "host-local", nil)
 			remote := newFakeRemoteHost(t, "host-build", "pw")
 			writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})

@@ -80,9 +80,18 @@ type ReviewRun struct {
 	TriggerSource ReviewTriggerSource `json:"triggerSource" enum:"manual,agent,auto"`
 	PRURL         string              `json:"prUrl"`
 	// TargetSHA is the PR head commit this pass reviewed.
-	TargetSHA string          `json:"targetSha"`
-	Status    ReviewRunStatus `json:"status"`
-	Verdict   ReviewVerdict   `json:"verdict"`
+	TargetSHA string `json:"targetSha"`
+	// ReviewedSHA is the commit the reviewer actually read. It equals TargetSHA
+	// after verification; it is empty for runs recorded before verification.
+	ReviewedSHA string `json:"reviewedSha,omitempty"`
+	// ReviewedTree records whether the reviewer read the worker checkout or a
+	// disposable worktree materialized because that checkout was unusable.
+	ReviewedTree ReviewCheckoutTree `json:"reviewedTree,omitempty" enum:"worker_checkout,disposable_worktree"`
+	// ReviewedCheckoutKey locates a disposable worktree for cleanup and restore.
+	// It is internal state, not part of the API contract.
+	ReviewedCheckoutKey string          `json:"-"`
+	Status              ReviewRunStatus `json:"status"`
+	Verdict             ReviewVerdict   `json:"verdict"`
 	// Body is the review text the reviewer submitted. It is recorded for AO's
 	// own tracking; the reviewer also posts the review to the PR itself.
 	Body string `json:"body"`
@@ -98,6 +107,18 @@ type ReviewRun struct {
 	// recorded. Later toggle changes must not rewrite or deliver this run.
 	AutoInjectReview bool `json:"autoInjectReview"`
 }
+
+// ReviewCheckoutTree names the checkout a reviewer read for a pass.
+type ReviewCheckoutTree string
+
+const (
+	// ReviewCheckoutWorker means the reviewer read the worker's own checkout,
+	// verified at the target commit with a clean tree.
+	ReviewCheckoutWorker ReviewCheckoutTree = "worker_checkout"
+	// ReviewCheckoutDisposable means a disposable detached worktree was read
+	// because the worker checkout was unusable.
+	ReviewCheckoutDisposable ReviewCheckoutTree = "disposable_worktree"
+)
 
 // ReviewTriggerSource identifies who initiated a review pass.
 type ReviewTriggerSource string

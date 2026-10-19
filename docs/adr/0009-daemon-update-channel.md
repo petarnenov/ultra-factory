@@ -70,8 +70,9 @@ become `/releases/latest`. The channel name comes from the branch slug
 (`feat/railway-hosting` → `feat-railway-hosting`) or from a manual dispatch
 input, which also lets one publish serve a different ref.
 
-Publishing runs on a push to `main` or `feat/**` that touches the daemon, the
-ACP runtime, or the updater's own files, and on `workflow_dispatch`. Pull
+Publishing runs on a push to `main` that touches the daemon, the
+ACP runtime, or the updater's own files, and on `workflow_dispatch` (the latter
+remains the way to publish a feature-branch channel). Pull
 requests run the updater tests but publish nothing.
 
 Assets are replaced in place on every publish and the names are version-free,
@@ -207,8 +208,9 @@ channel publish cannot take the feed over.
   can be brought in line with one command each.
 - A bad publish reaches every host that follows the channel within one tick.
   The mitigations are the staged-commit check, the readiness check, the `prev`
-  slot, the hourly (not immediate) cadence, and the fact that channels are
-  branch-scoped and published only from `main` and `feat/**`.
+  slot, the hourly (not immediate) cadence, and the fact that channels are published from `main`
+or via a manual `workflow_dispatch` (which remains the way to publish a
+feature-branch channel).
 - An updater failure is silent by nature: nobody is watching a timer. The
   outcome is recorded in `state.json` and the timer's log, and `check` exists
   for an external monitor to poll.

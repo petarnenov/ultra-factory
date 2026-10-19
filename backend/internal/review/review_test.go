@@ -250,6 +250,17 @@ func (f *fakeStore) UpdateReviewRunResult(_ context.Context, id string, status d
 	}
 	return false, nil
 }
+func (f *fakeStore) UpdateReviewRunCheckout(_ context.Context, id, reviewedSHA string, tree domain.ReviewCheckoutTree, checkoutKey string) (bool, error) {
+	for i := range f.runs {
+		if f.runs[i].ID == id {
+			f.runs[i].ReviewedSHA = reviewedSHA
+			f.runs[i].ReviewedTree = tree
+			f.runs[i].ReviewedCheckoutKey = checkoutKey
+			return true, nil
+		}
+	}
+	return false, nil
+}
 func (f *fakeStore) SupersedeStaleRunningReviewRuns(_ context.Context, sessionID domain.SessionID, prURL, targetSHA, body string) (int64, error) {
 	var n int64
 	for i := range f.runs {
