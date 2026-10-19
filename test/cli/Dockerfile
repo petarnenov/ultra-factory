@@ -14,9 +14,16 @@ ARG RUNTIME_IMAGE=debian:bookworm-slim
 FROM ${GO_IMAGE} AS build
 WORKDIR /src
 
-# Cache modules first.
+# Cache modules first. A proxy or sumdb hiccup is not a code failure and
+# `go mod download` does not retry a 5xx itself, so retry it with backoff.
 COPY backend/go.mod backend/go.sum ./backend/
-RUN cd backend && go mod download
+RUN cd backend && \
+    for attempt in 1 2 3 4; do \
+      if go mod download; then exit 0; fi; \
+      if [ "$attempt" = 4 ]; then exit 1; fi; \
+      echo "go mod download failed; retrying in $((attempt * 15))s ($attempt/4)"; \
+      sleep $((attempt * 15)); \
+    done
 
 COPY backend ./backend
 # Pure-Go SQLite (modernc) builds fine with CGO disabled -> a static binary.

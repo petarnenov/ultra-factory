@@ -33,6 +33,11 @@ RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,tar
 # Platform-independent JS, built with the desktop's script and patches.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS acp
 WORKDIR /src/frontend
+# npm retries transient fetch errors itself; CI has seen ECONNRESET outlive the
+# default budget, so the adapter's install gets a larger retry count.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 COPY frontend/acp-runtime ./acp-runtime
 COPY frontend/scripts/build-acp-runtime.mjs frontend/scripts/build-acp-runtime-helpers.mjs ./scripts/
 RUN node scripts/build-acp-runtime.mjs && \
@@ -49,6 +54,12 @@ ARG SKIP_AGENT_INSTALL=0
 # Optional; build with --build-arg CURSOR_AGENT_VERSION= to leave it out.
 ARG CURSOR_AGENT_VERSION=2026.08.11-e8db854
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Same npm retry budget for the global installs below; the hub stage, which is
+# FROM this stage, inherits it for its own agent installs.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 
 # gh comes from GitHub's official apt repository, which only serves the latest
 # release, so its version follows the build date rather than a pin.
