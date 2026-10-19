@@ -94,17 +94,20 @@ the live cases skipping themselves there because no token is available.
 ## One-time setup
 
 The workflow needs a token that can write to a project owned by a user
-account; the workflow token cannot. Create a fine-grained personal access
-token with **Projects: read and write** and store it as the repository secret
-`PROJECT_TOKEN`:
+account. A fine-grained token cannot: GitHub lists user-owned projects as a
+fine-grained gap, and the Projects permission exists only for organizations.
+Create a **classic** token with the `project` scope and store it as the
+repository secret `PROJECT_TOKEN`:
 
 ```bash
 gh secret set PROJECT_TOKEN --repo petarnenov/ultra-factory
 ```
 
-The issue comment uses the workflow token with `issues: write`, so the PAT does
-not need issue permissions. Without the secret the run fails with a message
-naming it.
+This repository is public, so `project` alone is enough; a private repository
+would also need `repo`. A classic scope reaches every project the account
+owns, so set an expiration and rotate it. The issue comment uses the workflow
+token with `issues: write`, so the PAT does not need issue permissions.
+Without the secret the run fails with a message naming it.
 
 ## Limits
 

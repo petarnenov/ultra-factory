@@ -106,7 +106,7 @@ export function graphql(document) {
 export function requireInputs(values) {
 	if (!process.env.GH_TOKEN) {
 		throw new Error(
-			'GH_TOKEN is empty: create a PAT with project read/write and add it as the PROJECT_TOKEN secret',
+			'GH_TOKEN is empty: add a classic PAT with the project scope as the PROJECT_TOKEN secret',
 		);
 	}
 	if (!Number.isInteger(values.issue)) {
