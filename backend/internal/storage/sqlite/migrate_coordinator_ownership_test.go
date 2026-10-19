@@ -59,6 +59,25 @@ VALUES ('ao-4', 'ao', 4, 'worker', 'claude-code', 'ao-3', '2026-10-19T10:00:00Z'
 	if err := db.QueryRow(`SELECT owner_session_id FROM sessions WHERE id = 'ao-4'`).Scan(&owner); err != nil || !owner.Valid || owner.String != "ao-3" {
 		t.Fatalf("worker owner = %v err=%v, want ao-3", owner, err)
 	}
+	// Direct writers hit the same scope rules as the service/store path.
+	for _, tc := range []struct {
+		id    string
+		scope string
+		want  string
+	}{
+		{"ao-scope-untrimmed", "  auth  ", "must be trimmed"},
+		{"ao-scope-long", strings.Repeat("x", 201), "at most 200"},
+		{"ao-scope-control", "auth\x1barea", "control characters"},
+		{"ao-scope-c1", "auth\u0085area", "control characters"},
+	} {
+		if _, err := db.Exec(`
+INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, harness, activity_last_at, created_at, updated_at)
+VALUES (?, 'ao', (SELECT COALESCE(MAX(num), 0) + 1 FROM sessions WHERE project_id = 'ao'), 'coordinator', ?, 'claude-code', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z')
+`, tc.id, tc.scope); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("scope %q insert err = %v, want %q", tc.scope, err, tc.want)
+		}
+	}
+
 	if _, err := db.Exec(`UPDATE remote_worker_links SET owner_session_id = 'ao-3' WHERE host_id = 'host-build'`); err != nil {
 		t.Fatalf("own the existing remote link: %v", err)
 	}

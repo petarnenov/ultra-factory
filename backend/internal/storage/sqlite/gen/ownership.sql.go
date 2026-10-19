@@ -188,3 +188,30 @@ func (q *Queries) SetSessionOwner(ctx context.Context, arg SetSessionOwnerParams
 	}
 	return result.RowsAffected()
 }
+
+const setSessionOwnerUnlessReportClaimed = `-- name: SetSessionOwnerUnlessReportClaimed :execrows
+UPDATE sessions
+SET owner_session_id = ?1,
+    updated_at = ?2
+WHERE sessions.id = ?3 AND sessions.kind = 'worker'
+  AND NOT EXISTS (
+      SELECT 1 FROM reports r
+      WHERE r.session_id = sessions.id AND r.delivery_state = 'claimed'
+  )
+`
+
+type SetSessionOwnerUnlessReportClaimedParams struct {
+	OwnerSessionID *domain.SessionID
+	UpdatedAt      time.Time
+	ID             domain.SessionID
+}
+
+// Explicit reassignment refuses while a report is claimed; the condition is
+// part of the owner write so a claim cannot land between check and update.
+func (q *Queries) SetSessionOwnerUnlessReportClaimed(ctx context.Context, arg SetSessionOwnerUnlessReportClaimedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setSessionOwnerUnlessReportClaimed, arg.OwnerSessionID, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

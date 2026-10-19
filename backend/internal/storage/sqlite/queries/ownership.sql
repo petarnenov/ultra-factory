@@ -6,6 +6,18 @@ SET owner_session_id = sqlc.narg(owner_session_id),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id) AND kind = 'worker';
 
+-- name: SetSessionOwnerUnlessReportClaimed :execrows
+-- Explicit reassignment refuses while a report is claimed; the condition is
+-- part of the owner write so a claim cannot land between check and update.
+UPDATE sessions
+SET owner_session_id = sqlc.narg(owner_session_id),
+    updated_at = sqlc.arg(updated_at)
+WHERE sessions.id = sqlc.arg(id) AND sessions.kind = 'worker'
+  AND NOT EXISTS (
+      SELECT 1 FROM reports r
+      WHERE r.session_id = sessions.id AND r.delivery_state = 'claimed'
+  );
+
 -- name: InsertSessionOwnerEvent :exec
 INSERT INTO session_owner_events (
     session_id, previous_owner_session_id, new_owner_session_id, reason, created_at

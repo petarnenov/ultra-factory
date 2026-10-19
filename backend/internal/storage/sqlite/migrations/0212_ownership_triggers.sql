@@ -9,6 +9,13 @@ BEGIN
     WHERE NEW.kind = 'coordinator' AND NEW.project_id IS NULL;
     SELECT RAISE(ABORT, 'coordinator scope is required for kind=coordinator')
     WHERE NEW.kind = 'coordinator' AND length(trim(NEW.coordinator_scope)) = 0;
+    SELECT RAISE(ABORT, 'coordinator scope must be trimmed')
+    WHERE NEW.kind = 'coordinator' AND NEW.coordinator_scope <> trim(NEW.coordinator_scope);
+    SELECT RAISE(ABORT, 'coordinator scope must be at most 200 characters')
+    WHERE NEW.kind = 'coordinator' AND length(NEW.coordinator_scope) > 200;
+    SELECT RAISE(ABORT, 'coordinator scope must not contain control characters')
+    WHERE NEW.kind = 'coordinator' AND NEW.coordinator_scope GLOB
+        '*[' || char(1) || '-' || char(31) || char(127) || char(128) || '-' || char(159) || ']*';
     SELECT RAISE(ABORT, 'coordinator scope is only valid for kind=coordinator')
     WHERE NEW.kind <> 'coordinator' AND NEW.coordinator_scope <> '';
     SELECT RAISE(ABORT, 'only workers may have an owner')
@@ -34,6 +41,13 @@ BEGIN
     WHERE NEW.kind = 'coordinator' AND NEW.project_id IS NULL;
     SELECT RAISE(ABORT, 'coordinator scope is required for kind=coordinator')
     WHERE NEW.kind = 'coordinator' AND length(trim(NEW.coordinator_scope)) = 0;
+    SELECT RAISE(ABORT, 'coordinator scope must be trimmed')
+    WHERE NEW.kind = 'coordinator' AND NEW.coordinator_scope <> trim(NEW.coordinator_scope);
+    SELECT RAISE(ABORT, 'coordinator scope must be at most 200 characters')
+    WHERE NEW.kind = 'coordinator' AND length(NEW.coordinator_scope) > 200;
+    SELECT RAISE(ABORT, 'coordinator scope must not contain control characters')
+    WHERE NEW.kind = 'coordinator' AND NEW.coordinator_scope GLOB
+        '*[' || char(1) || '-' || char(31) || char(127) || char(128) || '-' || char(159) || ']*';
     SELECT RAISE(ABORT, 'coordinator scope is only valid for kind=coordinator')
     WHERE NEW.kind <> 'coordinator' AND NEW.coordinator_scope <> '';
     SELECT RAISE(ABORT, 'only workers may have an owner')

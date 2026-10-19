@@ -12,14 +12,15 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/gen"
 )
 
-// SetSessionOwner changes a worker's owner and appends the audit row in one
-// transaction. Nil owner means root-owned; the same owner is a no-op.
+// SetSessionOwner changes a worker's owner and appends audit in one tx.
+// Same owner is a no-op; skipClaimGuard is only for automatic repair.
 func (s *Store) SetSessionOwner(
 	ctx context.Context,
 	id domain.SessionID,
 	owner *domain.SessionID,
 	reason domain.OwnershipEventReason,
 	at time.Time,
+	skipClaimGuard bool,
 ) (domain.SessionRecord, bool, error) {
 	if !reason.Valid() {
 		return domain.SessionRecord{}, false, fmt.Errorf("invalid ownership reason %q", reason)
@@ -41,24 +42,44 @@ func (s *Store) SetSessionOwner(
 			record = current
 			return nil
 		}
+		eventReason := reason
+		if reason == domain.OwnershipExplicitAssignment || reason == domain.OwnershipExplicitReassignment {
+			if current.OwnerSessionID == nil {
+				eventReason = domain.OwnershipExplicitAssignment
+			} else {
+				eventReason = domain.OwnershipExplicitReassignment
+			}
+		}
 		if err := q.InsertSessionOwnerEvent(ctx, gen.InsertSessionOwnerEventParams{
 			SessionID:              id,
 			PreviousOwnerSessionID: current.OwnerSessionID,
 			NewOwnerSessionID:      owner,
-			Reason:                 reason,
+			Reason:                 eventReason,
 			CreatedAt:              at,
 		}); err != nil {
 			return err
 		}
-		rows, err := q.SetSessionOwner(ctx, gen.SetSessionOwnerParams{
-			OwnerSessionID: owner,
-			UpdatedAt:      at,
-			ID:             id,
-		})
+		var rows int64
+		if !skipClaimGuard {
+			rows, err = q.SetSessionOwnerUnlessReportClaimed(ctx, gen.SetSessionOwnerUnlessReportClaimedParams{
+				OwnerSessionID: owner,
+				UpdatedAt:      at,
+				ID:             id,
+			})
+		} else {
+			rows, err = q.SetSessionOwner(ctx, gen.SetSessionOwnerParams{
+				OwnerSessionID: owner,
+				UpdatedAt:      at,
+				ID:             id,
+			})
+		}
 		if err != nil {
 			return err
 		}
 		if rows != 1 {
+			if !skipClaimGuard && current.Kind == domain.KindWorker {
+				return ports.ErrOwnerReassignmentInFlight
+			}
 			return fmt.Errorf("session %s is not a worker", id)
 		}
 		updated, err := q.GetSession(ctx, id)
@@ -190,16 +211,6 @@ func (s *Store) ListRemoteWorkerOwnerEvents(
 		}
 	}
 	return events, nil
-}
-
-// SessionHasClaimedReport reports whether a report of this worker is claimed
-// for delivery. Explicit reassignment is refused while that is true.
-func (s *Store) SessionHasClaimedReport(ctx context.Context, id domain.SessionID) (bool, error) {
-	claimed, err := s.qr.SessionHasClaimedReport(ctx, string(id))
-	if err != nil {
-		return false, fmt.Errorf("check claimed reports for %s: %w", id, err)
-	}
-	return claimed, nil
 }
 
 func sameOwner(a, b *domain.SessionID) bool {

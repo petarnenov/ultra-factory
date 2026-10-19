@@ -1,6 +1,10 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+	"unicode"
+)
 
 // SessionOwnerEvent is one append-only audit row for a local worker's
 // ownership transition; owner values stay plain IDs after an owner is removed.
@@ -23,6 +27,18 @@ type RemoteWorkerOwnerEvent struct {
 	NewOwnerSessionID      *SessionID
 	Reason                 OwnershipEventReason
 	CreatedAt              time.Time
+}
+
+// NormalizeCoordinatorScope strips control characters and trims a scope.
+// The SQLite triggers reject unnormalized values from direct writers.
+func NormalizeCoordinatorScope(scope string) string {
+	stripped := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, scope)
+	return strings.TrimSpace(stripped)
 }
 
 // Valid reports whether r is one of the bounded ownership event reasons.

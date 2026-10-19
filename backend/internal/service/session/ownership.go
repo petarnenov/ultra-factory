@@ -2,10 +2,12 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
@@ -55,29 +57,12 @@ func (s *Service) AssignOwner(
 			return domain.SessionRecord{}, err
 		}
 	}
-	if !sameSessionOwner(worker.OwnerSessionID, ownerID) {
-		claimed, err := s.store.SessionHasClaimedReport(ctx, worker.ID)
-		if err != nil {
-			return domain.SessionRecord{}, err
-		}
-		if claimed {
-			return domain.SessionRecord{}, apierr.Conflict("OWNER_REASSIGNMENT_IN_FLIGHT", "A report of this worker is claimed for delivery", map[string]any{"sessionId": string(worker.ID)})
-		}
+	record, _, err := s.store.SetSessionOwner(ctx, worker.ID, ownerID, domain.OwnershipExplicitAssignment, s.now(), false)
+	if errors.Is(err, ports.ErrOwnerReassignmentInFlight) {
+		return domain.SessionRecord{}, apierr.Conflict("OWNER_REASSIGNMENT_IN_FLIGHT", "A report of this worker is claimed for delivery", map[string]any{"sessionId": string(worker.ID)})
 	}
-	reason := domain.OwnershipExplicitReassignment
-	if worker.OwnerSessionID == nil && ownerID != nil {
-		reason = domain.OwnershipExplicitAssignment
-	}
-	record, _, err := s.store.SetSessionOwner(ctx, worker.ID, ownerID, reason, s.now())
 	if err != nil {
 		return domain.SessionRecord{}, err
 	}
 	return record, nil
-}
-
-func sameSessionOwner(a, b *domain.SessionID) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }

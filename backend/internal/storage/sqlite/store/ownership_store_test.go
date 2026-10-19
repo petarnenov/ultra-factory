@@ -2,11 +2,14 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 )
 
@@ -89,19 +92,19 @@ func TestSetSessionOwnerIsAtomicIdempotentAndAudited(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 
-	assigned, changed, err := s.SetSessionOwner(ctx, worker.ID, &first.ID, domain.OwnershipExplicitAssignment, now)
+	assigned, changed, err := s.SetSessionOwner(ctx, worker.ID, &first.ID, domain.OwnershipExplicitAssignment, now, false)
 	if err != nil || !changed || assigned.OwnerSessionID == nil || *assigned.OwnerSessionID != first.ID {
 		t.Fatalf("assign: changed=%v owner=%v err=%v", changed, assigned.OwnerSessionID, err)
 	}
-	reassigned, changed, err := s.SetSessionOwner(ctx, worker.ID, &second.ID, domain.OwnershipExplicitReassignment, now)
+	reassigned, changed, err := s.SetSessionOwner(ctx, worker.ID, &second.ID, domain.OwnershipExplicitReassignment, now, false)
 	if err != nil || !changed || reassigned.OwnerSessionID == nil || *reassigned.OwnerSessionID != second.ID {
 		t.Fatalf("reassign: changed=%v owner=%v err=%v", changed, reassigned.OwnerSessionID, err)
 	}
-	again, changed, err := s.SetSessionOwner(ctx, worker.ID, &second.ID, domain.OwnershipExplicitReassignment, now)
+	again, changed, err := s.SetSessionOwner(ctx, worker.ID, &second.ID, domain.OwnershipExplicitReassignment, now, false)
 	if err != nil || changed || again.OwnerSessionID == nil || *again.OwnerSessionID != second.ID {
 		t.Fatalf("repeat: changed=%v owner=%v err=%v", changed, again.OwnerSessionID, err)
 	}
-	rooted, changed, err := s.SetSessionOwner(ctx, worker.ID, nil, domain.OwnershipExplicitReassignment, now)
+	rooted, changed, err := s.SetSessionOwner(ctx, worker.ID, nil, domain.OwnershipExplicitReassignment, now, false)
 	if err != nil || !changed || rooted.OwnerSessionID != nil {
 		t.Fatalf("clear: changed=%v owner=%v err=%v", changed, rooted.OwnerSessionID, err)
 	}
@@ -327,5 +330,204 @@ func TestRemoteWorkerOwnerIsFixedAtRegistration(t *testing.T) {
 	}
 	if got.ProjectID != "ao" || got.OwnerSessionID == nil || *got.OwnerSessionID != coordinator.ID || got.DisplayName != "renamed" {
 		t.Fatalf("re-registration changed fixed fields: %+v", got)
+	}
+}
+
+func TestSetSessionOwnerGuardRefusesAClaimedReport(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	coordinator, err := s.CreateSession(ctx, coordinatorRecord("ao", "area"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if _, err := s.CreateReport(ctx, pendingReport("rpt-guard", worker, now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, claimed, err := s.ClaimReport(ctx, "rpt-guard", "token-guard", now); err != nil || !claimed {
+		t.Fatalf("claim report: claimed=%v err=%v", claimed, err)
+	}
+
+	if _, _, err := s.SetSessionOwner(ctx, worker.ID, &coordinator.ID, domain.OwnershipExplicitAssignment, now, false); !errors.Is(err, ports.ErrOwnerReassignmentInFlight) {
+		t.Fatalf("guarded assignment err = %v, want ErrOwnerReassignmentInFlight", err)
+	}
+	got, found, err := s.GetSession(ctx, worker.ID)
+	if err != nil || !found || got.OwnerSessionID != nil {
+		t.Fatalf("owner after refused assignment = %v, found=%v err=%v", got.OwnerSessionID, found, err)
+	}
+	if events, err := s.ListSessionOwnerEvents(ctx, worker.ID); err != nil || len(events) != 0 {
+		t.Fatalf("audit after refused assignment = %+v err=%v, want none", events, err)
+	}
+
+	// The unguarded path is the reconciler/automatic-release path and must
+	// still work while a report is claimed.
+	if _, _, err := s.SetSessionOwner(ctx, worker.ID, &coordinator.ID, domain.OwnershipOwnerNotLiveReconciled, now, true); err != nil {
+		t.Fatalf("unguarded assignment: %v", err)
+	}
+}
+
+func TestSetSessionOwnerGuardSerializesWithClaims(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	coordinator, err := s.CreateSession(ctx, coordinatorRecord("ao", "area"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	const rounds = 24
+	for i := 0; i < rounds; i++ {
+		worker, err := s.CreateSession(ctx, sampleRecord("ao"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reportID := "rpt-race-" + string(worker.ID)
+		if _, err := s.CreateReport(ctx, pendingReport(reportID, worker, now)); err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		var ownerErr error
+		var claimed bool
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, ownerErr = s.SetSessionOwner(ctx, worker.ID, &coordinator.ID, domain.OwnershipExplicitAssignment, now, false)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, claimed, _ = s.ClaimReport(ctx, reportID, "token-"+string(worker.ID), now)
+		}()
+		close(start)
+		wg.Wait()
+
+		got, found, err := s.GetSession(ctx, worker.ID)
+		if err != nil || !found {
+			t.Fatalf("round %d: read worker: found=%v err=%v", i, found, err)
+		}
+		events, err := s.ListSessionOwnerEvents(ctx, worker.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case ownerErr == nil:
+			// The guarded owner write serialized before the claim, so the claim
+			// must have succeeded afterwards and the audit has exactly one row.
+			if !claimed || got.OwnerSessionID == nil || *got.OwnerSessionID != coordinator.ID || len(events) != 1 {
+				t.Fatalf("round %d: owner write won: claimed=%v owner=%v events=%+v", i, claimed, got.OwnerSessionID, events)
+			}
+		case errors.Is(ownerErr, ports.ErrOwnerReassignmentInFlight):
+			// The claim serialized first, so the owner write must have changed
+			// nothing and written no audit row.
+			if got.OwnerSessionID != nil || len(events) != 0 {
+				t.Fatalf("round %d: claim won: owner=%v events=%+v", i, got.OwnerSessionID, events)
+			}
+		default:
+			t.Fatalf("round %d: unexpected owner error: %v", i, ownerErr)
+		}
+	}
+}
+
+func TestCoordinatorScopeIsNormalizedAndBounded(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+
+	created, err := s.CreateSession(ctx, coordinatorRecord("ao", "  auth\x1b area  "))
+	if err != nil {
+		t.Fatalf("create coordinator with a noisy scope: %v", err)
+	}
+	got, found, err := s.GetSession(ctx, created.ID)
+	if err != nil || !found {
+		t.Fatalf("read coordinator: found=%v err=%v", found, err)
+	}
+	if got.CoordinatorScope != "auth area" {
+		t.Fatalf("stored scope = %q, want %q", got.CoordinatorScope, "auth area")
+	}
+
+	tooLong := coordinatorRecord("ao", strings.Repeat("x", 201))
+	if _, err := s.CreateSession(ctx, tooLong); err == nil || !strings.Contains(err.Error(), "at most 200") {
+		t.Fatalf("overlong scope err = %v, want the 200-character rejection", err)
+	}
+}
+
+func TestPromoteTaskPreparationStoresANormalizedScope(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	hidden := sampleRecord("ao")
+	hidden.IsTaskPreparation = true
+	hidden.ProvisionState = domain.SessionProvisionProvisioning
+	created, err := s.CreateSession(ctx, hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promote := created
+	promote.IsTaskPreparation = false
+	promote.Kind = domain.KindCoordinator
+	promote.CoordinatorScope = "  auth\x1b area  "
+	promoted, err := s.PromoteTaskPreparation(ctx, created.ID, promote)
+	if err != nil || !promoted {
+		t.Fatalf("promote = %v err=%v", promoted, err)
+	}
+	got, found, err := s.GetSession(ctx, created.ID)
+	if err != nil || !found {
+		t.Fatalf("read promoted session: found=%v err=%v", found, err)
+	}
+	if got.Kind != domain.KindCoordinator || got.CoordinatorScope != "auth area" || got.OwnerSessionID != nil {
+		t.Fatalf("promoted coordinator = %+v", got)
+	}
+}
+
+func TestPromoteTaskPreparationWritesOneSpawnParentAudit(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	coordinator, err := s.CreateSession(ctx, coordinatorRecord("ao", "area"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden := sampleRecord("ao")
+	hidden.IsTaskPreparation = true
+	hidden.ProvisionState = domain.SessionProvisionProvisioning
+	created, err := s.CreateSession(ctx, hidden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	promote := created
+	promote.IsTaskPreparation = false
+	promote.OwnerSessionID = &coordinator.ID
+	promote.DisplayName = "promoted worker"
+	promoted, err := s.PromoteTaskPreparation(ctx, created.ID, promote)
+	if err != nil || !promoted {
+		t.Fatalf("promote = %v err=%v", promoted, err)
+	}
+	got, found, err := s.GetSession(ctx, created.ID)
+	if err != nil || !found {
+		t.Fatalf("read promoted worker: found=%v err=%v", found, err)
+	}
+	if got.OwnerSessionID == nil || *got.OwnerSessionID != coordinator.ID {
+		t.Fatalf("promoted owner = %v, want %s", got.OwnerSessionID, coordinator.ID)
+	}
+	events, err := s.ListSessionOwnerEvents(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Reason != domain.OwnershipSpawnParent ||
+		events[0].PreviousOwnerSessionID != nil || events[0].NewOwnerSessionID == nil || *events[0].NewOwnerSessionID != coordinator.ID {
+		t.Fatalf("promotion audit = %+v", events)
+	}
+	if promotedAgain, err := s.PromoteTaskPreparation(ctx, created.ID, promote); err != nil || promotedAgain {
+		t.Fatalf("second promote = %v err=%v, want a no-op", promotedAgain, err)
+	}
+	if events, err := s.ListSessionOwnerEvents(ctx, created.ID); err != nil || len(events) != 1 {
+		t.Fatalf("audit after repeat promote = %+v err=%v, want one row", events, err)
 	}
 }

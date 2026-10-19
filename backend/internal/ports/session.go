@@ -9,6 +9,10 @@ import (
 // ErrSessionNotFound reports an observation for an unknown session id.
 var ErrSessionNotFound = errors.New("session not found")
 
+// ErrOwnerReassignmentInFlight reports a claimed report for the worker, so an
+// explicit ownership change must wait for the claim to settle.
+var ErrOwnerReassignmentInFlight = errors.New("owner reassignment in flight")
+
 // ErrActivityProjectionContention means no signal projection committed after
 // retrying concurrent session writes. The same hook payload may be retried.
 var ErrActivityProjectionContention = errors.New("activity projection contention")

@@ -275,7 +275,7 @@ func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.S
 	return r, ok, nil
 }
 
-func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time) (domain.SessionRecord, bool, error) {
+func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, skipClaimGuard bool) (domain.SessionRecord, bool, error) {
 	rec, ok := f.sessions[id]
 	if !ok {
 		return domain.SessionRecord{}, false, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
@@ -283,11 +283,22 @@ func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owne
 	if sameSessionOwner(rec.OwnerSessionID, owner) {
 		return rec, false, nil
 	}
+	if !skipClaimGuard && f.claimedReports[id] {
+		return domain.SessionRecord{}, false, ports.ErrOwnerReassignmentInFlight
+	}
+	eventReason := reason
+	if reason == domain.OwnershipExplicitAssignment || reason == domain.OwnershipExplicitReassignment {
+		if rec.OwnerSessionID == nil {
+			eventReason = domain.OwnershipExplicitAssignment
+		} else {
+			eventReason = domain.OwnershipExplicitReassignment
+		}
+	}
 	f.ownerEvents = append(f.ownerEvents, domain.SessionOwnerEvent{
 		SessionID:              id,
 		PreviousOwnerSessionID: rec.OwnerSessionID,
 		NewOwnerSessionID:      owner,
-		Reason:                 reason,
+		Reason:                 eventReason,
 		CreatedAt:              at,
 	})
 	rec.OwnerSessionID = owner
@@ -296,8 +307,11 @@ func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owne
 	return rec, true, nil
 }
 
-func (f *fakeStore) SessionHasClaimedReport(_ context.Context, id domain.SessionID) (bool, error) {
-	return f.claimedReports[id], nil
+func sameSessionOwner(a, b *domain.SessionID) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func (f *fakeStore) GetSessionByClientRequestID(_ context.Context, id string) (domain.SessionRecord, bool, error) {
