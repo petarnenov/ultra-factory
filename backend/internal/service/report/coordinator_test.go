@@ -283,9 +283,11 @@ type coordinatorDelivery struct {
 	submissions []coordinatorSubmission
 	interrupts  []domain.SessionID
 	submitErr   error
+	attempts    int
 }
 
 func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
+	d.attempts++
 	if d.submitErr != nil {
 		return d.submitErr
 	}
@@ -297,31 +299,70 @@ func (d *coordinatorDelivery) Interrupt(_ context.Context, target domain.Session
 	return nil
 }
 
-func TestCoordinatorAcceptanceTimeoutDefersBatch(t *testing.T) {
+func TestCoordinatorAcceptanceTimeoutConsumesTheBatchOnce(t *testing.T) {
 	now := time.Now()
 	store := newCoordinatorStore(now)
 	store.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator}}
 	store.add(reportAt("one", "worker", now, now, "finished"))
 	d := &coordinatorDelivery{submitErr: domain.ErrSemanticAcceptanceTimeout}
 	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: d, Now: func() time.Time { return now }})
-	if _, err := c.RunDue(context.Background()); err == nil {
-		t.Fatal("expected timeout")
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
 	}
+	// The prompt was written before the acceptance timeout: deliver it once.
+	if d.attempts != 1 || store.acked != 1 {
+		t.Fatalf("attempts=%d acknowledged=%d, want one consumed delivery", d.attempts, store.acked)
+	}
+	// Neither a late hook nor a restarted daemon resends the consumed batch.
 	d.submitErr = nil
-	for i := 0; i < 20; i++ {
-		now = now.Add(time.Second)
+	for i := 0; i < 5; i++ {
+		now = now.Add(time.Hour)
+		restarted := NewCoordinator(CoordinatorDeps{Store: store, Delivery: d, Now: func() time.Time { return now }})
+		if _, err := restarted.RunDue(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.attempts != 1 || len(d.submissions) != 0 {
+		t.Fatalf("attempts=%d submissions=%d, want no replay of a consumed batch", d.attempts, len(d.submissions))
+	}
+}
+
+func TestCoordinatorFlushesATerminatedWorkersQueueOnce(t *testing.T) {
+	now := time.Date(2026, 9, 14, 14, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{
+		{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator},
+		{ID: "ended", ProjectID: "p", Kind: domain.KindWorker, IsTerminated: true},
+		{ID: "live", ProjectID: "p", Kind: domain.KindWorker},
+	}
+	store.add(reportAt("late", "ended", now, now.Add(time.Hour), "final head"))
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 || !strings.Contains(delivery.submissions[0].message, "final head") || store.acked != 1 {
+		t.Fatalf("terminated flush = %#v acked=%d", delivery.submissions, store.acked)
+	}
+	// A live worker keeps its normal deadline, and later passes send nothing.
+	store.add(reportAt("live-one", "live", now, now.Add(time.Hour), "live head"))
+	if delay, err := c.RunDue(context.Background()); err != nil || delay != time.Hour {
+		t.Fatalf("live delay = %v, err = %v", delay, err)
+	}
+	for i := 0; i < 3; i++ {
+		now = now.Add(time.Minute)
 		if _, err := c.RunDue(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(d.submissions) != 0 || store.acked != 0 {
-		t.Fatal("retried before backoff")
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("a terminated session kept producing deliveries: %#v", delivery.submissions)
 	}
-	now = now.Add(domain.ReportAcceptanceRetryDelay)
+	now = now.Add(time.Hour)
 	if _, err := c.RunDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(d.submissions) != 1 || store.acked != 1 {
-		t.Fatal("did not retry after backoff")
+	if len(delivery.submissions) != 2 || !strings.Contains(delivery.submissions[1].message, "live head") {
+		t.Fatalf("live delivery = %#v", delivery.submissions)
 	}
 }

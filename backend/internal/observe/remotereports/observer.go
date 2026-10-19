@@ -81,10 +81,9 @@ type Observer struct {
 	log        *slog.Logger
 	wake       chan struct{}
 
-	mu         sync.Mutex
-	failures   map[string]string
-	refused    map[string]string
-	retryAfter map[domain.ProjectID]time.Time
+	mu       sync.Mutex
+	failures map[string]string
+	refused  map[string]string
 }
 
 // New constructs an idle Observer.
@@ -110,7 +109,7 @@ func New(d Deps) *Observer {
 	return &Observer{
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
-		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, retryAfter: map[domain.ProjectID]time.Time{},
+		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{},
 	}
 }
 
@@ -346,26 +345,20 @@ func (o *Observer) settle(ctx context.Context, projectID domain.ProjectID, items
 	}
 	sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].CreatedAt.Before(fresh[j].CreatedAt) })
 	if len(fresh) > 0 {
-		o.mu.Lock()
-		retryAt := o.retryAfter[projectID]
-		o.mu.Unlock()
-		if o.now().Before(retryAt) {
-			return
-		}
 		err := o.deliverer.DeliverExternal(ctx, projectID, fresh)
-		o.mu.Lock()
-		if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
-			o.retryAfter[projectID] = o.now().Add(domain.ReportAcceptanceRetryDelay)
-		} else {
-			delete(o.retryAfter, projectID)
-		}
-		o.mu.Unlock()
-		if err != nil {
-			batch := reportsvc.PreparedBatch{ProjectID: projectID, Reports: fresh}
+		batch := reportsvc.PreparedBatch{ProjectID: projectID, Reports: fresh}
+		unconfirmed := errors.Is(err, domain.ErrSemanticAcceptanceTimeout)
+		switch {
+		case err == nil:
+		case unconfirmed:
+			o.log.Warn("remote report delivery unconfirmed; batch settled", "delivery_id", batch.IdempotencyKey(), "err", err)
+		default:
 			o.log.Warn("remote report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
 		}
 		o.note("project "+string(projectID), string(projectID), err)
-		if err != nil {
+		// The prompt was written before an acceptance timeout, so the batch
+		// is settled: re-pulling it would deliver the same prompt again.
+		if err != nil && !unconfirmed {
 			return
 		}
 	}

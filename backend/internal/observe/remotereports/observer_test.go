@@ -1078,26 +1078,47 @@ func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, []
 	return domain.ErrSemanticAcceptanceTimeout
 }
 
-func TestSettleAcceptanceTimeoutBacksOff(t *testing.T) {
-	now := time.Now()
+// An acceptance timeout follows a written prompt: the batch is settled once,
+// so neither later passes nor a restarted daemon deliver it again.
+func TestPollSettlesAnUnconfirmedDeliveryAndDoesNotReplayIt(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt_1", now))
+	// The remote acknowledgement keeps failing, so the report stays listed.
+	host.failAck = true
+	store := newMemStore(link("host-build", "widgets-3"))
 	d := &timeoutDeliverer{}
-	store := newMemStore()
 	var logs bytes.Buffer
-	o := New(Deps{Store: store, Deliverer: d, Now: func() time.Time { return now }, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
-	items := []*pulled{{fresh: []domain.ReportRecord{{ID: "report-1", CreatedAt: now}}}}
-	for i := 0; i < 20; i++ {
-		o.settle(context.Background(), "p", items, newSettlePass())
-		now = now.Add(time.Second)
+	newObserver := func() *Observer {
+		return New(Deps{
+			Store: store, Deliverer: d, SelfHostID: "host-local",
+			Lookup: func(id string) (remotehost.Entry, bool, error) {
+				entry := remotehost.Entry{Label: "label-host-build", URL: host.srv.URL, Password: host.password, HostID: host.identity}
+				return entry, id == host.identity, nil
+			},
+			Now:    func() time.Time { return now },
+			Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		})
 	}
-	if d.attempts != 1 || len(store.recorded) != 0 {
-		t.Fatalf("attempts=%d recorded=%v", d.attempts, store.recorded)
+
+	if err := newObserver().Poll(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	now = now.Add(domain.ReportAcceptanceRetryDelay)
-	o.settle(context.Background(), "p", items, newSettlePass())
-	if d.attempts != 2 {
-		t.Fatalf("attempts=%d, want delayed retry", d.attempts)
+	if d.attempts != 1 || len(store.recorded) != 1 || store.recorded[0] != "rpt_1" {
+		t.Fatalf("attempts=%d recorded=%v, want one settled delivery", d.attempts, store.recorded)
 	}
-	if strings.Count(logs.String(), "remote report delivery failed") != 2 || !strings.Contains(logs.String(), "delivery_id=report-batch:") {
-		t.Fatalf("repeat failures not visible: %s", logs.String())
+	if !strings.Contains(logs.String(), "remote report delivery unconfirmed; batch settled") || !strings.Contains(logs.String(), "delivery_id=report-batch:") {
+		t.Fatalf("unconfirmed delivery not visible: %s", logs.String())
+	}
+
+	// A restarted daemon over the same store must not deliver it again.
+	if err := newObserver().Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d.attempts != 1 || len(store.recorded) != 1 {
+		t.Fatalf("attempts=%d recorded=%v, want no replay of a settled batch", d.attempts, store.recorded)
+	}
+	if acks := host.acks(); len(acks) != 2 || acks[1][0] != "rpt_1" {
+		t.Fatalf("acks = %v, want the failed acknowledgement retried", acks)
 	}
 }

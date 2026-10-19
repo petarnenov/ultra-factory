@@ -65,6 +65,21 @@ func TestListDuePendingReturnsOnlyPendingReportsThatAreDue(t *testing.T) {
 	}
 }
 
+func TestListDuePendingFlushesATerminatedWorkersQueue(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	st := &pullStore{fakeStore: fakeStore{ok: true, session: domain.SessionRecord{ID: "w", Kind: domain.KindWorker, IsTerminated: true}}}
+	st.bySession = []domain.ReportRecord{{ID: "final", DeliveryState: domain.ReportPending, AvailableAt: now.Add(time.Hour)}}
+	got, more, err := New(Deps{Store: st, Now: func() time.Time { return now }}).ListDuePending(context.Background(), "w")
+	if err != nil || len(got) != 1 || got[0].ID != "final" || more {
+		t.Fatalf("terminated queue = %+v more=%v err=%v", got, more, err)
+	}
+
+	st.session.IsTerminated = false
+	if got, more, err := New(Deps{Store: st, Now: func() time.Time { return now }}).ListDuePending(context.Background(), "w"); err != nil || len(got) != 0 || !more {
+		t.Fatalf("live queue = %+v more=%v err=%v", got, more, err)
+	}
+}
+
 func TestListDuePendingCapsOnePullAtOneAcknowledgement(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	st := &pullStore{fakeStore: fakeStore{ok: true, session: domain.SessionRecord{ID: "w", Kind: domain.KindWorker}}}

@@ -239,8 +239,5 @@ func UnwrapPastedContent(message string) string {
 }
 
 // ErrSemanticAcceptanceTimeout means the pane write succeeded but its prompt
-// hook has not yet confirmed acceptance. Retrying immediately can duplicate it.
+// hook has not confirmed it yet. Retrying would re-send the same prompt.
 var ErrSemanticAcceptanceTimeout = errors.New("prompt submission was not observed")
-
-// ReportAcceptanceRetryDelay allows late prompt hooks to arrive before retrying.
-const ReportAcceptanceRetryDelay = 5 * time.Minute

@@ -137,12 +137,22 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 		}
 		now := c.now().UTC()
 		if pending[0].AvailableAt.After(now) {
-			return pending[0].AvailableAt.Sub(now), nil
+			if !c.terminatedWorker(ctx, pending[0].SessionID) {
+				return pending[0].AvailableAt.Sub(now), nil
+			}
+			// A terminated worker cannot report again, so its queued report
+			// is flushed now instead of trickling in after its deadline.
 		}
 		if err := c.deliverProject(ctx, pending[0].ProjectID); err != nil {
 			return c.retryDelay, err
 		}
 	}
+}
+
+// terminatedWorker reports a worker that will never produce another report.
+func (c *Coordinator) terminatedWorker(ctx context.Context, id domain.SessionID) bool {
+	session, found, err := c.store.GetSession(ctx, id)
+	return err == nil && found && session.IsTerminated
 }
 
 func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.ProjectID) error {
@@ -180,14 +190,24 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 		}
 	}
 	if err := c.delivery.Submit(ctx, target.ID, batch.Render(), batch.IdempotencyKey()); err != nil {
-		slog.Warn("report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
-		if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
-			_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC().Add(domain.ReportAcceptanceRetryDelay), err.Error())
-			return errors.Join(err, deferErr)
+		if !errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
+			slog.Warn("report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
+			return c.release(ctx, batch, err)
 		}
-		return c.release(ctx, batch, err)
+		// The prompt was written; only its acceptance hook is late. Re-arming
+		// the batch re-pastes it on every retry, so it is consumed once here.
+		slog.Warn("report delivery unconfirmed; batch consumed", "delivery_id", batch.IdempotencyKey(), "err", err)
+		if ackErr := c.consume(ctx, batch); ackErr != nil {
+			return errors.Join(err, ackErr)
+		}
+		return nil
 	}
-	_, err = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
+	return c.consume(ctx, batch)
+}
+
+// consume acknowledges a submitted batch, so no later pass sends it again.
+func (c *Coordinator) consume(ctx context.Context, batch PreparedBatch) error {
+	_, err := c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
 	return err
 }
 
