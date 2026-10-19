@@ -58,11 +58,30 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build fresh-install image
+      - uses: docker/setup-buildx-action@v4
+
+      # Restore the build's layer cache so a re-run reuses the module download
+      # layer instead of refetching it. local-ci has no cache service.
+      - name: Build cache
+        id: cache
         run: |
-          docker build -f test/cli/Dockerfile -t ao-cli-smoke \
-            --build-arg GO_IMAGE=mirror.gcr.io/library/golang:1.27.1-bookworm \
-            --build-arg RUNTIME_IMAGE=mirror.gcr.io/library/debian:bookworm-slim .
+          if [ "${LOCAL_CI_LOCAL:-}" != true ]; then
+            echo "from=type=gha,scope=cli-e2e" >>"$GITHUB_OUTPUT"
+            echo "to=type=gha,mode=max,scope=cli-e2e" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Build fresh-install image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: test/cli/Dockerfile
+          load: true
+          tags: ao-cli-smoke
+          build-args: |
+            GO_IMAGE=mirror.gcr.io/library/golang:1.27.1-bookworm
+            RUNTIME_IMAGE=mirror.gcr.io/library/debian:bookworm-slim
+          cache-from: ${{ steps.cache.outputs.from }}
+          cache-to: ${{ steps.cache.outputs.to }}
 
       - name: Fresh-install check (container)
         run: docker run --rm --init ao-cli-smoke

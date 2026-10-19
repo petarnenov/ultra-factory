@@ -18,6 +18,11 @@ ARG TARGETARCH
 # ---- stage 1: the web build (platform independent output) ----
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web
 WORKDIR /src
+# npm retries transient fetch errors itself; CI has seen ECONNRESET outlive the
+# default budget, so the web build gets a larger retry count too.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 COPY frontend/package.json frontend/package-lock.json ./frontend/
 # Electron's postinstall download is not needed to build the web target.
 RUN npm --prefix frontend ci --ignore-scripts
