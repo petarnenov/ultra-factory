@@ -23,11 +23,11 @@ const isMain = process.argv[1]
   && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 // Fenced blocks and inline code hold literal text such as a placeholder or a
-// quoted message, not references. Markdown code spans may wrap a line.
+// quoted message, not references. A code span may wrap a line, not a paragraph.
 export function prosaicText(text) {
   return String(text ?? '')
     .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`]*`/g, ' ');
+    .replace(/`(?:[^`\n]|\n(?![ \t]*\n))*`/g, ' ');
 }
 
 // Cross-repository references (owner/repo#123) are not checked here.

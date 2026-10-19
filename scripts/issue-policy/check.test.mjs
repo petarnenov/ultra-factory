@@ -63,6 +63,11 @@ test('ignores an inline code span that wraps a line, as Markdown allows', () => 
   ), []);
 });
 
+test('keeps a reference after a stray backtick in an earlier paragraph', () => {
+  const body = 'Press the ` key to toggle.\n\nCloses #268.\n\nRun `npm test`.';
+  assert.deepEqual(extractIssueReferences(body), [268]);
+});
+
 test('ignores a quoted failure message and a placeholder', () => {
   const body = 'The check said `#412 references #123`; replace `Closes #123`.';
   assert.deepEqual(extractIssueReferences(body), []);
