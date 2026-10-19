@@ -377,13 +377,15 @@ the root is unavailable. A root outage must not stop helper delivery.
 
 ### 4. Per-owner batching, claiming, and delivery
 
-A **delivery group** is `(project_id, recipient_session_id, queue)`, where
-`queue` is `worker_reports` or `coordinator_summaries`. All reports in a group
-have the same recipient. Worker reports for one recipient form one group
-across all of that recipient's workers. Summaries form one group per
-`(project, root, coordinator)`, so each helper's cadence is independent. A
-remote worker group is assembled across links that share the owner;
-acknowledgement remains per link.
+A **delivery group** is
+`(project_id, recipient_session_id, queue, coordinator_session_id)`. `queue`
+is `worker_reports` or `coordinator_summaries`. For `worker_reports`,
+`coordinator_session_id` is empty: all of a recipient's workers share one
+group. For `coordinator_summaries`, `coordinator_session_id` is the
+coordinator, so each helper has its own group and its own cadence, and the
+recipient is always the root. All work in a group has the same recipient,
+queue, and coordinator dimension. A remote worker group is assembled across
+links that share the owner; acknowledgement remains per link.
 
 Changes to the report row:
 
@@ -392,15 +394,24 @@ Changes to the report row:
   and audit data, not a routing input.
 - The batch id remains the durable delivery identity: the pre-assigned
   `delivery_batch_id` when present, otherwise a hash of the sorted report IDs
-  (`PreparedBatch.IdempotencyKey`). Batching is per group, so two owners never
-  share a batch id.
+  (`PreparedBatch.IdempotencyKey`). Batching is per group, so two recipients never
+  share a batch id, and two helpers never share a summary batch id.
 
-Claims are group-scoped. The group predicate joins `sessions` through
-`reports.session_id` and compares `COALESCE(sessions.owner_session_id,
-<root id>)` with the resolved recipient. It selects pending reports in the
-group, including reports not yet at `available_at`, preserving today's rule
-that a due, attention, or piggyback trigger includes earlier batch work for the
-same recipient. A claim does not span recipients.
+Claims are group-scoped, and the predicate depends on the queue:
+
+- `worker_reports`: join `sessions` through `reports.session_id` and compare
+  `COALESCE(sessions.owner_session_id, <root id>)` with the resolved
+  recipient; `coordinator_session_id` is empty and adds no filter. The claim
+  selects pending reports in the group, including reports not yet at
+  `available_at`, preserving today's rule that a due, attention, or piggyback
+  trigger includes earlier batch work for the same recipient.
+- `coordinator_summaries`: select rows where `project_id = :project`,
+  `coordinator_session_id = :coordinator`, and
+  `delivery_state = 'pending'`, then claim them with the batch token and
+  submit one root-addressed turn. The recipient is the root by definition, and
+  the coordinator is the group's coordinator dimension.
+
+A claim never spans recipients or coordinator dimensions.
 
 ```mermaid
 stateDiagram-v2
