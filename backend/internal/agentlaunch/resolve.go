@@ -115,9 +115,26 @@ func list(items []string) string {
 	return fmt.Sprintf("%s, ... (%d more)", strings.Join(items[:maxListed], ", "), len(items)-maxListed)
 }
 
+// modelSettingLayer names the layer that supplied the merged model selection.
+// Only a role-layer model belongs to RoleHarness; a base model does not.
+type modelSettingLayer int
+
+const (
+	modelLayerNone modelSettingLayer = iota
+	modelLayerBase
+	modelLayerRole
+	modelLayerExplicit
+)
+
 // Merge applies the documented precedence without consulting a catalog. It
 // also returns the model and effort sources for provenance.
 func Merge(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.AgentConfig, domain.AgentConfigSource, domain.AgentConfigSource) {
+	config, modelSource, effortSource, _ := mergeConfig(base, role, explicit, effortExplicit)
+	return config, modelSource, effortSource
+}
+
+// mergeConfig is Merge plus the layer that won the model selection.
+func mergeConfig(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.AgentConfig, domain.AgentConfigSource, domain.AgentConfigSource, modelSettingLayer) {
 	config := ports.AgentConfig{
 		Model:       strings.TrimSpace(base.Model),
 		Effort:      strings.TrimSpace(base.Effort),
@@ -125,10 +142,15 @@ func Merge(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.
 		Permissions: base.Permissions,
 	}
 	modelSource := sourceFor(config.Model, domain.AgentConfigSourceSettings)
+	modelLayer := modelLayerNone
+	if config.Model != "" {
+		modelLayer = modelLayerBase
+	}
 	effortSource := sourceFor(config.Effort, domain.AgentConfigSourceSettings)
 	if roleModel := strings.TrimSpace(role.Model); roleModel != "" {
 		config.Model = roleModel
 		modelSource = domain.AgentConfigSourceSettings
+		modelLayer = modelLayerRole
 	}
 	if roleEffort := strings.TrimSpace(role.Effort); roleEffort != "" {
 		config.Effort = roleEffort
@@ -143,6 +165,7 @@ func Merge(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.
 	if explicitModel := strings.TrimSpace(explicit.Model); explicitModel != "" {
 		config.Model = explicitModel
 		modelSource = domain.AgentConfigSourceExplicit
+		modelLayer = modelLayerExplicit
 	}
 	if explicitEffort := strings.TrimSpace(explicit.Effort); explicitEffort != "" {
 		config.Effort = explicitEffort
@@ -157,7 +180,7 @@ func Merge(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.
 	if explicit.Permissions != "" {
 		config.Permissions = explicit.Permissions
 	}
-	return config, modelSource, effortSource
+	return config, modelSource, effortSource, modelLayer
 }
 
 // Resolve applies the documented precedence: explicit directive, then Project
@@ -178,7 +201,7 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 
-	config, modelSource, effortSource := Merge(req.Base, req.Role, req.Explicit, req.EffortExplicit)
+	config, modelSource, effortSource, modelLayer := mergeConfig(req.Base, req.Role, req.Explicit, req.EffortExplicit)
 	if config.Permissions == "" && !req.SkipPermissionDefault {
 		config.Permissions = ports.PermissionModeAuto
 	}
@@ -195,7 +218,7 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	result, resolutionErr := resolveWithCatalog(req, config, modelSource, effortSource, catalog)
+	result, resolutionErr := resolveWithCatalog(req, config, modelSource, effortSource, modelLayer, catalog)
 	if resolutionErr == nil {
 		return result, nil
 	}
@@ -208,7 +231,7 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, resolutionErr
 	}
-	result, resolutionErr = resolveWithCatalog(req, config, modelSource, effortSource, fresh)
+	result, resolutionErr = resolveWithCatalog(req, config, modelSource, effortSource, modelLayer, fresh)
 	if resolutionErr != nil {
 		return Result{}, resolutionErr
 	}
@@ -233,10 +256,11 @@ func strictResolutionField(field string) bool {
 	return field == "catalog" || field == "model" || field == "effort"
 }
 
-// settingsModelFromOtherHarness reports a Settings model written for a
+// settingsModelFromOtherHarness reports a role-layer model written for a
 // different harness, which direct entry must not treat as a custom value.
-func settingsModelFromOtherHarness(req Request, modelSource domain.AgentConfigSource) bool {
+func settingsModelFromOtherHarness(req Request, modelSource domain.AgentConfigSource, modelLayer modelSettingLayer) bool {
 	return modelSource == domain.AgentConfigSourceSettings &&
+		modelLayer == modelLayerRole &&
 		req.RoleHarness != "" && req.RoleHarness != req.Harness
 }
 
@@ -255,7 +279,7 @@ func crossHarnessModelError(req Request, model string, models []string) *Error {
 }
 
 // resolveWithCatalog validates one merged configuration against one catalog.
-func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effortSource domain.AgentConfigSource, catalog ports.AgentModelCatalog) (Result, *Error) {
+func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effortSource domain.AgentConfigSource, modelLayer modelSettingLayer, catalog ports.AgentModelCatalog) (Result, *Error) {
 	result := Result{
 		Config:       config,
 		ModelSource:  modelSource,
@@ -270,15 +294,20 @@ func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effo
 		switch {
 		case strings.TrimSpace(req.Explicit.Mode) != "":
 			modelSource = domain.AgentConfigSourceExplicit
-		case strings.TrimSpace(req.Role.Mode) != "" || strings.TrimSpace(req.Base.Mode) != "":
+			modelLayer = modelLayerExplicit
+		case strings.TrimSpace(req.Role.Mode) != "":
 			modelSource = domain.AgentConfigSourceSettings
+			modelLayer = modelLayerRole
+		case strings.TrimSpace(req.Base.Mode) != "":
+			modelSource = domain.AgentConfigSourceSettings
+			modelLayer = modelLayerBase
 		}
 		result.Config = config
 		result.ModelSource = modelSource
 	}
 
 	var selected *ports.AgentModelInfo
-	crossHarnessSettings := settingsModelFromOtherHarness(req, modelSource)
+	crossHarnessSettings := settingsModelFromOtherHarness(req, modelSource, modelLayer)
 	strictModel := req.Harness == domain.HarnessClaudeCode && len(catalog.Models) > 0 ||
 		(!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect) ||
 		crossHarnessSettings

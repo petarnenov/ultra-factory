@@ -195,6 +195,29 @@ func TestResolveBlocksCrossHarnessSettingsModelEvenWhenCustomEntryIsAllowed(t *t
 	}
 }
 
+// TestResolveKeepsBaseModelWhenRoleHarnessDiffers pins the review follow-up:
+// a project-level base model has no role harness and stays direct-entry.
+func TestResolveKeepsBaseModelWhenRoleHarnessDiffers(t *testing.T) {
+	req := request()
+	req.Harness = domain.HarnessOpenCodeV2
+	req.RoleHarness = domain.HarnessCodex
+	req.RoleName = "worker"
+	req.Base = domain.AgentConfig{Model: "provider/custom-model"}
+	req.Catalog = fakeCatalog{catalog: ports.AgentModelCatalog{
+		AllowCustom: true,
+		Models:      []ports.AgentModelInfo{{ID: "opencode-v2/default", IsDefault: true}},
+	}}
+
+	got, err := Resolve(context.Background(), req)
+	if err != nil {
+		t.Fatalf("base model was blocked as a role model: %v", err)
+	}
+	if got.Config.Model != "provider/custom-model" ||
+		got.ModelSource != domain.AgentConfigSourceSettings {
+		t.Fatalf("model = %q/%q, want the base Settings model", got.Config.Model, got.ModelSource)
+	}
+}
+
 func TestResolveBlocksInvalidModelAndListsOptions(t *testing.T) {
 	req := request()
 	req.Explicit = domain.AgentConfig{Model: "opencode/missing"}
