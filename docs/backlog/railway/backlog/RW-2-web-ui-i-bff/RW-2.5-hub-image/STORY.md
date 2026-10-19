@@ -1,5 +1,5 @@
 # RW-2.5 · Story: Hub image and deployment
-**Status:** ✅ done
+**Status:** ⛔ needs-human
 
 **As** an operator **I want** a single Railway service `hub` with the daemon orchestrator, BFF and SPA, **so that** I have a public web UI.
 

@@ -13,7 +13,7 @@
 - [ ] Clone a project on the worker (`/api/v1/projects/clone` via the UI), start a Claude Code session, open a terminal, send a message, make a change, create a PR via `gh`.
 - [ ] Check the `*.localhost` preview and artifacts through the remote proxy; record what does not work.
 - [ ] Repeat the key steps with the CLI: `ao spawn --host worker-1 ...`, `ao session ls --host worker-1`.
-- [ ] Runbook `deploy/railway/README.md`: prerequisites, env variables, adding it in the desktop app, password rotation, redeploy, what is lost on restart, troubleshooting (logs, `ao remote-host status` via `railway ssh`).
+- [x] Runbook `deploy/railway/README.md`: prerequisites, env variables, adding it in the desktop app, password rotation, redeploy, what is lost on restart, troubleshooting (logs, `ao remote-host status` via `railway ssh`) — merged in [#83](https://github.com/petarnenov/ultra-factory/pull/83).
 
 ## Acceptance criteria
 - [ ] Another person can repeat the procedure from the runbook without help.

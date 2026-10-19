@@ -16,6 +16,8 @@ backlog/
 - Every task includes Goal, Context, Subtasks, Acceptance criteria,
   Verification, Estimate, and Dependencies.
 - Estimates are person-days for a developer familiar with the repository.
+- Status icons follow the [RW backlog legend](../../railway/backlog/README.md#status):
+  ✅ done, 👀 in review, 🔄 in progress, ⛔ blocked or needs-human, ⬜ todo.
 
 ## Execution order
 
