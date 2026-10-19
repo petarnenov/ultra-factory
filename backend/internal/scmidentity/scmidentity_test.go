@@ -87,8 +87,8 @@ func TestResolveEnterpriseHostInjectsEnterpriseVariables(t *testing.T) {
 	if got := resolved.Env["GITHUB_ENTERPRISE_TOKEN"]; got != fakeToken {
 		t.Fatalf("GITHUB_ENTERPRISE_TOKEN = %q", got)
 	}
-	if got := resolved.Env["GH_TOKEN"]; got != "" {
-		t.Fatalf("GH_TOKEN = %q, want neutralized", got)
+	if _, ok := resolved.Env["GH_TOKEN"]; ok {
+		t.Fatal("enterprise environment must not set GH_TOKEN")
 	}
 }
 

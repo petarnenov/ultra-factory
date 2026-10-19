@@ -321,6 +321,9 @@ func TestIdentityKeyScopesGitHubByProjectAccount(t *testing.T) {
 	if got := identityKey("github", "github.com", "Work-Account"); got != "github|github.com|work-account" {
 		t.Fatalf("bound github key = %q, want host and normalized account", got)
 	}
+	if identityKey("github", "github.com", "work-account") == identityKey("github", "geowealth.ghe.com", "work-account") {
+		t.Fatal("github identity key must keep hosts apart")
+	}
 	// GitLab remains host scoped.
 	if got := identityKey("gitlab", "gitlab.com", "ignored"); got != "gitlab|gitlab.com" {
 		t.Fatalf("gitlab key = %q", got)

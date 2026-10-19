@@ -87,7 +87,7 @@ For a project with a bound account:
 3. AO injects the host-specific variables into the session environment:
    - `github.com`: `GH_TOKEN`
    - any other GitHub host: `GH_HOST` plus `GH_ENTERPRISE_TOKEN` and
-     `GITHUB_ENTERPRISE_TOKEN`, with `GH_TOKEN`/`GITHUB_TOKEN` neutralized
+     `GITHUB_ENTERPRISE_TOKEN`; `GH_TOKEN` is not set for that session
 4. Daemon-side SCM reads and actions for that project use the same host/account
    token rather than the machine-wide token.
 

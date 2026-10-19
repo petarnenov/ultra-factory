@@ -169,8 +169,6 @@ func EnvForHost(host, token string) map[string]string {
 		"GH_HOST":                 host,
 		"GH_ENTERPRISE_TOKEN":     token,
 		"GITHUB_ENTERPRISE_TOKEN": token,
-		"GH_TOKEN":                "",
-		"GITHUB_TOKEN":            "",
 	}
 }
 
