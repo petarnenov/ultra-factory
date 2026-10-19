@@ -38,7 +38,7 @@ A failed or unknown runtime probe alone is not proof that a session is dead.
 
 Chat sessions show durable messages, provider activities, commands, plans, changed files, approvals, structured questions, usage, and compaction state. History loads in bounded pages so long-running sessions remain responsive.
 
-Every Chat header names the surface's role: **Orchestrator**, **Worker**, or **Reviewer**. An orchestrator's Chat header also offers **Kill**. The confirmation dialog terminates the session exactly as `ao session kill <id>` does and can be restored later with `ao session restore <id>`; nothing starts automatically. The session inspector offers the same Kill action for an orchestrator. To start another orchestrator, use the sidebar's orchestrator launcher.
+Every Chat header names the surface's role: **Orchestrator**, **Worker**, or **Reviewer**. A local orchestrator's Chat header also offers **Kill**. The confirmation dialog terminates the session exactly as `ao session kill <id>` does and can be restored later with `ao session restore <id>`; nothing starts automatically. The session inspector offers the same Kill action for a local orchestrator. Cloud sessions terminate through the Cloud control plane. To start another orchestrator, use the sidebar's orchestrator launcher.
 
 The composer sends a provider turn through the daemon. A Chat session can also open a session-scoped worktree shell without creating an agent TUI pane.
 
