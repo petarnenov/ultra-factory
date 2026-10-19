@@ -28,7 +28,10 @@ func (f *fakeCompletedTasks) List(_ context.Context, project domain.ProjectID, i
 		SessionID: "ao-1", ProjectID: "ao", Title: "Add reports", Outcome: taskreport.OutcomeMerged,
 		CreatedAt: time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC), Harness: domain.HarnessClaudeCode,
 		Model: "claude-opus-5-5", Effort: "medium",
-		PRs:    []taskreport.PRLink{{URL: "https://github.com/o/r/pull/1", Number: 1, State: domain.PRStateMerged}},
+		PRs: []taskreport.PRLink{{
+			URL: "https://github.com/o/r/pull/1", Number: 1, State: domain.PRStateMerged,
+			Title: "Add reports", Additions: 120, Deletions: 8, ChangedFiles: 5,
+		}},
 		Tokens: taskreport.TokenTotals{InputTokens: &input, Completeness: taskreport.Partial},
 	}}, NextCursor: "1"}, nil
 }
@@ -38,7 +41,7 @@ func (f *fakeCompletedTasks) Get(_ context.Context, _ domain.ProjectID, id domai
 		return taskreport.Report{}, apierr.NotFound("COMPLETED_TASK_NOT_FOUND", "No completed task")
 	}
 	return taskreport.Report{
-		Summary: taskreport.Summary{SessionID: "ao-1", ProjectID: "ao", Outcome: taskreport.OutcomeCancelled,
+		Summary: taskreport.Summary{SessionID: "ao-1", ProjectID: "ao", Outcome: taskreport.OutcomeUnfinished,
 			Tokens: taskreport.TokenTotals{Completeness: taskreport.Unavailable}},
 		Config: taskreport.ConfigHistory{Completeness: taskreport.Unavailable},
 		Stages: taskreport.StageHistory{Completeness: taskreport.Complete,
@@ -67,6 +70,9 @@ func TestCompletedTaskRoutes(t *testing.T) {
 	if task.HostID != "host-linux" || task.Tokens.Completeness != "partial" || *task.Tokens.InputTokens != 120 ||
 		task.Tokens.OutputTokens != nil || task.PRs[0].State != "merged" || task.CompletedAt != nil {
 		t.Fatalf("task = %+v", task)
+	}
+	if pr := task.PRs[0]; pr.Title != "Add reports" || pr.Additions != 120 || pr.Deletions != 8 || pr.ChangedFiles != 5 {
+		t.Fatalf("pr display facts = %+v", pr)
 	}
 	if svc.lastInput != (taskreport.ListInput{Outcome: "merged", Limit: 10, Cursor: "5"}) {
 		t.Fatalf("input = %+v", svc.lastInput)

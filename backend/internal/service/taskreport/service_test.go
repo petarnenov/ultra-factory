@@ -71,9 +71,11 @@ func TestClassifyOutcomes(t *testing.T) {
 	closed.PRs = []domain.PRFacts{{URL: "u3", Closed: true}}
 	openLive := worker("ao-3", t0)
 	openLive.PRs = []domain.PRFacts{{URL: "u4"}}
-	cancelled := worker("ao-4", t0)
-	cancelled.IsTerminated = true
-	cancelled.PRs = []domain.PRFacts{{URL: "u5"}}
+	unfinished := worker("ao-4", t0)
+	unfinished.IsTerminated = true
+	unfinished.PRs = []domain.PRFacts{{URL: "u5"}}
+	noPR := worker("ao-7", t0)
+	noPR.IsTerminated = true
 	failed := worker("ao-5", t0)
 	failed.IsTerminated = true
 	failed.ProvisionState = domain.SessionProvisionFailed
@@ -87,7 +89,8 @@ func TestClassifyOutcomes(t *testing.T) {
 		{merged, OutcomeMerged, true},
 		{closed, OutcomeClosed, true},
 		{openLive, "", false},
-		{cancelled, OutcomeCancelled, true},
+		{unfinished, OutcomeUnfinished, true},
+		{noPR, OutcomeNoPR, true},
 		{failed, OutcomeFailed, true},
 		{live, "", false},
 	} {
@@ -95,6 +98,27 @@ func TestClassifyOutcomes(t *testing.T) {
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("%s: classify = %q,%v want %q,%v", tc.sess.ID, got, ok, tc.want, tc.ok)
 		}
+	}
+}
+
+func TestSummarizeCarriesPRDisplayFacts(t *testing.T) {
+	sess := worker("ao-1", t0)
+	sess.IsTerminated = true
+	sess.PRs = []domain.PRFacts{{
+		URL: "https://github.com/o/r/pull/7", Number: 7, Title: "feat: add completed-task cards",
+		Additions: 120, Deletions: 8, ChangedFiles: 5,
+	}}
+	outcome, ok := classify(sess)
+	if !ok || outcome != OutcomeUnfinished {
+		t.Fatalf("classify = %q,%v", outcome, ok)
+	}
+	got := summarize(sess, outcome, nil)
+	if len(got.PRs) != 1 {
+		t.Fatalf("prs = %+v", got.PRs)
+	}
+	pr := got.PRs[0]
+	if pr.Title != "feat: add completed-task cards" || pr.Additions != 120 || pr.Deletions != 8 || pr.ChangedFiles != 5 {
+		t.Fatalf("pr display facts = %+v", pr)
 	}
 }
 
@@ -148,8 +172,8 @@ func TestListFiltersSortsAndPages(t *testing.T) {
 		t.Fatalf("page 2 = %+v", page)
 	}
 
-	page, err = svc.List(ctx, "ao", ListInput{Outcome: OutcomeCancelled})
-	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].Outcome != OutcomeCancelled {
+	page, err = svc.List(ctx, "ao", ListInput{Outcome: OutcomeNoPR})
+	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].Outcome != OutcomeNoPR {
 		t.Fatalf("filtered = %+v, %v", page, err)
 	}
 
@@ -194,7 +218,7 @@ func TestGetBuildsReportFromRecordedFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Outcome != OutcomeCancelled || report.CompletedAt == nil || !report.CompletedAt.Equal(at(30)) || *report.ElapsedSeconds != 1800 {
+	if report.Outcome != OutcomeNoPR || report.CompletedAt == nil || !report.CompletedAt.Equal(at(30)) || *report.ElapsedSeconds != 1800 {
 		t.Fatalf("summary = %+v", report.Summary)
 	}
 	if report.Stages.Completeness != Complete || len(report.Stages.Visits) != 4 {

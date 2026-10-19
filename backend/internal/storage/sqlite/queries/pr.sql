@@ -318,6 +318,10 @@ SELECT
     pr.updated_at,
     pr.state_changed_at,
     pr.ci_observed_at,
+    pr.title,
+    pr.additions,
+    pr.deletions,
+    pr.changed_files,
     last_review.submitted_at AS last_review_at,
     EXISTS (
         SELECT 1
@@ -434,6 +438,10 @@ SELECT
     pr.updated_at,
     pr.state_changed_at,
     pr.ci_observed_at,
+    pr.title,
+    pr.additions,
+    pr.deletions,
+    pr.changed_files,
     last_review.submitted_at AS last_review_at,
     EXISTS (
         SELECT 1

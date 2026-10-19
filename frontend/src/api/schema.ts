@@ -4333,9 +4333,13 @@ export interface components {
             source: "session" | "conversation";
         };
         CompletedTaskPR: {
+            additions: number;
+            changedFiles: number;
+            deletions: number;
             number: number;
             /** @enum {string} */
             state: "draft" | "open" | "merged" | "closed";
+            title: string;
             url: string;
         };
         CompletedTaskReportResponse: {
@@ -4351,7 +4355,7 @@ export interface components {
             issueId?: string;
             model: string;
             /** @enum {string} */
-            outcome: "merged" | "closed" | "cancelled" | "failed";
+            outcome: "merged" | "closed" | "failed" | "unfinished" | "no_pr";
             projectId: string;
             prs: components["schemas"]["CompletedTaskPR"][];
             runs: components["schemas"]["CompletedTaskRun"][];
@@ -4410,7 +4414,7 @@ export interface components {
             issueId?: string;
             model: string;
             /** @enum {string} */
-            outcome: "merged" | "closed" | "cancelled" | "failed";
+            outcome: "merged" | "closed" | "failed" | "unfinished" | "no_pr";
             projectId: string;
             prs: components["schemas"]["CompletedTaskPR"][];
             sessionId: string;
@@ -11188,7 +11192,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description Only tasks with this outcome. */
-                outcome?: "merged" | "closed" | "cancelled" | "failed";
+                outcome?: "merged" | "closed" | "failed" | "unfinished" | "no_pr";
                 /** @description Page size, 1 to 200. Defaults to 50. */
                 limit?: number;
                 /** @description Cursor from the previous page. */

@@ -3606,16 +3606,21 @@ type CompletedTaskParams struct {
 
 // ListCompletedTasksQuery filters and pages completed tasks.
 type ListCompletedTasksQuery struct {
-	Outcome string `query:"outcome,omitempty" enum:"merged,closed,cancelled,failed" description:"Only tasks with this outcome."`
+	Outcome string `query:"outcome,omitempty" enum:"merged,closed,failed,unfinished,no_pr" description:"Only tasks with this outcome."`
 	Limit   int    `query:"limit,omitempty" description:"Page size, 1 to 200. Defaults to 50."`
 	Cursor  string `query:"cursor,omitempty" description:"Cursor from the previous page."`
 }
 
-// CompletedTaskPR is one PR attributed to a completed task.
+// CompletedTaskPR is one PR attributed to a completed task. Title and the
+// diff totals stay empty/zero until an observation carries them.
 type CompletedTaskPR struct {
-	URL    string `json:"url"`
-	Number int    `json:"number"`
-	State  string `json:"state" enum:"draft,open,merged,closed"`
+	URL          string `json:"url"`
+	Number       int    `json:"number"`
+	State        string `json:"state" enum:"draft,open,merged,closed"`
+	Title        string `json:"title"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	ChangedFiles int    `json:"changedFiles"`
 }
 
 // CompletedTaskTokens are summed token counts. A null count was never
@@ -3636,7 +3641,7 @@ type CompletedTaskSummary struct {
 	Title          string              `json:"title"`
 	IssueID        string              `json:"issueId,omitempty"`
 	PRs            []CompletedTaskPR   `json:"prs"`
-	Outcome        string              `json:"outcome" enum:"merged,closed,cancelled,failed"`
+	Outcome        string              `json:"outcome" enum:"merged,closed,failed,unfinished,no_pr"`
 	CreatedAt      time.Time           `json:"createdAt"`
 	CompletedAt    *time.Time          `json:"completedAt"`
 	ElapsedSeconds *int64              `json:"elapsedSeconds"`

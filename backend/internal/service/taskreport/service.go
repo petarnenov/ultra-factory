@@ -16,19 +16,22 @@ import (
 // Outcome is how a completed task ended.
 type Outcome string
 
-// Task outcomes. A terminated worker without merged or closed PRs is
-// cancelled, or failed when its start-up failed; neither counts as merged.
+// Task outcomes describe the deliverable, not who stopped it: AO records no
+// termination cause, so intent is not observable.
 const (
-	OutcomeMerged    Outcome = "merged"
-	OutcomeClosed    Outcome = "closed"
-	OutcomeCancelled Outcome = "cancelled"
-	OutcomeFailed    Outcome = "failed"
+	OutcomeMerged Outcome = "merged"
+	OutcomeClosed Outcome = "closed"
+	OutcomeFailed Outcome = "failed"
+	// A terminated worker without a settled PR set is unfinished when it owns
+	// a PR and no_pr when it recorded none.
+	OutcomeUnfinished Outcome = "unfinished"
+	OutcomeNoPR       Outcome = "no_pr"
 )
 
 // Valid reports whether o is a known outcome.
 func (o Outcome) Valid() bool {
 	switch o {
-	case OutcomeMerged, OutcomeClosed, OutcomeCancelled, OutcomeFailed:
+	case OutcomeMerged, OutcomeClosed, OutcomeFailed, OutcomeUnfinished, OutcomeNoPR:
 		return true
 	}
 	return false
@@ -54,11 +57,16 @@ const (
 	MaxLimit     = 200
 )
 
-// PRLink is one PR attributed to the task.
+// PRLink is one PR attributed to the task. Title and the diff totals describe
+// the delivered change and stay zero until an observation carries them.
 type PRLink struct {
-	URL    string
-	Number int
-	State  domain.PRState
+	URL          string
+	Number       int
+	State        domain.PRState
+	Title        string
+	Additions    int
+	Deletions    int
+	ChangedFiles int
 }
 
 // TokenTotals are summed token counts. A nil count was never recorded.
@@ -200,7 +208,7 @@ func New(d Deps) *Service {
 // Tasks without a recorded completion time sort after those with one.
 func (s *Service) List(ctx context.Context, projectID domain.ProjectID, in ListInput) (Page, error) {
 	if in.Outcome != "" && !in.Outcome.Valid() {
-		return Page{}, apierr.Invalid("INVALID_OUTCOME", "outcome must be merged, closed, cancelled, or failed", nil)
+		return Page{}, apierr.Invalid("INVALID_OUTCOME", "outcome must be merged, closed, failed, unfinished, or no_pr", nil)
 	}
 	limit := in.Limit
 	if limit <= 0 {
@@ -360,7 +368,10 @@ func classify(sess domain.Session) (Outcome, bool) {
 	if sess.ProvisionState == domain.SessionProvisionFailed {
 		return OutcomeFailed, true
 	}
-	return OutcomeCancelled, true
+	if len(sess.PRs) > 0 {
+		return OutcomeUnfinished, true
+	}
+	return OutcomeNoPR, true
 }
 
 func summarize(sess domain.Session, outcome Outcome, transitions []domain.StageTransition) Summary {
@@ -380,7 +391,10 @@ func summarize(sess domain.Session, outcome Outcome, transitions []domain.StageT
 		case pr.Draft:
 			state = domain.PRStateDraft
 		}
-		out.PRs = append(out.PRs, PRLink{URL: pr.URL, Number: pr.Number, State: state})
+		out.PRs = append(out.PRs, PRLink{
+			URL: pr.URL, Number: pr.Number, State: state, Title: pr.Title,
+			Additions: pr.Additions, Deletions: pr.Deletions, ChangedFiles: pr.ChangedFiles,
+		})
 	}
 	if at := completedAt(sess, transitions); !at.IsZero() {
 		at = at.UTC()

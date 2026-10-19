@@ -82,6 +82,10 @@ func prFactsFromListRow(r gen.ListPRFactsBySessionRow) domain.PRFacts {
 		TargetBranch:             r.TargetBranch,
 		HeadSHA:                  r.HeadSha,
 		UpdatedAt:                r.UpdatedAt,
+		Title:                    r.Title,
+		Additions:                int(r.Additions),
+		Deletions:                int(r.Deletions),
+		ChangedFiles:             int(r.ChangedFiles),
 		StateChangedAt:           timeFromNull(r.StateChangedAt),
 		CIChangedAt:              timeFromNull(r.CIObservedAt),
 		LastReviewAt:             timeFromNull(r.LastReviewAt),
@@ -91,28 +95,19 @@ func prFactsFromListRow(r gen.ListPRFactsBySessionRow) domain.PRFacts {
 	}
 }
 
+// prFactsFromBatchRow maps the batch reader's row onto the shared per-session
+// row so both readers share one mapper.
 func prFactsFromBatchRow(r gen.ListPRFactsBySessionsRow) domain.PRFacts {
-	return domain.PRFacts{
-		URL:                      r.URL,
-		Number:                   int(r.Number),
-		Draft:                    r.PRState == domain.PRStateDraft,
-		Merged:                   r.PRState == domain.PRStateMerged,
-		Closed:                   r.PRState == domain.PRStateClosed,
-		CI:                       r.CIState,
-		Review:                   r.ReviewDecision,
-		Mergeability:             r.Mergeability,
-		ReviewComments:           r.ReviewComments,
-		SourceBranch:             r.SourceBranch,
-		TargetBranch:             r.TargetBranch,
-		HeadSHA:                  r.HeadSha,
-		UpdatedAt:                r.UpdatedAt,
-		StateChangedAt:           timeFromNull(r.StateChangedAt),
-		CIChangedAt:              timeFromNull(r.CIObservedAt),
-		LastReviewAt:             timeFromNull(r.LastReviewAt),
-		ExternalComments:         r.ExternalComments,
-		ExternalApproved:         r.ExternalApproved,
+	return prFactsFromListRow(gen.ListPRFactsBySessionRow{
+		URL: r.URL, Number: r.Number, PRState: r.PRState, ReviewDecision: r.ReviewDecision,
+		CIState: r.CIState, Mergeability: r.Mergeability, SourceBranch: r.SourceBranch,
+		TargetBranch: r.TargetBranch, HeadSha: r.HeadSha, UpdatedAt: r.UpdatedAt,
+		StateChangedAt: r.StateChangedAt, CIObservedAt: r.CIObservedAt, Title: r.Title,
+		Additions: r.Additions, Deletions: r.Deletions, ChangedFiles: r.ChangedFiles,
+		LastReviewAt: r.LastReviewAt, ExternalComments: r.ExternalComments,
+		ReviewComments: r.ReviewComments, ExternalApproved: r.ExternalApproved,
 		ExternalChangesRequested: r.ExternalChangesRequested,
-	}
+	})
 }
 
 func prFactsFromGen(r gen.GetDisplayPRFactsBySessionRow) domain.PRFacts {

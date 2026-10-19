@@ -38,6 +38,12 @@ type PRFacts struct {
 	ExternalApproved         bool
 	ExternalChangesRequested bool
 	ExternalComments         bool
+	// Title, Additions, Deletions and ChangedFiles describe the delivered
+	// change; zero until the observation that carries them arrives.
+	Title        string
+	Additions    int
+	Deletions    int
+	ChangedFiles int
 }
 
 // PullRequest is the app-level representation of one tracked pull request as
