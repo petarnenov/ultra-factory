@@ -17,10 +17,17 @@ GitHub runner cannot read them. The work is split in two:
 
 ## What counts as active time
 
-Session logs are read from:
+Four coding tools are read, each described in `scripts/ai-actual/sessions.mjs`:
 
-- Codex: `~/.codex/sessions/**/rollout-*.jsonl`
-- Claude Code: `~/.claude/projects/*/*.jsonl`
+| Tool | Store | Timestamps |
+| --- | --- | --- |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl` | per event |
+| Claude Code | `~/.claude/projects/*/*.jsonl` | per event |
+| OpenCode | `~/.local/share/opencode/opencode.db` (SQLite) | per message, milliseconds |
+| Copilot CLI | `~/.copilot/session-store.db` (SQLite) | per turn |
+
+A store that does not exist is skipped, so a machine only needs the tools it
+actually runs. `--tools codex,opencode` narrows the set.
 
 Consecutive events closer than the idle cut are summed; a longer gap is time
 the tool was not working on the task and is dropped. The default cut is five
@@ -35,14 +42,17 @@ than adding a fixed cost.
 
 ## Attribution
 
-A session belongs to a pull request when the log itself names the head branch:
-Claude Code records `gitBranch` on its entries, and Codex records
-`payload.git.branch` in `session_meta`. Only the events recorded on that branch
-are counted, so time spent on another branch in the same session is left out.
+A session belongs to a pull request when its store names the head branch:
+Claude Code records `gitBranch`, Codex records `payload.git.branch` in
+`session_meta`, and the Copilot CLI records one branch per session. Only the
+events recorded on that branch are counted, so time spent on another branch in
+the same session is left out.
 
-Two fallbacks cover logs that name neither the branch nor the pull request:
-a worktree that still sits on the head branch, and an explicit `--cwd <path>`.
-Claude Code also records `prNumber`, which matches on its own.
+OpenCode records no branch at all, so its sessions attribute through the
+worktree that still sits on the head branch, or through an explicit
+`--cwd <path>`. Those are the two fallbacks for any store that names neither
+the branch nor the pull request. Claude Code also records `prNumber`, which
+matches on its own.
 
 Events after the merge time are dropped, so a session left open afterwards does
 not inflate the number. Sessions from an orchestrator or a root checkout never
@@ -69,6 +79,7 @@ npm run ai-actual:test                    # unit tests, plus live checks with a 
 | `--pr <number>` | Pull request to measure. Required. |
 | `--issue <number>` | Record this issue instead of the ones the PR closes. |
 | `--cwd <path>` | Extra working directory to attribute sessions from. |
+| `--tools <list>` | Stores to read. Default: all four. |
 | `--idle-cut <minutes>` | Gap treated as idle. Default 5. |
 | `--ref <branch>` | Branch holding the workflow. Default: the default branch. |
 | `--workflow <name>` | Workflow file name. Default `ai-actual.yml`. |

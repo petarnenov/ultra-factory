@@ -2,9 +2,6 @@
 // Measures AI tool time for a pull request and dispatches the recorder.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
 import {
 	activeSeconds,
 	clipTimes,
@@ -13,11 +10,11 @@ import {
 	formatEvidence,
 	formatHours,
 	MIN_SESSION_SECONDS,
-	readSession,
 	sumBlocks,
 	timesOnBranch,
 	toBlocks,
 } from './lib.mjs';
+import { discoverSessions, STORES } from './sessions.mjs';
 
 const USAGE = `Usage: npm run ai-actual -- --pr <number> [options]
 
@@ -28,6 +25,7 @@ Options:
   --pr <number>        Pull request to measure (required)
   --issue <number>     Record this issue instead of the ones the PR closes
   --cwd <path>         Extra working directory to attribute sessions from
+  --tools <list>       Stores to read: ${Object.keys(STORES).join(', ')}
   --idle-cut <minutes> Gap treated as idle (default 5)
   --ref <branch>       Branch holding the workflow (default: default branch)
   --workflow <name>    Workflow file name (default ai-actual.yml)
@@ -69,77 +67,6 @@ function gitBranch(cwd) {
 	} catch {
 		return null;
 	}
-}
-
-function walkJsonl(root) {
-	const found = [];
-	const stack = [root];
-	while (stack.length > 0) {
-		const dir = stack.pop();
-		let entries;
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			continue;
-		}
-		for (const entry of entries) {
-			const path = join(dir, entry.name);
-			if (entry.isDirectory()) stack.push(path);
-			else if (entry.name.endsWith('.jsonl')) found.push(path);
-		}
-	}
-	return found;
-}
-
-function claudeSessionFiles() {
-	const root = join(homedir(), '.claude', 'projects');
-	let projects;
-	try {
-		projects = readdirSync(root, { withFileTypes: true });
-	} catch {
-		return [];
-	}
-	return projects
-		.filter((entry) => entry.isDirectory())
-		.flatMap((entry) => walkJsonl(join(root, entry.name)));
-}
-
-// Labels a session file the way it is printed in the evidence table.
-function label(path) {
-	const name = basename(path, '.jsonl');
-	if (name.startsWith('rollout-')) {
-		const id = name.split('-').pop();
-		return `codex/${id.slice(0, 8)}`;
-	}
-	return `claude/${name.slice(0, 8)}`;
-}
-
-function candidates({ windowStart, windowEnd, verbose }) {
-	const files = [
-		...walkJsonl(join(homedir(), '.codex', 'sessions')),
-		...claudeSessionFiles(),
-	];
-	const sessions = [];
-	for (const path of files) {
-		let mtime;
-		try {
-			mtime = statSync(path).mtimeMs / 1000;
-		} catch {
-			continue;
-		}
-		if (mtime < windowStart) continue;
-		if (windowEnd && mtime > windowEnd + 86_400) continue;
-		const session = readSession(readFileSync(path, 'utf8'));
-		if (session.events.length === 0) continue;
-		sessions.push({ path, name: label(path), ...session });
-		if (verbose) {
-			console.log(
-				`candidate ${label(path)} cwd=${session.cwd ?? '?'} ` +
-					`branch=${session.branch ?? '?'} events=${session.events.length}`,
-			);
-		}
-	}
-	return sessions;
 }
 
 function allTimes(session) {
@@ -202,7 +129,19 @@ function main() {
 		? Math.min(...authored) - 2 * 86_400
 		: Date.now() / 1000 - 30 * 86_400;
 
-	const found = candidates({ windowStart, windowEnd: mergedAt, verbose: args.verbose });
+	const found = discoverSessions({
+		windowStart,
+		windowEnd: mergedAt,
+		stores: args.tools ? args.tools.split(',') : undefined,
+	});
+	if (args.verbose) {
+		for (const session of found) {
+			console.log(
+				`candidate ${session.name} cwd=${session.cwd ?? '?'} ` +
+					`branch=${session.branch ?? '?'} events=${session.events.length}`,
+			);
+		}
+	}
 	const { matched, unresolved } = attribute({
 		sessions: found,
 		headRefName: pr.headRefName,
@@ -225,7 +164,7 @@ function main() {
 	if (measured.length === 0) {
 		console.error(
 			`no session recorded branch ${pr.headRefName} or pull request #${pr.number} ` +
-				`(${found.length} candidate log files)`,
+				`(${found.length} candidate sessions)`,
 		);
 		if (dropped > 0) console.error(`${dropped} session(s) measured under one minute`);
 		for (const session of unresolved) {

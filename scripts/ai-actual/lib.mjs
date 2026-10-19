@@ -33,6 +33,16 @@ export function parseTimestamp(value) {
 	return Number.isNaN(ms) ? null : ms / 1000;
 }
 
+// Reads a store timestamp: epoch milliseconds, epoch seconds, or a string
+// that may need a UTC zone, as SQLite's datetime() writes.
+export function toEpochSeconds(value) {
+	if (typeof value === 'number') return value > 1e11 ? value / 1000 : value;
+	if (typeof value !== 'string' || value === '') return null;
+	const iso = value.includes('T') ? value : value.replace(' ', 'T');
+	const zoned = /[Zz]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`;
+	return parseTimestamp(zoned);
+}
+
 // Most frequent non-null value; ties keep the first one seen.
 function mode(values) {
 	const counts = new Map();
@@ -91,7 +101,10 @@ export function timesOnBranch(events, branch) {
 	const on = events.filter((event) => event.branch === branch).map((event) => event.at);
 	if (on.length > 1) return on;
 	const first = events.find((event) => event.branch !== null);
-	if (first && first.branch === branch) return events.map((event) => event.at);
+	// A store that records the branch per session, not per event, applies it
+	// to every event.
+	if (!first) return events.map((event) => event.at);
+	if (first.branch === branch) return events.map((event) => event.at);
 	return on;
 }
 

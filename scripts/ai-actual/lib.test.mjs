@@ -11,6 +11,7 @@ import {
 	sumBlocks,
 	timesOnBranch,
 	toBlocks,
+	toEpochSeconds,
 } from './lib.mjs';
 
 const CODEX = [
@@ -78,6 +79,21 @@ test('timesOnBranch keeps only the events recorded on that branch', () => {
 test('timesOnBranch keeps every event when the branch is recorded once', () => {
 	const { events } = readSession(CODEX);
 	assert.equal(timesOnBranch(events, 'ao/task').length, 3);
+});
+
+test('timesOnBranch keeps every event when no event records a branch', () => {
+	const events = [{ at: 1, branch: null }, { at: 2, branch: null }];
+	assert.deepEqual(timesOnBranch(events, 'feat/x'), [1, 2]);
+});
+
+test('toEpochSeconds reads milliseconds, seconds, and store timestamps', () => {
+	assert.equal(toEpochSeconds(1_791_820_506_541), 1791820506.541);
+	assert.equal(toEpochSeconds(1_791_820_506), 1791820506);
+	assert.equal(toEpochSeconds('2026-10-12T15:55:06.541Z'), 1791820506.541);
+	// SQLite's datetime() writes a space and no zone, meaning UTC.
+	assert.equal(toEpochSeconds('2026-10-12 15:55:06'), 1791820506);
+	assert.equal(toEpochSeconds(''), null);
+	assert.equal(toEpochSeconds(null), null);
 });
 
 test('activeSeconds sums gaps and drops anything past the idle cut', () => {
