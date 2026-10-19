@@ -1489,6 +1489,8 @@ describe("SessionInspector completion controls", () => {
       <SessionInspector session={session([], { kind: "orchestrator" })} />,
     );
 
+    expect(screen.getByText("Kill")).toBeInTheDocument();
+    expect(screen.queryByText("Archive")).not.toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: "Kill orchestrator" }),
     );

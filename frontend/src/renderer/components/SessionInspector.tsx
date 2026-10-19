@@ -817,7 +817,9 @@ function SessionControls({ session, hostId }: { session: WorkspaceSession; hostI
 
 	const terminateAction = (
 		<div className="flex items-center justify-between gap-3 py-1">
-			<span className="min-w-0 text-sm text-settings-label">{t("inspector.archiveShort")}</span>
+			<span className="min-w-0 text-sm text-settings-label">
+				{isOrchestrator ? t("chat.killOrchestrator.action") : t("inspector.archiveShort")}
+			</span>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<span className="inline-flex">
