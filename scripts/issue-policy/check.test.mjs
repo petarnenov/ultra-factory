@@ -47,8 +47,13 @@ test('ignores references inside fenced code blocks', () => {
   assert.deepEqual(extractIssueReferences(body), [12]);
 });
 
-test('keeps references inside inline code, as the PR template shows them', () => {
-  assert.deepEqual(extractIssueReferences('Why: `Fixes #456`'), [456]);
+test('ignores references inside inline code as literal text', () => {
+  assert.deepEqual(extractIssueReferences('Why: `Fixes #456`'), []);
+});
+
+test('ignores a quoted failure message and a placeholder', () => {
+  const body = 'The check said `#412 references #123`; replace `Closes #123`.';
+  assert.deepEqual(extractIssueReferences(body), []);
 });
 
 test('passes when the referenced issue has a type and a priority', () => {

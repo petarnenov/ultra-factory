@@ -6,9 +6,9 @@ reference an issue, and every referenced issue must carry exactly one type label
 and exactly one priority label.
 
 The check reads the pull request title and description, collects `#NNN`
-references outside fenced code blocks, and ignores references to other pull
-requests and to other repositories. It prints one actionable line per failure,
-including the `gh issue edit` command that fixes it.
+references outside fenced blocks and inline code, and ignores references to
+other pull requests and to other repositories. It prints one actionable line
+per failure, including the `gh issue edit` command that fixes it.
 
 Two pull requests are exempt, by head and base branch only:
 

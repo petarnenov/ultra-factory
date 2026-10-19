@@ -65,9 +65,11 @@ every pull request. It fails when:
   label.
 
 A plain `#123` counts. `Closes #123` is the recommended form because GitHub
-then links the pull request and closes the issue on merge. The check reads
-references outside fenced code blocks, ignores references to other pull
-requests, and ignores references to other repositories (`owner/repo#123`).
+then links the pull request and closes the issue on merge. Write the reference
+in plain text: the check treats fenced blocks and inline code as literal text,
+so an unfilled placeholder or a quoted failure message does not become a
+reference. It also ignores references to other pull requests and to other
+repositories (`owner/repo#123`).
 
 The failure names what is missing and prints the fix, for example:
 

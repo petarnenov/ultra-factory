@@ -22,10 +22,12 @@ const prioritySet = new Set(PRIORITY_LABELS);
 const isMain = process.argv[1]
   && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
-// Fenced blocks hold literal text such as a quoted error message, not
-// references. Inline code still counts: templates show `Closes #123` that way.
+// Fenced blocks and inline code hold literal text such as a placeholder or a
+// quoted message, not references. Both are dropped before extraction.
 export function prosaicText(text) {
-  return String(text ?? '').replace(/```[\s\S]*?```/g, ' ');
+  return String(text ?? '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`\n]*`/g, ' ');
 }
 
 // Cross-repository references (owner/repo#123) are not checked here.
