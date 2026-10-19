@@ -35,6 +35,12 @@ Every product command resolves to a daemon HTTP route. Run `ao <command>
 | `ao daemon`                   | Run the daemon in the foreground (normally supervised by the desktop app or an OS service manager).                               |
 | `ao remote-host status/enable/disable` | Inspect or toggle this machine's authenticated remote listener through the local daemon. |
 
+`ao start`, `ao stop`, and `ao daemon` are refused inside an AO agent session
+(`AO_SESSION_ID` is set): they control the daemon that runs the session. A
+daemon started by a host supervisor (the Railway hub sets `AO_SUPERVISED=1`)
+also refuses loopback `POST /shutdown`, so stopping it requires a service
+restart from the platform.
+
 For a self-hosted machine, use the [host setup command](../self-hosted-remote.md)
 to install the daemon with its Claude Chat runtime and start the OS user
 service. It calls `ao remote-host enable` and prints the host ID, address, and

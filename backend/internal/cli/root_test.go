@@ -70,6 +70,27 @@ func TestCommandsRejectUnexpectedArgs(t *testing.T) {
 	}
 }
 
+// TestDaemonControlCommandsRefuseAgentSessions covers the destructive surface
+// named in issue #247: an agent session cannot start, stop, or run the daemon.
+func TestDaemonControlCommandsRefuseAgentSessions(t *testing.T) {
+	setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "ultra-factory-1")
+	for _, command := range []string{"start", "stop", "daemon"} {
+		t.Run(command, func(t *testing.T) {
+			_, _, err := executeCLI(t, Deps{}, command)
+			if err == nil {
+				t.Fatal("expected an agent-session refusal")
+			}
+			if got := ExitCode(err); got != 1 {
+				t.Fatalf("ExitCode(%v) = %d, want 1", err, got)
+			}
+			if !strings.Contains(err.Error(), "`ao "+command+"` is refused inside an AO agent session") {
+				t.Fatalf("err = %v, want a clear refusal", err)
+			}
+		})
+	}
+}
+
 func TestChatHostRejectsMalformedInternalArgumentsAsUsage(t *testing.T) {
 	setConfigEnv(t)
 	for _, args := range [][]string{
@@ -272,6 +293,7 @@ func TestStatusStoppedJSON(t *testing.T) {
 
 func TestStopRemovesStaleRunFile(t *testing.T) {
 	cfg := setConfigEnv(t)
+	userShell(t)
 	if err := runfile.Write(cfg.runFile, runfile.Info{PID: 999999, Port: 3001, StartedAt: time.Unix(100, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
@@ -294,6 +316,7 @@ func TestStopRemovesStaleRunFile(t *testing.T) {
 
 func TestStopDoesNotShutdownUnverifiedReusedPID(t *testing.T) {
 	cfg := setConfigEnv(t)
+	userShell(t)
 	shutdownCalled := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -339,6 +362,7 @@ func TestStopDoesNotShutdownUnverifiedReusedPID(t *testing.T) {
 
 func TestStopUsesShutdownEndpoint(t *testing.T) {
 	cfg := setConfigEnv(t)
+	userShell(t)
 	shutdownCalled := make(chan struct{}, 1)
 	var shutdownSeen atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -411,6 +435,7 @@ func TestStatusKeepsLiveProbeFailureUnhealthy(t *testing.T) {
 
 func TestStopRefusesUnverifiedLivePID(t *testing.T) {
 	cfg := setConfigEnv(t)
+	userShell(t)
 	if err := runfile.Write(cfg.runFile, runfile.Info{PID: 4242, Port: closedPort(t), StartedAt: time.Unix(100, 0).UTC()}); err != nil {
 		t.Fatal(err)
 	}
@@ -452,6 +477,13 @@ func setConfigEnv(t *testing.T) testConfig {
 	// Code must not leak it into exact hook-body assertions.
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
 	return cfg
+}
+
+// userShell makes a daemon-control test run as a user's own shell: a suite
+// run inside an AO session otherwise carries AO_SESSION_ID.
+func userShell(t *testing.T) {
+	t.Helper()
+	t.Setenv("AO_SESSION_ID", "")
 }
 
 func executeCLI(t *testing.T, deps Deps, args ...string) (string, string, error) {

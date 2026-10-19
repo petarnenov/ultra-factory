@@ -159,6 +159,7 @@ func TestStopKeepsRunFileOfDaemonWhosePIDIsInvisible(t *testing.T) {
 
 func TestStaleRunFileIsRemovedWhenNothingAnswers(t *testing.T) {
 	cfg := setConfigEnv(t)
+	userShell(t)
 	srv, _ := sandboxDaemon(t, sandboxDaemonPID, sandboxDaemonInstance)
 	port := serverPort(t, srv.URL)
 	srv.Close()

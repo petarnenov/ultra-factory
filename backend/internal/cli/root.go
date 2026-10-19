@@ -357,6 +357,9 @@ func newDaemonCommand() *cobra.Command {
 		Hidden: true,
 		Args:   noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseDaemonControlInAgentSession("daemon"); err != nil {
+				return err
+			}
 			return daemon.Run()
 		},
 	}

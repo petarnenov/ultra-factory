@@ -8,7 +8,7 @@ supervisor=$here/hub-supervisor.sh
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failures=0
-unset TS_AUTHKEY AO_REMOTE_TAILNET_SOCKS
+unset TS_AUTHKEY AO_REMOTE_TAILNET_SOCKS AO_SUPERVISED
 
 check() {
 	local name=$1
@@ -130,6 +130,54 @@ test_exits_when_one_child_exits() {
 		AO_HUB_DAEMON_COMMAND="sleep 6130" AO_HUB_BFF_MAIN="$work/exit3.js" \
 		timeout 20 bash "$supervisor" 2>"$work/exit.log" || status=$?
 	[[ $status == 3 ]] && grep -q 'hub BFF exited with status' "$work/exit.log" && ! pgrep -a -x sleep | grep -q ' 6130$'
+}
+
+# A critical child that exits cleanly (status 0) must still be a failure: the
+# platform did not restart a clean container exit (issue #247).
+test_clean_bff_exit_is_a_failure() {
+	local status=0
+	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_DAEMON_COMMAND="sleep 6136" AO_HUB_BFF_MAIN="$work/exit0.js" \
+		timeout 20 bash "$supervisor" 2>"$work/exit0.log" || status=$?
+	[[ $status == 1 ]] && grep -q 'hub BFF exited with status 0 and no termination signal' "$work/exit0.log" &&
+		! pgrep -a -x sleep | grep -q ' 6136$'
+}
+
+test_clean_daemon_exit_is_a_failure() {
+	local status=0
+	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_DAEMON_COMMAND="$work/exit0.sh" AO_HUB_BFF_MAIN="$work/sleep.js" \
+		timeout 20 bash "$supervisor" 2>"$work/daemon-exit0.log" || status=$?
+	[[ $status == 1 ]] && grep -q 'ao daemon exited with status 0 and no termination signal' "$work/daemon-exit0.log"
+}
+
+# AO_SUPERVISED marks the daemon only, so its loopback /shutdown refuses while
+# the BFF keeps its normal environment.
+test_marks_only_the_daemon_as_supervised() {
+	local pid status=0
+	cat >"$work/daemon-supervised.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s' "${AO_SUPERVISED:-unset}" >"$AO_HUB_TEST_DIR/daemon-supervised"
+exec sleep 6137
+EOF
+	cat >"$work/bff-supervised.js" <<'EOF'
+require('node:fs').writeFileSync(process.env.AO_HUB_TEST_DIR + '/bff-supervised',
+  process.env.AO_SUPERVISED || 'unset');
+setInterval(() => {}, 1000);
+EOF
+	chmod +x "$work/daemon-supervised.sh"
+	AO_HUB_TEST_DIR="$work" AO_HUB_SUPERVISOR_DRY_RUN=0 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
+		AO_HUB_DAEMON_COMMAND="$work/daemon-supervised.sh" AO_HUB_BFF_MAIN="$work/bff-supervised.js" \
+		bash "$supervisor" 2>"$work/supervised.log" &
+	pid=$!
+	for _ in $(seq 1 50); do
+		[[ -f $work/daemon-supervised && -f $work/bff-supervised ]] && break
+		sleep 0.1
+	done
+	kill -TERM "$pid" 2>/dev/null || true
+	wait "$pid" || status=$?
+	[[ $status == 0 ]] && [[ $(cat "$work/daemon-supervised") == 1 ]] &&
+		[[ $(cat "$work/bff-supervised") == unset ]]
 }
 
 # SIGTERM to the supervisor must stop both children and exit 0.
@@ -280,6 +328,9 @@ EOF
 }
 
 printf 'process.exit(3);\n' >"$work/exit3.js"
+printf 'process.exit(0);\n' >"$work/exit0.js"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$work/exit0.sh"
+chmod +x "$work/exit0.sh"
 printf 'setInterval(() => {}, 1000);\n' >"$work/sleep.js"
 mkdir -p "$work/home"
 
@@ -294,6 +345,9 @@ check "replaces an older copy with a newer image version" test_newer_image_repla
 check "seeds OpenCode 2 into the daemon's private npm prefix" test_seeds_opencode_v2_into_private_prefix
 check "keeps an OpenCode 2 copy updated from the UI" test_keeps_newer_opencode_v2_ui_update
 check "exits with the status of the first child that exits" test_exits_when_one_child_exits
+check "a clean BFF exit is reported as a failure" test_clean_bff_exit_is_a_failure
+check "a clean daemon exit is reported as a failure" test_clean_daemon_exit_is_a_failure
+check "only the daemon runs with AO_SUPERVISED=1" test_marks_only_the_daemon_as_supervised
 check "SIGTERM stops both processes and exits 0" test_sigterm_stops_both
 check "a tick loop that exits is restarted without stopping the hub" test_tick_loop_restarts_without_stopping_the_hub
 check "the tick loop is opt-in (AO_HUB_ORCHESTRATOR_TICK=1)" test_tick_loop_is_off_by_default
