@@ -457,6 +457,38 @@ func (c mapCatalog) Models(_ context.Context, harness, _ string, _ bool) (ports.
 	return c[harness], nil
 }
 
+type recordingCatalog struct {
+	catalog    ports.AgentModelCatalog
+	projectIDs []string
+}
+
+func (c *recordingCatalog) Models(_ context.Context, _ string, projectID string, _ bool) (ports.AgentModelCatalog, error) {
+	c.projectIDs = append(c.projectIDs, projectID)
+	return c.catalog, nil
+}
+
+// Reviewer validation must ask for the worker project's catalog scope, because
+// credential-scoped model IDs (Bedrock, Vertex) differ per project environment.
+func TestReviewerValidationUsesWorkerProjectScope(t *testing.T) {
+	projects := fakeProjects{cfg: domain.ProjectConfig{
+		Reviewers: []domain.ReviewerConfig{{
+			Harness:     domain.ReviewerClaudeCode,
+			AgentConfig: domain.AgentConfig{Model: "claude/project-model", Effort: "high"},
+		}},
+	}}
+	eng := newEngineForTest(&fakeStore{}, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), projects, &fakeLauncher{handle: "claude-pane"})
+	catalog := &recordingCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{{
+		ID: "claude/project-model", IsDefault: true, Efforts: []string{"low", "high"},
+	}}}}
+	eng.modelCatalog = catalog
+	if _, err := eng.TriggerWithOptions(context.Background(), "mer-1", TriggerOptions{Source: domain.ReviewTriggerAgent}); err != nil {
+		t.Fatalf("TriggerWithOptions: %v", err)
+	}
+	if len(catalog.projectIDs) == 0 || catalog.projectIDs[0] != "mer" {
+		t.Fatalf("catalog project ids = %v, want the worker project", catalog.projectIDs)
+	}
+}
+
 // A reviewer role resolves through the same catalog validation as a worker
 // spawn: an invalid settings model blocks before the reviewer starts.
 func TestReviewerConfigBlocksInvalidModelAndUsesSettings(t *testing.T) {

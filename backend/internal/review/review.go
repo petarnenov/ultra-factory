@@ -400,6 +400,7 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	// run is created. Invalid input blocks with the valid options.
 	resolved, err := agentlaunch.Resolve(ctx, agentlaunch.Request{
 		Machine:               e.machineLabel,
+		ProjectID:             string(worker.ProjectID),
 		Harness:               domain.AgentHarness(harness),
 		Role:                  config,
 		Catalog:               e.modelCatalog,

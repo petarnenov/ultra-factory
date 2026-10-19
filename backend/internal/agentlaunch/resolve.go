@@ -177,37 +177,64 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	if config.Permissions == "" && !req.SkipPermissionDefault {
 		config.Permissions = ports.PermissionModeAuto
 	}
+	// Command Code's catalog advertises no effort levels, so forward the raw
+	// level and let `cmd --effort` reject unknown values at launch.
+	if req.Harness == domain.HarnessCommandCode {
+		return Result{
+			Config: config, ModelSource: modelSource, EffortSource: effortSource,
+			Machine: req.Machine,
+		}, nil
+	}
 
-	effortExplicit := req.EffortExplicit || strings.TrimSpace(req.Explicit.Effort) != ""
+	catalog, err := loadCatalog(ctx, req, false)
+	if err != nil {
+		return Result{}, err
+	}
+	result, resolutionErr := resolveWithCatalog(req, config, modelSource, effortSource, catalog)
+	if resolutionErr == nil {
+		return result, nil
+	}
+	// A cached catalog may predate a CLI upgrade or new entitlement. Confirm a
+	// strict rejection against fresh discovery before blocking the launch.
+	if req.Catalog == nil || !strictResolutionField(resolutionErr.Field) {
+		return Result{}, resolutionErr
+	}
+	fresh, err := loadCatalog(ctx, req, true)
+	if err != nil {
+		return Result{}, resolutionErr
+	}
+	result, resolutionErr = resolveWithCatalog(req, config, modelSource, effortSource, fresh)
+	if resolutionErr != nil {
+		return Result{}, resolutionErr
+	}
+	return result, nil
+}
+
+func loadCatalog(ctx context.Context, req Request, refresh bool) (ports.AgentModelCatalog, error) {
+	if req.Catalog == nil {
+		return modelcatalog.Base(string(req.Harness)), nil
+	}
+	catalog, err := req.Catalog.Models(ctx, string(req.Harness), req.ProjectID, refresh)
+	if err != nil {
+		return ports.AgentModelCatalog{}, &Error{
+			Machine: req.Machine, Harness: req.Harness, Field: "catalog",
+			Reason: fmt.Sprintf("the model catalog is unavailable: %v", err),
+			Models: catalogModelIDs(catalog),
+		}
+	}
+	return catalog, nil
+}
+func strictResolutionField(field string) bool {
+	return field == "catalog" || field == "model" || field == "effort"
+}
+
+// resolveWithCatalog validates one merged configuration against one catalog.
+func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effortSource domain.AgentConfigSource, catalog ports.AgentModelCatalog) (Result, *Error) {
 	result := Result{
 		Config:       config,
 		ModelSource:  modelSource,
 		EffortSource: effortSource,
 		Machine:      req.Machine,
-	}
-	// Command Code's catalog advertises no effort levels, so forward the raw
-	// level and let `cmd --effort` reject unknown values at launch.
-	if req.Harness == domain.HarnessCommandCode {
-		return result, nil
-	}
-	catalog := modelcatalog.Base(string(req.Harness))
-	if req.Catalog != nil {
-		discovered, err := req.Catalog.Models(ctx, string(req.Harness), req.ProjectID, false)
-		if err != nil {
-			return Result{}, &Error{
-				Machine: req.Machine, Harness: req.Harness, Field: "catalog",
-				Reason: fmt.Sprintf("the model catalog is unavailable: %v", err),
-				Models: catalogModelIDs(discovered),
-			}
-		}
-		catalog = discovered
-	}
-	if catalog.Stale && (config.Model != "" || config.Effort != "") {
-		return Result{}, &Error{
-			Machine: req.Machine, Harness: req.Harness, Field: "catalog",
-			Reason: fmt.Sprintf("the cached catalog is stale and cannot validate model %q", config.Model),
-			Models: catalogModelIDs(catalog),
-		}
 	}
 	modelIDs := catalogModelIDs(catalog)
 	// Agents whose picker is a mode list (for example Amp) keep the selection
@@ -225,6 +252,11 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	}
 
 	var selected *ports.AgentModelInfo
+	strictModel := req.Harness == domain.HarnessClaudeCode && len(catalog.Models) > 0 ||
+		(!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect)
+	if catalog.Stale && config.Model != "" && strictModel {
+		return Result{}, staleCatalogError(req, catalog, config.Model)
+	}
 	if config.Model == "" {
 		for i := range catalog.Models {
 			if catalog.Models[i].IsDefault && strings.TrimSpace(catalog.Models[i].ID) != "" {
@@ -254,6 +286,9 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 		if selected == nil {
 			strictClaude := req.Harness == domain.HarnessClaudeCode && len(catalog.Models) > 0
 			if strictClaude || (!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect) {
+				if catalog.Stale {
+					return Result{}, staleCatalogError(req, catalog, config.Model)
+				}
 				return Result{}, &Error{
 					Machine: req.Machine, Harness: req.Harness, Field: "model",
 					Reason: fmt.Sprintf("model %q is not valid for this harness", config.Model),
@@ -274,7 +309,7 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	}
 
 	if result.Config.Effort == "" {
-		if selected.DefaultEffort != "" && !effortExplicit {
+		if selected.DefaultEffort != "" && !isEffortExplicit(req) {
 			result.Config.Effort = selected.DefaultEffort
 			result.EffortSource = domain.AgentConfigSourceMachineDefault
 		}
@@ -283,14 +318,14 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	if selected == nil {
 		return result, nil
 	}
+	if catalog.Stale {
+		return Result{}, staleCatalogError(req, catalog, result.Config.Model)
+	}
 	efforts := append([]string(nil), selected.Efforts...)
 	if !contains(efforts, result.Config.Effort) {
 		reason := fmt.Sprintf("effort %q is not valid for model %q", result.Config.Effort, result.Config.Model)
 		if len(efforts) == 0 {
 			reason = fmt.Sprintf("model %q accepts no effort setting", result.Config.Model)
-		}
-		if catalog.Stale {
-			reason += " (the cached catalog is stale)"
 		}
 		return Result{}, &Error{
 			Machine: req.Machine, Harness: req.Harness, Field: "effort",
@@ -298,6 +333,18 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+func isEffortExplicit(req Request) bool {
+	return req.EffortExplicit || strings.TrimSpace(req.Explicit.Effort) != ""
+}
+
+func staleCatalogError(req Request, catalog ports.AgentModelCatalog, model string) *Error {
+	return &Error{
+		Machine: req.Machine, Harness: req.Harness, Field: "catalog",
+		Reason: fmt.Sprintf("the cached catalog is stale and cannot validate model %q", model),
+		Models: catalogModelIDs(catalog),
+	}
 }
 
 func sourceFor(value string, source domain.AgentConfigSource) domain.AgentConfigSource {

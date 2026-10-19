@@ -19,6 +19,22 @@ func (c fakeCatalog) Models(context.Context, string, string, bool) (ports.AgentM
 	return c.catalog, c.err
 }
 
+// refreshingCatalog returns the cached catalog first and the fresh one after
+// a forced refresh, so tests can assert the retry before a strict rejection.
+type refreshingCatalog struct {
+	cached ports.AgentModelCatalog
+	fresh  ports.AgentModelCatalog
+	calls  int
+}
+
+func (c *refreshingCatalog) Models(_ context.Context, _ string, _ string, refresh bool) (ports.AgentModelCatalog, error) {
+	c.calls++
+	if refresh {
+		return c.fresh, nil
+	}
+	return c.cached, nil
+}
+
 func request() Request {
 	return Request{
 		Machine:   "build-box",
@@ -214,6 +230,64 @@ func TestResolveAcceptsCustomModelWhenTheHarnessAllowsIt(t *testing.T) {
 	}
 	if got.Config.Model != "opencode/custom-id" {
 		t.Fatalf("model = %q, want custom id", got.Config.Model)
+	}
+}
+
+// A stale cache must not block a harness that accepts unlisted models; fresh
+// discovery would accept the same id, so only strict validation may block.
+func TestResolveAcceptsDirectEntryModelWithStaleCatalog(t *testing.T) {
+	req := request()
+	req.Explicit = domain.AgentConfig{Model: "opencode/custom-id"}
+	req.Catalog = fakeCatalog{catalog: ports.AgentModelCatalog{
+		AllowCustom: true,
+		Stale:       true,
+		Models:      []ports.AgentModelInfo{{ID: "opencode/one", IsDefault: true}},
+	}}
+	got, err := Resolve(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Config.Model != "opencode/custom-id" {
+		t.Fatalf("model = %q, want the direct-entry id", got.Config.Model)
+	}
+}
+
+// A strict rejection must confirm against fresh discovery first: a model that
+// appeared after the cache was written is valid.
+func TestResolveRefreshesCatalogBeforeRejectingModel(t *testing.T) {
+	req := request()
+	req.Harness = domain.HarnessClaudeCode
+	req.Explicit = domain.AgentConfig{Model: "claude/new", Effort: "high"}
+	catalog := &refreshingCatalog{
+		cached: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{{ID: "claude/old", IsDefault: true}}},
+		fresh: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{{
+			ID: "claude/new", IsDefault: true, Efforts: []string{"low", "high"},
+		}}},
+	}
+	req.Catalog = catalog
+	got, err := Resolve(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Config.Model != "claude/new" || got.Config.Effort != "high" {
+		t.Fatalf("config = %#v, want the refreshed model and effort", got.Config)
+	}
+	if catalog.calls != 2 {
+		t.Fatalf("catalog calls = %d, want a cached read and one refresh", catalog.calls)
+	}
+}
+
+// A stale strict catalog still blocks when fresh discovery cannot resolve it.
+func TestResolveBlocksStaleStrictCatalog(t *testing.T) {
+	req := request()
+	req.Harness = domain.HarnessClaudeCode
+	req.Explicit = domain.AgentConfig{Model: "claude/new"}
+	stale := ports.AgentModelCatalog{Stale: true, Models: []ports.AgentModelInfo{{ID: "claude/old", IsDefault: true}}}
+	req.Catalog = &refreshingCatalog{cached: stale, fresh: stale}
+	_, err := Resolve(context.Background(), req)
+	var resolutionErr *Error
+	if !errors.As(err, &resolutionErr) || resolutionErr.Field != "catalog" {
+		t.Fatalf("error = %v, want a stale-catalog block", err)
 	}
 }
 
