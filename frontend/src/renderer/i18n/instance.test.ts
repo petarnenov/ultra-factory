@@ -73,6 +73,18 @@ describe("app i18next instance", () => {
 		expect(chatRoleLabelKey("reviewer")).toBe("terminal.reviewer");
 	});
 
+	it("keeps zh-CN orchestrator kill copy on the established term", () => {
+		const chinese = createAppI18n("zh-CN");
+		for (const key of [
+			"chat.killOrchestrator.aria",
+			"archive.killOrchestratorTitle",
+			"archive.killOrchestratorBody",
+			"archive.killOrchestratorConfirmAria",
+		] as const) {
+			expect(chinese.t(key), key).toContain("编排器");
+		}
+	});
+
 	it("uses English by default and Chinese when selected", () => {
 		expect(createAppI18n().t("settings.general")).toBe("General");
 		expect(createAppI18n("zh-CN").t("settings.general")).toBe("通用");
