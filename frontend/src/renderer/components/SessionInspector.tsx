@@ -34,6 +34,7 @@ import {
 	Play,
 	Loader2,
 	SearchCheck,
+	Square,
 	X,
 } from "lucide-react";
 import type { components } from "../../api/schema";
@@ -67,6 +68,7 @@ import { clearTerminateSessionState, useTerminateSession } from "../hooks/useTer
 import { prBrowserUrl, prCanMerge, prCardPresentation, prNounKeys, sessionPRDisplaySummaries } from "../lib/pr-display";
 import type { SessionArtifact, WorkspaceSession, WorkspaceSummary } from "../types/workspace";
 import {
+	isOrchestratorSession,
 	openPRs,
 	resolveNextNavigationAfterSessionKill,
 	sessionArtifacts,
@@ -435,8 +437,12 @@ const SummaryView = memo(function SummaryView({
 		? t("inspector.artifacts", { count: artifacts.length })
 		: t("inspector.artifact");
 	const openPRNumber = prSummaries.find((pr) => pr.state === "open" || pr.state === "draft")?.number;
-	// CI, review, and merge policies act on a PR. Standalone sessions keep the row for Archive.
-	const showSessionControls = hasPRs || session.workspaceId === STANDALONE_WORKSPACE_ID;
+	// CI, review, and merge policies act on a PR. Orchestrators and
+	// standalone sessions keep the row for their termination action.
+	const showSessionControls =
+		isOrchestratorSession(session) ||
+		hasPRs ||
+		session.workspaceId === STANDALONE_WORKSPACE_ID;
 	// Cloud orchestrators list the workers they spawned; local orchestrators
 	// have no parent/child model and every other session has no children.
 	const showWorkers =
@@ -785,6 +791,7 @@ function SessionControls({ session, hostId }: { session: WorkspaceSession; hostI
 	});
 	const policyError = policy.error instanceof Error ? policy.error.message : null;
 	const canTerminateNow = session.status === "merged";
+	const isOrchestrator = isOrchestratorSession(session);
 	const isStandaloneSession = session.workspaceId === STANDALONE_WORKSPACE_ID;
 
 	const confirmTermination = ({ deleteArtifacts }: SessionArchiveChoice) => {
@@ -810,7 +817,9 @@ function SessionControls({ session, hostId }: { session: WorkspaceSession; hostI
 
 	const terminateAction = (
 		<div className="flex items-center justify-between gap-3 py-1">
-			<span className="min-w-0 text-sm text-settings-label">{t("inspector.archiveShort")}</span>
+			<span className="min-w-0 text-sm text-settings-label">
+				{isOrchestrator ? t("chat.killOrchestrator.action") : t("inspector.archiveShort")}
+			</span>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<span className="inline-flex">
@@ -821,8 +830,13 @@ function SessionControls({ session, hostId }: { session: WorkspaceSession; hostI
 							session={session}
 							trigger={
 								<button
-									aria-label={t("inspector.archive")}
-									className="inline-flex size-control-md items-center justify-center rounded-sm text-passive transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+									aria-label={isOrchestrator ? t("chat.killOrchestrator.aria") : t("inspector.archive")}
+									className={cn(
+										"inline-flex size-control-md items-center justify-center rounded-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+										isOrchestrator
+											? "text-error/80 hover:bg-error/10 hover:text-error"
+											: "text-passive hover:bg-interactive-hover hover:text-foreground",
+									)}
 									onClick={() => {
 										clearTerminateSessionState(queryClient, session.id, hostId);
 										// Always open the confirm; the modal owns its own dismissal.
@@ -830,13 +844,19 @@ function SessionControls({ session, hostId }: { session: WorkspaceSession; hostI
 									}}
 									type="button"
 								>
-									<Archive className="size-icon-sm" aria-hidden="true" />
+									{isOrchestrator ? (
+										<Square className="size-icon-sm fill-current" aria-hidden="true" />
+									) : (
+										<Archive className="size-icon-sm" aria-hidden="true" />
+									)}
 								</button>
 							}
 						/>
 					</span>
 				</TooltipTrigger>
-				<TooltipContent side="bottom">{t("inspector.archive")}</TooltipContent>
+				<TooltipContent side="bottom">
+					{isOrchestrator ? t("chat.killOrchestrator.aria") : t("inspector.archive")}
+				</TooltipContent>
 			</Tooltip>
 		</div>
 	);
@@ -847,9 +867,13 @@ function SessionControls({ session, hostId }: { session: WorkspaceSession; hostI
 
 	return (
 		<Section title={t("inspector.sessionControls")}>
-			<AutoInjectCIPolicyControl hostId={hostId} session={session} />
-			<AutoInjectReviewPolicyControl hostId={hostId} session={session} />
-			{session.kind === "orchestrator" ? null : canTerminateNow ? (
+			{isOrchestrator ? null : (
+				<>
+					<AutoInjectCIPolicyControl hostId={hostId} session={session} />
+					<AutoInjectReviewPolicyControl hostId={hostId} session={session} />
+				</>
+			)}
+			{isOrchestrator || canTerminateNow ? (
 				terminateAction
 			) : (
 				<>

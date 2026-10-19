@@ -3252,5 +3252,11 @@
   "reports.retry": "Retry",
   "reports.loadMore": "Load more",
   "reports.loadingMore": "Loading more reports…",
-  "reports.loadMoreError": "Reports could not be loaded."
+  "reports.loadMoreError": "Reports could not be loaded.",
+  "chat.killOrchestrator.action": "強制終了",
+  "chat.killOrchestrator.aria": "オーケストレーターを強制終了",
+  "chat.killOrchestrator.killing": "強制終了中…",
+  "archive.killOrchestratorTitle": "このオーケストレーターを強制終了しますか？",
+  "archive.killOrchestratorBody": "オーケストレーターのセッションを終了します。動作は `ao session kill <id>` と同じです。後で `ao session restore <id>` で復元できます。代替セッションは自動的に起動しません。",
+  "archive.killOrchestratorConfirmAria": "確認、オーケストレーターを強制終了"
 }

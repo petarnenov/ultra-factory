@@ -38,7 +38,7 @@ export function ReviewerChatSurface({ reviewId, workerSessionId, hostId, hideHea
 			draftOwner={draftOwner}
 			onSessionLinkOpen={openSessionLink}
 			sessionTitle={t("terminal.reviewer")}
-			sessionRole="worker"
+			sessionRole="reviewer"
 			hideHeader={hideHeader}
 			busy={commands.busy}
 			commandError={commands.error ?? catalog.error}

@@ -3233,5 +3233,11 @@
   "reports.retry": "Retry",
   "reports.loadMore": "Load more",
   "reports.loadingMore": "Loading more reports…",
-  "reports.loadMoreError": "Reports could not be loaded."
+  "reports.loadMoreError": "Reports could not be loaded.",
+  "chat.killOrchestrator.action": "Kill",
+  "chat.killOrchestrator.aria": "Kill orchestrator",
+  "chat.killOrchestrator.killing": "Killing…",
+  "archive.killOrchestratorTitle": "Kill this orchestrator?",
+  "archive.killOrchestratorBody": "This terminates the orchestrator session, exactly like `ao session kill <id>`. You can restore it later with `ao session restore <id>`; no replacement starts automatically.",
+  "archive.killOrchestratorConfirmAria": "Confirm, kill orchestrator"
 }

@@ -820,6 +820,7 @@ describe("ChatWorkspace timeline", () => {
 
 		expect(screen.getByLabelText("Chat")).toHaveAttribute("data-session-role", "worker");
 		expect(screen.getByLabelText("Chat")).toHaveClass("min-w-0", "w-full", "overflow-hidden");
+		expect(screen.getByTestId("chat-role-tag")).toHaveTextContent("Worker");
 		expect(screen.getByTestId("session-workspace-topbar")).toBeInTheDocument();
 		expect(screen.getByTestId("session-terminal-region")).toHaveStyle({ width: "100%" });
 		const workerTab = screen.getByRole("tab", { name: "Reviewer chat · Codex · Working" });
@@ -836,6 +837,7 @@ describe("ChatWorkspace timeline", () => {
 		);
 
 		expect(screen.getByLabelText("Chat")).toHaveAttribute("data-session-role", "orchestrator");
+		expect(screen.getByTestId("chat-role-tag")).toHaveTextContent("Orchestrator");
 		expect(screen.getByTestId("session-workspace-topbar")).toBeInTheDocument();
 		const actionRegion = screen.getByTestId("session-action-region");
 		expect(actionRegion).toHaveClass("pl-2", "pr-3");
@@ -849,6 +851,20 @@ describe("ChatWorkspace timeline", () => {
 			/>,
 		);
 		expect(screen.getByRole("tab", { name: "Orchestrator · Codex · Working" })).toBeInTheDocument();
+		expect(screen.getByTestId("chat-role-tag")).toHaveTextContent("Orchestrator");
+	});
+
+	it("shows that the reviewer surface is active in the chat role tag", () => {
+		render(
+			<ChatWorkspace
+				reviewerTarget={{ kind: "reviewer", handleId: "review-1", harness: "codex", sessionId: chatSession.id }}
+				session={chatSession}
+				sessionRole="worker"
+				snapshot={chatFixture}
+			/>,
+		);
+
+		expect(screen.getByTestId("chat-role-tag")).toHaveTextContent("Reviewer");
 	});
 
 	it("shows live provider context usage beside the composer settings", () => {
