@@ -1,7 +1,7 @@
 # 10. Coordinator hierarchy and report ownership
 
 Date: 2026-10-19
-Status: Accepted (design gate for CO-2; effective on merge of PR #282)
+Status: Accepted (design gate for CO-2; effective when pull request #282 merges)
 
 ## Context
 
