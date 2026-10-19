@@ -349,6 +349,100 @@ func TestMergedPRUsesSessionManagerOnlyWhenOptedIn(t *testing.T) {
 	}
 }
 
+// TestMergedPRTerminatesWorkerInheritingProjectDefault covers #144's full
+// path: inherited default, persisted record, merge, and explicit override.
+func TestMergedPRTerminatesWorkerInheritingProjectDefault(t *testing.T) {
+	ctx := context.Background()
+	setDefault := func(t *testing.T, st *stack, terminate bool) {
+		t.Helper()
+		cfg := domain.ProjectConfig{
+			Worker:             domain.RoleOverride{Harness: domain.HarnessClaudeCode},
+			Orchestrator:       domain.RoleOverride{Harness: domain.HarnessClaudeCode},
+			TerminateOnPRMerge: terminate,
+		}
+		if ok, err := st.store.UpdateProjectSettings(ctx, "mer", "", cfg); err != nil || !ok {
+			t.Fatalf("update project settings: ok=%v err=%v", ok, err)
+		}
+	}
+	boolPtr := func(v bool) *bool { return &v }
+	merge := func(t *testing.T, st *stack, id domain.SessionID, number int) {
+		t.Helper()
+		pr := ports.PRObservation{
+			Fetched: true, URL: "pr", Number: number, Merged: true,
+		}
+		if err := st.prm.ApplyObservation(ctx, id, pr); err != nil {
+			t.Fatalf("apply merged observation: %v", err)
+		}
+	}
+	assertTorn := func(t *testing.T, st *stack, id domain.SessionID) {
+		t.Helper()
+		if st.rt.destroyed != 1 || st.ws.destroyed != 1 {
+			t.Fatalf("merge teardown: runtime=%d workspace=%d, want 1/1", st.rt.destroyed, st.ws.destroyed)
+		}
+		if rec, _, _ := st.store.GetSession(ctx, id); !rec.IsTerminated {
+			t.Fatalf("merged session remained live: %+v", rec)
+		}
+	}
+	assertLive := func(t *testing.T, st *stack, id domain.SessionID) {
+		t.Helper()
+		if st.rt.destroyed != 0 || st.ws.destroyed != 0 {
+			t.Fatalf("merge tore down resources: runtime=%d workspace=%d", st.rt.destroyed, st.ws.destroyed)
+		}
+		if rec, _, _ := st.store.GetSession(ctx, id); rec.IsTerminated {
+			t.Fatalf("merged session was terminated: %+v", rec)
+		}
+	}
+
+	t.Run("inherited default tears down after merge", func(t *testing.T) {
+		st := newStack(t)
+		setDefault(t, st, true)
+		sess, _, _, err := st.sm.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Branch: "b", Prompt: "do it"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !sess.TerminateOnPRMerge {
+			t.Fatal("spawn did not inherit the project default")
+		}
+		merge(t, st, sess.ID, 1)
+		assertTorn(t, st, sess.ID)
+	})
+
+	t.Run("remote worker inherits default", func(t *testing.T) {
+		st := newStack(t)
+		setDefault(t, st, true)
+		sess, _, _, err := st.sm.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Branch: "b", Prompt: "do it", RemoteSpawned: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		merge(t, st, sess.ID, 1)
+		assertTorn(t, st, sess.ID)
+	})
+
+	t.Run("explicit false wins over default on", func(t *testing.T) {
+		st := newStack(t)
+		setDefault(t, st, true)
+		sess, _, _, err := st.sm.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Branch: "b", Prompt: "do it", TerminateOnPRMerge: boolPtr(false)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sess.TerminateOnPRMerge {
+			t.Fatal("explicit false did not override the project default")
+		}
+		merge(t, st, sess.ID, 1)
+		assertLive(t, st, sess.ID)
+	})
+
+	t.Run("explicit true wins over default off", func(t *testing.T) {
+		st := newStack(t)
+		sess, _, _, err := st.sm.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Branch: "b", Prompt: "do it", TerminateOnPRMerge: boolPtr(true)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		merge(t, st, sess.ID, 1)
+		assertTorn(t, st, sess.ID)
+	})
+}
+
 func TestSpawnPRKillRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	st := newStack(t)

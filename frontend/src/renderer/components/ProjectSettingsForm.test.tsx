@@ -815,6 +815,36 @@ describe("ProjectSettingsForm", () => {
 		expect(request?.body.config.autoReview).toBe(false);
 	});
 
+	it("loads and saves the project terminate on PR merge setting", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "git@github.com:acme/project-one.git",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				orchestrator: { agent: "claude-code" },
+				terminateOnPrMerge: true,
+			},
+		});
+
+		renderSettings("proj-1", undefined, "general");
+
+		const toggle = await screen.findByRole("switch", { name: "Terminate sessions on PR merge" });
+		expect(toggle).toBeChecked();
+
+		await userEvent.click(toggle);
+		expect(toggle).not.toBeChecked();
+
+		submitSettings();
+
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		const request = putMock.mock.calls[0]?.[1];
+		expect(request?.body.config.terminateOnPrMerge).toBe(false);
+	});
+
 	it("loads and saves whether workers request an AO review", async () => {
 		mockProject({
 			id: "proj-1",
