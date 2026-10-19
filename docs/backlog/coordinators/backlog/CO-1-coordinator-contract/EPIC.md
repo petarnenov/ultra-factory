@@ -1,6 +1,6 @@
 # CO-1 · Epic: Measure load and define coordinator ownership
 
-**Status:** ⬜ todo
+**Status:** 🔄 in progress — CO-1.2.1 merged in [#282](https://github.com/petarnenov/ultra-factory/pull/282); CO-1.1.1 still needs an operator run ([#218](https://github.com/petarnenov/ultra-factory/issues/218)).
 
 **Goal.** Establish a measured baseline and an explicit domain/API contract for
 one root orchestrator delegating to two scoped coordinators, each managing up

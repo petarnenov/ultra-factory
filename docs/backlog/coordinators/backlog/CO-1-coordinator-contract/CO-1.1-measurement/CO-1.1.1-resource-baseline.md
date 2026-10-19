@@ -1,6 +1,6 @@
 # CO-1.1.1 · Task: Record per-process resource baseline
 
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human — the protocol, sampler script, and template landed in [#302](https://github.com/petarnenov/ultra-factory/pull/302) (`aedd5645`); the measurement itself needs an operator with Railway access and issue [#218](https://github.com/petarnenov/ultra-factory/issues/218) stays open.
 
 **Type:** operations and measurement. **Estimate:** 0.5–1 pd. **Story:** CO-1.1.
 
@@ -16,6 +16,11 @@ workers, before adding helper coordinators.
   responsible.
 - The hub runs the daemon, BFF, optional orchestrator tick loop, and agent
   sessions. Agent harnesses may start additional child processes.
+- The topology changed after this baseline was drafted: the hub now runs only
+  the orchestrator and implementation workers run on separate hosts or Railway
+  worker services (`AGENTS.md`). The workload definition for the current
+  topology, the capture protocol, and the comparison template are in
+  `deploy/railway/resource-baseline.md` (#302).
 - Relevant deployment and runtime instructions are in
   `deploy/railway/README.md` and `docs/railway/architecture.md`.
 
