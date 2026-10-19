@@ -34,10 +34,70 @@ func TestGreenPRThresholdAndChecks(t *testing.T) {
 		"no checks":          {pr("MERGEABLE"), false},
 		"no completion time": {pr("MERGEABLE", Check{Result: "SUCCESS"}), false},
 	} {
-		got := len(greenPRsLeftOpen(cfg, tc.facts.GitHub, now)) == 1
+		got := len(greenPRsLeftOpen(cfg, tc.facts, now)) == 1
 		if got != tc.want {
 			t.Errorf("%s: violation = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestGreenPRViolationMatchesReviewState(t *testing.T) {
+	cfg := DefaultConfig()
+	greenFacts := func(mutate func(*PullRequest, *Worker)) Facts {
+		pr := PullRequest{
+			Number: 201, Head: "rw/x", HeadSHA: head("201"),
+			Mergeable: "MERGEABLE", ReviewDecision: "APPROVED",
+			Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-20 * time.Minute)}},
+		}
+		worker := Worker{ID: "uf-1", Branch: "rw/x", Reviews: []WorkerReview{
+			{PRNumber: 201, TargetSHA: pr.HeadSHA, Status: "up_to_date"},
+		}}
+		if mutate != nil {
+			mutate(&pr, &worker)
+		}
+		return Facts{
+			GitHub: &GitHubState{OpenPRs: []PullRequest{pr}},
+			Hosts:  []HostSessions{{Host: "Linux", Sessions: []Worker{worker}}},
+		}
+	}
+	const base = `#201 (rw/x) has been green and mergeable for 20 min → review it per "Review and merge"`
+	cases := map[string]struct {
+		mutate func(*PullRequest, *Worker)
+		want   []string
+	}{
+		"approved": {nil, []string{base + " and merge it"}},
+		"AO review running": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].Status = "running"
+		}, []string{base + "; AO review is running"}},
+		"no AO review for this head": {func(_ *PullRequest, w *Worker) {
+			w.Reviews = nil
+		}, []string{base + "; no current-head AO native approval"}},
+		"stale AO review for another head": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].TargetSHA = head("stale")
+		}, []string{base + "; no current-head AO native approval"}},
+		"provider approval required": {func(pr *PullRequest, _ *Worker) {
+			pr.ReviewDecision = "REVIEW_REQUIRED"
+		}, []string{base + "; review approval required"}},
+		"AO changes requested": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].Status = "changes_requested"
+		}, []string{}},
+		"provider changes requested": {func(pr *PullRequest, _ *Worker) {
+			pr.ReviewDecision = "CHANGES_REQUESTED"
+		}, []string{}},
+		"unresolved review thread": {func(pr *PullRequest, _ *Worker) {
+			pr.Threads = []ReviewThread{{Body: "fix this"}}
+		}, []string{}},
+		"failing checks": {func(pr *PullRequest, _ *Worker) {
+			pr.Checks = []Check{{Result: "FAILURE", CompletedAt: now.Add(-20 * time.Minute)}}
+		}, []string{}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := texts(greenPRsLeftOpen(cfg, greenFacts(tc.mutate), now))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
