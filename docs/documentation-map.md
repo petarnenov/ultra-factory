@@ -24,6 +24,7 @@ being listed in the contract layer does not make their prose drift-proof.
 | [README.md](../README.md)                                   | Product overview, install, quickstart, top-level doc index.                  |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)                       | How to pick up work, claim issues, and open PRs.                             |
 | [docs/README.md](README.md)                                 | Index of the repository's architecture and reference docs.                   |
+| [docs/issue-policy.md](issue-policy.md)                     | Issue type and priority labels, the pull request check, and its exemptions.  |
 | [docs/architecture.md](architecture.md)                     | Backend mental model, lifecycle, persistence/CDC, status derivation.         |
 | [docs/backend-code-structure.md](backend-code-structure.md) | Package ownership rules for the Go backend.                                  |
 | [docs/development.md](development.md)                       | Prerequisites, build, test, and troubleshooting for local development.       |

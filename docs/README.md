@@ -16,6 +16,7 @@ in [gemini-cli.md](gemini-cli.md).
 | Doc                                                    | What it covers                                                                                                        |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | [documentation-map.md](documentation-map.md)           | Human-facing docs vs the machine-readable contract layer, source of truth per concern, and the CI gates that hold it. |
+| [issue-policy.md](issue-policy.md)                     | Issue type and priority labels, the pull request check that enforces them, and its two narrow exemptions.            |
 | [documentation-coverage.md](documentation-coverage.md) | Stable-release baseline, covered user paths, and hands-on verification still needed. |
 | [Public manual sources](../frontend/src/docs/content/index.mdx) | Existing user guides, configuration, capability catalog, CLI reference, and mobile access pages. |
 | [architecture.md](architecture.md)                     | Current backend model, package layout, status derivation, persistence/CDC, and load-bearing rules.                    |
