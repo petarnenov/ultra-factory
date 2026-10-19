@@ -91,8 +91,8 @@ func TestCandidateSupplierErrorsAndEmptyResult(t *testing.T) {
 }
 
 func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
-	// A short parent deadline alone cannot detect resetting the internal
-	// timeout from that same parent. Exercise an independent internal budget too.
+	// Budgets leave room for a fixture's first execution (~300ms on macOS);
+	// a short parent deadline alone cannot detect a reset internal timeout.
 	for _, tc := range []struct {
 		name           string
 		parentBudget   time.Duration
@@ -100,8 +100,8 @@ func TestCandidateDiscoveryAndProbeShareDeadline(t *testing.T) {
 		discoveryDelay time.Duration
 		probeSleep     string
 	}{
-		{"parent deadline", 500 * time.Millisecond, 2 * time.Second, 100 * time.Millisecond, "1"},
-		{"shared internal budget", 0, 300 * time.Millisecond, 150 * time.Millisecond, "0.2"},
+		{"parent deadline", 2 * time.Second, 6 * time.Second, 500 * time.Millisecond, "4"},
+		{"shared internal budget", 0, 3 * time.Second, time.Second, "2.5"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "probe-pid")

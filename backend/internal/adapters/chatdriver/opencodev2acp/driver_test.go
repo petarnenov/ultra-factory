@@ -119,6 +119,8 @@ exec "$AO_TEST_OPENCODE_V2_ACP_BINARY" -test.run=TestOpenCodeV2ACPProviderHelper
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/usr/bin:/bin")
+	restore := opencode.UnixInstallPathsForTest(nil)
+	t.Cleanup(restore)
 	t.Setenv("AO_TEST_OPENCODE_VERSION", version)
 	t.Setenv("AO_TEST_OPENCODE_V2_ACP_BINARY", os.Args[0])
 	t.Setenv("AO_TEST_OPENCODE_V2_ACP_PROVIDER", "1")

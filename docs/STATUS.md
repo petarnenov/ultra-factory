@@ -254,7 +254,7 @@ surface (`npm run sqlc`, `npm run api`).
 
 ## Railway hosting
 
-Status: built on the `feat/railway-hosting` integration branch, not on `main`.
+Status: built on the `dev` integration branch, not on `main`.
 A hub and one worker run live on Railway (first validation 2026-10-17). Design:
 [`railway/architecture.md`](railway/architecture.md); operator runbook and
 validation record: [`deploy/railway/README.md`](../deploy/railway/README.md);

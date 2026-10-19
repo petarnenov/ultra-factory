@@ -22,7 +22,7 @@ This applies even when you talk to the user in another language: conversation ca
 
 ## Commands
 
-From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`):
+From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`):
 
 ```bash
 npm run lint                         # backend go test ./... + golangci-lint v2.13.2
