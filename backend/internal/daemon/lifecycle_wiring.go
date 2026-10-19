@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/gitworktree"
 	workspacerouter "github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/router"
 	scratchworkspace "github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/scratch"
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/artifactversions"
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -261,6 +263,24 @@ func telemetryEmitsSpawned(cfg config.Config) bool {
 	return !slices.Contains(cfg.Telemetry.DisabledEvents, "ao.session.spawned")
 }
 
+// machineLabel names this machine in launch-resolution errors.
+func machineLabel() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(hostname)
+}
+
+// defaultAgentHarness resolves the machine's AO_AGENT default for roles that
+// configure no harness.
+func defaultAgentHarness(configured string) domain.AgentHarness {
+	if configured != "" {
+		return domain.AgentHarness(configured)
+	}
+	return domain.AgentHarness(config.DefaultAgent)
+}
+
 // startSession builds the controller-facing session service: a session manager
 // over the selected runtime, routed git/scratch workspaces, the shared store +
 // LCM, the per-session agent resolver, and the agent messenger. The tracker is
@@ -314,6 +334,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		Logger:              log,
 		ReconcileWorkers:    startupReconcileWorkers,
 		CodexOperationGate:  codexOperationGate,
+		DefaultHarness:      defaultAgentHarness(cfg.Agent),
 		SCMIdentity:         scmidentity.New(scmsecret.New(cfg.DataDir), nil),
 	})
 	mgr.SetAgentReadiness(agentReadiness)
@@ -353,6 +374,10 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		return nil, nil, nil, fmt.Errorf("reviewer resolver: %w", err)
 	}
 	reviewerChat, _ := chat.(reviewcore.ReviewerChatController)
+	var reviewCatalog agentlaunch.Catalog
+	if catalog, ok := agentReadiness.(agentlaunch.Catalog); ok {
+		reviewCatalog = catalog
+	}
 	reviewCheckout := reviewcore.NewGitCheckout(cfg.DataDir)
 	reviewEngine := reviewcore.New(reviewcore.Deps{
 		// The manager's installer gate is bound after the installer is built.
@@ -368,6 +393,8 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 			reviewcore.WithReviewerChat(reviewerChat)),
 
 		ChatRecoveryDone: reviewerRecoveryDone,
+		ModelCatalog:     reviewCatalog,
+		MachineLabel:     machineLabel(),
 	})
 	reviewOpts := []reviewsvc.Option{
 		reviewsvc.WithTelemetry(telemetry),

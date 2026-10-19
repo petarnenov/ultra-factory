@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/ownership"
@@ -5960,5 +5961,30 @@ func TestToSpawnAPIErrorMapsSCMIdentityUnavailableToBlockedConflict(t *testing.T
 	}
 	if apiErr.Details["blocked"] != true {
 		t.Fatalf("blocked = %#v, want true", apiErr.Details["blocked"])
+	}
+}
+
+// TestToAPIErrorMapsAgentResolutionDetails asserts a blocked launch reaches the
+// API with the machine's valid options instead of a free-form 500.
+func TestToAPIErrorMapsAgentResolutionDetails(t *testing.T) {
+	raw := &agentlaunch.Error{
+		Machine: "build-box", Harness: domain.HarnessOpenCode, Field: "model",
+		Reason:  `model "opencode/missing" is not valid for this harness`,
+		Models:  []string{"opencode/one", "opencode/two"},
+		Efforts: []string{"low", "high"},
+	}
+	mapped := toAPIError(fmt.Errorf("spawn: %w", raw))
+	var apiError *apierr.Error
+	if !errors.As(mapped, &apiError) {
+		t.Fatalf("mapped = %v, want *apierr.Error", mapped)
+	}
+	if apiError.Kind != apierr.KindInvalid || apiError.Code != "AGENT_CONFIGURATION_INVALID" {
+		t.Fatalf("mapped = %s %v, want AGENT_CONFIGURATION_INVALID", apiError.Code, apiError.Kind)
+	}
+	if apiError.Details["machine"] != "build-box" {
+		t.Fatalf("details = %#v, want machine name", apiError.Details)
+	}
+	if models, ok := apiError.Details["models"].([]string); !ok || len(models) != 2 {
+		t.Fatalf("details models = %#v, want full list", apiError.Details["models"])
 	}
 }

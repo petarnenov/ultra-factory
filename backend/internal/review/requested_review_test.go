@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
 const requestedPRURL = "https://github.com/o/r/pull/1"
@@ -441,4 +443,124 @@ func triggerWithSource(ctx context.Context, e *Engine, workerID domain.SessionID
 
 func triggerWithSourceAndMode(ctx context.Context, e *Engine, workerID domain.SessionID, harness domain.ReviewerHarness, config domain.AgentConfig, source domain.ReviewTriggerSource, mode domain.ReviewerInterfaceMode) (TriggerResult, error) {
 	return e.TriggerWithOptions(ctx, workerID, TriggerOptions{Harness: harness, Config: config, Source: source, InterfaceMode: mode})
+}
+
+type fixedCatalog struct{ catalog ports.AgentModelCatalog }
+
+func (c fixedCatalog) Models(context.Context, string, string, bool) (ports.AgentModelCatalog, error) {
+	return c.catalog, nil
+}
+
+type mapCatalog map[string]ports.AgentModelCatalog
+
+func (c mapCatalog) Models(_ context.Context, harness, _ string, _ bool) (ports.AgentModelCatalog, error) {
+	return c[harness], nil
+}
+
+type recordingCatalog struct {
+	catalog    ports.AgentModelCatalog
+	projectIDs []string
+}
+
+func (c *recordingCatalog) Models(_ context.Context, _ string, projectID string, _ bool) (ports.AgentModelCatalog, error) {
+	c.projectIDs = append(c.projectIDs, projectID)
+	return c.catalog, nil
+}
+
+// Reviewer validation must ask for the worker project's catalog scope, because
+// credential-scoped model IDs (Bedrock, Vertex) differ per project environment.
+func TestReviewerValidationUsesWorkerProjectScope(t *testing.T) {
+	projects := fakeProjects{cfg: domain.ProjectConfig{
+		Reviewers: []domain.ReviewerConfig{{
+			Harness:     domain.ReviewerClaudeCode,
+			AgentConfig: domain.AgentConfig{Model: "claude/project-model", Effort: "high"},
+		}},
+	}}
+	eng := newEngineForTest(&fakeStore{}, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), projects, &fakeLauncher{handle: "claude-pane"})
+	catalog := &recordingCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{{
+		ID: "claude/project-model", IsDefault: true, Efforts: []string{"low", "high"},
+	}}}}
+	eng.modelCatalog = catalog
+	if _, err := eng.TriggerWithOptions(context.Background(), "mer-1", TriggerOptions{Source: domain.ReviewTriggerAgent}); err != nil {
+		t.Fatalf("TriggerWithOptions: %v", err)
+	}
+	if len(catalog.projectIDs) == 0 || catalog.projectIDs[0] != "mer" {
+		t.Fatalf("catalog project ids = %v, want the worker project", catalog.projectIDs)
+	}
+}
+
+// A reviewer role resolves through the same catalog validation as a worker
+// spawn: an invalid settings model blocks before the reviewer starts.
+func TestReviewerConfigBlocksInvalidModelAndUsesSettings(t *testing.T) {
+	projects := fakeProjects{cfg: domain.ProjectConfig{
+		Reviewers: []domain.ReviewerConfig{{
+			Harness:     domain.ReviewerClaudeCode,
+			AgentConfig: domain.AgentConfig{Model: "claude/sonnet", Effort: "high"},
+		}},
+	}}
+	launcher := &fakeLauncher{handle: "claude-pane"}
+	eng := newEngineForTest(&fakeStore{}, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), projects, launcher)
+	eng.machineLabel = "build-box"
+	eng.modelCatalog = fixedCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
+		{ID: "claude/sonnet", IsDefault: true, Efforts: []string{"low", "high"}},
+	}}}
+
+	if _, err := eng.TriggerWithOptions(context.Background(), "mer-1", TriggerOptions{Source: domain.ReviewTriggerAgent}); err != nil {
+		t.Fatalf("TriggerWithOptions: %v", err)
+	}
+	if got := launcher.gotSpec.AgentConfig; got.Model != "claude/sonnet" || got.Effort != "high" {
+		t.Fatalf("reviewer config = %+v, want settings model and effort", got)
+	}
+
+	projects.cfg.Reviewers[0].AgentConfig.Model = "claude/missing"
+	eng = newEngineForTest(&fakeStore{}, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), projects, launcher)
+	eng.machineLabel = "build-box"
+	eng.modelCatalog = fixedCatalog{catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{
+		{ID: "claude/sonnet", IsDefault: true, Efforts: []string{"low", "high"}},
+	}}}
+	_, err := eng.TriggerWithOptions(context.Background(), "mer-1", TriggerOptions{Source: domain.ReviewTriggerAgent})
+	var resolutionErr *agentlaunch.Error
+	if !errors.As(err, &resolutionErr) || resolutionErr.Machine != "build-box" {
+		t.Fatalf("err = %v, want a blocking machine-named resolution error", err)
+	}
+}
+
+// An explicit reviewer harness keeps Project Settings' reviewer model and
+// effort; when they are invalid for it, the trigger blocks with its options.
+func TestReviewerHarnessOverrideKeepsAndValidatesSettingsConfig(t *testing.T) {
+	projects := fakeProjects{cfg: domain.ProjectConfig{
+		Reviewers: []domain.ReviewerConfig{{
+			Harness:     domain.ReviewerClaudeCode,
+			AgentConfig: domain.AgentConfig{Model: "shared/model", Effort: "high"},
+		}},
+	}}
+	launcher := &fakeLauncher{handle: "codex-pane"}
+	eng := newEngineForTest(&fakeStore{}, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), projects, launcher)
+	eng.machineLabel = "build-box"
+	eng.modelCatalog = mapCatalog{
+		"claude-code": {Models: []ports.AgentModelInfo{{ID: "shared/model", Efforts: []string{"low", "high"}}}},
+		"codex":       {Models: []ports.AgentModelInfo{{ID: "shared/model", Efforts: []string{"low", "high"}}}},
+	}
+
+	if _, err := eng.TriggerWithOptions(context.Background(), "mer-1", TriggerOptions{Harness: domain.ReviewerCodex, Source: domain.ReviewTriggerAgent}); err != nil {
+		t.Fatalf("TriggerWithOptions: %v", err)
+	}
+	if got := launcher.gotSpec.AgentConfig; got.Model != "shared/model" || got.Effort != "high" {
+		t.Fatalf("reviewer config = %+v, want settings model and effort on the override harness", got)
+	}
+
+	// The same settings model is invalid for a harness whose catalog does not
+	// list it, so the trigger blocks and names the machine.
+	launcher = &fakeLauncher{handle: "codex-pane"}
+	eng = newEngineForTest(&fakeStore{}, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), projects, launcher)
+	eng.machineLabel = "build-box"
+	eng.modelCatalog = mapCatalog{
+		"claude-code": {Models: []ports.AgentModelInfo{{ID: "shared/model", Efforts: []string{"low", "high"}}}},
+		"codex":       {Models: []ports.AgentModelInfo{{ID: "codex/only", IsDefault: true}}},
+	}
+	_, err := eng.TriggerWithOptions(context.Background(), "mer-1", TriggerOptions{Harness: domain.ReviewerCodex, Source: domain.ReviewTriggerAgent})
+	var resolutionErr *agentlaunch.Error
+	if !errors.As(err, &resolutionErr) || resolutionErr.Machine != "build-box" || resolutionErr.Field != "model" {
+		t.Fatalf("err = %v, want a model block on build-box", err)
+	}
 }

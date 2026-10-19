@@ -106,6 +106,12 @@ export function toWorkspaceSession(
 		title: session.displayName ?? session.issueId ?? session.id,
 		issueId: session.issueId,
 		provider: toAgentProvider(session.harness),
+		model: session.model || undefined,
+		effort: session.effort || undefined,
+		harnessSource: session.harnessSource,
+		modelSource: session.modelSource,
+		effortSource: session.effortSource,
+		agentConfigMachine: session.agentConfigMachine || undefined,
 		reviewerHarness: toReviewerHarnessId(session.reviewerHarness),
 		reviewerConfig: session.reviewerConfig
 			? {
@@ -209,6 +215,12 @@ function toLocalWorkspaceSession(
 		title: session.displayName ?? session.issueId ?? session.id,
 		issueId: session.issueId,
 		provider: toAgentProvider(session.harness),
+		model: session.model || undefined,
+		effort: session.effort || undefined,
+		harnessSource: session.harnessSource,
+		modelSource: session.modelSource,
+		effortSource: session.effortSource,
+		agentConfigMachine: session.agentConfigMachine || undefined,
 		reviewerHarness: toReviewerHarnessId(session.reviewerHarness),
 		reviewerConfig: session.reviewerConfig
 			? {

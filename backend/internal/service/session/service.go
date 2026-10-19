@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/ownership"
@@ -1440,6 +1441,10 @@ func toAPIError(err error) error {
 }
 
 func mapSessionError(err error) error {
+	var resolutionErr *agentlaunch.Error
+	if errors.As(err, &resolutionErr) {
+		return apierr.Invalid("AGENT_CONFIGURATION_INVALID", resolutionErr.Error(), resolutionErr.Details())
+	}
 	switch {
 	case err == nil:
 		return nil

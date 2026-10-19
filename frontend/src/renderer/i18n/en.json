@@ -795,6 +795,7 @@
   "inspector.terminateOnMergeShort": "Archive on merge",
   "inspector.archiveShort": "Archive",
   "inspector.timeline.createdWorkspace": "Created workspace",
+  "inspector.timeline.resolvedAgent": "Resolved agent",
   "inspector.timeline.committed": "Committed",
   "inspector.timeline.done": "Done",
   "inspector.timeline.draft": "Draft",

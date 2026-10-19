@@ -119,13 +119,14 @@ Important flags include:
 | --- | --- |
 | `--name <name>` | Required sidebar name, at most 100 characters. |
 | `--project <id>` | Project to use. Otherwise Orchestrator resolves environment and current directory context. |
-| `--agent`, `--harness <name>` | Override the project's agent. The two names are aliases. |
+| `--agent`, `--harness <name>` | Override the project's agent. The two names are aliases. The configured role model and effort still apply and are validated for this harness. |
 | `--kind worker\|orchestrator` | Select the session role. |
 | `--mode chat\|tui` | Select structured Chat or the agent's native terminal UI. |
 | `--branch <name>` | Branch for Git projects. Scratch projects do not support it. |
 | `--prompt <text>` | Initial prompt. |
 | `--standalone` | Projectless worker; requires an explicit agent and excludes project, branch, issue, PR, and orchestrator options. |
-| `--model <model>` | Override the selected provider model for this spawn. |
+| `--model <model>` | Override the selected provider model for this spawn. The daemon validates it against the resolved harness and blocks the spawn when it is invalid. |
+| `--effort <level>` | Override the reasoning effort for this spawn. It must be a level the selected model advertises, or the spawn is blocked. |
 | `--tracker-provider github\|gitlab` | Select the issue provider for `--issue`. |
 | `--issue <id>` | Associate a tracker issue. |
 | `--claim-pr <ref>` | Claim an existing pull request after spawning. |
@@ -193,6 +194,7 @@ These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|re
 - **Reviews run on the worker's host:** `review trigger|ls|cancel --host` call the owning daemon's review routes. Pass the worker id explicitly, because session ids are per machine. Only that daemon launches the reviewer, so its checkout, read-only policy, verdict, and comment delivery stay on the host that owns the worker; the requesting machine never reviews its own checkout as a fallback. See the [review loop](/guides/review-loop#reviewing-a-worker-on-another-machine) for the verified-checkout behavior.
 
 - **Project matching:** without `--project`, `spawn --host` picks the remote project whose repository matches the current project, whether the remote is SSH or HTTPS. If none or several match, it lists the remote project IDs.
+- **Resolution is per machine:** `spawn --host` uses the target machine's Project Settings for the role, then that machine's harness defaults, and validates against that machine's harness catalog. A missing or invalid value blocks the spawn with the target machine's valid harnesses, models, and effort levels; it never falls back to this machine's configuration.
 - **Session IDs are per machine.** A remote request never forwards the local session as a parent or sender. Messages keep a `[from <session> on <machine>]` text prefix instead.
 - **Credential safety:** requests use the paired host's authenticated remote listener with its saved password and expected host ID. The CLI ignores HTTP proxies for these requests, does not follow redirects, and refuses a `remotes.json` that others can read.
 

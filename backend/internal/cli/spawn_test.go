@@ -1067,8 +1067,13 @@ func TestResolveSpawnHarness_OrchestratorDefault(t *testing.T) {
 	if got, err := resolveSpawnHarness("", "", project); err != nil || got != "codex" {
 		t.Fatalf("unset kind: got %q err %v, want codex", got, err)
 	}
-	// Orchestrator spawn with no orchestrator.agent configured surfaces the
-	// --orchestrator-agent hint (the error branch this PR adds).
+	// A role that names no agent falls back to the target machine's AO_AGENT
+	// default, reported by project.Agent.
+	machineDefault := projectDetails{ID: "demo", Agent: "opencode-v2", Config: &projectConfig{Worker: roleOverride{Agent: "codex"}}}
+	if got, err := resolveSpawnHarness("", "orchestrator", machineDefault); err != nil || got != "opencode-v2" {
+		t.Fatalf("machine default: got %q err %v, want opencode-v2", got, err)
+	}
+	// Without a role or machine default, surface the actionable hint.
 	noOrch := projectDetails{ID: "demo", Config: &projectConfig{Worker: roleOverride{Agent: "codex"}}}
 	if _, err := resolveSpawnHarness("", "orchestrator", noOrch); err == nil || !strings.Contains(err.Error(), "--orchestrator-agent") {
 		t.Fatalf("missing orchestrator agent: err=%v, want --orchestrator-agent hint", err)
@@ -1166,3 +1171,36 @@ func TestSpawnTerminateOnPRMergeFlagWiring(t *testing.T) {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+// TestSpawnEffortFlagWiring asserts `ao spawn --effort` travels as a spawn
+// parameter; the daemon validates it against the resolved model.
+func TestSpawnEffortFlagWiring(t *testing.T) {
+	cfg := setConfigEnv(t)
+	var req spawnRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
+			_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo"}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agents/readiness/ensure":
+			_, _ = io.WriteString(w, authorizedAgentsJSON("codex"))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.WriteString(w, `{"session":{"id":"demo-21","status":"idle"}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "spawn", "--project", "demo", "--agent", "codex", "--name", "worker", "--model", "gpt-5.6-sol", "--effort", "high")
+	if err != nil {
+		t.Fatalf("spawn failed: %v stderr=%s", err, errOut)
+	}
+	if req.Effort != "high" {
+		t.Fatalf("spawn request effort = %q, want high", req.Effort)
+	}
+}

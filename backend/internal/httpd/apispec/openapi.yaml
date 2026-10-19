@@ -13263,6 +13263,8 @@ components:
           $ref: '#/components/schemas/AgentSwitch'
         activity:
           $ref: '#/components/schemas/DomainActivity'
+        agentConfigMachine:
+          type: string
         artifactFiles:
           items:
             $ref: '#/components/schemas/SessionArtifact'
@@ -13309,7 +13311,21 @@ components:
           - Closed without merge
           - Terminated
           type: string
+        effort:
+          type: string
+        effortSource:
+          enum:
+          - explicit
+          - settings
+          - machine-default
+          type: string
         harness:
+          type: string
+        harnessSource:
+          enum:
+          - explicit
+          - settings
+          - machine-default
           type: string
         hibernatedAt:
           format: date-time
@@ -13353,6 +13369,12 @@ components:
           - tui
           type: string
         model:
+          type: string
+        modelSource:
+          enum:
+          - explicit
+          - settings
+          - machine-default
           type: string
         outputType:
           enum:
@@ -18385,6 +18407,10 @@ components:
           - openhands
           - command-code
           type: string
+        harnessExplicit:
+          type:
+          - "null"
+          - boolean
         issueId:
           type: string
         kind:
