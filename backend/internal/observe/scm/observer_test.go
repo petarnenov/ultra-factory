@@ -2233,17 +2233,22 @@ func TestTrackTerminatedPRsAnchorsWindowToTermination(t *testing.T) {
 	}
 }
 
-// TestPoll_TerminatedSessionDoesNotAdoptNewPRs: tracking a dead session's
-// existing PRs must not let a new PR on its branch become its baseline row.
+// TestPoll_TerminatedSessionDoesNotAdoptNewPRs: a listed repository must not
+// let a new PR on the dead session's branch become its baseline row.
 func TestPoll_TerminatedSessionDoesNotAdoptNewPRs(t *testing.T) {
 	now := time.Unix(1000, 0).UTC()
 	store := testStoreWithSession()
-	store.sessions = []domain.SessionRecord{{
-		ID: "p-1", ProjectID: "p", IsTerminated: true,
-		Activity:  domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(-time.Hour)},
-		UpdatedAt: now.Add(-time.Hour),
-		Metadata:  domain.SessionMetadata{Branch: "feat"},
-	}}
+	store.sessions = []domain.SessionRecord{
+		{
+			ID: "p-1", ProjectID: "p", IsTerminated: true,
+			Activity:  domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(-time.Hour)},
+			UpdatedAt: now.Add(-time.Hour),
+			Metadata:  domain.SessionMetadata{Branch: "feat"},
+		},
+		// A live session on another branch keeps the repository listed, so
+		// discoverableCandidates is what blocks the dead session.
+		{ID: "p-2", ProjectID: "p", Metadata: domain.SessionMetadata{Branch: "other"}},
+	}
 	provider := &fakeProvider{
 		repoGuards: map[string]ports.SCMGuardResult{prKey(testRepo, 0): {ETag: "v2"}},
 		openPRs: map[string][]ports.SCMPRObservation{prKey(testRepo, 0): {
@@ -2253,6 +2258,9 @@ func TestPoll_TerminatedSessionDoesNotAdoptNewPRs(t *testing.T) {
 	}
 	if err := newTestObserver(store, provider, &fakeLifecycle{}, now).Poll(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if provider.listCalls != 1 {
+		t.Fatalf("shared repository must be branch-listed once, list calls = %d", provider.listCalls)
 	}
 	for _, write := range store.writes {
 		if write.pr.Number == 2 {
