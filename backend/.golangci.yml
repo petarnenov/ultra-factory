@@ -80,6 +80,7 @@ linters:
         - hugeParam # pass-by-pointer micro-opt; hurts clarity, risks nil/aliasing
         - rangeValCopy # same — copying a struct in range is usually fine
         - unnamedResult # named returns are a style choice, not a defect
+        - sprintfQuotedString # markdown backticks in prompts, not Go quoting
     dupl:
       threshold: 140
     forbidigo:
