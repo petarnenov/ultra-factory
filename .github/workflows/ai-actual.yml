@@ -63,8 +63,8 @@ jobs:
 
       - name: Record the value and roll it up
         env:
-          # A project-scoped PAT: the workflow token cannot write to a
-          # project owned by a user account.
+          # A classic PAT with the project scope: the workflow token cannot
+          # write to a project owned by a user account.
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           ISSUES_TOKEN: ${{ github.token }}
           PROJECT_OWNER: petarnenov
