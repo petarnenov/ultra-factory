@@ -86,6 +86,12 @@ const productUiReactBoundary: Plugin = {
 const isWebTarget = process.env.VITE_AO_WEB === "1";
 const devApiTarget = process.env.AO_DEV_API_TARGET ?? "http://127.0.0.1:3001";
 
+// Local runs cap Vitest at two forks; 0 keeps Vitest's own limit for CI.
+// Vitest 4 names this option maxWorkers (the old poolOptions is gone).
+const configuredMaxForks = process.env.AO_VITEST_MAX_FORKS;
+const vitestMaxForks =
+	configuredMaxForks === "0" ? undefined : Number(configuredMaxForks ?? 2);
+
 export default defineConfig({
 	// Relative asset URLs so dist-web works from any mount path; the router uses
 	// hash history, so no server-side route fallback is needed.
@@ -145,6 +151,7 @@ export default defineConfig({
 	test: {
 		environment: "jsdom",
 		testTimeout: 20_000,
+		maxWorkers: vitestMaxForks,
 		// Anchor node_modules at any depth: a bare "node_modules/**" replaces
 		// vitest's default "**/node_modules/**" and only matches the root.
 		exclude: ["**/node_modules/**", "dist/**", "dist-web/**", "dist-electron/**", "e2e/**"],
