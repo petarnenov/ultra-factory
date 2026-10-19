@@ -152,8 +152,8 @@ func GitHubHost(project domain.ProjectRecord) (string, error) {
 	return "github.com", nil
 }
 
-// EnvForHost uses GH_TOKEN for github.com and GH_HOST plus enterprise token
-// variables elsewhere, neutralizing default-host variables in that case.
+// EnvForHost uses GH_TOKEN for github.com and *.ghe.com tenancy hosts, and
+// enterprise token variables for GitHub Enterprise Server hosts.
 func EnvForHost(host, token string) map[string]string {
 	host, err := domain.NormalizeGitHubHost(host)
 	if err != nil || host == "github.com" {
@@ -163,6 +163,15 @@ func EnvForHost(host, token string) map[string]string {
 			"GH_ENTERPRISE_TOKEN":     "",
 			"GITHUB_ENTERPRISE_TOKEN": "",
 			"GITHUB_TOKEN":            "",
+		}
+	}
+	if strings.HasSuffix(host, ".ghe.com") {
+		return map[string]string{
+			"GH_HOST":                 host,
+			"GH_TOKEN":                token,
+			"GITHUB_TOKEN":            "",
+			"GH_ENTERPRISE_TOKEN":     "",
+			"GITHUB_ENTERPRISE_TOKEN": "",
 		}
 	}
 	return map[string]string{

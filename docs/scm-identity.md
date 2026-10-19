@@ -85,9 +85,16 @@ For a project with a bound account:
    that will run the session. For `ao spawn --host <machine>`, that is the
    target machine; the request carries only the project id.
 3. AO injects the host-specific variables into the session environment:
-   - `github.com`: `GH_TOKEN`
-   - any other GitHub host: `GH_HOST` plus `GH_ENTERPRISE_TOKEN` and
-     `GITHUB_ENTERPRISE_TOKEN`; `GH_TOKEN` is not set for that session
+   - `github.com` and `*.ghe.com` tenancy hosts: `GH_TOKEN`, with `GH_HOST`
+     set to the tenancy host for the latter; `GITHUB_TOKEN`,
+     `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN` are blanked
+   - any other GitHub host (GitHub Enterprise Server): `GH_HOST` plus
+     `GH_ENTERPRISE_TOKEN` and `GITHUB_ENTERPRISE_TOKEN`; `GH_TOKEN` is not set
+     for that session
+
+   `gh` treats `*.ghe.com` data-residency hosts as non-enterprise, so it reads
+   `GH_TOKEN` for them; only GitHub Enterprise Server hosts use the enterprise
+   token variables.
 4. Daemon-side SCM reads and actions for that project use the same host/account
    token rather than the machine-wide token.
 

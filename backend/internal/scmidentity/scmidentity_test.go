@@ -69,7 +69,24 @@ func TestResolveGitHubComInjectsGHtoken(t *testing.T) {
 	}
 }
 
-func TestResolveEnterpriseHostInjectsEnterpriseVariables(t *testing.T) {
+func TestEnvForHostEnterpriseServerInjectsEnterpriseVariables(t *testing.T) {
+	env := EnvForHost("ghe.example.com", fakeToken)
+	if got := env["GH_HOST"]; got != "ghe.example.com" {
+		t.Fatalf("GH_HOST = %q", got)
+	}
+	if got := env["GH_ENTERPRISE_TOKEN"]; got != fakeToken {
+		t.Fatalf("GH_ENTERPRISE_TOKEN = %q", got)
+	}
+	if got := env["GITHUB_ENTERPRISE_TOKEN"]; got != fakeToken {
+		t.Fatalf("GITHUB_ENTERPRISE_TOKEN = %q", got)
+	}
+	if _, ok := env["GH_TOKEN"]; ok {
+		t.Fatal("GHES environment must not set GH_TOKEN")
+	}
+}
+
+// *.ghe.com tenancy hosts are not enterprise to gh, which reads GH_TOKEN.
+func TestResolveTenancyHostInjectsGHtoken(t *testing.T) {
 	tokens := &fakeTokens{tokens: map[string]string{"geowealth.ghe.com/work-account": fakeToken}}
 	resolved, err := New(tokens, func() (string, error) { return "worker-1", nil }).Resolve(context.Background(), projectWithAccount("work-account", "https://geowealth.ghe.com/acme/repo.git"))
 	if err != nil {
@@ -81,14 +98,14 @@ func TestResolveEnterpriseHostInjectsEnterpriseVariables(t *testing.T) {
 	if got := resolved.Env["GH_HOST"]; got != "geowealth.ghe.com" {
 		t.Fatalf("GH_HOST = %q", got)
 	}
-	if got := resolved.Env["GH_ENTERPRISE_TOKEN"]; got != fakeToken {
-		t.Fatalf("GH_ENTERPRISE_TOKEN = %q", got)
+	if got := resolved.Env["GH_TOKEN"]; got != fakeToken {
+		t.Fatalf("GH_TOKEN = %q, want the bound token", got)
 	}
-	if got := resolved.Env["GITHUB_ENTERPRISE_TOKEN"]; got != fakeToken {
-		t.Fatalf("GITHUB_ENTERPRISE_TOKEN = %q", got)
-	}
-	if _, ok := resolved.Env["GH_TOKEN"]; ok {
-		t.Fatal("enterprise environment must not set GH_TOKEN")
+	for _, key := range []string{"GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"} {
+		value, ok := resolved.Env[key]
+		if !ok || value != "" {
+			t.Fatalf("%s = %q (present=%t), want blank", key, value, ok)
+		}
 	}
 }
 
