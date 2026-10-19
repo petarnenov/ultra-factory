@@ -362,9 +362,6 @@ func classify(sess domain.Session) (Outcome, bool) {
 	if !sess.IsTerminated {
 		return "", false
 	}
-	if anyMerged(sess) {
-		return OutcomeMerged, true
-	}
 	if sess.ProvisionState == domain.SessionProvisionFailed {
 		return OutcomeFailed, true
 	}
