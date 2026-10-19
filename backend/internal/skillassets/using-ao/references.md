@@ -19,6 +19,7 @@ Natural-language-to-command mappings for common AO tasks.
 | Capture the page | `ao browser screenshot [path]` |
 | Spawn a worker on issue N | `ao spawn --project <p> --issue N --name "<=100 chars>" --prompt "..."` |
 | Message a running agent | `ao send --session <id> --message "..."` |
+| Answer a worker's pending structured question | `ao session input <id>`, then `--request-id <request-id> --action accept --answer <field>=<value>` |
 | Kill a session | `ao session kill <id>` |
 | List sessions | `ao session ls` |
 | Register a repo as a project | `ao project add --path <abs-path> --name <name>` |

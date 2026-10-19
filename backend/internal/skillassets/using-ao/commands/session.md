@@ -1,7 +1,8 @@
 # ao session
 
 Manage agent sessions: list, inspect, rename, kill, restore, exit or resume an
-agent, switch harnesses, clean up, and claim PRs.
+agent, switch harnesses, clean up, claim PRs, and answer a pending structured
+question.
 
 ## In-app session links
 
@@ -105,6 +106,74 @@ ao session get mer-3
 # Get session details as JSON
 ao session get mer-3 --json
 ```
+
+---
+
+### ao session input
+
+List or answer a session's pending structured question (an agent elicitation).
+A chat-mode worker that asks a question parks its turn, so a normal message
+queues behind it instead of reaching the agent.
+
+Run the command without `--action` to list pending inputs. The output includes
+the request id, the question, the form fields, and an `Answer with:` line you
+can copy. Then resolve one request:
+
+- `accept` answers a form, or records consent to open a URL;
+- `decline` declines the request;
+- `cancel` cancels it.
+
+URL consent never opens the URL from the CLI. The user opens it in AO first.
+
+**Syntax:**
+```
+ao session input <id> [flags]
+```
+
+**Flags:**
+
+| Flag | Meaning | Default / Required |
+|---|---|---|
+| `--action string` | Resolve the input: `accept`, `decline`, or `cancel` | Required to resolve |
+| `--answer string` | Structured answer as `key=value`; repeat once per field | Accept only |
+| `--request-id string` | Pending input request id shown by the listing | Required with `--action` |
+| `--json` | Output the pending list or resolution as JSON | - |
+| `--host string` | Target a paired remote AO machine. See [host.md](host.md) | This machine |
+
+`--answer` values that are valid JSON keep their type, so a boolean or number
+schema gets `true` or `2`, not a string. Quote a string that would otherwise
+parse as JSON. The daemon validates field names, required fields, and offered
+values, so an invalid answer leaves the request pending and reports
+`CHAT_DECISION_NOT_OFFERED`. An unknown or already answered request reports
+`CHAT_REQUEST_NOT_PENDING`.
+
+**Examples:**
+
+```bash
+# List what the worker is waiting on
+ao session input mer-3
+```
+
+```bash
+# Answer the single free-text field
+ao session input mer-3 --request-id 'acp-request:host:1' \
+  --action accept --answer q0="No, leave it for the orchestrator"
+```
+
+```bash
+# Decline the request from another machine
+ao session input mer-3 --host build-box \
+  --request-id 'acp-request:host:1' --action decline
+```
+
+```bash
+# Script-friendly pending list
+ao session input mer-3 --json
+```
+
+The command works for harnesses whose Chat transport supports structured input
+but not mid-turn steering, including `opencode-v2`; it calls the daemon's
+resolve route directly instead of using `ao send --steer`.
 
 ---
 
