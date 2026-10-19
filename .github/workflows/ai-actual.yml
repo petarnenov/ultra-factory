@@ -46,7 +46,7 @@ jobs:
 
       # The live cases skip themselves without a token, which is why the
       # pull request run only covers the pure helpers.
-      - run: node --test scripts/ai-actual/lib.test.mjs scripts/ai-actual/record.test.mjs
+      - run: node --disable-warning=ExperimentalWarning --test scripts/ai-actual/lib.test.mjs scripts/ai-actual/sessions.test.mjs scripts/ai-actual/record.test.mjs
 
   record:
     name: Record actual AI time
