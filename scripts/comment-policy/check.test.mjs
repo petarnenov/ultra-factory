@@ -97,7 +97,7 @@ test('keeps semantic TypeScript directives out of ordinary comment debt', () => 
 
 
 test('ignores Python comment-like text inside strings and triple-quoted blocks', () => {
-  const source = 'value = "# one\n# two\n# three"\ntriple = """\n# inside\n# block\n"""\n';
+  const source = 'value = "# one\\n# two\\n# three"\ntriple = """\n# inside\n# block\n"""\n';
   assert.deepEqual(summary(scanPython(source)), { blocks: 0, longLines: 0 });
 });
 
