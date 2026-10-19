@@ -58,7 +58,8 @@ addresses change on restart.
 
 ### Remote host target (`--host`)
 
-`spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`,
+`spawn`, `send`, and
+`session ls|get|input|kill|restore|rename|exit-agent|resume-agent`,
 `project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`
 accept `--host <label | host ID | URL>`.
 With it, the same daemon route is called on a paired remote host's
@@ -106,6 +107,7 @@ commit and records which tree the verdict read. See
 | `ao spawn`                          | Targeted launch ensure, then `POST /api/v1/sessions` |
 | `ao session ls`                     | `GET /api/v1/sessions` plus per-session PR summaries; shows branch, PR, CI, review, unresolved threads, activity, and age. |
 | `ao session get <id>`               | `GET /api/v1/sessions/{id}`                    |
+| `ao session input <id>`             | `GET /api/v1/sessions/{id}/conversation` to list pending structured questions; `POST /api/v1/sessions/{id}/conversation/inputs/{requestId}/resolve` with `--request-id` and `--action` to answer one |
 | `ao session kill <id>`              | `POST /api/v1/sessions/{id}/kill`              |
 | `ao session restore <id>`           | `POST /api/v1/sessions/{id}/restore`           |
 | `ao session exit-agent <id>`        | `POST /api/v1/sessions/{id}/exit-agent`        |
@@ -176,6 +178,25 @@ native history and compaction.
 `AO_SESSION_ID`. From an orchestrator or external shell, pass the target
 explicitly with `ao session claim-pr <session-id> <pr-ref>`. The explicit form
 remains supported for backward compatibility and cross-session coordination.
+
+A chat-mode worker that asks a structured question parks its turn until someone
+answers. `ao session input <session-id>` lists each pending request id, the
+question, and the form fields. Resolve one with `--request-id` and `--action`:
+
+```bash
+ao session input mer-3
+ao session input mer-3 --request-id 'acp-request:host:1' \
+  --action accept --answer q0="No, leave it for the orchestrator"
+ao session input mer-3 --request-id 'acp-request:host:1' --action decline
+```
+
+`--answer` is repeatable and accepts only with `--action accept`. A value that
+is valid JSON keeps its type, so `--answer q0=true` sends a boolean and
+`--answer q0='["a","b"]'` sends an array; quote a string when it would otherwise
+parse as JSON. Accepting a URL-mode request records consent but does not open
+the URL. The command uses the same route and behavior with `--host`, and it
+does not depend on `--steer`, which some harnesses (including `opencode-v2`) do
+not support.
 
 Both `ao session claim-pr` and `ao spawn --claim-pr` claim ownership metadata
 only. The claim step does not check out a branch or change HEAD, so
