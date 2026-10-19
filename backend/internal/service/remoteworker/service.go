@@ -157,10 +157,16 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	if err := s.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
 		return Registration{}, err
 	}
+	stored := link
+	if current, found, err := s.store.GetRemoteWorkerLink(ctx, link.HostID, link.RemoteSessionID); err != nil {
+		return Registration{}, err
+	} else if found {
+		stored = current
+	}
 	if s.onLinked != nil {
 		s.onLinked()
 	}
-	registration := Registration{Link: link}
+	registration := Registration{Link: stored}
 	base, err := remotehost.BaseURL(entry.URL)
 	if err == nil {
 		err = remotehost.UnattendedTransportAllowed(base)
