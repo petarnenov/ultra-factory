@@ -20,11 +20,8 @@ const EVENTSOURCE_CLOSED = 2;
 // confirmations for deduplication, but never let that session state grow without bound.
 const MAX_CONFIRMED_NOTIFICATION_DELETIONS = 256;
 
-/**
- * Only these kinds describe something still open. `pr_merged` and
- * `pr_closed_unmerged` already happened. Mirrors the backend's
- * `NotificationType.NeedsResolution` for the unread/all caches.
- */
+// Only these kinds describe something still open; merged/closed are terminal.
+// Mirrors the backend's NeedsResolution set for the unread/all caches.
 const UNRESOLVABLE_TYPES = new Set(["needs_input", "ready_to_merge", "session_stalled"]);
 
 type NotificationsQueryKey = typeof unreadNotificationsQueryKey | typeof recentNotificationsQueryKey;
