@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.1] - 2026-10-19
+
+### Bug Fixes
+
+- **validation:** validate AO_VITEST_MAX_FORKS (568f1cf91)
+
+### Other Changes
+
+- promote dev into main (#276) (8e102d419)
+- **validation:** cap local test parallelism and serialise aggregates (#274) (cc0a0e0aa)
+- **validation:** cap local test parallelism (590254e8e)
+
 ## [0.17.0] - 2026-10-19
 
 ### Features
