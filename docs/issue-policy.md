@@ -28,8 +28,10 @@ complete one nobody uses.
 
 ## Priority labels
 
-One label per issue, assigned by the agent that files the issue. The
-orchestrator may change it and says why in an issue comment.
+One label per issue, assigned by the agent that files the issue. A person filing
+an issue assigns it too; the issue forms only prefill the type label, so a
+maintainer or agent adds the priority during triage. The orchestrator may change
+a priority and says why in an issue comment.
 
 | Label               | Means                                                              | Example                                             |
 | ------------------- | ------------------------------------------------------------------ | --------------------------------------------------- |
