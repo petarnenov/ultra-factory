@@ -27,6 +27,7 @@ DAEMON_REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's|^.*gith
 	sqlc api api-spec api-ts \
 	cloud-check product-ui-check hub-bff-check shared-check \
 	cloud-local cloud-local-down cloud-local-reset cloud-local-smoke \
+	promote-sync \
 	ci-local
 
 help: ## Show this help
@@ -170,6 +171,7 @@ check-all: ## Run every CI check that runs locally (no Docker or OS-specific run
 	@npm run version:test
 	@bash scripts/ao-self-update.test.sh all
 	@bash scripts/install-self-update.test.sh all
+	@bash scripts/promote-sync.test.sh all
 	@node scripts/ao-e2e-pod-gate.test.mjs
 	@echo "check-all: every local check passed"
 
@@ -214,6 +216,13 @@ cloud-local-reset: ## Reset the local cloud stack
 
 cloud-local-smoke: ## Smoke-test the local cloud stack
 	npm run cloud:local:smoke
+
+##@ Git flow
+
+# The step right after a dev -> main promotion merges. It waits for the
+# version-bump commit on main, merges it into dev, and pushes dev.
+promote-sync: ## Sync main back into dev after a promotion; ARGS="--timeout 1200"
+	@bash scripts/promote-sync.sh $(ARGS)
 
 ##@ CI
 
