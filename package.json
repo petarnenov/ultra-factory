@@ -11,6 +11,7 @@
 		"ai-actual:test": "node --disable-warning=ExperimentalWarning --test scripts/ai-actual/lib.test.mjs scripts/ai-actual/sessions.test.mjs scripts/ai-actual/record.test.mjs",
 		"version:bump": "node scripts/version-bump.mjs",
 		"version:test": "node --test scripts/version-bump.test.mjs",
+		"resource-baseline:test": "node --test scripts/railway/resource-sample.test.mjs",
 		"frontend:typecheck": "npm --prefix frontend run typecheck",
 		"cloud:check": "npm --prefix packages/cloud-client run generate && git diff --exit-code -- packages/cloud-client/src/schema.ts && npm --prefix packages/cloud-client run typecheck && npm --prefix packages/cloud-client test && npm --prefix packages/cloud-client run build",
 		"cloud:local": "bash cloud/scripts/cloud-local-up.sh",

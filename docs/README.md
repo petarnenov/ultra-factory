@@ -31,6 +31,7 @@ in [gemini-cli.md](gemini-cli.md).
 | [railway/architecture.md](railway/architecture.md)     | AO on Railway: hub/worker/BFF components, login, REST, SSE, WebSocket and Railway API flows, and what does not work on the web. |
 | [railway/threat-model.md](railway/threat-model.md)     | Railway hub threat model: assets, attackers, mitigations, and residual risk. |
 | [Railway runbook](../deploy/railway/README.md)         | Deploying and operating the Railway hub and workers: variables, credentials, backup, drain, limits, local e2e, and the live validation record. |
+| [Railway resource baseline](../deploy/railway/resource-baseline.md) | Read-only capture protocol, workload definition, and comparison template for the per-process hub and worker memory baseline (#218).                 |
 | [development.md](development.md)                       | Prerequisites, build steps, running tests, and troubleshooting for local development.                                 |
 | [harnesses/unreal-agent.md](harnesses/unreal-agent.md) | Built-in Unreal Agent Chat setup, provider environment, persistence, and current limits.                              |
 | [harnesses/mimo-code.md](harnesses/mimo-code.md)       | MiMo Code TUI setup, permissions, activity hooks, exact restore, and current limits.                                 |

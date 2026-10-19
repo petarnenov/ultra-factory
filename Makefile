@@ -169,6 +169,7 @@ check-all: ## Run every CI check that runs locally (no Docker or OS-specific run
 	@AO_VITEST_MAX_FORKS=$(AO_VITEST_MAX_FORKS) npm --prefix frontend run test
 	@echo "==> scripts and their tests"
 	@npm run version:test
+	@npm run resource-baseline:test
 	@bash scripts/ao-self-update.test.sh all
 	@bash scripts/install-self-update.test.sh all
 	@bash scripts/promote-sync.test.sh all
