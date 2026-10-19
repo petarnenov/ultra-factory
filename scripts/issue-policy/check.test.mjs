@@ -57,6 +57,12 @@ test('ignores references inside inline code as literal text', () => {
   assert.deepEqual(extractIssueReferences('Why: `Fixes #456`'), []);
 });
 
+test('ignores an inline code span that wraps a line, as Markdown allows', () => {
+  assert.deepEqual(extractIssueReferences(
+    'The message `add "Closes #123"\nto the description` is quoted.',
+  ), []);
+});
+
 test('ignores a quoted failure message and a placeholder', () => {
   const body = 'The check said `#412 references #123`; replace `Closes #123`.';
   assert.deepEqual(extractIssueReferences(body), []);
