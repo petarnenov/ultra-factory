@@ -209,6 +209,13 @@ var shippedMigrations = map[int64]string{
 	204: "0204_session_progress.sql",
 	205: "0205_session_stalled_notification.sql",
 	206: "0206_allow_opencode_v2_usage.sql",
+	207: "0207_allow_coordinator_kind.sql",
+	208: "0208_add_session_coordinator_scope.sql",
+	209: "0209_add_session_owner_session_id.sql",
+	210: "0210_ownership_audit_tables.sql",
+	211: "0211_add_remote_worker_link_owner.sql",
+	212: "0212_ownership_triggers.sql",
+	213: "0213_coordinator_termination_releases_owners.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they

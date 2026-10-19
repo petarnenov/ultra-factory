@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
@@ -47,6 +48,9 @@ type Store interface {
 	SetSessionPinned(ctx context.Context, id domain.SessionID, isPinned bool, pinnedAt *time.Time, updatedAt time.Time) (bool, error)
 	SetSessionReviewerConfig(ctx context.Context, id domain.SessionID, harness domain.ReviewerHarness, config domain.AgentConfig, updatedAt time.Time) (bool, error)
 	SetSessionAutoReview(ctx context.Context, id domain.SessionID, enabled bool, updatedAt time.Time) (bool, error)
+	// SetSessionOwner writes owner + audit atomically. skipClaimGuard=false
+	// enforces the claimed-report guard; only automatic repair may pass true.
+	SetSessionOwner(ctx context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, skipClaimGuard bool) (domain.SessionRecord, bool, error)
 	GetDisplayPRFactsForSession(ctx context.Context, id domain.SessionID) (domain.PRFacts, bool, error)
 	ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error)
 	ListPRFactsForSessions(ctx context.Context, ids []domain.SessionID) (map[domain.SessionID][]domain.PRFacts, error)
@@ -476,6 +480,16 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.Session{}, 0, 0, fmt.Errorf("count sessions: %w", err)
 	}
 	cfg = s.withIssueContext(ctx, cfg, project)
+	cfg.OwnerSessionID = nil
+	if cfg.Kind == domain.KindWorker && cfg.ParentSessionID != "" && s.store != nil {
+		parent, ok, err := s.store.GetSession(ctx, cfg.ParentSessionID)
+		if err != nil {
+			return domain.Session{}, 0, 0, fmt.Errorf("load spawn parent %s: %w", cfg.ParentSessionID, err)
+		}
+		if ok {
+			cfg.OwnerSessionID = coordownership.SpawnOwner(parent, cfg.ProjectID)
+		}
+	}
 	rec, promptBytes, systemPromptBytes, err := s.manager.Spawn(ctx, cfg)
 	if err != nil {
 		s.invalidateAgentReadinessAfterLaunchFailure(cfg.Harness, err)

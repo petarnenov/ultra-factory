@@ -1,12 +1,14 @@
 -- name: UpsertRemoteWorkerLink :exec
 INSERT INTO remote_worker_links (
-    host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+    host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, owner_session_id, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(host_id, remote_session_id) DO UPDATE SET
     remote_project_id = excluded.remote_project_id,
-    project_id = excluded.project_id,
     host_label = excluded.host_label,
     display_name = excluded.display_name;
+
+-- name: GetRemoteWorkerLink :one
+SELECT * FROM remote_worker_links WHERE host_id = ? AND remote_session_id = ?;
 
 -- name: ListRemoteWorkerLinks :many
 SELECT * FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id;

@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,11 +22,35 @@ func (s *Store) UpsertRemoteWorkerLink(ctx context.Context, link domain.RemoteWo
 	if err := s.qw.UpsertRemoteWorkerLink(ctx, gen.UpsertRemoteWorkerLinkParams{
 		HostID: link.HostID, RemoteSessionID: string(link.RemoteSessionID),
 		RemoteProjectID: string(link.RemoteProjectID), ProjectID: string(link.ProjectID),
-		HostLabel: link.HostLabel, DisplayName: link.DisplayName, CreatedAt: link.CreatedAt,
+		HostLabel: link.HostLabel, DisplayName: link.DisplayName,
+		OwnerSessionID: link.OwnerSessionID, CreatedAt: link.CreatedAt,
 	}); err != nil {
 		return fmt.Errorf("upsert remote worker link %s/%s: %w", link.HostID, link.RemoteSessionID, err)
 	}
 	return nil
+}
+
+// GetRemoteWorkerLink returns one link by its durable identity.
+func (s *Store) GetRemoteWorkerLink(ctx context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	row, err := s.qr.GetRemoteWorkerLink(ctx, gen.GetRemoteWorkerLinkParams{
+		HostID: hostID, RemoteSessionID: string(remoteSessionID),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.RemoteWorkerLink{}, false, nil
+	}
+	if err != nil {
+		return domain.RemoteWorkerLink{}, false, fmt.Errorf("get remote worker link %s/%s: %w", hostID, remoteSessionID, err)
+	}
+	return remoteLinkFromRow(row), true, nil
+}
+
+func remoteLinkFromRow(row gen.RemoteWorkerLink) domain.RemoteWorkerLink {
+	return domain.RemoteWorkerLink{
+		HostID: row.HostID, HostLabel: row.HostLabel,
+		RemoteSessionID: domain.SessionID(row.RemoteSessionID), RemoteProjectID: domain.ProjectID(row.RemoteProjectID),
+		ProjectID: domain.ProjectID(row.ProjectID), DisplayName: row.DisplayName,
+		OwnerSessionID: row.OwnerSessionID, CreatedAt: row.CreatedAt,
+	}
 }
 
 // ListRemoteWorkerLinks returns every link, grouped by host.
@@ -35,11 +61,7 @@ func (s *Store) ListRemoteWorkerLinks(ctx context.Context) ([]domain.RemoteWorke
 	}
 	links := make([]domain.RemoteWorkerLink, len(rows))
 	for i, row := range rows {
-		links[i] = domain.RemoteWorkerLink{
-			HostID: row.HostID, HostLabel: row.HostLabel,
-			RemoteSessionID: domain.SessionID(row.RemoteSessionID), RemoteProjectID: domain.ProjectID(row.RemoteProjectID),
-			ProjectID: domain.ProjectID(row.ProjectID), DisplayName: row.DisplayName, CreatedAt: row.CreatedAt,
-		}
+		links[i] = remoteLinkFromRow(row)
 	}
 	return links, nil
 }

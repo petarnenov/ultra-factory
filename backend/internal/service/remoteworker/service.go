@@ -14,13 +14,16 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
 // Store is the link persistence and parent-session boundary.
 type Store interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
 	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
+	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
+	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
 }
 
 // MaxLinks bounds how many remote workers this daemon polls; every link costs
@@ -129,7 +132,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	link := domain.RemoteWorkerLink{
 		HostID: in.HostID, HostLabel: strings.TrimSpace(entry.Label),
 		RemoteSessionID: in.RemoteSessionID, RemoteProjectID: in.RemoteProjectID,
-		ProjectID: parent.ProjectID, DisplayName: in.DisplayName, CreatedAt: s.now().UTC(),
+		ProjectID: parent.ProjectID, DisplayName: in.DisplayName,
+		OwnerSessionID: coordownership.SpawnOwner(parent, parent.ProjectID),
+		CreatedAt:      s.now().UTC(),
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -137,16 +142,31 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	if err != nil {
 		return Registration{}, err
 	}
+	if current, found := findLink(existing, link); found {
+		// A link's local project and owner are fixed at creation; moving the
+		// project would strand a non-NULL owner outside it and violate I4.
+		if current.ProjectID != link.ProjectID {
+			return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_PROJECT_CONFLICT",
+				"The remote worker link already belongs to a different project",
+				map[string]any{"hostId": in.HostID, "remoteSessionId": string(in.RemoteSessionID), "projectId": string(link.ProjectID)})
+		}
+	}
 	if len(existing) >= MaxLinks && !hasLink(existing, link) {
 		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
 	}
 	if err := s.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
 		return Registration{}, err
 	}
+	stored := link
+	if current, found, err := s.store.GetRemoteWorkerLink(ctx, link.HostID, link.RemoteSessionID); err != nil {
+		return Registration{}, err
+	} else if found {
+		stored = current
+	}
 	if s.onLinked != nil {
 		s.onLinked()
 	}
-	registration := Registration{Link: link}
+	registration := Registration{Link: stored}
 	base, err := remotehost.BaseURL(entry.URL)
 	if err == nil {
 		err = remotehost.UnattendedTransportAllowed(base)
@@ -158,10 +178,15 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 }
 
 func hasLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) bool {
+	_, found := findLink(links, link)
+	return found
+}
+
+func findLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) (domain.RemoteWorkerLink, bool) {
 	for _, existing := range links {
 		if existing.HostID == link.HostID && existing.RemoteSessionID == link.RemoteSessionID {
-			return true
+			return existing, true
 		}
 	}
-	return false
+	return domain.RemoteWorkerLink{}, false
 }

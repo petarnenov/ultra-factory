@@ -8,6 +8,8 @@ package gen
 import (
 	"context"
 	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 const deleteRemoteWorkerLink = `-- name: DeleteRemoteWorkerLink :exec
@@ -22,6 +24,31 @@ type DeleteRemoteWorkerLinkParams struct {
 func (q *Queries) DeleteRemoteWorkerLink(ctx context.Context, arg DeleteRemoteWorkerLinkParams) error {
 	_, err := q.db.ExecContext(ctx, deleteRemoteWorkerLink, arg.HostID, arg.RemoteSessionID)
 	return err
+}
+
+const getRemoteWorkerLink = `-- name: GetRemoteWorkerLink :one
+SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id FROM remote_worker_links WHERE host_id = ? AND remote_session_id = ?
+`
+
+type GetRemoteWorkerLinkParams struct {
+	HostID          string
+	RemoteSessionID string
+}
+
+func (q *Queries) GetRemoteWorkerLink(ctx context.Context, arg GetRemoteWorkerLinkParams) (RemoteWorkerLink, error) {
+	row := q.db.QueryRowContext(ctx, getRemoteWorkerLink, arg.HostID, arg.RemoteSessionID)
+	var i RemoteWorkerLink
+	err := row.Scan(
+		&i.HostID,
+		&i.RemoteSessionID,
+		&i.RemoteProjectID,
+		&i.ProjectID,
+		&i.HostLabel,
+		&i.DisplayName,
+		&i.CreatedAt,
+		&i.OwnerSessionID,
+	)
+	return i, err
 }
 
 const insertRemoteWorkerReportDelivery = `-- name: InsertRemoteWorkerReportDelivery :exec
@@ -48,7 +75,7 @@ func (q *Queries) InsertRemoteWorkerReportDelivery(ctx context.Context, arg Inse
 }
 
 const listRemoteWorkerLinks = `-- name: ListRemoteWorkerLinks :many
-SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id
+SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id
 `
 
 func (q *Queries) ListRemoteWorkerLinks(ctx context.Context) ([]RemoteWorkerLink, error) {
@@ -68,6 +95,7 @@ func (q *Queries) ListRemoteWorkerLinks(ctx context.Context) ([]RemoteWorkerLink
 			&i.HostLabel,
 			&i.DisplayName,
 			&i.CreatedAt,
+			&i.OwnerSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -117,11 +145,10 @@ func (q *Queries) ListRemoteWorkerReportDeliveries(ctx context.Context, arg List
 
 const upsertRemoteWorkerLink = `-- name: UpsertRemoteWorkerLink :exec
 INSERT INTO remote_worker_links (
-    host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+    host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, owner_session_id, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(host_id, remote_session_id) DO UPDATE SET
     remote_project_id = excluded.remote_project_id,
-    project_id = excluded.project_id,
     host_label = excluded.host_label,
     display_name = excluded.display_name
 `
@@ -133,6 +160,7 @@ type UpsertRemoteWorkerLinkParams struct {
 	ProjectID       string
 	HostLabel       string
 	DisplayName     string
+	OwnerSessionID  *domain.SessionID
 	CreatedAt       time.Time
 }
 
@@ -144,6 +172,7 @@ func (q *Queries) UpsertRemoteWorkerLink(ctx context.Context, arg UpsertRemoteWo
 		arg.ProjectID,
 		arg.HostLabel,
 		arg.DisplayName,
+		arg.OwnerSessionID,
 		arg.CreatedAt,
 	)
 	return err

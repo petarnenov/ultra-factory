@@ -17,7 +17,10 @@ type RemoteWorkerLink struct {
 	RemoteProjectID ProjectID
 	ProjectID       ProjectID
 	DisplayName     string
-	CreatedAt       time.Time
+	// OwnerSessionID is a local coordinator in ProjectID. Nil means root-owned;
+	// the remote parent is never stored because remote IDs are the host's own.
+	OwnerSessionID *SessionID
+	CreatedAt      time.Time
 }
 
 // ErrInvalidRemoteWorkerLink reports a link missing a required identity.

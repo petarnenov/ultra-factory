@@ -40,6 +40,29 @@ func (s *wiringRemoteStore) UpsertRemoteWorkerLink(_ context.Context, link domai
 	return nil
 }
 
+func (s *wiringRemoteStore) GetRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, link := range s.links {
+		if link.HostID == hostID && link.RemoteSessionID == remoteSessionID {
+			return link, true, nil
+		}
+	}
+	return domain.RemoteWorkerLink{}, false, nil
+}
+
+func (s *wiringRemoteStore) SetRemoteWorkerOwner(_ context.Context, hostID string, remoteSessionID domain.SessionID, owner *domain.SessionID, _ domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, link := range s.links {
+		if link.HostID == hostID && link.RemoteSessionID == remoteSessionID {
+			s.links[i].OwnerSessionID = owner
+			return s.links[i], true, nil
+		}
+	}
+	return domain.RemoteWorkerLink{}, false, nil
+}
+
 func (s *wiringRemoteStore) DeleteRemoteWorkerLink(context.Context, string, domain.SessionID) error {
 	return nil
 }

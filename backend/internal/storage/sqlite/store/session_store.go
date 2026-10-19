@@ -86,6 +86,8 @@ func (s *Store) CreateAutomationSession(ctx context.Context, rec domain.SessionR
 }
 
 func (s *Store) createSessionLocked(ctx context.Context, rec domain.SessionRecord) (domain.SessionRecord, bool, error) {
+	// Normalize before insert so the returned record matches the stored row.
+	rec.CoordinatorScope = domain.NormalizeCoordinatorScope(rec.CoordinatorScope)
 	if rec.ClientRequestID != "" {
 		existing, found, err := s.getSessionByClientRequestID(ctx, s.qw, rec.ClientRequestID)
 		if err != nil || found {
@@ -249,38 +251,60 @@ func (s *Store) SetSessionBranchState(ctx context.Context, id domain.SessionID, 
 }
 
 // PromoteTaskPreparation makes a hidden speculative row visible without
-// touching workspace facts that may be published by the preparation goroutine.
+// touching workspace facts; a spawned owner and its audit commit together.
 func (s *Store) PromoteTaskPreparation(ctx context.Context, id domain.SessionID, rec domain.SessionRecord) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	activity := normalActivity(rec.Activity, rec.UpdatedAt)
-	rows, err := s.qw.PromoteTaskPreparation(ctx, gen.PromoteTaskPreparationParams{
-		IssueID:            rec.IssueID,
-		Kind:               rec.Kind,
-		Harness:            rec.Harness,
-		AutoReviewEnabled:  rec.AutoReviewEnabled,
-		TerminateOnPRMerge: rec.TerminateOnPRMerge,
-		DisplayName:        rec.DisplayName,
-		ActivityState:      activity.State,
-		ActivityLastAt:     activity.LastActivityAt,
-		SessionMode:        domain.NormalizeSessionMode(rec.Mode),
-		Model:              rec.Metadata.Model,
-		Effort:             rec.Metadata.Effort,
-		SessionPermissions: string(rec.Metadata.Permissions),
-		RequestedOutput:    string(rec.RequestedOutput),
-		CreatedAt:          rec.CreatedAt,
-		UpdatedAt:          rec.UpdatedAt,
-		AutoInjectReview:   rec.AutoInjectReview,
-		AutoInjectCI:       rec.AutoInjectCI,
-		ProvisionState:     rec.ProvisionState.WithDefault(),
-		ClientRequestID:    rec.ClientRequestID,
-		ClientRequestHash:  rec.ClientRequestHash,
-		ID:                 id,
+	var promoted bool
+	err := s.inTx(ctx, "promote task preparation", func(q *gen.Queries) error {
+		rows, err := q.PromoteTaskPreparation(ctx, gen.PromoteTaskPreparationParams{
+			IssueID:            rec.IssueID,
+			Kind:               rec.Kind,
+			OwnerSessionID:     rec.OwnerSessionID,
+			CoordinatorScope:   domain.NormalizeCoordinatorScope(rec.CoordinatorScope),
+			Harness:            rec.Harness,
+			AutoReviewEnabled:  rec.AutoReviewEnabled,
+			TerminateOnPRMerge: rec.TerminateOnPRMerge,
+			DisplayName:        rec.DisplayName,
+			ActivityState:      activity.State,
+			ActivityLastAt:     activity.LastActivityAt,
+			SessionMode:        domain.NormalizeSessionMode(rec.Mode),
+			Model:              rec.Metadata.Model,
+			Effort:             rec.Metadata.Effort,
+			SessionPermissions: string(rec.Metadata.Permissions),
+			RequestedOutput:    string(rec.RequestedOutput),
+			CreatedAt:          rec.CreatedAt,
+			UpdatedAt:          rec.UpdatedAt,
+			AutoInjectReview:   rec.AutoInjectReview,
+			AutoInjectCI:       rec.AutoInjectCI,
+			ProvisionState:     rec.ProvisionState.WithDefault(),
+			ClientRequestID:    rec.ClientRequestID,
+			ClientRequestHash:  rec.ClientRequestHash,
+			ID:                 id,
+		})
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return nil
+		}
+		promoted = true
+		if rec.OwnerSessionID != nil {
+			return q.InsertSessionOwnerEvent(ctx, gen.InsertSessionOwnerEventParams{
+				SessionID:              id,
+				PreviousOwnerSessionID: nil,
+				NewOwnerSessionID:      rec.OwnerSessionID,
+				Reason:                 domain.OwnershipSpawnParent,
+				CreatedAt:              rec.UpdatedAt,
+			})
+		}
+		return nil
 	})
 	if err != nil {
 		return false, fmt.Errorf("promote task preparation %s: %w", id, err)
 	}
-	return rows > 0, nil
+	return promoted, nil
 }
 
 // DeleteTaskPreparation removes only a row that has not been claimed.
@@ -823,6 +847,8 @@ func rowToRecord(row gen.GetSessionRow) domain.SessionRecord {
 		AutomationLaunchCompleted: row.AutomationLaunchCompleted,
 		IssueID:                   row.IssueID,
 		Kind:                      row.Kind,
+		OwnerSessionID:            row.OwnerSessionID,
+		CoordinatorScope:          row.CoordinatorScope,
 		Harness:                   row.Harness,
 		ReviewerHarness:           row.ReviewerHarness,
 		ReviewerConfig:            unmarshalAgentConfig(row.ReviewerAgentConfig),
@@ -937,6 +963,8 @@ func recordToInsert(rec domain.SessionRecord, num int64) gen.InsertSessionParams
 		Num:                              num,
 		IssueID:                          rec.IssueID,
 		Kind:                             rec.Kind,
+		OwnerSessionID:                   rec.OwnerSessionID,
+		CoordinatorScope:                 domain.NormalizeCoordinatorScope(rec.CoordinatorScope),
 		Harness:                          rec.Harness,
 		ReviewerHarness:                  rec.ReviewerHarness,
 		ReviewerAgentConfig:              mustMarshalAgentConfig(rec.ReviewerConfig),

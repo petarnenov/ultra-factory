@@ -5219,6 +5219,8 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		ClientRequestID:   cfg.ClientRequestID,
 		ClientRequestHash: cfg.ClientRequestHash,
 		Kind:              cfg.Kind,
+		OwnerSessionID:    cfg.OwnerSessionID,
+		CoordinatorScope:  domain.NormalizeCoordinatorScope(cfg.CoordinatorScope),
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		Harness:           cfg.Harness,
