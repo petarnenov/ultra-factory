@@ -318,11 +318,12 @@ func TestRestoreCheckoutReVerifiesMovedWorkerCheckout(t *testing.T) {
 	worker := liveWorker()
 	worker.Metadata.WorkspacePath = workspace
 	manager := NewGitCheckout(dataDir)
-	eng := &Engine{checkout: manager}
-	prepared, ok, err := eng.restoreCheckout(context.Background(), worker, []domain.ReviewRun{{
+	store := &fakeStore{runs: []domain.ReviewRun{{
 		ID: "run-1", BatchID: "batch-1", Status: domain.ReviewRunRunning,
 		TargetSHA: first, ReviewedTree: domain.ReviewCheckoutWorker,
-	}})
+	}}}
+	eng := &Engine{checkout: manager, store: store}
+	prepared, ok, err := eng.restoreCheckout(context.Background(), worker, store.runs)
 	if err != nil || !ok {
 		t.Fatalf("restoreCheckout ok=%v err=%v", ok, err)
 	}
@@ -332,8 +333,54 @@ func TestRestoreCheckoutReVerifiesMovedWorkerCheckout(t *testing.T) {
 	if got := runGit(t, prepared.Path, "rev-parse", "HEAD"); got != first {
 		t.Fatalf("restored checkout HEAD = %s, want %s", got, first)
 	}
+	if store.runs[0].ReviewedTree != domain.ReviewCheckoutDisposable || store.runs[0].ReviewedSHA != first {
+		t.Fatalf("restored run = %+v, want the disposable checkout persisted", store.runs[0])
+	}
 	if err := manager.Release(context.Background(), prepared.Key); err != nil {
 		t.Fatalf("Release: %v", err)
+	}
+}
+
+func TestCancelReleasesRestoredDisposableCheckout(t *testing.T) {
+	dataDir := t.TempDir()
+	origin := filepath.Join(t.TempDir(), "origin")
+	first := initGitRepo(t, origin, "file.txt", "one")
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	runGit(t, t.TempDir(), "clone", origin, workspace)
+	second := commitFile(t, origin, "file.txt", "two")
+	runGit(t, workspace, "fetch", "origin")
+	runGit(t, workspace, "checkout", "--detach", second)
+
+	worker := liveWorker()
+	worker.Metadata.WorkspacePath = workspace
+	store := &fakeStore{
+		review: &domain.Review{ID: "rev-1", SessionID: "mer-1", Harness: domain.ReviewerClaudeCode, ReviewerHandleID: "review-mer-1"},
+		runs: []domain.ReviewRun{{
+			ID: "run-1", ReviewID: "rev-1", SessionID: "mer-1", Harness: domain.ReviewerClaudeCode,
+			BatchID: "batch-1", PRURL: "https://github.com/o/r/pull/1", TargetSHA: first,
+			Status: domain.ReviewRunRunning, ReviewedTree: domain.ReviewCheckoutWorker,
+		}},
+	}
+	launcher := &fakeLauncher{}
+	eng := newEngineForTest(store, fakeSessions{rec: worker, ok: true}, prAt(first), fakeProjects{}, launcher)
+	eng.checkout = NewGitCheckout(dataDir)
+
+	prepared, ok, err := eng.restoreCheckout(context.Background(), worker, store.runs)
+	if err != nil || !ok {
+		t.Fatalf("restoreCheckout ok=%v err=%v", ok, err)
+	}
+	if !prepared.Disposable || store.runs[0].ReviewedTree != domain.ReviewCheckoutDisposable {
+		t.Fatalf("restored run = %+v prepared=%+v, want a persisted disposable checkout", store.runs[0], prepared)
+	}
+	if _, err := os.Stat(prepared.Path); err != nil {
+		t.Fatalf("restored worktree missing before cancel: %v", err)
+	}
+
+	if _, err := eng.Cancel(context.Background(), "mer-1"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if _, err := os.Stat(prepared.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restored disposable worktree leaked after cancel: %v", err)
 	}
 }
 

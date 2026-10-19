@@ -1147,6 +1147,7 @@ func (e *Engine) restorePersistedChatReviewerLocked(ctx stdctx.Context, worker d
 	}
 	launch, err := e.launcher.RestoreTerminal(ctx, spec)
 	if err != nil {
+		e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 		return RestoreReviewerResult{}, fmt.Errorf("restore reviewer: %w", err)
 	}
 	agentSessionID := review.AgentSessionID
@@ -1296,6 +1297,7 @@ func (e *Engine) restoreReviewerLocked(
 	}
 	launch, err := e.launcher.RestoreTerminal(ctx, spec)
 	if err != nil {
+		e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 		restoreErr := fmt.Errorf("restore reviewer: %w", err)
 		if wasExited {
 			// The relaunch failed, so the reviewer is still gone.
@@ -1312,8 +1314,10 @@ func (e *Engine) restoreReviewerLocked(
 		const reason = "reviewer native conversation was unavailable during restore; retry the review"
 		if err := e.failRunningRestoredRuns(ctx, previousRuns, reason); err != nil {
 			_ = e.launcher.Destroy(ctx, launch.HandleID)
+			e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 			return RestoreReviewerResult{}, err
 		}
+		e.releasePreparedCheckout(ctx, prepared, hasCheckout)
 	}
 	if launch.AgentSessionID != "" {
 		agentSessionID = launch.AgentSessionID
@@ -1447,7 +1451,7 @@ func (e *Engine) cancelStaleRunningRuns(ctx stdctx.Context, workerID domain.Sess
 func (e *Engine) releaseFinishedCheckouts(ctx stdctx.Context, workerID domain.SessionID, runs []domain.ReviewRun) {
 	keys := make(map[string]bool)
 	for _, run := range runs {
-		if run.ReviewedTree != domain.ReviewCheckoutDisposable {
+		if strings.TrimSpace(run.ReviewedCheckoutKey) == "" && run.ReviewedTree != domain.ReviewCheckoutDisposable {
 			continue
 		}
 		keys[CheckoutKey(run)] = true
@@ -1522,6 +1526,12 @@ func applyPreparedCheckout(spec *LaunchSpec, prepared PreparedCheckout) {
 	spec.CheckoutTree = prepared.Tree
 }
 
+func (e *Engine) releasePreparedCheckout(ctx stdctx.Context, prepared PreparedCheckout, has bool) {
+	if has && prepared.Disposable {
+		_ = e.checkout.Release(stdctx.WithoutCancel(ctx), prepared.Key)
+	}
+}
+
 // reviewedCheckoutForRun records verification only when the run's target
 // matches the prepared checkout; other queued heads stay unverified.
 func reviewedCheckoutForRun(run domain.ReviewRun, prepared PreparedCheckout) (string, domain.ReviewCheckoutTree) {
@@ -1557,9 +1567,31 @@ func (e *Engine) restoreCheckout(ctx stdctx.Context, worker domain.SessionRecord
 			}
 			return PreparedCheckout{}, false, fmt.Errorf("verify restored review checkout: %w", err)
 		}
+		if prepared.Disposable {
+			if err := e.persistRestoredCheckout(ctx, runs, run, prepared); err != nil {
+				_ = e.checkout.Release(stdctx.WithoutCancel(ctx), prepared.Key)
+				return PreparedCheckout{}, false, err
+			}
+		}
 		return prepared, true, nil
 	}
 	return PreparedCheckout{}, false, nil
+}
+
+// persistRestoredCheckout records a restore's newly materialized worktree on
+// every running run sharing its key, so release and later restores see it.
+func (e *Engine) persistRestoredCheckout(ctx stdctx.Context, runs []domain.ReviewRun, restored domain.ReviewRun, prepared PreparedCheckout) error {
+	key := CheckoutKey(restored)
+	for _, run := range runs {
+		if run.Status != domain.ReviewRunRunning || run.Verdict != domain.VerdictNone || CheckoutKey(run) != key {
+			continue
+		}
+		reviewedSHA, tree := reviewedCheckoutForRun(run, prepared)
+		if _, err := e.store.UpdateReviewRunCheckout(ctx, run.ID, reviewedSHA, tree, prepared.Key); err != nil {
+			return fmt.Errorf("record restored review checkout: %w", err)
+		}
+	}
+	return nil
 }
 
 func reviewLaunchSpec(

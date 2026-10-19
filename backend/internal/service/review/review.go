@@ -803,9 +803,10 @@ func (s *Service) releaseCheckouts(ctx context.Context, workerID domain.SessionI
 	}
 	keys := make(map[string]bool)
 	for _, run := range runs {
-		if run.ReviewedTree == domain.ReviewCheckoutDisposable {
-			keys[reviewcore.CheckoutKey(run)] = true
+		if strings.TrimSpace(run.ReviewedCheckoutKey) == "" && run.ReviewedTree != domain.ReviewCheckoutDisposable {
+			continue
 		}
+		keys[reviewcore.CheckoutKey(run)] = true
 	}
 	if len(keys) == 0 {
 		return
