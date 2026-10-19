@@ -304,6 +304,47 @@ tested in RW-3.1.1 could not. Never substitute an account-wide token; the BFF
 refuses to start with one. Removing a Railway worker deletes its service and its
 volume, so never use **Remove** as a redeploy.
 
+### Orchestration roles and the review flow
+
+The user agreed this process on 2026-10-19. It decides where work may run.
+
+- **The hub runs only the orchestrator.** The hub service runs the
+  orchestrator session with the daemon, the BFF and the wake-up loop. Do not
+  start implementation, fixes, tests or reviews on the hub. It is not a build
+  machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so
+  a Go change cannot be validated there. Start work on a worker machine with
+  `ao spawn --host`.
+- **Workers report to their orchestrator.** A worker sends its reports to the
+  orchestrator that spawned it (ADR 0005, pull). The orchestrator does not wait
+  for a report to inspect state; `ao session ls --host`, `gh pr list --base dev`
+  and `gh pr checks` are authoritative.
+- **Reviews run where the worker's checkout lives.** AO's reviewer is invoked
+  once over the worker's checkout with an enforced read-only guarantee, so it
+  is started on the machine that owns the worker. Until the remote review
+  trigger lands (#255), run `ao review trigger` by hand on that machine; this
+  is temporary. Do not start a review-only worker on the hub as a substitute.
+- **Preconditions before a review.** The worker is idle or exited; everything
+  is committed and pushed; the pull request is open; and the reviewer is given
+  the evaluated head SHA. These protect against reviewing a tree that is not
+  the pull request.
+- **After a review.** Send the findings to the owning worker; it fixes and
+  pushes. A moved head needs a new review pass.
+- **Agent configuration is per machine.** Project Settings / Agents and the
+  machine's harness defaults apply on the machine that runs the session. The
+  precedence is defined in #254; the hub's configuration is not copied to a
+  worker.
+- **A machine cannot be both an orchestrator and a worker host.** A machine
+  that runs its own orchestrator refuses a worker started from another machine
+  with `LOCAL_ORCHESTRATOR_ACTIVE`, because the local orchestrator would claim
+  that worker's reports. This happened on `IMac`, whose local orchestrator
+  `geowealth-1` was active, and the spawn was refused. Before
+  `ao spawn --host <H>`, check `ao orchestrator ls --host <H>`. If the machine
+  is needed as a worker while it runs an orchestrator for another project,
+  stop that orchestrator first or use another worker machine.
+
+The orchestrator instructions that apply these rules are in
+[`docs/backlog/railway/orchestrator-prompt.md`](../../docs/backlog/railway/orchestrator-prompt.md).
+
 ### Orchestrator agent credentials
 
 An orchestrator started in the hub runs one of its agent CLIs: `claude` and
