@@ -109,7 +109,7 @@ func TestResolveMissingTokenIsStructuredAndNamesHost(t *testing.T) {
 		t.Fatalf("unavailable = %+v", unavailable)
 	}
 	message := err.Error()
-	for _, want := range []string{`"widgets"`, `"work-account"`, `"geowealth.ghe.com"`, `"worker-1"`, "ao secret set github work-account --host geowealth.ghe.com"} {
+	for _, want := range []string{`"widgets"`, `"work-account"`, `"geowealth.ghe.com"`, `"worker-1"`, "ao secret set github work-account --github-host geowealth.ghe.com"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("message %q does not contain %q", message, want)
 		}

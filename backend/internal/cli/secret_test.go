@@ -124,7 +124,7 @@ func TestSecretSetAndRemovePassGitHubHost(t *testing.T) {
 	if _, errOut, err := executeCLI(t, Deps{
 		In:           strings.NewReader("fake-test-token-value\n"),
 		ProcessAlive: func(int) bool { return true },
-	}, "secret", "set", "github", "work-account", "--host", "ghe.example.com"); err != nil {
+	}, "secret", "set", "github", "work-account", "--github-host", "ghe.example.com"); err != nil {
 		t.Fatalf("set: unexpected error: %v\nstderr=%s", err, errOut)
 	}
 	if capture.query != "host=ghe.example.com" {
@@ -132,10 +132,29 @@ func TestSecretSetAndRemovePassGitHubHost(t *testing.T) {
 	}
 	if _, errOut, err := executeCLI(t, Deps{
 		ProcessAlive: func(int) bool { return true },
-	}, "secret", "rm", "github", "work-account", "--host", "ghe.example.com"); err != nil {
+	}, "secret", "rm", "github", "work-account", "--github-host", "ghe.example.com"); err != nil {
 		t.Fatalf("rm: unexpected error: %v\nstderr=%s", err, errOut)
 	}
 	if capture.query != "host=ghe.example.com" {
 		t.Fatalf("rm query = %q, want host", capture.query)
+	}
+}
+
+// --host means a paired AO machine elsewhere in the CLI, so it must not be
+// accepted here as a GitHub host.
+func TestSecretRejectsHostFlagForGitHubHost(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := secretServer(t, `{"status":"ok","host":"ghe.example.com","account":"work-account"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, _, err := executeCLI(t, Deps{
+		In:           strings.NewReader("fake-test-token-value\n"),
+		ProcessAlive: func(int) bool { return true },
+	}, "secret", "set", "github", "work-account", "--host", "ghe.example.com")
+	if err == nil {
+		t.Fatal("--host was accepted as a GitHub host")
+	}
+	if capture.method != "" {
+		t.Fatalf("request = %s %s, want none", capture.method, capture.path)
 	}
 }

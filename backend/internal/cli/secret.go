@@ -53,7 +53,7 @@ func newSecretSetCommand(ctx *commandContext) *cobra.Command {
 			"stdin, never from an argument, so it does not appear in shell history or " +
 			"the process list:\n\n" +
 			"  gh auth token | ao secret set github work-account\n" +
-			"  gh auth token --hostname ghe.example.com | ao secret set github me --host ghe.example.com",
+			"  gh auth token --hostname ghe.example.com | ao secret set github me --github-host ghe.example.com",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.ExactArgs(2)(cmd, args); err != nil {
 				return usageError{err}
@@ -102,7 +102,7 @@ func newSecretSetCommand(ctx *commandContext) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&githubHost, "host", "", "GitHub host (default github.com)")
+	cmd.Flags().StringVar(&githubHost, "github-host", "", "GitHub host for an enterprise account (default github.com)")
 	return cmd
 }
 
@@ -164,6 +164,6 @@ func newSecretRemoveCommand(ctx *commandContext) *cobra.Command {
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&githubHost, "host", "", "GitHub host (default github.com)")
+	cmd.Flags().StringVar(&githubHost, "github-host", "", "GitHub host for an enterprise account (default github.com)")
 	return cmd
 }

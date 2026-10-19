@@ -58,7 +58,7 @@ func (e *UnavailableError) FixCommand() string {
 	command := "ao secret set github " + e.Account
 	host, err := domain.NormalizeGitHubHost(e.Host)
 	if err == nil && host != "github.com" {
-		command += " --host " + host
+		command += " --github-host " + host
 	}
 	return command
 }
@@ -205,7 +205,7 @@ func fixCommand(host, account string) string {
 	command := "ao secret set github " + strings.TrimSpace(account)
 	normalized, err := domain.NormalizeGitHubHost(host)
 	if err == nil && normalized != "github.com" {
-		command += " --host " + normalized
+		command += " --github-host " + normalized
 	}
 	return command
 }

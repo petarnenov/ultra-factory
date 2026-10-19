@@ -49,8 +49,8 @@ read from stdin, never from an argument:
 
 ```bash
 gh auth token --user work-account | ao secret set github work-account
-# enterprise GitHub host (this --host is the GitHub host):
-gh auth token --hostname geowealth.ghe.com | ao secret set github work-account --host geowealth.ghe.com
+# enterprise GitHub host (--github-host selects the GitHub host, not a machine):
+gh auth token --hostname geowealth.ghe.com | ao secret set github work-account --github-host geowealth.ghe.com
 ```
 
 List the accounts stored on this machine (hosts and logins only, never values):
@@ -65,7 +65,7 @@ Remove one:
 
 ```bash
 ao secret rm github work-account
-ao secret rm github work-account --host geowealth.ghe.com
+ao secret rm github work-account --github-host geowealth.ghe.com
 ```
 
 The current backend stores each token at
@@ -106,7 +106,7 @@ project "my-project" is bound to GitHub account "work-account" on host
 For an enterprise host the fix names it:
 
 ```
-ao secret set github work-account --host geowealth.ghe.com
+ao secret set github work-account --github-host geowealth.ghe.com
 ```
 
 The daemon returns this as `SCM_IDENTITY_UNAVAILABLE` with `projectId`, `host`,
