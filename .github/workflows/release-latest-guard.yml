@@ -5,6 +5,10 @@ name: Release latest guard
 on:
   release:
     types: [published]
+    # Only `published` fires here: `edited` repeats on every release edit and
+    # `released` duplicates `published` for the same action, which would start
+    # several guard runs from one state change. The hourly schedule backs up a
+    # prerelease promoted to stable or a post-publish edit.
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
