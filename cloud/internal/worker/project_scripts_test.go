@@ -2,13 +2,28 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// runHookScript executes an installed hook by path, as the control plane does.
+// ETXTBSY is retried while a concurrent test's forked child still holds it.
+func runHookScript(t *testing.T, path string) (string, error) {
+	t.Helper()
+	for attempt := 0; ; attempt++ {
+		output, err := exec.Command(path).CombinedOutput()
+		if err == nil || !errors.Is(err, syscall.ETXTBSY) || attempt == 50 {
+			return string(output), err
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func scriptEnvironment(dir string) SessionScriptEnvironment {
 	return SessionScriptEnvironment{
@@ -114,14 +129,14 @@ func TestCleanupHookRunsCommandsOnce(t *testing.T) {
 	}
 	hook := filepath.Join(dataDir, CleanupHookFile)
 	run := func() (string, int) {
-		output, err := exec.Command(hook).CombinedOutput()
+		output, err := runHookScript(t, hook)
 		code := 0
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			code = exitErr.ExitCode()
 		} else if err != nil {
 			t.Fatalf("run hook: %v", err)
 		}
-		return string(output), code
+		return output, code
 	}
 	output, code := run()
 	if code != 5 || !strings.Contains(output, "cleaning") || !strings.Contains(output, "cleanup step 2 failed") {
@@ -141,10 +156,7 @@ func TestCleanupHookRunsCommandsOnce(t *testing.T) {
 	if err := WriteCleanupHook(emptyDir, []string{" "}, workspace, scriptEnvironment(workspace)); err != nil {
 		t.Fatal(err)
 	}
-	output, err = func() (string, error) {
-		out, err := exec.Command(filepath.Join(emptyDir, CleanupHookFile)).CombinedOutput()
-		return string(out), err
-	}()
+	output, err = runHookScript(t, filepath.Join(emptyDir, CleanupHookFile))
 	if err != nil || strings.TrimSpace(output) != "" {
 		t.Fatalf("hook with no Cleanup commands: output = %q, err = %v; want a silent success", output, err)
 	}
