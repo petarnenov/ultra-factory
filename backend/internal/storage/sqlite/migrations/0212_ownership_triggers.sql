@@ -5,6 +5,8 @@
 CREATE TRIGGER IF NOT EXISTS sessions_ownership_insert
 BEFORE INSERT ON sessions
 BEGIN
+    SELECT RAISE(ABORT, 'coordinator requires a project')
+    WHERE NEW.kind = 'coordinator' AND NEW.project_id IS NULL;
     SELECT RAISE(ABORT, 'coordinator scope is required for kind=coordinator')
     WHERE NEW.kind = 'coordinator' AND length(trim(NEW.coordinator_scope)) = 0;
     SELECT RAISE(ABORT, 'coordinator scope is only valid for kind=coordinator')
@@ -28,6 +30,8 @@ BEGIN
     SELECT RAISE(ABORT, 'coordinator scope is immutable')
     WHERE OLD.coordinator_scope <> NEW.coordinator_scope
       AND NOT (OLD.is_task_preparation = 1 AND OLD.kind = 'worker');
+    SELECT RAISE(ABORT, 'coordinator requires a project')
+    WHERE NEW.kind = 'coordinator' AND NEW.project_id IS NULL;
     SELECT RAISE(ABORT, 'coordinator scope is required for kind=coordinator')
     WHERE NEW.kind = 'coordinator' AND length(trim(NEW.coordinator_scope)) = 0;
     SELECT RAISE(ABORT, 'coordinator scope is only valid for kind=coordinator')

@@ -191,6 +191,12 @@ func TestOwnershipInvariantsRejectInvalidOwners(t *testing.T) {
 			t.Fatalf("err = %v, want a scope rejection", err)
 		}
 	})
+	t.Run("coordinator requires a project", func(t *testing.T) {
+		rec := coordinatorRecord("", "area")
+		if _, err := s.CreateSession(ctx, rec); err == nil || !strings.Contains(err.Error(), "requires a project") {
+			t.Fatalf("err = %v, want a project rejection", err)
+		}
+	})
 	t.Run("worker carries no coordinator scope", func(t *testing.T) {
 		rec := sampleRecord("ao")
 		rec.CoordinatorScope = "not mine"
