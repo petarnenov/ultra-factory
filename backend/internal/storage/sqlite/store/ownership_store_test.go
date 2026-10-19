@@ -444,6 +444,9 @@ func TestCoordinatorScopeIsNormalizedAndBounded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create coordinator with a noisy scope: %v", err)
 	}
+	if created.CoordinatorScope != "auth area" {
+		t.Fatalf("returned scope = %q, want %q", created.CoordinatorScope, "auth area")
+	}
 	got, found, err := s.GetSession(ctx, created.ID)
 	if err != nil || !found {
 		t.Fatalf("read coordinator: found=%v err=%v", found, err)

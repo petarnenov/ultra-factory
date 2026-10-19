@@ -48,7 +48,9 @@ type Store interface {
 	SetSessionPinned(ctx context.Context, id domain.SessionID, isPinned bool, pinnedAt *time.Time, updatedAt time.Time) (bool, error)
 	SetSessionReviewerConfig(ctx context.Context, id domain.SessionID, harness domain.ReviewerHarness, config domain.AgentConfig, updatedAt time.Time) (bool, error)
 	SetSessionAutoReview(ctx context.Context, id domain.SessionID, enabled bool, updatedAt time.Time) (bool, error)
-	SetSessionOwner(ctx context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, requireNoClaimedReport bool) (domain.SessionRecord, bool, error)
+	// SetSessionOwner writes owner + audit atomically. skipClaimGuard=false
+	// enforces the claimed-report guard; only automatic repair may pass true.
+	SetSessionOwner(ctx context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, skipClaimGuard bool) (domain.SessionRecord, bool, error)
 	GetDisplayPRFactsForSession(ctx context.Context, id domain.SessionID) (domain.PRFacts, bool, error)
 	ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error)
 	ListPRFactsForSessions(ctx context.Context, ids []domain.SessionID) (map[domain.SessionID][]domain.PRFacts, error)

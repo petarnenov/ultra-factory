@@ -86,6 +86,8 @@ func (s *Store) CreateAutomationSession(ctx context.Context, rec domain.SessionR
 }
 
 func (s *Store) createSessionLocked(ctx context.Context, rec domain.SessionRecord) (domain.SessionRecord, bool, error) {
+	// Normalize before insert so the returned record matches the stored row.
+	rec.CoordinatorScope = domain.NormalizeCoordinatorScope(rec.CoordinatorScope)
 	if rec.ClientRequestID != "" {
 		existing, found, err := s.getSessionByClientRequestID(ctx, s.qw, rec.ClientRequestID)
 		if err != nil || found {

@@ -68,6 +68,7 @@ VALUES ('ao-4', 'ao', 4, 'worker', 'claude-code', 'ao-3', '2026-10-19T10:00:00Z'
 		{"ao-scope-untrimmed", "  auth  ", "must be trimmed"},
 		{"ao-scope-long", strings.Repeat("x", 201), "at most 200"},
 		{"ao-scope-control", "auth\x1barea", "control characters"},
+		{"ao-scope-nul", "auth\x00area", "control characters"},
 		{"ao-scope-c1", "auth\u0085area", "control characters"},
 	} {
 		if _, err := db.Exec(`
