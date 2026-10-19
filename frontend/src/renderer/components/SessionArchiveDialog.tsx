@@ -1,6 +1,6 @@
 import { type ReactElement, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { sessionArtifacts, type WorkspaceSession } from "../types/workspace";
+import { isOrchestratorSession, sessionArtifacts, type WorkspaceSession } from "../types/workspace";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Checkbox } from "./ui/checkbox";
 
@@ -38,22 +38,32 @@ export function SessionArchiveDialog({
 	// A cloud session's teardown is restorable too — the control plane keeps its
 	// conversation and work so it can be re-provisioned later.
 	const isCloud = session?.cloud !== undefined;
-	const body = isCloud ? t("archive.bodyCloud") : t("archive.body");
-	const artifactCount = session && !isCloud ? sessionArtifacts(session).length : 0;
+	const isOrchestrator = session ? isOrchestratorSession(session) : false;
+	// Kill for an orchestrator is termination, not routine archiving.
+	const title = isOrchestrator ? t("archive.killOrchestratorTitle") : t("archive.dialog");
+	const body = isOrchestrator
+		? t("archive.killOrchestratorBody")
+		: isCloud
+			? t("archive.bodyCloud")
+			: t("archive.body");
+	const confirmAriaLabel = isOrchestrator
+		? t("archive.killOrchestratorConfirmAria")
+		: t("archive.confirmAria");
+	const artifactCount = session && !isCloud && !isOrchestrator ? sessionArtifacts(session).length : 0;
 	const deleting = artifactCount > 0 && deleteArtifacts;
 	return (
 		<>
 			{trigger}
 			<ConfirmDialog
 				cancelLabel={t("common.no")}
-				confirmAriaLabel={t("archive.confirmAria")}
+				confirmAriaLabel={confirmAriaLabel}
 				confirmLabel={t("confirm.confirm")}
 				description={body}
 				destructive={deleting}
 				onConfirm={() => onConfirm({ deleteArtifacts: deleting })}
 				onOpenChange={onOpenChange}
 				open={open}
-				title={t("archive.dialog")}
+				title={title}
 			>
 				{artifactCount > 0 ? (
 					<div className="flex items-start gap-2">

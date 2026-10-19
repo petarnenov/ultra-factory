@@ -3297,5 +3297,14 @@
   "reports.retry": "Retry",
   "reports.loadMore": "Load more",
   "reports.loadingMore": "Loading more reports…",
-  "reports.loadMoreError": "Reports could not be loaded."
+  "reports.loadMoreError": "Reports could not be loaded.",
+  "chat.role.orchestrator": "Orquestador",
+  "chat.role.worker": "Trabajador",
+  "chat.role.reviewer": "Revisor",
+  "chat.killOrchestrator.action": "Detener",
+  "chat.killOrchestrator.aria": "Detener orquestador",
+  "chat.killOrchestrator.killing": "Deteniendo…",
+  "archive.killOrchestratorTitle": "¿Detener este orquestador?",
+  "archive.killOrchestratorBody": "Esto termina la sesión del orquestador, exactamente igual que `ao session kill <id>`. Puedes restaurarla más tarde con `ao session restore <id>`; no se inicia un reemplazo automáticamente.",
+  "archive.killOrchestratorConfirmAria": "Confirmar, detener orquestador"
 }

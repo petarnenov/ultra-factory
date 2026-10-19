@@ -3252,5 +3252,14 @@
   "reports.retry": "Retry",
   "reports.loadMore": "Load more",
   "reports.loadingMore": "Loading more reports…",
-  "reports.loadMoreError": "Reports could not be loaded."
+  "reports.loadMoreError": "Reports could not be loaded.",
+  "chat.role.orchestrator": "Orchestrator",
+  "chat.role.worker": "Arbeiter",
+  "chat.role.reviewer": "Prüfer",
+  "chat.killOrchestrator.action": "Beenden",
+  "chat.killOrchestrator.aria": "Orchestrator beenden",
+  "chat.killOrchestrator.killing": "Wird beendet…",
+  "archive.killOrchestratorTitle": "Diesen Orchestrator beenden?",
+  "archive.killOrchestratorBody": "Dadurch wird die Orchestrator-Sitzung beendet, genau wie mit `ao session kill <id>`. Du kannst sie später mit `ao session restore <id>` wiederherstellen; es wird kein Ersatz automatisch gestartet.",
+  "archive.killOrchestratorConfirmAria": "Bestätigen, Orchestrator beenden"
 }

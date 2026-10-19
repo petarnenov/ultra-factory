@@ -104,6 +104,7 @@ import {
 } from "../../types/workspace";
 import { AgentAvatar } from "../AgentAvatar";
 import { SessionPaneTab } from "../CenterPane";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { SessionTopbarPortal } from "../SessionTopbarPortal";
@@ -171,6 +172,15 @@ const EMPTY_CHAT_PLACEHOLDERS = [
 	"Plan the next step for this feature",
 	"Find and fix a bug in this project",
 ] as const;
+
+/** A session role plus the reviewer surface a chat can be showing. */
+type ChatRole = SessionKind | "reviewer";
+
+function chatRoleLabelKey(role: ChatRole) {
+	if (role === "orchestrator") return "chat.role.orchestrator" as const;
+	if (role === "reviewer") return "chat.role.reviewer" as const;
+	return "chat.role.worker" as const;
+}
 
 /**
  * The newest pending approval or question the live turn is waiting on.
@@ -331,7 +341,7 @@ export interface ChatWorkspaceProps {
 	/** The session title from the sidebar (matches what users see in the left sidebar) */
 	sessionTitle?: string;
 	/** The AO role using this shared conversation surface. */
-	sessionRole?: SessionKind;
+	sessionRole?: ChatRole;
 	/** Host-specific proxy origin for images and staged attachments. */
 	assetBaseUrl?: string;
 	/** Selected remote host, even while its connection has no proxy origin. */
@@ -2027,7 +2037,7 @@ function ChatHeader({
 }: {
 	snapshot: ConversationSnapshot;
 	sessionTitle?: string;
-	sessionRole: SessionKind;
+	sessionRole: ChatRole;
 	onOpenReviewerTerminal?: (target: { handleId: string; harness: string }) => void;
 	onOpenReviewerChat?: (target: { reviewId: string; harness: string }) => void;
 	/** The reviewer tab is selected; the chat tab is the clickable alternative. */
@@ -2058,6 +2068,11 @@ function ChatHeader({
 	const sessionIsOrchestrator = session
 		? isOrchestratorSession(session)
 		: sessionRole === "orchestrator";
+	const chatRole: ChatRole = reviewerActive
+		? "reviewer"
+		: sessionIsOrchestrator
+			? "orchestrator"
+			: sessionRole;
 	const label = sessionIsOrchestrator
 		? t("shell.orchestrator")
 		: (sessionTitle || session?.title || snapshot.title || snapshot.sessionId);
@@ -2164,7 +2179,7 @@ function ChatHeader({
 											{tab.kind === "reviewer" || tab.kind === "reviewer-chat" ? (
 												<button
 													aria-current={reviewerActive && !workspaceActiveTabKey ? true : undefined}
-													aria-label="Reviewer"
+													aria-label={t("chat.role.reviewer")}
 													aria-selected={Boolean(reviewerActive && !workspaceActiveTabKey)}
 													className={cn(
 														"group relative inline-flex min-w-shell-tab-min max-w-shell-tab-max self-stretch cursor-pointer items-center gap-1.5 border-r border-border px-3 text-control font-medium leading-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent/50",
@@ -2179,7 +2194,7 @@ function ChatHeader({
 													type="button"
 												>
 													<AgentAvatar className="size-icon-base" decorative provider={tab.terminal.harness} />
-													<span className="truncate">Reviewer</span>
+													<span className="truncate">{t("chat.role.reviewer")}</span>
 												</button>
 											) : (
 												tab.tab.content
@@ -2199,6 +2214,14 @@ function ChatHeader({
 					className="ml-auto flex shrink-0 items-center gap-1 pl-2 pr-3"
 					data-testid="session-action-region"
 				>
+					<Badge
+						className="h-5 px-1.5 text-2xs"
+						data-role={chatRole}
+						data-testid="chat-role-tag"
+						variant={chatRole === "orchestrator" ? "accent" : "outline"}
+					>
+						{t(chatRoleLabelKey(chatRole))}
+					</Badge>
 					{tabStripAction ? <div data-testid="session-tab-strip-action">{tabStripAction}</div> : null}
 					{headerActions}
 				</div>

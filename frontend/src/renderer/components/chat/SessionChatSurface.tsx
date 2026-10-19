@@ -54,10 +54,11 @@ import type { Theme } from "../../stores/ui-store";
 import { can } from "../../types/conversation";
 import type { ConversationSnapshot } from "../../types/conversation";
 import type { TerminalTarget } from "../../types/terminal";
-import type { AgentSwitchSummary, WorkspaceSession } from "../../types/workspace";
+import { isOrchestratorSession, type AgentSwitchSummary, type WorkspaceSession } from "../../types/workspace";
 import { AgentSwitchProgressTrack } from "../AgentSwitchProgressTrack";
 import { useUiStore } from "../../stores/ui-store";
 import { ChatWorkspace } from "./ChatWorkspace";
+import { OrchestratorChatKill } from "./OrchestratorChatKill";
 import { WorkerReportsPanel } from "./WorkerReportsPanel";
 import { startingConversationSnapshot } from "./OrchestratorStartingChat";
 import { hasProviderPermissionMode } from "./TurnSettingsBar";
@@ -622,6 +623,17 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 		);
 	}
 
+	// The orchestrator's own chat is where a runaway session is noticed.
+	const chatHeaderActions =
+		isOrchestratorSession(session) && !session.isTerminated ? (
+			<>
+				<OrchestratorChatKill hostId={hostId} session={session} />
+				{headerActions}
+			</>
+		) : (
+			headerActions
+		);
+
 	return (
 		<div className="relative h-full min-h-0">
 			{refreshError ? <p role="alert" className="px-4 py-2 text-xs text-destructive">{refreshError}</p> : null}
@@ -659,7 +671,7 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 				onRenameShellTerminal={onRenameShellTerminal}
 				daemonReady={daemonReady}
 				theme={theme}
-				headerActions={headerActions}
+				headerActions={chatHeaderActions}
 				sessionTabAction={sessionTabAction}
 				sessionTabActionWide={sessionTabActionWide}
 				tabStripAction={tabStripAction}
