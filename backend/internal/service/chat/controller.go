@@ -27,6 +27,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 )
 
 const (
@@ -167,6 +168,13 @@ type ActivityRecorder interface {
 	ApplyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error
 }
 
+// ProgressRecorder writes durable progress heartbeats. Chat uses the same
+// lifecycle write path as terminal hooks so health works for every transport.
+type ProgressRecorder interface {
+	RecordProgress(ctx context.Context, id domain.SessionID, signal sessionhealth.Signal) error
+	RecordBlocked(ctx context.Context, id domain.SessionID, reason string, at time.Time) error
+}
+
 // IDFactory mints the identifiers AO assigns. Injected so tests get stable ids.
 type IDFactory func() string
 
@@ -204,6 +212,7 @@ type Controller struct {
 	conv                   ports.ChatConversation
 	store                  Store
 	activity               ActivityRecorder
+	progress               ProgressRecorder
 	log                    *slog.Logger
 	newID                  IDFactory
 	now                    Clock
@@ -362,6 +371,7 @@ func newController(
 	conv ports.ChatConversation,
 	store Store,
 	activity ActivityRecorder,
+	progress ProgressRecorder,
 	log *slog.Logger,
 	newID IDFactory,
 	now Clock,
@@ -378,6 +388,7 @@ func newController(
 		conv:                   conv,
 		store:                  store,
 		activity:               activity,
+		progress:               progress,
 		log:                    log,
 		newID:                  newID,
 		now:                    now,
@@ -3383,6 +3394,7 @@ func retryQuotaSnapshotCallback(callback func() error) error {
 // would hold the single writer connection across another subsystem.
 func (c *Controller) afterProject(ctx context.Context, event ports.ChatEvent, primaryTurn bool) {
 	now := c.now()
+	c.recordProgress(ctx, event, now)
 	switch event.Kind {
 	case ports.ChatEventTurnStarted:
 		if primaryTurn {
@@ -3457,6 +3469,59 @@ func (c *Controller) afterProject(ctx context.Context, event ports.ChatEvent, pr
 			}
 		}
 	}
+}
+
+// recordProgress turns provider traffic into durable progress heartbeats.
+// It runs only after the event's durable projection committed.
+func (c *Controller) recordProgress(ctx context.Context, event ports.ChatEvent, now time.Time) {
+	if c.progress == nil || c.reviewID != "" {
+		return
+	}
+	if errors.Is(event.Err, ports.ErrChatAuthRequired) {
+		_ = c.progress.RecordBlocked(ctx, c.sessionID, "provider_auth_required", now)
+	}
+	if event.Kind == ports.ChatEventCommandOutputDelta && chatGitAuthFailure(event.Delta) {
+		_ = c.progress.RecordBlocked(ctx, c.sessionID, "git_credential_missing", now)
+	}
+	provider := false
+	switch event.Kind {
+	case ports.ChatEventTurnStarted, ports.ChatEventTurnCompleted,
+		ports.ChatEventMessageDelta, ports.ChatEventMessageCompleted,
+		ports.ChatEventCommandOutputDelta, ports.ChatEventCommandInput,
+		ports.ChatEventReasoningDelta, ports.ChatEventActivityText,
+		ports.ChatEventTurnDiff, ports.ChatEventPlanUpdated,
+		ports.ChatEventActivityStarted, ports.ChatEventActivityCompleted,
+		ports.ChatEventError:
+		provider = true
+	}
+	if provider {
+		_ = c.progress.RecordProgress(ctx, c.sessionID, sessionhealth.Signal{Class: sessionhealth.ClassProvider, At: now})
+	}
+	if event.ActivityKind != domain.ActivityKindCommand && event.ActivityKind != domain.ActivityKindMCPTool {
+		return
+	}
+	toolName := strings.TrimSpace(event.Summary)
+	if len(toolName) > 120 {
+		toolName = toolName[:120]
+	}
+	switch event.Kind {
+	case ports.ChatEventActivityStarted:
+		_ = c.progress.RecordProgress(ctx, c.sessionID, sessionhealth.Signal{
+			Class: sessionhealth.ClassTool, At: now, ToolName: toolName,
+		})
+	case ports.ChatEventActivityCompleted:
+		_ = c.progress.RecordProgress(ctx, c.sessionID, sessionhealth.Signal{
+			Class: sessionhealth.ClassTool, At: now, ToolName: toolName, ToolEnd: true,
+		})
+	}
+}
+
+// chatGitAuthFailure recognizes the git credential error in streamed command
+// output. The next real progress clears the blocked fact.
+func chatGitAuthFailure(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "could not read username for") ||
+		strings.Contains(lower, "fatal: authentication failed")
 }
 
 // settledTurnState resolves the only ambiguous terminal combination once. An

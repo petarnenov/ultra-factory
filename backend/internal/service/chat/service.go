@@ -59,6 +59,7 @@ type Service struct {
 	sessions               SessionReader
 	drivers                ports.ChatDriverRegistry
 	activity               ActivityRecorder
+	progress               ProgressRecorder
 	log                    *slog.Logger
 	newID                  IDFactory
 	now                    Clock
@@ -143,6 +144,9 @@ type Options struct {
 	// Activity feeds derived session status from turn events. Nil leaves a chat
 	// session reading as idle while it works, so production always wires it.
 	Activity ActivityRecorder
+	// Progress writes durable progress heartbeats for provider stream events and
+	// tool boundaries. Nil leaves health blind to Chat traffic.
+	Progress ProgressRecorder
 	Log      *slog.Logger
 	NewID    IDFactory
 	Now      Clock
@@ -191,6 +195,7 @@ func New(opts Options) *Service {
 		sessions:               opts.Sessions,
 		drivers:                opts.Drivers,
 		activity:               opts.Activity,
+		progress:               opts.Progress,
 		log:                    log,
 		newID:                  opts.NewID,
 		now:                    now,
@@ -891,7 +896,7 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 	// A fresh generation per launch, so events from the controller this one
 	// replaced can be told apart from the current one's.
 	controller := newController(
-		cfg.SessionID, owner, conversation, generation, cfg.Harness, conv, s.store, s.activity, s.log, s.newID, s.now, s.onAccountChanged, s.onCodexCapacityChanged, s.onQuotaObserved)
+		cfg.SessionID, owner, conversation, generation, cfg.Harness, conv, s.store, s.activity, s.progress, s.log, s.newID, s.now, s.onAccountChanged, s.onCodexCapacityChanged, s.onQuotaObserved)
 	var commitProviderHistory func(context.Context) error
 	if liveReconnect {
 		providerTurnID := controller.restoreLiveTurnOwnership(liveRows.Turns)

@@ -18,6 +18,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionguard"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 )
 
 type sessionStore interface {
@@ -243,6 +244,9 @@ type Manager struct {
 	// nudges become no-ops but the reducer still runs.
 	guard         *sessionguard.Guard
 	notifications notificationSink
+	// progress records durable progress heartbeats when the store supports it.
+	// A fake store without the narrow write leaves it nil.
+	progress *sessionhealth.Recorder
 	// completionTerminator is late-bound because Session Manager itself depends
 	// on this lifecycle reducer. It is required before the SCM observer starts.
 	completionTerminator sessionTerminator
@@ -311,6 +315,9 @@ func New(store sessionStore, messenger ports.AgentMessenger, opts ...Option) *Ma
 	}
 	if messenger != nil {
 		m.guard = sessionguard.New(store, messenger, nil)
+	}
+	if progressStore, ok := store.(sessionhealth.ProgressStore); ok {
+		m.progress = sessionhealth.NewRecorder(progressStore)
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -552,9 +559,48 @@ func nonInteractiveNativeEntrypoint(entrypoint string) bool {
 	return false
 }
 
-// ApplyActivitySignal records an authoritative agent activity signal and any
-// native agent session id carried alongside it. Metadata-only hooks leave the
-// existing activity and first-signal facts untouched.
+// RecordProgress writes one durable progress heartbeat from Chat or hooks.
+func (m *Manager) RecordProgress(ctx context.Context, id domain.SessionID, signal sessionhealth.Signal) error {
+	if m == nil || m.progress == nil {
+		return nil
+	}
+	return m.progress.Record(ctx, id, signal)
+}
+
+// RecordBlocked records a durable auth or credential failure fact.
+func (m *Manager) RecordBlocked(ctx context.Context, id domain.SessionID, reason string, at time.Time) error {
+	if m == nil || m.progress == nil {
+		return nil
+	}
+	return m.progress.RecordBlocked(ctx, id, reason, at)
+}
+
+// recordActivityProgress folds an accepted hook into the progress set.
+// State-only events do not count as progress.
+func (m *Manager) recordActivityProgress(ctx context.Context, id domain.SessionID, s ports.ActivitySignal, now time.Time) {
+	if m.progress == nil {
+		return
+	}
+	at := timeOr(s.Timestamp, now)
+	progress := true
+	switch s.Event {
+	case "pre-tool-use":
+		_ = m.progress.Record(ctx, id, sessionhealth.Signal{Class: sessionhealth.ClassTool, At: at, ToolName: s.ToolName})
+	case "post-tool-use":
+		_ = m.progress.Record(ctx, id, sessionhealth.Signal{Class: sessionhealth.ClassTool, At: at, ToolName: s.ToolName, ToolEnd: true})
+	case "notification", "permission-request", "liveness-probe", "session-end":
+		progress = false
+	}
+	if s.Event == "stop" || s.Event == "session-start" || s.Event == "session-end" || s.State == domain.ActivityExited {
+		_ = m.progress.Record(ctx, id, sessionhealth.Signal{Class: sessionhealth.ClassTool, At: at, ToolEnd: true})
+	}
+	if progress {
+		_ = m.progress.Record(ctx, id, sessionhealth.Signal{Class: sessionhealth.ClassProvider, At: at})
+	}
+}
+
+// ApplyActivitySignal records one authoritative agent activity signal and any
+// native session identity carried with it.
 func (m *Manager) ApplyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error {
 	// Subagent answers, including prompt suggestions, are not root-conversation
 	// facts. Their usage is collected independently from lifecycle metadata.
@@ -951,6 +997,9 @@ retryProjection:
 	toolFlightBeforeProjection := cloneToolFlight(m.flights[id])
 	if s.Valid {
 		s = m.applyToolPrecedenceLocked(id, rec.Activity.State, s)
+	}
+	if s.Valid {
+		m.recordActivityProgress(ctx, id, s, now)
 	}
 	if !s.Valid && !metadataChanged {
 		m.mu.Unlock()

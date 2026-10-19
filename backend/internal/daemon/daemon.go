@@ -74,6 +74,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/taskreport"
 	usagesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/usage"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 	"github.com/aoagents/agent-orchestrator/backend/internal/skillassets"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 	"github.com/aoagents/agent-orchestrator/backend/internal/terminal"
@@ -457,9 +458,10 @@ func Run() error {
 			}, nil
 		}),
 		Drivers: chatDrivers,
-		// The LCM satisfies ActivityRecorder directly: a chat turn is a pure
-		// lifecycle reduction, same as a hook signal from a terminal session.
+		// The LCM satisfies both recorders directly; a chat turn is a
+		// lifecycle reduction, same as a terminal hook.
 		Activity: lcStack.LCM,
+		Progress: lcStack.LCM,
 		Log:      log,
 		NewID:    uuid.NewString,
 		OnAccountChanged: func(sessionID domain.SessionID, generation string, harness domain.AgentHarness) {
@@ -700,6 +702,38 @@ func Run() error {
 	defer func() {
 		stop()
 		<-reportDeliveryDone
+	}()
+	// Derived session health: one report per silent episode, delivered to the
+	// owning orchestrator through the existing report outbox.
+	healthConfig, healthConfigErr := sessionhealth.FromEnv(os.Getenv)
+	if healthConfigErr != nil {
+		log.Warn("session health: invalid environment, using defaults", "err", healthConfigErr)
+		healthConfig = sessionhealth.DefaultConfig()
+	}
+	healthObserver := sessionhealth.NewObserver(store, notificationWriter, sessionhealth.ObserverConfig{
+		Health:            healthConfig,
+		Tick:              sessionhealth.TickInterval(os.Getenv),
+		Logger:            log,
+		Messenger:         lifecycleMessenger,
+		RequestCheckpoint: strings.TrimSpace(os.Getenv("AO_STALL_CHECKPOINT_REQUEST")) == "1",
+		OnStalled: func(reportCtx context.Context, rec domain.SessionRecord, health domain.SessionHealth) error {
+			note := fmt.Sprintf("AO health monitor detected %s for session %s: %s after %s without progress (class %s, threshold %s). In-flight tool: %s. If the host is unreachable or the agent is inside a long tool budget, do not kill it; verify with `ao host ls` and the session output first.",
+				health.State, rec.ID, health.Reason, formatHealthSilence(health), emptyHealthClass(health.Class), formatHealthThreshold(health), emptyHealthTool(health.InFlightTool))
+			if _, err := reportSvc.Create(reportCtx, reportsvc.CreateInput{
+				SessionID: rec.ID,
+				State:     domain.ReportStuck,
+				Note:      note,
+			}); err != nil {
+				log.Warn("session health: stall report failed", "session", rec.ID, "err", err)
+				return err
+			}
+			return nil
+		},
+	})
+	healthDone := healthObserver.Start(ctx)
+	defer func() {
+		stop()
+		<-healthDone
 	}()
 	lcStack.trackerDone = startTrackerIntake(ctx, cfg, store, sessionSvc, tracker, log)
 
@@ -1311,6 +1345,28 @@ func installedAgentHarness(target systeminstall.Target) (string, bool) {
 		return string(target), true
 	}
 	return "", false
+}
+
+func formatHealthSilence(health domain.SessionHealth) string {
+	return (time.Duration(health.SilentForSeconds) * time.Second).String()
+}
+
+func formatHealthThreshold(health domain.SessionHealth) string {
+	return (time.Duration(health.ThresholdSeconds) * time.Second).String()
+}
+
+func emptyHealthClass(class string) string {
+	if strings.TrimSpace(class) == "" {
+		return "unknown"
+	}
+	return class
+}
+
+func emptyHealthTool(tool string) string {
+	if strings.TrimSpace(tool) == "" {
+		return "none"
+	}
+	return tool
 }
 
 func usagePipelineWatchRoots(roots usagesvc.SourceRoots) []string {

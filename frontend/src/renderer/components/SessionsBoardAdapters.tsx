@@ -61,6 +61,15 @@ export function toBoardSessionPresentation(
 					tone: "var(--color-status-exited)",
 				}
 			: undefined;
+	const healthStatus =
+		session.health?.state === "stalled" || session.health?.state === "blocked"
+			? {
+					className: "text-status-exited",
+					indicatorClassName: "bg-status-exited",
+					label: `${session.health.state === "stalled" ? "Stalled" : "Blocked"}${silentAgeLabel(session.health.silentForSeconds)}`,
+					tone: "var(--color-status-exited)",
+				}
+			: undefined;
 	return {
 		activity: session.activity,
 		branch: session.branch,
@@ -72,7 +81,7 @@ export function toBoardSessionPresentation(
 		status: session.status,
 		statusReadiness: session.statusReadiness,
 		statusPresentation:
-			provisioningStatus ?? failedStartStatus ??
+			healthStatus ?? provisioningStatus ?? failedStartStatus ??
 			(t && switchPresentation && switchVisual
 				? {
 						className: switchVisual.className,
@@ -86,6 +95,13 @@ export function toBoardSessionPresentation(
 		updatedAt: session.updatedAt,
 		lastUserMessageAt: session.lastUserMessageAt,
 	};
+}
+
+function silentAgeLabel(seconds?: number): string {
+	if (!seconds || seconds <= 0) return "";
+	if (seconds < 60) return ` ${Math.round(seconds)}s`;
+	if (seconds < 3600) return ` ${Math.round(seconds / 60)}m`;
+	return ` ${Math.round(seconds / 3600)}h`;
 }
 
 export function sessionsBoardLabels(t: TFunction): BoardColumnLabels {
