@@ -85,6 +85,7 @@ AO_DATA_DIR=/tmp/ao-lab-data ./node_modules/.bin/electron-forge start
 - `README.md`: Current run/config/test quickstart.
 - `docs/README.md`: Docs index.
 - `docs/documentation-map.md`: Which artifacts are the machine-readable contract layer (`openapi.yaml`, `AGENTS.md`, `skills/`, sqlc `gen/`), what each is source of truth for, and how CI keeps them from drifting.
+- `docs/issue-policy.md`: Issue type and priority labels, the pull request check that enforces them, and its two exemptions.
 - `docs/architecture.md`: Backend mental model, package layout, lifecycle/session/service boundaries, and load-bearing rules.
 - `docs/STATUS.md`: What is shipped on `main` today and what is still in flight.
 - `docs/cli/README.md`: Intended CLI shape, a thin Cobra client over daemon HTTP with no direct storage/runtime access.
@@ -202,7 +203,27 @@ Commit `openapi.yaml` and `frontend/src/api/schema.ts` together with the Go chan
 
 `pricing-catalog-validate.yml` only runs on pull requests whose base is `main`, so a task PR touching `pricing/**` is first validated at promotion; run that job locally in the task worktree instead of waiting.
 
+## Issue tracking
+
+Every change is tracked by a GitHub issue. The issue carries exactly one type
+label (`bug`, `enhancement`, `documentation`, `accessibility`, `chore`) and
+exactly one priority label (`priority:critical`, `priority:high`,
+`priority:medium`, `priority:low`), assigned by the agent that files it. The
+orchestrator may adjust the priority and says so in a comment. Backlog labels
+(`rw*`, `co*`, `status:*`, `wave:*`, `host:*`, `needs-human`) are additive, not a
+substitute, and do not satisfy the requirement. `docs/issue-policy.md` holds the
+label mapping and one-line examples.
+
+A pull request must reference its issue with `Closes #NNN` in the description.
+`.github/workflows/issue-policy.yml` fails the pull request when it references
+no issue, or when a referenced issue lacks a type or priority label, and prints
+the `gh issue edit` command that fixes it. Exactly two pull requests are exempt:
+the `dev` into `main` promotion, which is the batch record rather than a change,
+and the automated agent-pin refresh on `chore/agent-cli-pins`.
+
 ## PR hygiene
+
+- Reference the issue in the description with `Closes #NNN`; see [Issue tracking](#issue-tracking). A pull request without a referenced, labelled issue fails `Issue tracking policy`.
 
 - When creating or updating a PR, follow `.agents/skills/pr-description/SKILL.md` so the published description starts with verified category change counts.
 

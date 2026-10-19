@@ -1,0 +1,43 @@
+name: Issue tracking policy
+
+# Every change needs an issue with one type and one priority label.
+# docs/issue-policy.md states the rule and its two narrow exemptions.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to check
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Test the issue policy check
+        run: node --test scripts/issue-policy/check.test.mjs
+
+      - name: Enforce the issue policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+        run: node scripts/issue-policy/check.mjs
