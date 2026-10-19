@@ -23,10 +23,14 @@ require a deployment or a configuration change.
 | Worker sessions on `Linux`, `IMac`, `Z600` | That host's own daemon route (`http://127.0.0.1:<port>/api/v1/usage/sessions/memory`) | The hub daemon has no process-level view of a remote worker. `ao session top` is **local-daemon only** and has no `--host`; each worker host must be sampled on itself. |
 | Railway service CPU and memory | `railway usage projects --project <project>` and each service's **Metrics** tab | Service-level readings include container and platform overhead; they are not process readings. |
 
-`ao session top --all --json` remains a useful cross-check, but its JSON carries
-only `sessionId`, `rssBytes`, `processCount` and `sampledAt` per session. It does
-not carry CPU percent or the per-process list, so it cannot satisfy the
-per-process part of this protocol on its own.
+`ao session top --all --json` remains a useful cross-check, but its output is not
+the route payload: entries live in `data[]` and embed the CLI session DTO (`id`,
+not `sessionId`, plus `projectId`, `kind`, `harness`, `status`, `activity`, and
+so on) with `rssBytes` and `processCount` added. Both memory fields are `null`
+when a session's tree could not be measured, and `meta.totalRssBytes` sums only
+the readings that exist. The output carries no memory-sample timestamp, so pair
+it with `date -u` when capturing. It also omits CPU percent and the per-process
+list, so it cannot satisfy the per-process part of this protocol on its own.
 
 ## 2. Workload definition
 
@@ -224,11 +228,15 @@ At least once per window, while all six workers are `working`, run on the hub:
 
 ```sh
 railway ssh --project <project> --environment <environment> \
-  --service <hub-service> -- sh -lc 'ao session top --all --json'
+  --service <hub-service> -- sh -lc 'date -u +%FT%TZ; ao session top --all --json'
 ```
 
-Record the output with a UTC timestamp. It is a cross-check of session RSS and
-process counts; it is not the primary CPU/process source.
+Record the output with that UTC timestamp. `ao session top` has no
+`sampledAt` field, so the paired `date -u` line is the timestamp for the
+cross-check, not a per-row value. Entries whose `rssBytes` or `processCount` is
+`null` had no live process tree at that read and must be recorded as unmeasured,
+not zero. The command is a cross-check of session RSS and process counts; it is
+not the primary CPU/process source.
 
 ## 5. Comparison template
 
