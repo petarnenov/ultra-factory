@@ -59,9 +59,9 @@ addresses change on restart.
 ### Remote host target (`--host`)
 
 `spawn`, `send`, and
-`session ls|get|input|kill|restore|rename|exit-agent|resume-agent`,
-`project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`
-accept `--host <label | host ID | URL>`.
+`session ls|get|owner|assign|input|kill|restore|rename|exit-agent|resume-agent`,
+`project ls|get`, `coordinator ls`, `orchestrator ls`, `agent ls`, and
+`review trigger|ls|cancel` accept `--host <label | host ID | URL>`.
 With it, the same daemon route is called on a paired remote host's
 authenticated remote listener instead of the loopback daemon. The saved
 credential comes from the desktop's `remotes.json`; it is sent only after
@@ -107,6 +107,11 @@ commit and records which tree the verdict read. See
 | `ao spawn`                          | Targeted launch ensure, then `POST /api/v1/sessions` |
 | `ao session ls`                     | `GET /api/v1/sessions` plus per-session PR summaries; shows branch, PR, CI, review, unresolved threads, activity, and age. |
 | `ao session get <id>`               | `GET /api/v1/sessions/{id}`                    |
+| `ao session owner <id>`             | `GET /api/v1/sessions/{id}/ownership`         |
+| `ao session assign <worker> --owner <coordinator-id\|root>` | `PUT /api/v1/sessions/{id}/owner` |
+| `ao coordinator ls`                 | `GET /api/v1/projects/{id}/coordinators`      |
+| `ao remote-worker ls`               | `GET /api/v1/remote-worker-links`             |
+| `ao remote-worker assign <host> <remote-session>` | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` |
 | `ao session input <id>`             | `GET /api/v1/sessions/{id}/conversation` to list pending structured questions; `POST /api/v1/sessions/{id}/conversation/inputs/{requestId}/resolve` with `--request-id` and `--action` to answer one |
 | `ao session kill <id>`              | `POST /api/v1/sessions/{id}/kill`              |
 | `ao session restore <id>`           | `POST /api/v1/sessions/{id}/restore`           |
@@ -126,6 +131,42 @@ commit and records which tree the verdict read. See
 | `ao preview start/status/stop`      | `POST/GET/DELETE /api/v1/sessions/{id}/preview/server` |
 | `ao browser ...`                    | `GET /api/v1/browser/status`, `POST /api/v1/browser/commands` |
 | `ao hooks <agent> <event>`          | `POST /api/v1/sessions/{id}/activity` (hidden) |
+
+### Session ownership
+
+Coordinator ownership is durable daemon state. `ao session ls` shows an
+`OWNER` column, `ao session get` shows the owner and coordinator scope, and
+`ao session owner <id>` reads the full relation: the session's kind, its owner
+(a worker's coordinator, or `root` when unowned), the owner's scope, and the
+project's live root. `ao coordinator ls` prints the project hierarchy with each
+coordinator's scope and the workers it owns; `-p/--project` defaults to
+`AO_PROJECT_ID`.
+
+Only the project's live root may write ownership. The CLI sends the caller from
+`AO_SESSION_ID`; pass `--requested-by` when the caller is not the current
+session, and always pass it with `--host` because a local session ID is never
+forwarded to another daemon. `--owner root` clears a worker's owner and returns
+it to direct root delegation:
+
+```bash
+ao session assign mer-3 --owner mer-2
+ao session assign mer-3 --owner root
+ao coordinator ls --project mercury
+```
+
+Linked remote workers use the same owner values. Their link identity is the
+remote host ID plus the remote session ID:
+
+```bash
+ao remote-worker ls --project mercury
+ao remote-worker assign build-box widgets-3 --owner mer-2
+```
+
+Ownership writes return the ADR 0010 error codes (`OWNERSHIP_ROOT_ONLY`,
+`OWNER_NOT_COORDINATOR`, `OWNER_CROSS_PROJECT`, `OWNER_TERMINATED`,
+`OWNER_REASSIGNMENT_IN_FLIGHT`) in the standard API envelope with a request ID;
+the CLI prints the code and exits 1. CLI misuse such as a missing `--owner` or
+an unresolved caller exits 2.
 
 `ao agent ls` asks the daemon to ensure display readiness, then prints the
 existing table or legacy JSON projection. The daemon alone decides whether a

@@ -148,16 +148,34 @@ type CreateRemoteWorkerLinkRequest struct {
 
 // RemoteWorkerLinkResponse is a stored remote worker link.
 type RemoteWorkerLinkResponse struct {
-	HostID          string    `json:"hostId"`
-	HostLabel       string    `json:"hostLabel"`
-	RemoteSessionID string    `json:"remoteSessionId"`
-	RemoteProjectID string    `json:"remoteProjectId"`
-	ProjectID       string    `json:"projectId"`
-	DisplayName     string    `json:"displayName,omitempty"`
-	CreatedAt       time.Time `json:"createdAt"`
+	HostID          string `json:"hostId"`
+	HostLabel       string `json:"hostLabel"`
+	RemoteSessionID string `json:"remoteSessionId"`
+	RemoteProjectID string `json:"remoteProjectId"`
+	ProjectID       string `json:"projectId"`
+	DisplayName     string `json:"displayName,omitempty"`
+	// OwnerSessionID is the local coordinator owner. Null means root-owned.
+	OwnerSessionID *string   `json:"ownerSessionId"`
+	CreatedAt      time.Time `json:"createdAt"`
 	// PullBlocked explains why this daemon will not poll the host with no one
 	// acting (plain http without the opt-in). The link is stored either way.
 	PullBlocked string `json:"pullBlocked,omitempty"`
+}
+
+// ListRemoteWorkerLinksQuery scopes the remote worker link list.
+type ListRemoteWorkerLinksQuery struct {
+	Project string `query:"project,omitempty" description:"Only links owned by this local project."`
+}
+
+// ListRemoteWorkerLinksResponse is the body of GET /api/v1/remote-worker-links.
+type ListRemoteWorkerLinksResponse struct {
+	Links []RemoteWorkerLinkResponse `json:"links"`
+}
+
+// RemoteWorkerLinkOwnerParam identifies one link on its ownership route.
+type RemoteWorkerLinkOwnerParam struct {
+	HostID          string `path:"hostId" description:"Linked remote host identifier."`
+	RemoteSessionID string `path:"remoteSessionId" description:"Session identifier on the remote host."`
 }
 
 // HTTP response envelopes for the projects surface — the SINGLE definition of
@@ -502,8 +520,13 @@ type SessionView struct {
 	// LastEventAt is when something a person would notice last happened: an
 	// activity-state transition, a PR lifecycle or CI change, or a review
 	// submission. Derived at read time; see domain.Session.LastEventAt.
-	LastEventAt       time.Time             `json:"lastEventAt"`
-	PRs               []SessionPRFacts      `json:"prs"`
+	LastEventAt time.Time        `json:"lastEventAt"`
+	PRs         []SessionPRFacts `json:"prs"`
+	// OwnerSessionID is a worker's durable coordinator owner. Null means the
+	// worker is root-owned; a root and a coordinator are never owned.
+	OwnerSessionID *string `json:"ownerSessionId"`
+	// CoordinatorScope bounds a coordinator's work. Set only for a coordinator.
+	CoordinatorScope  string                `json:"coordinatorScope,omitempty"`
 	ArtifactFiles     []SessionArtifactView `json:"artifactFiles,omitempty"`
 	ActiveAgentSwitch *AgentSwitchView      `json:"activeAgentSwitch,omitempty"`
 }
@@ -604,6 +627,50 @@ type AttachmentInput struct {
 // SessionResponse is the { session } body shared by session reads and updates.
 type SessionResponse struct {
 	Session SessionView `json:"session"`
+}
+
+// SessionOwnerRequest is the body of both ownership write routes. A null
+// ownerSessionId clears the owner; requestedBySessionId names the live root.
+type SessionOwnerRequest struct {
+	OwnerSessionID       *string `json:"ownerSessionId"`
+	RequestedBySessionID string  `json:"requestedBySessionId"`
+}
+
+// SessionOwnershipResponse is one session's durable ownership relation with
+// the project's live root resolved at read time.
+type SessionOwnershipResponse struct {
+	SessionID        string  `json:"sessionId"`
+	ProjectID        string  `json:"projectId,omitempty"`
+	Kind             string  `json:"kind" enum:"worker,orchestrator,coordinator"`
+	OwnerSessionID   *string `json:"ownerSessionId"`
+	OwnerKind        string  `json:"ownerKind,omitempty" enum:"worker,orchestrator,coordinator"`
+	OwnerScope       string  `json:"ownerScope,omitempty"`
+	CoordinatorScope string  `json:"coordinatorScope,omitempty"`
+	RootSessionID    *string `json:"rootSessionId"`
+}
+
+// CoordinatorRosterResponse is a project's local ownership hierarchy. Remote
+// worker links are listed by GET /api/v1/remote-worker-links.
+type CoordinatorRosterResponse struct {
+	ProjectID     string                   `json:"projectId"`
+	RootSessionID *string                  `json:"rootSessionId"`
+	Coordinators  []CoordinatorRosterEntry `json:"coordinators"`
+	// RootWorkerSessionIDs are the project's live root-owned workers.
+	RootWorkerSessionIDs []string `json:"rootWorkerSessionIds"`
+}
+
+// CoordinatorRosterEntry is one coordinator and its live local workers.
+type CoordinatorRosterEntry struct {
+	CoordinatorSessionID string   `json:"coordinatorSessionId"`
+	CoordinatorScope     string   `json:"coordinatorScope"`
+	IsTerminated         bool     `json:"isTerminated"`
+	WorkerSessionIDs     []string `json:"workerSessionIds"`
+	WorkerCount          int      `json:"workerCount"`
+}
+
+// ListCoordinatorsQuery scopes the coordinator roster read.
+type ListCoordinatorsQuery struct {
+	IncludeTerminated bool `query:"includeTerminated,omitempty" description:"Include terminated coordinators and workers."`
 }
 
 // SpawnSessionResponse includes ephemeral measurements of the final assembled
