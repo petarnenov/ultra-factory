@@ -64,6 +64,9 @@ type SourceRoots struct {
 	CodexSessions  string
 	CodexArchived  string
 	KimiHome       string
+	// OpencodeV2Home holds OpenCode 2's SQLite store. It mirrors the adapter's
+	// V2DataHome; this package only reads from it.
+	OpencodeV2Home string
 }
 
 // DefaultSourceRoots resolves provider-owned transcript directories. dataDir
@@ -88,8 +91,26 @@ func DefaultSourceRoots(ctx context.Context, dataDir string) (SourceRoots, error
 		CodexSessions:  filepath.Join(codexHome, "sessions"),
 		CodexArchived:  filepath.Join(codexHome, "archived_sessions"),
 		KimiHome:       filepath.Join(dataDir, "kimi"),
+		OpencodeV2Home: opencodeV2DataDir(home),
 	}, nil
 }
+
+// opencodeV2DataDir is where OpenCode 2 keeps its SQLite store. It repeats
+// the adapter's V2DataHome rule; a test keeps the two in step.
+func opencodeV2DataDir(home string) string {
+	parent := strings.TrimSpace(os.Getenv("XDG_DATA_HOME"))
+	if parent == "" {
+		parent = filepath.Join(home, ".local", "share")
+	}
+	if filepath.Base(parent) != opencodeV2HomeDirName {
+		parent = filepath.Join(parent, opencodeV2HomeDirName)
+	}
+	return filepath.Join(parent, "opencode")
+}
+
+// opencodeV2HomeDirName is the isolated data home OpenCode 2 runs with, as a
+// sibling of the user's own data home.
+const opencodeV2HomeDirName = "opencode-v2-home"
 
 type collectorStore interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
@@ -285,6 +306,7 @@ func (c *Collector) RecordHook(ctx context.Context, sessionID domain.SessionID, 
 	}
 	if signal.NativeSessionID != "" && mainPath == "" &&
 		(session.Harness == domain.HarnessCodex || session.Harness == domain.HarnessKimi ||
+			session.Harness == domain.HarnessOpenCodeV2 ||
 			finalizing && !existsForDiscovery) {
 		mainPath, err = c.discoverPath(ctx, session.Harness, signal.NativeSessionID)
 		if err != nil {
@@ -1894,6 +1916,15 @@ func (c *Collector) finalizeSession(ctx context.Context, sessionID domain.Sessio
 	return nil
 }
 
+// acceptedSourceExtension reports whether path names the shape the harness's
+// usage is read from: a transcript, or OpenCode 2's SQLite store.
+func acceptedSourceExtension(harness domain.AgentHarness, path string) bool {
+	if harness == domain.HarnessOpenCodeV2 {
+		return strings.ToLower(filepath.Ext(path)) == ".db"
+	}
+	return strings.ToLower(filepath.Ext(path)) == ".jsonl"
+}
+
 func (c *Collector) validateSourcePath(ctx context.Context, harness domain.AgentHarness, path string) (string, string, int64, error) {
 	if err := ctx.Err(); err != nil {
 		return "", "", 0, err
@@ -1901,7 +1932,7 @@ func (c *Collector) validateSourcePath(ctx context.Context, harness domain.Agent
 	if len(path) > maxUsagePathBytes {
 		return "", "", 0, errors.New(domain.UsageErrorArtifactPathRejected)
 	}
-	if !filepath.IsAbs(path) || strings.ToLower(filepath.Ext(path)) != ".jsonl" {
+	if !filepath.IsAbs(path) || !acceptedSourceExtension(harness, path) {
 		return "", "", 0, errors.New(domain.UsageErrorArtifactPathRejected)
 	}
 	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
@@ -1994,6 +2025,11 @@ func validateSourceAttribution(
 			filepath.Base(sessionDir) != binding.NativeRootID || subagentID != wantSubagent {
 			return rejected()
 		}
+	case domain.UsageSourceOpencodeV2:
+		if binding.Harness != domain.HarnessOpenCodeV2 || nativeSessionID != binding.NativeRootID ||
+			filepath.Base(resolved) != opencodeStoreFileName {
+			return rejected()
+		}
 	default:
 		return rejected()
 	}
@@ -2041,6 +2077,8 @@ func (c *Collector) allowedRoots(harness domain.AgentHarness) []string {
 		return []string{c.roots.CodexSessions, c.roots.CodexArchived}
 	case domain.HarnessKimi:
 		return []string{c.roots.KimiHome}
+	case domain.HarnessOpenCodeV2:
+		return []string{c.roots.OpencodeV2Home}
 	default:
 		return nil
 	}
@@ -2054,6 +2092,8 @@ func sourceKindForHarness(harness domain.AgentHarness) (domain.UsageSourceKind, 
 		return domain.UsageSourceCodexRollout, true
 	case domain.HarnessKimi:
 		return domain.UsageSourceKimiWire, true
+	case domain.HarnessOpenCodeV2:
+		return domain.UsageSourceOpencodeV2, true
 	default:
 		return "", false
 	}
@@ -2091,6 +2131,22 @@ func pathWithinRoot(ctx context.Context, path, root string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// opencodeStoreFileName is the SQLite store OpenCode 2 keeps its sessions in.
+const opencodeStoreFileName = "opencode.db"
+
+// discoverOpencodeV2Path returns OpenCode 2's session store when it exists. A
+// missing store is not an error: a later hook registers it once created.
+func (c *Collector) discoverOpencodeV2Path(nativeID string) string {
+	if !nativeUsageIDPattern.MatchString(nativeID) || c.roots.OpencodeV2Home == "" {
+		return ""
+	}
+	path := filepath.Join(c.roots.OpencodeV2Home, opencodeStoreFileName)
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	return path
+}
+
 func (c *Collector) discoverPath(ctx context.Context, harness domain.AgentHarness, nativeID string) (string, error) {
 	if !nativeUsageIDPattern.MatchString(nativeID) {
 		return "", nil
@@ -2103,6 +2159,8 @@ func (c *Collector) discoverPath(ctx context.Context, harness domain.AgentHarnes
 		return c.discoverCodexPath(ctx, nativeID, "")
 	case domain.HarnessKimi:
 		return c.discoverKimiPath(ctx, nativeID)
+	case domain.HarnessOpenCodeV2:
+		return c.discoverOpencodeV2Path(nativeID), nil
 	}
 	type candidate struct {
 		path string
