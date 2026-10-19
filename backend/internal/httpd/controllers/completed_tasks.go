@@ -122,7 +122,10 @@ func (c *CompletedTasksController) summary(task taskreport.Summary, hostID strin
 		},
 	}
 	for i, pr := range task.PRs {
-		out.PRs[i] = CompletedTaskPR{URL: pr.URL, Number: pr.Number, State: string(pr.State)}
+		out.PRs[i] = CompletedTaskPR{
+			URL: pr.URL, Number: pr.Number, State: string(pr.State), Title: pr.Title,
+			Additions: pr.Additions, Deletions: pr.Deletions, ChangedFiles: pr.ChangedFiles,
+		}
 	}
 	return out
 }

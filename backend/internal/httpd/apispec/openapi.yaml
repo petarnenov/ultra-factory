@@ -3256,8 +3256,9 @@ paths:
           enum:
           - merged
           - closed
-          - cancelled
           - failed
+          - unfinished
+          - no_pr
           type: string
       - description: Page size, 1 to 200. Defaults to 50.
         in: query
@@ -12763,6 +12764,12 @@ components:
       type: object
     CompletedTaskPR:
       properties:
+        additions:
+          type: integer
+        changedFiles:
+          type: integer
+        deletions:
+          type: integer
         number:
           type: integer
         state:
@@ -12772,12 +12779,18 @@ components:
           - merged
           - closed
           type: string
+        title:
+          type: string
         url:
           type: string
       required:
       - url
       - number
       - state
+      - title
+      - additions
+      - deletions
+      - changedFiles
       type: object
     CompletedTaskReportResponse:
       properties:
@@ -12809,8 +12822,9 @@ components:
           enum:
           - merged
           - closed
-          - cancelled
           - failed
+          - unfinished
+          - no_pr
           type: string
         projectId:
           type: string
@@ -12988,8 +13002,9 @@ components:
           enum:
           - merged
           - closed
-          - cancelled
           - failed
+          - unfinished
+          - no_pr
           type: string
         projectId:
           type: string

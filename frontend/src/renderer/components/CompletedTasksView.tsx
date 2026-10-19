@@ -20,8 +20,18 @@ import { isLocal, refKey } from "../lib/hosts";
 import { hidesShellTopbar } from "../lib/platform";
 import { cn } from "../lib/utils";
 
-const OUTCOMES: CompletedTaskOutcome[] = ["merged", "closed", "cancelled", "failed"];
+const OUTCOMES: CompletedTaskOutcome[] = ["merged", "closed", "unfinished", "no_pr", "failed"];
 const STAGES = ["building", "validating", "needs_review", "ready"] as const;
+
+// Outcome is a fact about the deliverable, so it is colour-coded by how much
+// of it landed: delivered, rejected, stopped short, never produced, failed.
+const OUTCOME_CLASS: Record<CompletedTaskOutcome, string> = {
+	merged: "border-success/40 text-success",
+	closed: "border-border text-muted-foreground",
+	failed: "border-destructive/40 text-destructive",
+	unfinished: "border-warning/40 text-warning",
+	no_pr: "border-border text-muted-foreground",
+};
 
 export type CompletedTaskSelection = { ref: CompletedTaskProjectRef; sessionId: string };
 
@@ -157,24 +167,11 @@ function CompletedTaskList({ refs, onSelect }: { refs: CompletedTaskProjectRef[]
 				</p>
 			) : null}
 			{tasks.length > 0 ? (
-				<Table className="text-xs">
-					<TableHeader>
-						<TableRow className="hover:bg-transparent">
-							<TableHead className="text-muted-foreground">{t("completedTasks.column.task")}</TableHead>
-							<TableHead className="text-muted-foreground">{t("completedTasks.column.outcome")}</TableHead>
-							<TableHead className="text-muted-foreground">{t("completedTasks.column.completed")}</TableHead>
-							<TableHead className="text-right text-muted-foreground">{t("completedTasks.column.elapsed")}</TableHead>
-							<TableHead className="text-right text-muted-foreground">{t("completedTasks.column.input")}</TableHead>
-							<TableHead className="text-right text-muted-foreground">{t("completedTasks.column.output")}</TableHead>
-							<TableHead className="text-muted-foreground">{t("completedTasks.column.agent")}</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{tasks.map((task) => (
-							<CompletedTaskRow key={refKey({ host: task.ref.hostId, id: task.sessionId })} task={task} showHost={multiHost} locale={locale} onSelect={onSelect} />
-						))}
-					</TableBody>
-				</Table>
+				<ul className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+					{tasks.map((task) => (
+						<CompletedTaskCard key={refKey({ host: task.ref.hostId, id: task.sessionId })} task={task} showHost={multiHost} locale={locale} onSelect={onSelect} />
+					))}
+				</ul>
 			) : null}
 			{hasMore ? (
 				<div className="mt-3 flex justify-center">
@@ -187,7 +184,9 @@ function CompletedTaskList({ refs, onSelect }: { refs: CompletedTaskProjectRef[]
 	);
 }
 
-function CompletedTaskRow({
+// One card per completed task. It leads with what the task delivered, so the
+// list is scannable without opening the report.
+function CompletedTaskCard({
 	task,
 	showHost,
 	locale,
@@ -200,37 +199,91 @@ function CompletedTaskRow({
 }) {
 	const { t } = useTranslation();
 	const partialTokens = task.tokens.completeness === "partial";
+	const summary = workSummary(t, task);
+	const partialHint = partialTokens ? t("completedTasks.completenessHint.partial") : undefined;
 	return (
-		<TableRow>
-			<TableCell className="max-w-0 w-[32%]">
+		<li className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-card p-3">
+			<div className="flex min-w-0 items-start justify-between gap-2">
 				<button
 					type="button"
-					className="block w-full truncate rounded-sm text-left text-[13px] font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+					className="min-w-0 truncate rounded-sm text-left text-[13px] font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
 					aria-label={t("completedTasks.openReport", { title: task.title })}
 					onClick={() => onSelect({ ref: task.ref, sessionId: task.sessionId })}
 				>
 					{task.title}
 				</button>
-				<p className="truncate text-[11px] text-muted-foreground">
-					<span className="font-mono">{task.sessionId}</span>
-					{showHost ? ` · ${hostLabel(t, task.ref)}` : ""}
-					{task.prs.map((pr) => ` · #${pr.number}`).join("")}
-				</p>
-			</TableCell>
-			<TableCell>{t(`completedTasks.outcome.${task.outcome}`)}</TableCell>
-			<TableCell className={cn("tabular-nums", !task.completedAt && "text-muted-foreground")}>{formatTime(t, task.completedAt, locale)}</TableCell>
-			<TableCell className={cn("text-right tabular-nums", task.elapsedSeconds == null && "text-muted-foreground")}>{formatDuration(t, task.elapsedSeconds)}</TableCell>
-			<TableCell className={cn("text-right tabular-nums", task.tokens.inputTokens === null && "text-muted-foreground")} title={partialTokens ? t("completedTasks.completenessHint.partial") : undefined}>
-				{formatCount(t, task.tokens.inputTokens, locale)}
-				{partialTokens && task.tokens.inputTokens !== null ? "+" : ""}
-			</TableCell>
-			<TableCell className={cn("text-right tabular-nums", task.tokens.outputTokens === null && "text-muted-foreground")} title={partialTokens ? t("completedTasks.completenessHint.partial") : undefined}>
-				{formatCount(t, task.tokens.outputTokens, locale)}
-				{partialTokens && task.tokens.outputTokens !== null ? "+" : ""}
-			</TableCell>
-			<TableCell className="max-w-0 w-[22%] truncate text-muted-foreground" title={agentLabel(t, task)}>{agentLabel(t, task)}</TableCell>
-		</TableRow>
+				<span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-2xs font-medium", OUTCOME_CLASS[task.outcome])}>
+					{t(`completedTasks.outcome.${task.outcome}`)}
+				</span>
+			</div>
+			<p className="line-clamp-2 text-xs text-muted-foreground" title={summary.text}>
+				{summary.text}
+			</p>
+			{summary.diff ? <p className="text-2xs tabular-nums text-muted-foreground">{summary.diff}</p> : null}
+			<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-muted-foreground">
+				{task.prs.map((pr) => (
+					<span key={pr.url} className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5">
+						<span className="font-mono">#{pr.number}</span>
+						<span>{t(`completedTasks.prState.${pr.state}`)}</span>
+					</span>
+				))}
+				<span className="font-mono">{task.sessionId}</span>
+				{showHost ? <span>· {hostLabel(t, task.ref)}</span> : null}
+			</div>
+			<dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-2 text-2xs">
+				<CardFact label={t("completedTasks.column.completed")} muted={!task.completedAt} value={formatTime(t, task.completedAt, locale)} />
+				<CardFact label={t("completedTasks.column.elapsed")} muted={task.elapsedSeconds == null} value={formatDuration(t, task.elapsedSeconds)} />
+				<CardFact
+					label={t("completedTasks.column.input")}
+					muted={task.tokens.inputTokens === null}
+					title={partialHint}
+					value={`${formatCount(t, task.tokens.inputTokens, locale)}${partialTokens && task.tokens.inputTokens !== null ? "+" : ""}`}
+				/>
+				<CardFact
+					label={t("completedTasks.column.output")}
+					muted={task.tokens.outputTokens === null}
+					title={partialHint}
+					value={`${formatCount(t, task.tokens.outputTokens, locale)}${partialTokens && task.tokens.outputTokens !== null ? "+" : ""}`}
+				/>
+			</dl>
+			<p className="truncate text-2xs text-muted-foreground" title={agentLabel(t, task)}>
+				{agentLabel(t, task)}
+			</p>
+		</li>
 	);
+}
+
+function CardFact({ label, value, muted, title }: { label: string; value: string; muted?: boolean; title?: string }) {
+	return (
+		<div className="flex min-w-0 items-baseline justify-between gap-2">
+			<dt className="truncate text-muted-foreground">{label}</dt>
+			<dd className={cn("shrink-0 tabular-nums text-foreground", muted && "text-muted-foreground")} title={title}>
+				{value}
+			</dd>
+		</div>
+	);
+}
+
+// What the task delivered, in the task's own words: the PR title and the
+// recorded diff totals. A task with no attributed PR says so instead.
+function workSummary(t: TFunction, task: HostedCompletedTask): { text: string; diff?: string } {
+	if (task.prs.length === 0) return { text: t("completedTasks.summary.noPr") };
+	const primary = task.prs.find((pr) => pr.title) ?? task.prs[0];
+	const totals = task.prs.reduce(
+		(acc, pr) => ({
+			additions: acc.additions + pr.additions,
+			deletions: acc.deletions + pr.deletions,
+			files: acc.files + pr.changedFiles,
+		}),
+		{ additions: 0, deletions: 0, files: 0 },
+	);
+	return {
+		text: primary.title || t("completedTasks.summary.pullRequest", { number: primary.number }),
+		diff:
+			totals.additions || totals.deletions
+				? t("completedTasks.summary.diff", { additions: totals.additions, deletions: totals.deletions, files: totals.files })
+				: undefined,
+	};
 }
 
 function agentLabel(t: TFunction, config: Pick<CompletedTask, "harness" | "model" | "effort">): string {
