@@ -7,8 +7,9 @@ and exactly one priority label.
 
 The check reads the pull request title and description, collects `#NNN`
 references outside fenced blocks and inline code, and ignores references to
-other pull requests and to other repositories. It prints one actionable line
-per failure, including the `gh issue edit` command that fixes it.
+other pull requests and to other repositories. Full issue URLs are not
+recognised; write `#123`. It prints one actionable line per failure, including
+the `gh issue edit` command that fixes it.
 
 Two same-repository pull requests are exempt, by head and base branch only;
 a fork branch carrying one of those names is not exempt:

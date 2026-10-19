@@ -69,7 +69,9 @@ then links the pull request and closes the issue on merge. Write the reference
 in plain text: the check treats fenced blocks and inline code as literal text,
 so an unfilled placeholder or a quoted failure message does not become a
 reference. It also ignores references to other pull requests and to other
-repositories (`owner/repo#123`).
+repositories (`owner/repo#123`). A full issue URL
+(`https://github.com/<owner>/<repo>/issues/123`) is not recognised either, so
+write `Closes #123` or at least `#123`.
 
 The failure names what is missing and prints the fix, for example:
 

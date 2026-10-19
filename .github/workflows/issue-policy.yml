@@ -14,8 +14,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  # A cancelled run stays in the commit's check rollup as a non-success, so
-  # queue instead: this check is fast and idempotent.
+  # An in-progress run is never cancelled here: a cancelled run stays in the
+  # commit's rollup as a non-success. The check is fast and idempotent.
   cancel-in-progress: false
 
 jobs:

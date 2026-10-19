@@ -42,6 +42,12 @@ test('ignores cross-repository references and bare headings', () => {
   assert.deepEqual(extractIssueReferences('acme/other#12\n## Summary\n# Release'), []);
 });
 
+test('does not treat a full issue URL as a reference', () => {
+  assert.deepEqual(extractIssueReferences(
+    'Closes https://github.com/petarnenov/ultra-factory/issues/123',
+  ), []);
+});
+
 test('ignores references inside fenced code blocks', () => {
   const body = 'Closes #12.\n\n```text\n#412 references no issue: add "Closes #123"\n```\n';
   assert.deepEqual(extractIssueReferences(body), [12]);
