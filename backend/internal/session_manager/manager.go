@@ -5777,8 +5777,26 @@ func (m *Manager) applySCMIdentity(ctx context.Context, project *domain.ProjectR
 	return nil
 }
 
-// injectProjectSCMIdentity re-resolves a project's account for resume/restore
-// paths. It is best-effort; Spawn itself fails fast via applySCMIdentity.
+// ambientSCMCredentialEnv lists machine-level GitHub credentials that a bound
+// project must never inherit when its own token cannot be resolved.
+var ambientSCMCredentialEnv = []string{
+	"GH_TOKEN",
+	"GITHUB_TOKEN",
+	"GH_ENTERPRISE_TOKEN",
+	"GITHUB_ENTERPRISE_TOKEN",
+	"GH_HOST",
+}
+
+// stripAmbientSCMCredentials removes every machine-level GitHub credential
+// from env so a relaunch cannot silently use a different account.
+func stripAmbientSCMCredentials(env map[string]string) {
+	for _, key := range ambientSCMCredentialEnv {
+		deleteProtectedEnv(env, key, envKeysCaseInsensitive)
+	}
+}
+
+// injectProjectSCMIdentity re-resolves a project's account for relaunches.
+// A bound project without a token loses machine GitHub credentials here.
 func (m *Manager) injectProjectSCMIdentity(projectID domain.ProjectID, env map[string]string) map[string]string {
 	if m.scmIdentity == nil || projectID == "" || m.store == nil {
 		return env
@@ -5791,10 +5809,19 @@ func (m *Manager) injectProjectSCMIdentity(projectID domain.ProjectID, env map[s
 	if err != nil || !ok {
 		return env
 	}
+	account := row.Config.GitHubAccount()
+	if account == "" {
+		return env
+	}
 	resolved, err := m.scmIdentity.Resolve(ctx, row)
 	if err != nil {
-		m.logger.Debug("session env: project SCM identity unavailable; using machine fallback",
-			"projectID", projectID, "error", err)
+		host := ""
+		if derived, hostErr := scmidentity.GitHubHost(row); hostErr == nil {
+			host = derived
+		}
+		stripAmbientSCMCredentials(env)
+		m.logger.Warn("session env: project SCM token unavailable; GitHub credentials withheld",
+			"projectID", projectID, "account", account, "host", host, "error", err)
 		return env
 	}
 	if len(resolved.Env) == 0 {

@@ -1711,6 +1711,68 @@ func TestSpawnFailsFastWhenBoundAccountHasNoToken(t *testing.T) {
 	}
 }
 
+// Resume, restore and agent switch rebuild env through runtimeEnv, so a bound
+// project whose token was removed must not relaunch with machine credentials.
+func TestRuntimeEnvWithholdsMachineCredentialsWhenBoundTokenIsMissing(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{
+		ID:            "mer",
+		RepoOriginURL: "https://github.com/petar/widgets.git",
+		Config: domain.ProjectConfig{
+			SCM: domain.SCMConfig{GitHub: domain.GitHubSCMConfig{Account: "work-account"}},
+		},
+	}
+	var logBuf bytes.Buffer
+	m := New(Deps{
+		Store: st,
+		SCMIdentity: scmidentity.New(fakeSCMTokenStore{err: scmsecret.ErrNotFound},
+			func() (string, error) { return "worker-1", nil }),
+		Logger: slog.New(slog.NewTextHandler(&logBuf, nil)),
+	})
+	env := map[string]string{
+		"GH_TOKEN":                "machine-token",
+		"GITHUB_TOKEN":            "machine-token",
+		"GH_ENTERPRISE_TOKEN":     "machine-token",
+		"GITHUB_ENTERPRISE_TOKEN": "machine-token",
+		"GH_HOST":                 "github.com",
+		"PATH":                    "/usr/bin",
+	}
+
+	got := m.injectProjectSCMIdentity("mer", env)
+
+	for _, key := range ambientSCMCredentialEnv {
+		if value, ok := got[key]; ok {
+			t.Fatalf("%s = %q, want the ambient credential removed", key, value)
+		}
+	}
+	if got["PATH"] != "/usr/bin" {
+		t.Fatalf("PATH = %q, want unrelated env preserved", got["PATH"])
+	}
+	logText := logBuf.String()
+	for _, want := range []string{"level=WARN", "projectID=mer", "account=work-account", "host=github.com"} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("log = %q, want %q", logText, want)
+		}
+	}
+}
+
+// A project with no bound account keeps today's machine fallback untouched.
+func TestRuntimeEnvKeepsMachineCredentialsWithoutBoundAccount(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer"}
+	m := New(Deps{
+		Store:       st,
+		SCMIdentity: scmidentity.New(fakeSCMTokenStore{err: scmsecret.ErrNotFound}, nil),
+	})
+	env := map[string]string{"GH_TOKEN": "machine-token", "PATH": "/usr/bin"}
+
+	got := m.injectProjectSCMIdentity("mer", env)
+
+	if got["GH_TOKEN"] != "machine-token" {
+		t.Fatalf("GH_TOKEN = %q, want machine fallback preserved", got["GH_TOKEN"])
+	}
+}
+
 type fakeSCMTokenStore struct {
 	token  string
 	tokens map[string]string
