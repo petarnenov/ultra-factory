@@ -44,10 +44,8 @@ const (
 	BatchSize = 25
 )
 
-// identityKey builds the cache key for a provider identity. GitHub repos bound
-// to a project account are scoped per account because the machine may hold
-// several logins on the same host; an unbound GitHub project keeps the
-// machine-level identity. GitLab remains provider+host scoped.
+// identityKey scopes GitHub by project account and GitLab by host. An unbound
+// GitHub project keeps the machine-level identity.
 func identityKey(provider, host, account string) string {
 	if provider == "github" {
 		if account = strings.ToLower(strings.TrimSpace(account)); account != "" {

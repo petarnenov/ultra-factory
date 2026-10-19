@@ -237,13 +237,7 @@ func TestLANManagerIdentityEndpoint(t *testing.T) {
 }
 
 // TestLANManagerBlocksLoopbackOnlyControlRoutes proves the LAN listener never
-// serves /shutdown, /internal/*, /api/v1/mobile*, /api/v1/dev*,
-// /api/v1/browser*, or the Codex credential routes under
-// /api/v1/agents/codex/accounts* and /api/v1/agents/codex/account-switches*,
-// or the machine-local SCM secret routes under /api/v1/secrets* — even when
-// the request carries a spoofed Host: 127.0.0.1 and valid LAN auth, since
-// gating on Host alone (localControlRequest) is what let a LAN client reach
-// these routes.
+// serves control, credential, secret, or remote-worker routes.
 func TestLANManagerBlocksLoopbackOnlyControlRoutes(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "ok")
