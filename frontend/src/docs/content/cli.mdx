@@ -127,6 +127,7 @@ Important flags include:
 | `--standalone` | Projectless worker; requires an explicit agent and excludes project, branch, issue, PR, and orchestrator options. |
 | `--model <model>` | Override the selected provider model for this spawn. The daemon validates it against the resolved harness and blocks the spawn when it is invalid. |
 | `--effort <level>` | Override the reasoning effort for this spawn. It must be a level the selected model advertises, or the spawn is blocked. |
+| `--terminate-on-pr-merge[=false]` | Override the project's `terminateOnPrMerge` default for this spawn. Also sent with `--host`. |
 | `--tracker-provider github\|gitlab` | Select the issue provider for `--issue`. |
 | `--issue <id>` | Associate a tracker issue. |
 | `--claim-pr <ref>` | Claim an existing pull request after spawning. |
