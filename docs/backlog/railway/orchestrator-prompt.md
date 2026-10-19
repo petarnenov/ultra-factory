@@ -34,6 +34,19 @@ Read the report, `backlog/README.md`, and all `EPIC.md` and `STORY.md` files bef
 | Agents | `claude-code` and `codex`, mixed: on each machine one slot runs `claude-code` and the other runs `codex` |
 | Tracking | GitHub issues in `petarnenov/ultra-factory` + the "RW tracker" issue |
 
+## Machine roles and the orchestration process
+
+The user agreed this process on 2026-10-19. It decides where work may run.
+
+- **The hub runs only the orchestrator.** The hub service runs the orchestrator session with the daemon, the BFF and the wake-up loop. Do not start implementation, fixes, tests or reviews on the hub. It is not a build machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so a Go change cannot be validated there.
+- **Work runs on the worker machines.** `Linux`, `IMac` and `Z600` run the implementation, fixes, tests and reviews. Start those tasks with `ao spawn --host <H>`, never on the hub. A task started on the hub has to be stopped and moved.
+- **Workers report to their orchestrator.** A worker sends its reports to the orchestrator that spawned it; this is how you know who is doing what and decide the next step. Do not wait for a report to learn the state: `ao session ls --host <H>`, `gh pr list --base dev` and `gh pr checks` are authoritative.
+- **Reviews run where the worker's checkout lives.** AO's reviewer runs once over the worker's checkout with an enforced read-only guarantee, so it is started on the machine that owns the worker. `ao review trigger|ls|cancel --host` runs a review on that machine from another orchestrator. Do not start a review-only worker on the hub as a substitute.
+- **Preconditions before a review.** The worker is idle or exited; everything is committed and pushed; the pull request is open; and the reviewer is given the evaluated head SHA. These protect against reviewing a tree that is not the pull request.
+- **After a review.** Send the findings to the owning worker; it fixes and pushes. A moved head needs a new review pass.
+- **Agent configuration is per machine.** Project Settings / Agents and the machine's harness defaults apply on the machine that runs the session. The precedence is defined in #254; do not copy the hub's configuration to a worker.
+- **A machine cannot be both an orchestrator and a worker host.** A machine that runs its own orchestrator refuses a worker started from another machine with `LOCAL_ORCHESTRATOR_ACTIVE`, because the local orchestrator would claim that worker's reports. This happened on `IMac`, whose local orchestrator `geowealth-1` was active, and the spawn was refused. Before `ao spawn --host <H>`, check `ao orchestrator ls --host <H>`. If the machine is needed as a worker while it runs an orchestrator for another project, stop that orchestrator first or use another worker machine.
+
 ## Hard rules
 1. **Never touch `main`**: do not push to it, do not merge into it, do not open a PR against it. Only the user merges `dev` into `main`.
 2. **No history rewriting**: no `push --force`, no `rebase` of published branches, no `reset --hard`, no `--no-verify`. Sync only with `merge` or `--ff-only`.
@@ -42,6 +55,7 @@ Read the report, `backlog/README.md`, and all `EPIC.md` and `STORY.md` files bef
 5. **A task that requires a human** (Railway account, tokens, deploy, an ADR decision) is not simulated. The worker prepares everything it can and stops with `ao report --needs-input`. You add the `needs-human` label and ask the user.
 6. Do not invent facts about Railway. Where the backlog says "to verify", the worker verifies or stops with needs-input.
 7. Secrets (Railway token, API keys, passwords) never go into an issue, PR, commit or worker prompt.
+8. **The hub only coordinates.** Never start implementation, fixes, tests or reviews on the hub; start them on `Linux`, `IMac` or `Z600` with `--host`.
 
 ## Phase 0: Pre-flight checks (no changes)
 1. `ao host ls`: all three hosts must be `online`. If one is not, stop and tell the user which one.
@@ -129,6 +143,8 @@ ao spawn --host <H> --project ultra-factory \
   --name "<TASK_ID> <short name>" \
   --prompt "<WORKER_PROMPT>"
 ```
+Before starting on a host, confirm that host has no active local orchestrator (`ao orchestrator ls --host <H>`). A remote spawn there fails with `LOCAL_ORCHESTRATOR_ACTIVE`; stop that orchestrator or choose another machine. Configure the agent for that machine in its Project Settings / Agents; the precedence is in #254.
+
 `<WORKER_PROMPT>` (fill in the placeholders):
 > You are a worker on task `<TASK_ID>` from the "AO on Railway" backlog. GitHub issue: #<ISSUE_NUMBER>.
 > 1) **Sync before work:** `git fetch origin` and then `git merge --ff-only origin/dev`. Your branch `rw/<TASK_ID>` is created from `dev`, so this must pass. If it does not, do nothing else and report `ao report --stuck`.
@@ -167,15 +183,16 @@ Exactly-once delivery of `ao report` from remote workers to the hub orchestrator
 
 ## Review and merge into `dev`
 When a worker's PR is ready (green CI and the worker is idle; do not rely on `--done` from a remote host):
-1. Issue → `status:in-review`. Run `ao review trigger` for its PR.
-2. Check: the base is `dev`; CI is green (`gh pr checks`); no AI trailers in the commits (`git log --format=%B`); the changes are within the task's scope; the acceptance criteria in the task file are met; **the new text is in English** (the PR description, commit messages, code comments, documents), otherwise do not merge and send it back to the worker.
-3. If there are remarks: `ao send <session> "<specific remarks>"` and wait for a new `--done`.
-4. If it is clean and is **not** an ADR or `needs-human`: `gh pr merge <PR> --squash --match-head-commit <SHA> --delete-branch --subject "<PR title> (#<PR>)" --body "<English summary from the PR description>" --repo petarnenov/ultra-factory`. Always pass `--subject` and `--body` in English so the squash commit never carries the branch's own commit messages, and `--delete-branch` so merged `rw/*` branches do not linger in origin. `ao pr merge` does not work for PRs of remote workers (#63).
-5. **Immediately after the merge, close the task issues manually.** `Closes #N` in the PR closes the issue only on merge into the default branch (`main`), not into `dev`. For each issue from `Closes #N` in the PR body: `gh issue close <N> --repo petarnenov/ultra-factory --reason completed --comment "Merged into dev via #<PR> (<merge SHA>)."` and remove the `status:*` labels. If this closes all tasks of a story, close the story too. If this closes all stories of an epic, close the epic too. Tracker → Done.
-6. **Then stop the PR's worker session** so merged sessions do not pile up on the board: `ao session kill <session> --host <H>` for a remote worker, without `--host` for a local one. AO does not do this by itself: `TerminateOnPRMerge` is off by default and cannot be set at spawn. A clean worktree is deleted with the session; a dirty one is kept on purpose, so never force it. Do **not** kill yet when the worker still has another open PR, when its task continues after this merge (for example a validation task that merged a fix and keeps testing), or when the session is active right now; kill it when its task closes. Mention the kill in the merge comment on the issue. If `ao session kill` fails, record the error in the tracker and continue.
-7. ADR PRs and anything with `needs-human` are merged only after an explicit "yes" from the user.
-8. After every merge: if `origin/main` has moved, sync `dev` with `merge` as in Phase 1. Active workers that still have a PR to open run `git merge origin/dev` in their branch (never rebase).
-9. On a conflict between two PRs: merge the first one, and send the second worker `ao send` to merge `origin/dev` into its branch and resolve the conflict.
+1. Issue → `status:in-review`. Confirm the review preconditions: the worker is idle or exited; everything is committed and pushed; the PR is open; record the evaluated head SHA (`gh pr view <PR> --json headRefOid`). These protect against reviewing a tree that is not the pull request.
+2. Run the review where the worker's checkout lives. The reviewer is invoked once over that checkout with an enforced read-only guarantee. `ao review trigger --host <worker-host> <worker-session>` starts it on the machine that owns the worker; `ao review ls --host` and `ao review cancel --host` read and stop it from the orchestrator. Do not start a review-only worker on the hub as a substitute.
+3. Check: the base is `dev`; CI is green (`gh pr checks`); no AI trailers in the commits (`git log --format=%B`); the changes are within the task's scope; the acceptance criteria in the task file are met; **the new text is in English** (the PR description, commit messages, code comments, documents), otherwise do not merge and send it back to the worker.
+4. If there are remarks: `ao send <session> "<specific remarks>"`. The owning worker fixes and pushes; a moved head needs a new review pass.
+5. If it is clean and is **not** an ADR or `needs-human`: `gh pr merge <PR> --squash --match-head-commit <SHA> --delete-branch --subject "<PR title> (#<PR>)" --body "<English summary from the PR description>" --repo petarnenov/ultra-factory`. Always pass `--subject` and `--body` in English so the squash commit never carries the branch's own commit messages, and `--delete-branch` so merged `rw/*` branches do not linger in origin. `ao pr merge` does not work for PRs of remote workers (#63).
+6. **Immediately after the merge, close the task issues manually.** `Closes #N` in the PR closes the issue only on merge into the default branch (`main`), not into `dev`. For each issue from `Closes #N` in the PR body: `gh issue close <N> --repo petarnenov/ultra-factory --reason completed --comment "Merged into dev via #<PR> (<merge SHA>)."` and remove the `status:*` labels. If this closes all tasks of a story, close the story too. If this closes all stories of an epic, close the epic too. Tracker → Done.
+7. **Then stop the PR's worker session** so merged sessions do not pile up on the board: `ao session kill <session> --host <H>` for a remote worker, without `--host` for a local one. AO does not do this by itself: `TerminateOnPRMerge` is off by default and cannot be set at spawn. A clean worktree is deleted with the session; a dirty one is kept on purpose, so never force it. Do **not** kill yet when the worker still has another open PR, when its task continues after this merge (for example a validation task that merged a fix and keeps testing), or when the session is active right now; kill it when its task closes. Mention the kill in the merge comment on the issue. If `ao session kill` fails, record the error in the tracker and continue.
+8. ADR PRs and anything with `needs-human` are merged only after an explicit "yes" from the user.
+9. After every merge: if `origin/main` has moved, sync `dev` with `merge` as in Phase 1. Active workers that still have a PR to open run `git merge origin/dev` in their branch (never rebase).
+10. On a conflict between two PRs: merge the first one, and send the second worker `ao send` to merge `origin/dev` into its branch and resolve the conflict.
 
 ## Monitoring and communication
 - Check `ao session ls --host <H>` for the three machines on every `TICK` (see "Wake-up and reconcile loop"). If a session is idle for over 30 min without a PR, send `ao send` asking for status. If it is dead, restart the task (new session, same branch if there are pushed commits).

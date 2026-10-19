@@ -92,6 +92,8 @@ type checkoutMetadata struct {
 	SHA          string `json:"sha"`
 }
 
+// Prepare returns the verified checkout for one review pass. It uses the
+// worker tree when HEAD is the target and clean, else a detached worktree.
 func (g *GitCheckout) Prepare(ctx context.Context, req CheckoutRequest) (PreparedCheckout, error) {
 	workspace := strings.TrimSpace(req.WorkspacePath)
 	target := strings.TrimSpace(req.TargetSHA)
@@ -161,6 +163,8 @@ func (g *GitCheckout) Prepare(ctx context.Context, req CheckoutRequest) (Prepare
 	}, nil
 }
 
+// Reopen returns an existing disposable checkout for restoring a pass after
+// its reviewer pane died, verifying the worktree still matches the stored SHA.
 func (g *GitCheckout) Reopen(ctx context.Context, key string) (PreparedCheckout, error) {
 	key = strings.TrimSpace(key)
 	if g == nil || g.dataDir == "" || key == "" {
@@ -184,6 +188,8 @@ func (g *GitCheckout) Reopen(ctx context.Context, key string) (PreparedCheckout,
 	}, nil
 }
 
+// Release removes a disposable checkout and its metadata. It is idempotent
+// and safe to call after the worktree is already gone.
 func (g *GitCheckout) Release(ctx context.Context, key string) error {
 	key = strings.TrimSpace(key)
 	if g == nil || g.dataDir == "" || key == "" {
