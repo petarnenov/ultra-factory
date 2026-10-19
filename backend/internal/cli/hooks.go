@@ -510,8 +510,16 @@ var reviewerSubmitCommandPattern = regexp.MustCompile(`^printf '%s' ` + reviewer
 	`gh api --method POST repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/[0-9]+/reviews --input - --jq '\.id'` +
 	`|ao review submit --session (?P<session>[A-Za-z0-9_-]+) --reviews -)$`)
 
+// reviewerClearPendingReviewPattern admits the two exact commands that clear a
+// stale draft review: list the pending id, then delete that review.
+var reviewerClearPendingReviewPattern = regexp.MustCompile(`^(?:` +
+	`gh api repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/[0-9]+/reviews --jq 'map\(select\(\.state == "PENDING"\)\)\[0\]\.id'` +
+	`|gh api --method DELETE repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/[0-9]+/reviews/[0-9]+` +
+	`)$`)
+
 const reviewerPermissionDenyMessage = "AO headless reviewer: no human can answer permission prompts. " +
-	"Use only the allowlisted read commands (git diff/log/show/status, gh pr view/diff/checks, Read, Grep, Glob) " +
+	"Use only the allowlisted read commands (git diff/log/show/status, gh pr view/diff/checks, Read, Grep, Glob), " +
+	"the exact pending-review list/delete commands from the review task, " +
 	"and the exact single-line `printf '%s' '<json>' | ...` submit commands from the review task."
 
 // reviewerPermissionDecision answers a Claude Code reviewer's PermissionRequest:
@@ -532,7 +540,15 @@ func reviewerPermissionDecision(payload []byte, workerSessionID string) claudePe
 	if p.ToolName != "Bash" {
 		return out
 	}
-	m := reviewerSubmitCommandPattern.FindStringSubmatch(strings.TrimSpace(p.ToolInput.Command))
+	command := strings.TrimSpace(p.ToolInput.Command)
+	// A reviewer session id is still required: these commands may only run
+	// inside an AO-managed reviewer pane, never an ordinary worker session.
+	if workerSessionID != "" && reviewerClearPendingReviewPattern.MatchString(command) {
+		out.HookSpecificOutput.Decision.Behavior = "allow"
+		out.HookSpecificOutput.Decision.Message = ""
+		return out
+	}
+	m := reviewerSubmitCommandPattern.FindStringSubmatch(command)
 	if m == nil {
 		return out
 	}

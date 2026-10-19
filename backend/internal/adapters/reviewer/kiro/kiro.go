@@ -101,6 +101,7 @@ Kiro security and reporting rules:
 - Shell is deny-by-default. Only the narrow git inspection and review-reporting command shapes configured by AO can run.
 - The supported git shell shapes are exactly: status with optional --short; diff with --no-ext-diff --no-textconv; log; and show. Additional arguments must be single whitespace-free refs, options, or paths. Filenames with spaces, extra shell quoting, compound commands, redirections, and complex ref expressions are intentionally unsupported; use read, glob, or grep instead.
 - For each JSON reporting body, base64-encode the UTF-8 JSON yourself and use the task's command with the JSON replaced by the base64 text: printf '%s' '<base64>' | base64 --decode | gh api ... or ... | ao review submit .... Use base64 -D instead of --decode on systems that require it.
+- The pending-review list and delete commands in the task are allowed exactly as written; do not base64-encode them.
 - Never request or attempt any write, unrestricted shell, commit, push, extension, MCP server, skill, steering, or project agent resource.
 `
 	if err := hookutil.AtomicWriteFile(kiroSystemPath, append(system, extra...), 0o600); err != nil {
@@ -152,5 +153,8 @@ func shellAllowedCommands(inv ports.ReviewInvocation) []string {
 		`^` + gitPrefix + `show(?: ` + safeArg + `)*(?: --(?: ` + safeArg + `)*)?$`,
 		`^` + base64Pipe + `gh api --method POST repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews --input - --jq '[.]id'$`,
 		`^` + base64Pipe + `ao review submit --session ` + session + ` --reviews -$`,
+		// Clearing a stale draft review before the POST needs no JSON input.
+		`^gh api repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews --jq 'map\(select\(\.state == "PENDING"\)\)\[0\]\.id'$`,
+		`^gh api --method DELETE repos/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/pulls/[0-9]+/reviews/[0-9]+$`,
 	}
 }

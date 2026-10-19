@@ -145,6 +145,38 @@ func TestReviewSubmitBatchReadsReviewsFromStdin(t *testing.T) {
 	}
 }
 
+func TestReviewSubmitBatchReportsFailedPublish(t *testing.T) {
+	cfg := setReviewEnv(t)
+	srv, _ := reviewServer(t, http.StatusOK, `{"reviews":[{"id":"run-1","status":"failed","verdict":""}]}`)
+	writeRunFileFor(t, cfg, srv)
+
+	deps := aliveDeps()
+	deps.In = strings.NewReader(`{"reviews":[{"runId":"run-1","verdict":"changes_requested","body":"fix auth"}]}`)
+	out, errOut, err := executeCLI(t, deps, "review", "submit", "mer-1", "--reviews", "-")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "1 failed to publish") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
+func TestReviewSubmitAcceptsExplicitFailedRunWithoutVerdict(t *testing.T) {
+	cfg := setReviewEnv(t)
+	srv, _ := reviewServer(t, http.StatusOK, `{"review":{"id":"run-1","status":"failed","verdict":""}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	deps := aliveDeps()
+	deps.In = strings.NewReader("fix auth")
+	out, errOut, err := executeCLI(t, deps, "review", "submit", "mer-1", "--run", "run-1", "--verdict", "changes_requested", "--body", "-")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "recorded failed review for mer-1") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
 func TestReviewSubmitBatchRetriesAcrossDaemonRestart(t *testing.T) {
 	cfg := setReviewEnv(t)
 	srv, capture := reviewServer(t, http.StatusOK, `{"reviews":[{"id":"run-1","verdict":"changes_requested"}]}`)

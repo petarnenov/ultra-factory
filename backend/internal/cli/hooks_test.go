@@ -2252,6 +2252,11 @@ func TestHooks_ReviewerPermissionRequestAnswersInsteadOfBlocking(t *testing.T) {
 	}{
 		{"ao review submit pipe", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' ` + submitJSON + ` | ao review submit --session worker-7 --reviews -"}}`, "allow"},
 		{"gh api review post", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{ \"event\": \"COMMENT\", \"body\": \"ok\" }' | gh api --method POST repos/acme/app/pulls/12/reviews --input - --jq '.id'"}}`, "allow"},
+		{"clear pending review", `{"tool_name":"Bash","tool_input":{"command":"gh api repos/acme/app/pulls/12/reviews --jq 'map(select(.state == \"PENDING\"))[0].id'"}}`, "allow"},
+		{"delete pending review", `{"tool_name":"Bash","tool_input":{"command":"gh api --method DELETE repos/acme/app/pulls/12/reviews/5576898552"}}`, "allow"},
+		{"delete other resource", `{"tool_name":"Bash","tool_input":{"command":"gh api --method DELETE repos/acme/app/issues/12"}}`, "deny"},
+		{"list pending review pipeline", `{"tool_name":"Bash","tool_input":{"command":"gh api repos/acme/app/pulls/12/reviews --jq 'map(select(.state == \"PENDING\"))[0].id' | head -n1"}}`, "deny"},
+		{"delete pending review without worker session", `{"tool_name":"Bash","tool_input":{"command":"gh api --method DELETE repos/acme/app/pulls/12/reviews/5576898552"}}`, "deny"},
 		{"other worker session", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{}' | ao review submit --session worker-9 --reviews -"}}`, "deny"},
 		{"unset worker session id", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{}' | ao review submit --session worker-7 --reviews -"}}`, "deny"},
 		{"command substitution in operand", `{"tool_name":"Bash","tool_input":{"command":"printf '%s' '{}'$(id) | ao review submit --session worker-7 --reviews -"}}`, "deny"},
@@ -2263,7 +2268,7 @@ func TestHooks_ReviewerPermissionRequestAnswersInsteadOfBlocking(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("AO_REVIEW_SESSION_ID", "review-7")
 			t.Setenv("AO_REVIEW_WORKER_SESSION_ID", "worker-7")
-			if tc.name == "unset worker session id" {
+			if tc.name == "unset worker session id" || tc.name == "delete pending review without worker session" {
 				t.Setenv("AO_REVIEW_WORKER_SESSION_ID", "")
 			}
 			t.Setenv("AO_REVIEW_HARNESS", "claude-code")

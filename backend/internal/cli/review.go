@@ -259,14 +259,29 @@ func (c *commandContext) submitReview(cmd *cobra.Command, args []string, opts re
 	if err := c.postReviewJSON(cmd.Context(), path, submitReviewRequest{RunID: runID, Verdict: verdict, Body: body, GithubReviewID: reviewID}, &res); err != nil {
 		return err
 	}
-	// A submit response always carries the recorded run's ID and verdict; a
-	// structurally valid but half-populated result is a broken contract, not
-	// a success to print.
-	if strings.TrimSpace(res.Review.ID) == "" || strings.TrimSpace(res.Review.Verdict) == "" {
+	// A submit response always carries the recorded run's ID; a failed run has
+	// no verdict because the review never reached the provider.
+	if !reviewResultRecorded(res.Review) {
 		return fmt.Errorf("daemon returned empty review result for %s", session)
+	}
+	if res.Review.Status == reviewRunStatusFailed {
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "recorded failed review for %s: the review did not reach the pull request\n", session)
+		return err
 	}
 	_, err := fmt.Fprintf(cmd.OutOrStdout(), "recorded %s review for %s\n", res.Review.Verdict, session)
 	return err
+}
+
+// reviewRunStatusFailed mirrors the daemon's failed run status.
+const reviewRunStatusFailed = "failed"
+
+// reviewResultRecorded accepts one run when it names a run id and either a
+// verdict or the explicit failed state used for a review that did not publish.
+func reviewResultRecorded(run reviewRun) bool {
+	if strings.TrimSpace(run.ID) == "" {
+		return false
+	}
+	return strings.TrimSpace(run.Verdict) != "" || run.Status == reviewRunStatusFailed
 }
 
 func (c *commandContext) submitReviewBatch(cmd *cobra.Command, session string, opts reviewSubmitOptions) error {
@@ -282,22 +297,28 @@ func (c *commandContext) submitReviewBatch(cmd *cobra.Command, session string, o
 	if err := c.postReviewJSON(cmd.Context(), path, submitReviewRequest{Reviews: reviews}, &res); err != nil {
 		return err
 	}
-	// Batch success is the recorded runs array: every returned entry must
-	// carry its run ID and verdict. An empty array falls back to requiring
-	// a fully-populated single review. Anything less is a broken contract,
-	// not a success to print.
-	if len(res.Reviews) > 0 {
-		for _, run := range res.Reviews {
-			if strings.TrimSpace(run.ID) == "" || strings.TrimSpace(run.Verdict) == "" {
-				return fmt.Errorf("daemon returned empty review result for %s", session)
-			}
+	// Batch success is the recorded runs array: every entry needs a run id and
+	// a verdict or the failed state. An empty array uses the single result.
+	runs := res.Reviews
+	if len(runs) == 0 {
+		runs = []reviewRun{res.Review}
+	}
+	failed := 0
+	for _, run := range runs {
+		if !reviewResultRecorded(run) {
+			return fmt.Errorf("daemon returned empty review result for %s", session)
 		}
-	} else if strings.TrimSpace(res.Review.ID) == "" || strings.TrimSpace(res.Review.Verdict) == "" {
-		return fmt.Errorf("daemon returned empty review result for %s", session)
+		if run.Status == reviewRunStatusFailed {
+			failed++
+		}
 	}
 	count := len(res.Reviews)
 	if count == 0 {
 		count = len(reviews)
+	}
+	if failed > 0 {
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "recorded %d review(s) for %s, %d failed to publish\n", count, session, failed)
+		return err
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "recorded %d review(s) for %s\n", count, session)
 	return err

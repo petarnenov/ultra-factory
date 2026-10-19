@@ -30,6 +30,9 @@ func TestReviewTextsIncludesMultiPRQueue(t *testing.T) {
 		"After every PR has its own GitHub review from step 1",
 		"printf '%s'",
 		"do not use a heredoc",
+		`map(select(.state == "PENDING"))[0].id`,
+		"gh api --method DELETE repos/{owner}/{repo}/pulls/{number}/reviews/<id>",
+		"every later POST fails with 422",
 		"ao review submit --session mer-1 --reviews -",
 		`"reviews": [`,
 	} {

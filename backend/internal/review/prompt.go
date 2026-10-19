@@ -26,7 +26,15 @@ func reviewTexts(spec LaunchSpec) (prompt, systemPrompt string) {
 Complete every review task in the queue autonomously. Do not ask the user whether to continue to the next PR, and do not stop after the first PR unless the provider or checkout is genuinely unusable for every queued task.
 
 Do these steps in order:
-1. For each PR below, post a separate review on that pull request and capture its id in one call. Post with `+"`gh api`"+` rather than `+"`gh pr review`"+`: it is the only way to attach inline comments, and its response carries the created review's id, so AO can tell the worker exactly which review to address. Send the review as a JSON body so the inline comments form a proper array of objects:
+1. For each PR below, first discard a stale draft review left by an earlier attempt. GitHub allows only one pending review per pull request, and every later POST fails with 422 while one exists. Print the id of a pending review, if any:
+
+    gh api repos/{owner}/{repo}/pulls/{number}/reviews --jq 'map(select(.state == "PENDING"))[0].id'
+
+   If that prints a number, delete that review before posting:
+
+    gh api --method DELETE repos/{owner}/{repo}/pulls/{number}/reviews/<id>
+
+   Then post a separate review on that pull request and capture its id in one call. Post with `+"`gh api`"+` rather than `+"`gh pr review`"+`: it is the only way to attach inline comments, and its response carries the created review's id, so AO can tell the worker exactly which review to address. Send the review as a JSON body so the inline comments form a proper array of objects:
 
     printf '%%s' '{ "event": "COMMENT", "body": "<summary>", "comments": [ { "path": "<file>", "line": <n>, "body": "<finding>" } ] }' | gh api --method POST repos/{owner}/{repo}/pulls/{number}/reviews --input - --jq '.id'
 
@@ -41,7 +49,7 @@ Do these steps in order:
 
     printf '%%s' '{ "reviews": [ { "runId": "<run-id>", "verdict": "<approved|changes_requested>", "githubReviewId": "<id-from-step-1-or-empty>", "body": "<your full review markdown>" } ] }' | ao review submit --session %s --reviews -
 
-Only if step 1 genuinely fails on the provider for a PR, still include that run in step 2 with an empty githubReviewId so the result is recorded.`,
+Only if step 1 genuinely fails on the provider for a PR, still include that run in step 2 with an empty githubReviewId: AO records the pass as failed instead of pretending the review landed, and delivers your findings directly to the worker so they are not lost.`,
 		spec.WorkerID, queueText, spec.WorkerID)
 	return prompt, systemPrompt
 }

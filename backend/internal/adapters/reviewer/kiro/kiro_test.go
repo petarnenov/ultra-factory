@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -73,8 +74,28 @@ func TestReviewCommandBuildsReadOnlyInteractiveTUI(t *testing.T) {
 	if !slices.Equal(cfg.Tools, []string{"read", "glob", "grep", "shell"}) || slices.Contains(cfg.AllowedTools, "shell") {
 		t.Fatalf("tool policy = tools %#v allowed %#v", cfg.Tools, cfg.AllowedTools)
 	}
-	if !cfg.ToolsSettings.Shell.DenyByDefault || len(cfg.ToolsSettings.Shell.AllowedCommands) != 6 || len(cfg.ToolsSettings.Shell.DeniedCommands) == 0 {
+	if !cfg.ToolsSettings.Shell.DenyByDefault || len(cfg.ToolsSettings.Shell.AllowedCommands) != 8 || len(cfg.ToolsSettings.Shell.DeniedCommands) == 0 {
 		t.Fatalf("shell policy = %+v", cfg.ToolsSettings.Shell)
+	}
+	for _, command := range []string{
+		`gh api repos/o/r/pulls/1/reviews --jq 'map(select(.state == "PENDING"))[0].id'`,
+		`gh api --method DELETE repos/o/r/pulls/1/reviews/5576898552`,
+	} {
+		matched := false
+		for _, pattern := range cfg.ToolsSettings.Shell.AllowedCommands {
+			if regexp.MustCompile(pattern).MatchString(command) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Fatalf("pending-review command is denied: %q; policy = %+v", command, cfg.ToolsSettings.Shell.AllowedCommands)
+		}
+	}
+	for _, pattern := range cfg.ToolsSettings.Shell.AllowedCommands {
+		if regexp.MustCompile(pattern).MatchString(`gh api --method DELETE repos/o/r/issues/1`) {
+			t.Fatalf("pending-review allowance admitted a non-review DELETE: %q", pattern)
+		}
 	}
 	for _, command := range cfg.ToolsSettings.Shell.AllowedCommands {
 		if !strings.HasPrefix(command, "^") || !strings.HasSuffix(command, "$") {

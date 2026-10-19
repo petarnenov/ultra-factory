@@ -215,6 +215,10 @@ func reviewerPermissions(taskPromptRoot string) []permissionRule {
 	for _, resource := range []string{
 		"gh api --method POST repos/*/pulls/*/reviews --input -",
 		"gh api --method POST repos/*/pulls/*/reviews --input - --jq '.id'",
+		// A stale draft review must be cleared before a later POST can land.
+		// Both rules are scoped to one PR's reviews endpoint.
+		`gh api repos/*/pulls/*/reviews --jq 'map(select(.state == "PENDING"))[0].id'`,
+		"gh api --method DELETE repos/*/pulls/*/reviews/*",
 		"printf '%s' '*'",
 	} {
 		rules = append(rules, permissionRule{Action: "shell", Resource: resource, Effect: "allow"})
