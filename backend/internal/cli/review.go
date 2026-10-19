@@ -14,6 +14,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 const (
@@ -264,7 +266,7 @@ func (c *commandContext) submitReview(cmd *cobra.Command, args []string, opts re
 	if !reviewResultRecorded(res.Review) {
 		return fmt.Errorf("daemon returned empty review result for %s", session)
 	}
-	if res.Review.Status == reviewRunStatusFailed {
+	if res.Review.Status == string(domain.ReviewRunFailed) {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "recorded failed review for %s: the review did not reach the pull request\n", session)
 		return err
 	}
@@ -272,16 +274,13 @@ func (c *commandContext) submitReview(cmd *cobra.Command, args []string, opts re
 	return err
 }
 
-// reviewRunStatusFailed mirrors the daemon's failed run status.
-const reviewRunStatusFailed = "failed"
-
 // reviewResultRecorded accepts one run when it names a run id and either a
 // verdict or the explicit failed state used for a review that did not publish.
 func reviewResultRecorded(run reviewRun) bool {
 	if strings.TrimSpace(run.ID) == "" {
 		return false
 	}
-	return strings.TrimSpace(run.Verdict) != "" || run.Status == reviewRunStatusFailed
+	return strings.TrimSpace(run.Verdict) != "" || run.Status == string(domain.ReviewRunFailed)
 }
 
 func (c *commandContext) submitReviewBatch(cmd *cobra.Command, session string, opts reviewSubmitOptions) error {
@@ -308,7 +307,7 @@ func (c *commandContext) submitReviewBatch(cmd *cobra.Command, session string, o
 		if !reviewResultRecorded(run) {
 			return fmt.Errorf("daemon returned empty review result for %s", session)
 		}
-		if run.Status == reviewRunStatusFailed {
+		if run.Status == string(domain.ReviewRunFailed) {
 			failed++
 		}
 	}
