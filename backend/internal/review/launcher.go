@@ -75,7 +75,11 @@ type LaunchSpec struct {
 	Harness         domain.ReviewerHarness
 	AgentConfig     domain.AgentConfig
 	WorkspacePath   string
-	AgentSessionID  string
+	// CheckoutSHA and CheckoutTree record the verified checkout a pass reads so
+	// the prompt can name the exact commit and tree source.
+	CheckoutSHA    string
+	CheckoutTree   domain.ReviewCheckoutTree
+	AgentSessionID string
 	// ProviderConversationID is the typed Chat driver's stable conversation id.
 	// Terminal reviewers continue to use AgentSessionID.
 	ProviderConversationID string

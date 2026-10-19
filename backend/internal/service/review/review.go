@@ -91,6 +91,7 @@ type Service struct {
 	codexOperationGate ports.CodexOperationGate
 	notifications      reviewNotificationSink
 	prRefresher        PRRefresher
+	checkouts          reviewcore.CheckoutReleaser
 	// engineTrigger indirects the engine's source-tagged trigger so the
 	// instrumented path can be exercised without standing up a full engine and
 	// its eighteen-method store. Defaulted in New; only tests replace it.
@@ -118,6 +119,7 @@ type Store interface {
 	GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error)
 	SetSessionAutoInjectReview(ctx context.Context, id domain.SessionID, autoInject bool, updatedAt time.Time) (bool, error)
 	UpdateReviewRunResult(ctx context.Context, id string, status domain.ReviewRunStatus, verdict domain.ReviewVerdict, body, githubReviewID string, autoInjectReview bool) (bool, error)
+	ListRunningReviewRunsBySession(ctx context.Context, id domain.SessionID) ([]domain.ReviewRun, error)
 	ListPRsBySession(ctx context.Context, id domain.SessionID) ([]domain.PullRequest, error)
 	ListPRReviews(ctx context.Context, prURL string) ([]domain.PullRequestReview, error)
 	ListPRComments(ctx context.Context, prURL string) ([]domain.PullRequestComment, error)
@@ -142,6 +144,12 @@ type Option func(*Service)
 // requested review, so the pass covers the commit actually on the PR.
 func WithPRRefresher(r PRRefresher) Option {
 	return func(s *Service) { s.prRefresher = r }
+}
+
+// WithCheckoutReleaser removes a pass's disposable review worktree once every
+// run in its batch is terminal.
+func WithCheckoutReleaser(r reviewcore.CheckoutReleaser) Option {
+	return func(s *Service) { s.checkouts = r }
 }
 
 // WithClock overrides the service clock for tests.
@@ -783,7 +791,45 @@ func (s *Service) SubmitMany(ctx context.Context, workerID domain.SessionID, rev
 	// its review on the provider, and the SCM observer forwards unresolved
 	// review comments to the worker like any other reviewer's. AO does not send
 	// a second, separate verdict message.
+	s.releaseCheckouts(ctx, workerID, runs)
 	return runs, nil
+}
+
+// releaseCheckouts removes disposable review worktrees once no pass in their
+// batch is still running. Releasing is best effort; the verdict is durable.
+func (s *Service) releaseCheckouts(ctx context.Context, workerID domain.SessionID, runs []domain.ReviewRun) {
+	if s.checkouts == nil {
+		return
+	}
+	keys := make(map[string]bool)
+	for _, run := range runs {
+		if run.ReviewedTree == domain.ReviewCheckoutDisposable {
+			keys[reviewCheckoutKey(run)] = true
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	running, err := s.store.ListRunningReviewRunsBySession(ctx, workerID)
+	if err != nil {
+		return
+	}
+	for _, run := range running {
+		delete(keys, reviewCheckoutKey(run))
+	}
+	for key := range keys {
+		_ = s.checkouts.Release(context.WithoutCancel(ctx), key)
+	}
+}
+
+func reviewCheckoutKey(run domain.ReviewRun) string {
+	if key := strings.TrimSpace(run.ReviewedCheckoutKey); key != "" {
+		return key
+	}
+	if key := strings.TrimSpace(run.BatchID); key != "" {
+		return key
+	}
+	return run.ID
 }
 
 func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, review SubmittedReview) (domain.ReviewRun, error) {

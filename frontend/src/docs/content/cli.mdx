@@ -188,7 +188,9 @@ ao session ls --host build-box
 ao send --host build-box --session widgets-3 --message "CI failed on lint; fix it."
 ```
 
-These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, and `agent ls`. Other commands reject it.
+These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`. Other commands reject it.
+
+- **Reviews run on the worker's host:** `review trigger|ls|cancel --host` call the owning daemon's review routes. Pass the worker id explicitly, because session ids are per machine. Only that daemon launches the reviewer, so its checkout, read-only policy, verdict, and comment delivery stay on the host that owns the worker; the requesting machine never reviews its own checkout as a fallback. See the [review loop](/guides/review-loop#reviewing-a-worker-on-another-machine) for the verified-checkout behavior.
 
 - **Project matching:** without `--project`, `spawn --host` picks the remote project whose repository matches the current project, whether the remote is SSH or HTTPS. If none or several match, it lists the remote project IDs.
 - **Session IDs are per machine.** A remote request never forwards the local session as a parent or sender. Messages keep a `[from <session> on <machine>]` text prefix instead.

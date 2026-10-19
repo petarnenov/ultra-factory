@@ -53,7 +53,8 @@ addresses change on restart.
 ### Remote host target (`--host`)
 
 `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`,
-`project ls|get`, `orchestrator ls`, and `agent ls` accept `--host <label | host ID | URL>`.
+`project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`
+accept `--host <label | host ID | URL>`.
 With it, the same daemon route is called on a paired remote host's
 authenticated remote listener instead of the loopback daemon. The saved
 credential comes from the desktop's `remotes.json`; it is sent only after
@@ -69,6 +70,16 @@ to the parent's project orchestrator. Unattended pulling runs over https,
 loopback, or Tailscale; plain http needs `AO_REMOTE_REPORTS_ALLOW_HTTP=1` in the
 daemon's environment. If the link fails, or the host will not be polled, the
 spawn still succeeds and prints a warning. Design: `docs/adr/0005-daemon-pulls-remote-worker-reports.md`.
+
+`review trigger`, `review ls`, and `review cancel` accept `--host` too. The
+worker session id is required explicitly: session ids are per machine, so the
+local `AO_SESSION_ID` is not used as a remote worker. The owning daemon starts
+and cancels the reviewer, owns its checkout and read-only policy, and records
+the verdict; the requesting machine never reviews its own checkout as a
+fallback. Before each pass AO verifies the worker checkout at the target commit
+with a clean tree, otherwise it uses a disposable detached worktree at that
+commit and records which tree the verdict read. See
+`frontend/src/docs/content/guides/review-loop.mdx`.
 
 ### Product commands
 
