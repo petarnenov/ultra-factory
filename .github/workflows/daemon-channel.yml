@@ -29,7 +29,7 @@ on:
       - scripts/install-self-update.sh
       - scripts/install-self-update.test.sh
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
     paths: *paths
 
 permissions:

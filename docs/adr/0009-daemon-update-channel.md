@@ -70,8 +70,9 @@ become `/releases/latest`. The channel name comes from the branch slug
 (`feat/railway-hosting` → `feat-railway-hosting`) or from a manual dispatch
 input, which also lets one publish serve a different ref.
 
-Publishing runs on a push to `main` or `feat/**` that touches the daemon, the
-ACP runtime, or the updater's own files, and on `workflow_dispatch`. Pull
+Publishing runs on a push to `main` that touches the daemon, the
+ACP runtime, or the updater's own files, and on `workflow_dispatch` (the latter
+remains the way to publish a feature-branch channel). Pull
 requests run the updater tests but publish nothing.
 
 Assets are replaced in place on every publish and the names are version-free,
