@@ -35,6 +35,14 @@ ao review cancel <worker-session-id>
 
 Reviewer runs are separate from worker sessions. Their verdict and body are recorded against the worker.
 
+### Reviews on another machine
+
+The reviewer is invoked once over the worker's checkout and enforces read-only by construction, so the pass runs on the machine that owns that checkout. A worker on a paired host is reviewed on that host.
+
+There is no remote review trigger yet: `ao review trigger` does not accept `--host`. Until [#255](https://github.com/petarnenov/ultra-factory/issues/255) lands, the trigger is run by hand on the worker's machine; that manual step is temporary. Do not start a review-only worker elsewhere as a substitute.
+
+Before a pass, check that the worker is idle or exited, everything is committed and pushed, the pull request is open, and the reviewer is given the evaluated head SHA. These conditions keep the pass on the pull request instead of an uncommitted or outdated tree. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
+
 ### Reviews requested by agents
 
 A worker can request a review of its own PR: inside the worker, `ao review trigger` reviews the calling session. An orchestrator runs `ao review trigger <worker-session-id>` instead of spawning a worker to review. These runs are labelled **Requested by agent** in the inspector.

@@ -194,6 +194,12 @@ These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|re
 - **Session IDs are per machine.** A remote request never forwards the local session as a parent or sender. Messages keep a `[from <session> on <machine>]` text prefix instead.
 - **Credential safety:** requests use the paired host's authenticated remote listener with its saved password and expected host ID. The CLI ignores HTTP proxies for these requests, does not follow redirects, and refuses a `remotes.json` that others can read.
 
+A machine that runs its own orchestrator cannot host workers started from another machine. The remote spawn is refused with `LOCAL_ORCHESTRATOR_ACTIVE`, because the local orchestrator would claim the worker's reports; this includes a local orchestrator for another project. Check `ao orchestrator ls --host <H>` before starting a worker, then stop that orchestrator or use another machine.
+
+A remote worker's reports go to the orchestrator that spawned it. The orchestrator does not wait for a report to inspect state; `ao session ls --host` and the pull-request views show it directly.
+
+Reviews run on the machine that owns the worker's checkout, under the reviewer's read-only guarantee. There is no remote review trigger yet: `ao review trigger` does not accept `--host`, so until [#255](https://github.com/petarnenov/ultra-factory/issues/255) lands, this manual trigger is temporary and runs on the worker's machine. Before a pass, the worker is idle or exited, everything is committed and pushed, the pull request is open, and the reviewer is given the evaluated head SHA. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
+
 Inside a worker, `ao report "Progress summary"` sends a report to its existing orchestrator. Reporting requires `AO_SESSION_ID`; it does not create an orchestrator or claim a PR.
 
 Needs-input reports are sent immediately. Stuck reports may interrupt or combine with other reports. Done reports wait five minutes before delivery; ordinary checkpoints can wait up to one hour.
