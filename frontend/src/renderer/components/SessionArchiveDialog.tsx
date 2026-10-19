@@ -40,11 +40,12 @@ export function SessionArchiveDialog({
 	const isCloud = session?.cloud !== undefined;
 	const isOrchestrator = session ? isOrchestratorSession(session) : false;
 	// Kill for an orchestrator is termination, not routine archiving.
+	// Cloud teardown keeps its control-plane body; local sessions get CLI copy.
 	const title = isOrchestrator ? t("archive.killOrchestratorTitle") : t("archive.dialog");
-	const body = isOrchestrator
-		? t("archive.killOrchestratorBody")
-		: isCloud
-			? t("archive.bodyCloud")
+	const body = isCloud
+		? t("archive.bodyCloud")
+		: isOrchestrator
+			? t("archive.killOrchestratorBody")
 			: t("archive.body");
 	const confirmAriaLabel = isOrchestrator
 		? t("archive.killOrchestratorConfirmAria")
