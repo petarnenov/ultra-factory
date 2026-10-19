@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapDeletedCommentRanges, parseDiff, scanTS, scanPython, scanShell, scanDockerfile, summary } from './check.mjs';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { python3MissingMessage, mapDeletedCommentRanges, parseDiff, scanTS, scanPython, scanShell, scanDockerfile, summary } from './check.mjs';
 
 function stats(source, file = 'fixture.ts') {
   return summary(scanTS(source, file));
@@ -143,4 +147,32 @@ test('shell parameter length expansion is not treated as a comment', () => {
 test('shell comments that merely mention heredocs do not start heredocs', () => {
   const source = '# feed the config via <<EOF\n# one\n# two\n# three\n';
   assert.deepEqual(summary(scanShell(source)), { blocks: 1, longLines: 0 });
+});
+
+test('scanning hash languages without python3 fails naming the prerequisite', () => {
+  const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'comment-policy-nopy-'));
+  try {
+    const script = "import('./scripts/comment-policy/check.mjs')"
+      + ".then((m) => m.scanShell('# comment\\n'))"
+      + ".then(() => process.exit(0), (e) => { console.error(e.message); process.exit(3); });";
+    let status = 0;
+    let stderr = '';
+    try {
+      execFileSync(process.execPath, ['-e', script],
+        { env: { ...process.env, PATH: emptyBin }, encoding: 'utf8', stdio: 'pipe' });
+    } catch (error) {
+      status = error.status;
+      stderr = error.stderr;
+    }
+    assert.equal(status, 3);
+    assert.match(stderr, /python3 was not found on PATH/);
+    assert.match(stderr, /Python, shell and Dockerfile/);
+    assert.equal(stderr.trim(), python3MissingMessage);
+  } finally {
+    fs.rmSync(emptyBin, { recursive: true, force: true });
+  }
+});
+
+test('scanning hash languages still works when python3 is present', () => {
+  assert.deepEqual(summary(scanShell('# one\n# two\n# three\n')), { blocks: 1, longLines: 0 });
 });
