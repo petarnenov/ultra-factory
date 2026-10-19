@@ -1694,7 +1694,7 @@
   "shell.openKanban": "Abrir Kanban",
   "shell.openCoderWorkspaceNamed": "Abrir {{name}} en Coder",
   "shell.openProjectDashboard": "Abrir panel de {{name}}",
-  "shell.openAggregateKanban": "Open aggregate Kanban",
+  "shell.openAggregateKanban": "Aggregate Kanban",
   "shell.aggregateKanban": "Aggregate project Kanban",
   "shell.aggregateKanbanDescription": "Current worker sessions across this project on local and connected hosts.",
   "shell.aggregatePartialHosts": "Some hosts could not be reached. Results below are partial.",

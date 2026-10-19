@@ -1666,7 +1666,7 @@
   "shell.openKanban": "칸반 열기",
   "shell.openCoderWorkspaceNamed": "Coder에서 {{name}} 열기",
   "shell.openProjectDashboard": "{{name}} 대시보드 열기",
-  "shell.openAggregateKanban": "Open aggregate Kanban",
+  "shell.openAggregateKanban": "Aggregate Kanban",
   "shell.aggregateKanban": "Aggregate project Kanban",
   "shell.aggregateKanbanDescription": "Current worker sessions across this project on local and connected hosts.",
   "shell.aggregatePartialHosts": "Some hosts could not be reached. Results below are partial.",
