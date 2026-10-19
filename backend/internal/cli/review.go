@@ -324,7 +324,7 @@ func (c *commandContext) submitReviewBatch(cmd *cobra.Command, session string, o
 }
 
 // postReviewJSON retries only transport-level daemon unavailability. Identical
-// completed or failed results replay idempotently; validation errors do not retry.
+// completed or failed results replay idempotently; validation errors do not.
 func (c *commandContext) postReviewJSON(ctx context.Context, path string, body submitReviewRequest, out *reviewRunResponse) error {
 	retryCtx, cancel := context.WithTimeout(ctx, reviewSubmitRetryWindow)
 	defer cancel()
