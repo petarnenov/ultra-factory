@@ -142,6 +142,19 @@ type SessionArtifactVersion struct {
 	CreatedAt   time.Time
 }
 
+// AgentConfigSource names the layer that supplied one resolved launch value.
+type AgentConfigSource string
+
+const (
+	// AgentConfigSourceExplicit is a spawn parameter (CLI flag or API field).
+	AgentConfigSourceExplicit AgentConfigSource = "explicit"
+	// AgentConfigSourceSettings is the target machine's Project Settings.
+	AgentConfigSourceSettings AgentConfigSource = "settings"
+	// AgentConfigSourceMachineDefault is the target machine's harness default
+	// from its model catalog.
+	AgentConfigSourceMachineDefault AgentConfigSource = "machine-default"
+)
+
 // SessionMetadata is the typed, off-status metadata for a session: operational
 // handles and seed inputs used by Session Manager and reaper.
 type SessionMetadata struct {
@@ -227,6 +240,15 @@ type SessionMetadata struct {
 	// means the provider default, including an explicit task-level reset. The
 	// resolved value is pinned so project-default changes cannot alter resume.
 	Effort string `json:"effort,omitempty"`
+	// HarnessSource, ModelSource, and EffortSource record which layer supplied
+	// each resolved launch value: explicit spawn parameter, the target
+	// machine's Project Settings, or its harness default.
+	HarnessSource AgentConfigSource `json:"harnessSource,omitempty"`
+	ModelSource   AgentConfigSource `json:"modelSource,omitempty"`
+	EffortSource  AgentConfigSource `json:"effortSource,omitempty"`
+	// AgentConfigMachine names the machine whose settings and catalog resolved
+	// the launch, so a remote spawn reports the target machine, not the caller.
+	AgentConfigMachine string `json:"agentConfigMachine,omitempty"`
 	// ArtifactDir is the session-owned artifact directory under AO's data dir.
 	// It is outside the git workspace and is never exposed directly on the API.
 	ArtifactDir string `json:"-"`

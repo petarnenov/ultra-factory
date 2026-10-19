@@ -448,6 +448,17 @@ type SessionView struct {
 	// Model is the agent model this session resolved to at spawn time. Empty
 	// means the agent's default model. Pulled from the json:"-" domain Metadata.
 	Model string `json:"model,omitempty"`
+	// Effort is the reasoning level resolved with Model at spawn time. Pulled
+	// from the json:"-" domain Metadata.
+	Effort string `json:"effort,omitempty"`
+	// HarnessSource, ModelSource, and EffortSource name the layer that supplied
+	// each resolved launch value: explicit, settings, or machine-default.
+	HarnessSource domain.AgentConfigSource `json:"harnessSource,omitempty" enum:"explicit,settings,machine-default"`
+	ModelSource   domain.AgentConfigSource `json:"modelSource,omitempty" enum:"explicit,settings,machine-default"`
+	EffortSource  domain.AgentConfigSource `json:"effortSource,omitempty" enum:"explicit,settings,machine-default"`
+	// AgentConfigMachine names the machine whose Project Settings and catalog
+	// resolved the launch. A remote spawn reports the target machine.
+	AgentConfigMachine string `json:"agentConfigMachine,omitempty"`
 	// LastUserMessageAt is the latest real user-authored task direction time.
 	// Lifecycle and internal automation updates do not advance it.
 	LastUserMessageAt *time.Time `json:"lastUserMessageAt,omitempty"`
@@ -499,7 +510,11 @@ type SpawnSessionRequest struct {
 	TrackerProvider domain.TrackerProvider `json:"trackerProvider,omitempty" enum:"github,gitlab"`
 	Kind            domain.SessionKind     `json:"kind,omitempty" enum:"worker,orchestrator"`
 	Harness         domain.AgentHarness    `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
-	Branch          string                 `json:"branch,omitempty"`
+	// HarnessExplicit tells the daemon whether Harness came from the caller or
+	// was resolved by the CLI from Project Settings / the machine default.
+	// Omitted means explicit when Harness is set, preserving older clients.
+	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`
+	Branch          string `json:"branch,omitempty"`
 	// Mode picks the conversation controller: chat talks to the agent over a
 	// structured connection, tui opens the agent's native terminal interface.
 	// Omitted resolves to the daemon-owned preference, which defaults to Chat for

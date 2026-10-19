@@ -54,6 +54,72 @@ func TestRemoteSpawnInsideSessionLinksWorkerOnLocalDaemon(t *testing.T) {
 	}
 }
 
+// TestRemoteSpawnResolvesHarnessOnTargetMachine asserts `spawn --host` sends
+// the target machine's Project Settings role agent, or its harness default when
+// the role names none, without presenting either as an explicit directive.
+func TestRemoteSpawnResolvesHarnessOnTargetMachine(t *testing.T) {
+	cases := []struct {
+		name         string
+		project      projectDetails
+		args         []string
+		wantHarness  string
+		wantExplicit bool
+	}{
+		{
+			name: "role settings",
+			project: projectDetails{ID: "widgets", Repo: "https://github.com/acme/widgets",
+				Agent: "codex", Config: &projectConfig{Worker: roleOverride{Agent: "opencode-v2"}}},
+			wantHarness: "opencode-v2",
+		},
+		{
+			name:        "machine default",
+			project:     projectDetails{ID: "widgets", Repo: "https://github.com/acme/widgets", Agent: "codex"},
+			wantHarness: "codex",
+		},
+		{
+			name: "explicit directive",
+			project: projectDetails{ID: "widgets", Repo: "https://github.com/acme/widgets",
+				Agent: "codex", Config: &projectConfig{Worker: roleOverride{Agent: "opencode-v2"}}},
+			args:         []string{"--agent", "opencode"},
+			wantHarness:  "opencode",
+			wantExplicit: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AO_SESSION_ID", "")
+			remote := newFakeRemoteHost(t, "host-build", "s3cret")
+			serveRemoteProjects(remote, tc.project)
+			remote.handle(http.MethodPost, "/api/v1/sessions", func(w http.ResponseWriter, _ *http.Request) {
+				writeTestJSON(w, http.StatusCreated, map[string]any{"session": map[string]string{
+					"id": "widgets-3", "projectId": "widgets", "status": "spawning",
+				}})
+			})
+			writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+			args := append([]string{"spawn", "--host", "build-box", "--project", "widgets", "--name", "work", "--skip-agent-check"}, tc.args...)
+			if _, errOut, err := executeCLI(t, aliveDeps(), args...); err != nil {
+				t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+			}
+			recorded, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+			if !ok {
+				t.Fatal("remote spawn request not recorded")
+			}
+			var spawned spawnRequest
+			if err := json.Unmarshal([]byte(recorded.body), &spawned); err != nil {
+				t.Fatalf("decode spawn request: %v", err)
+			}
+			if spawned.Harness != tc.wantHarness {
+				t.Fatalf("harness = %q, want %q", spawned.Harness, tc.wantHarness)
+			}
+			explicit := spawned.HarnessExplicit != nil && *spawned.HarnessExplicit
+			if explicit != tc.wantExplicit {
+				t.Fatalf("harnessExplicit = %v, want %v", explicit, tc.wantExplicit)
+			}
+		})
+	}
+}
+
 func TestRemoteSpawnLinkFailureWarnsButKeepsTheWorker(t *testing.T) {
 	cfg := setConfigEnv(t)
 	t.Setenv("AO_SESSION_ID", "ao-7")

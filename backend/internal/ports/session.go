@@ -43,8 +43,14 @@ type SpawnConfig struct {
 	IssueContext string
 	Kind         domain.SessionKind
 	Harness      domain.AgentHarness
-	Branch       string
-	Prompt       string
+	// HarnessExplicit records that the caller named Harness instead of leaving
+	// it to the project role or machine default, so session provenance can say
+	// which layer selected it. HarnessExplicitSet distinguishes a caller that
+	// explicitly reported a resolved harness from one that did not set the flag.
+	HarnessExplicit    bool
+	HarnessExplicitSet bool
+	Branch             string
+	Prompt             string
 	// AgentConfig overrides the resolved project/role agent config for this
 	// single spawn. Empty fields keep the project defaults.
 	AgentConfig AgentConfig
@@ -54,6 +60,12 @@ type SpawnConfig struct {
 	// AgentConfigResolved means AgentConfig already contains the fully merged
 	// project/role/task settings and may intentionally clear inherited values.
 	AgentConfigResolved bool
+	// HarnessSource, ModelSource, EffortSource, and AgentConfigMachine record
+	// the resolution provenance the manager persists on the session.
+	HarnessSource      domain.AgentConfigSource
+	ModelSource        domain.AgentConfigSource
+	EffortSource       domain.AgentConfigSource
+	AgentConfigMachine string
 
 	// RequestedMode is the caller's explicit session mode, or empty to let the
 	// daemon resolve its default. It is validated and persisted before any

@@ -352,7 +352,12 @@ func (c *SessionsController) spawn(w http.ResponseWriter, r *http.Request) {
 		keyless.Attachments = nil
 		requestHash = clientRequestFingerprint("session", keyless, attachments)
 	}
-	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, ParentSessionID: in.ParentSessionID, TrackerProvider: in.TrackerProvider, Kind: in.Kind, Harness: in.Harness, Branch: in.Branch, RequestedMode: in.Mode, Prompt: in.Prompt, RequestedOutput: in.RequestedOutput, DisplayName: displayName, Attachments: attachments, AgentConfig: ports.AgentConfig{Model: in.Model, Effort: in.Effort, Permissions: in.ApprovalMode}, ClientRequestID: in.ClientRequestID, ClientRequestHash: requestHash, RemoteSpawned: in.RemoteSpawn, TerminateOnPRMerge: in.TerminateOnPRMerge})
+	harnessExplicit := in.Harness != ""
+	harnessExplicitSet := in.HarnessExplicit != nil
+	if harnessExplicitSet {
+		harnessExplicit = *in.HarnessExplicit
+	}
+	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, ParentSessionID: in.ParentSessionID, TrackerProvider: in.TrackerProvider, Kind: in.Kind, Harness: in.Harness, HarnessExplicit: harnessExplicit, HarnessExplicitSet: harnessExplicitSet, Branch: in.Branch, RequestedMode: in.Mode, Prompt: in.Prompt, RequestedOutput: in.RequestedOutput, DisplayName: displayName, Attachments: attachments, AgentConfig: ports.AgentConfig{Model: in.Model, Effort: in.Effort, Permissions: in.ApprovalMode}, EffortOverride: in.Effort != "", ClientRequestID: in.ClientRequestID, ClientRequestHash: requestHash, RemoteSpawned: in.RemoteSpawn, TerminateOnPRMerge: in.TerminateOnPRMerge})
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
@@ -2662,6 +2667,11 @@ func sessionView(r *http.Request, s domain.Session) SessionView {
 		PreviewURL:         s.Metadata.PreviewURL,
 		PreviewRevision:    s.Metadata.PreviewRevision,
 		Model:              s.Metadata.Model,
+		Effort:             s.Metadata.Effort,
+		HarnessSource:      s.Metadata.HarnessSource,
+		ModelSource:        s.Metadata.ModelSource,
+		EffortSource:       s.Metadata.EffortSource,
+		AgentConfigMachine: s.Metadata.AgentConfigMachine,
 		LastUserMessageAt: func() *time.Time {
 			if s.Metadata.LatestUserPromptAt.IsZero() {
 				return nil

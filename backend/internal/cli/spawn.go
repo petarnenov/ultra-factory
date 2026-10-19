@@ -30,6 +30,7 @@ type spawnOptions struct {
 	issue              string
 	name               string
 	model              string
+	effort             string
 	output             string
 	claimPR            string
 	noTakeover         bool
@@ -41,16 +42,20 @@ type spawnOptions struct {
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
 // POST /api/v1/sessions. The CLI keeps its own copy so it need not import httpd.
 type spawnRequest struct {
-	ProjectID          string `json:"projectId,omitempty"`
-	IssueID            string `json:"issueId,omitempty"`
-	ParentSessionID    string `json:"parentSessionId,omitempty"`
-	TrackerProvider    string `json:"trackerProvider,omitempty"`
-	Kind               string `json:"kind,omitempty"`
-	Mode               string `json:"mode,omitempty"`
-	Harness            string `json:"harness,omitempty"`
+	ProjectID       string `json:"projectId,omitempty"`
+	IssueID         string `json:"issueId,omitempty"`
+	ParentSessionID string `json:"parentSessionId,omitempty"`
+	TrackerProvider string `json:"trackerProvider,omitempty"`
+	Kind            string `json:"kind,omitempty"`
+	Mode            string `json:"mode,omitempty"`
+	Harness         string `json:"harness,omitempty"`
+	// HarnessExplicit distinguishes a caller-named harness from one resolved
+	// from Project Settings or the machine default.
+	HarnessExplicit    *bool  `json:"harnessExplicit,omitempty"`
 	Branch             string `json:"branch,omitempty"`
 	Prompt             string `json:"prompt,omitempty"`
 	Model              string `json:"model,omitempty"`
+	Effort             string `json:"effort,omitempty"`
 	RequestedOutput    string `json:"requestedOutput,omitempty"`
 	DisplayName        string `json:"displayName"`
 	RemoteSpawn        bool   `json:"remoteSpawn,omitempty"`
@@ -148,10 +153,11 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				opts.project = project.ID
 			}
 
-			harness, err := resolveSpawnHarness(opts.harness, opts.kind, project)
+			harness, err := resolveSpawnHarness(strings.TrimSpace(opts.harness), opts.kind, project)
 			if err != nil {
 				return err
 			}
+			explicitHarness := strings.TrimSpace(opts.harness)
 			opts.harness = harness
 
 			if isScratchProject(project) {
@@ -195,10 +201,12 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				TrackerProvider:    opts.trackerProvider,
 				Kind:               opts.kind,
 				Harness:            opts.harness,
+				HarnessExplicit:    spawnBoolPtr(explicitHarness != ""),
 				Mode:               opts.mode,
 				Branch:             opts.branch,
 				Prompt:             opts.prompt,
 				Model:              strings.TrimSpace(opts.model),
+				Effort:             strings.TrimSpace(opts.effort),
 				RequestedOutput:    opts.output,
 				DisplayName:        name,
 				RemoteSpawn:        ctx.targetsRemote() && opts.kind != "orchestrator",
@@ -277,7 +285,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.mode, "mode", "", "Initial session interface: chat (structured agent connection) or tui (the agent's native terminal). Omitted uses the daemon default; compatible sessions can switch later.")
 	f.StringVar(&opts.branch, "branch", "", "Branch for git project sessions (default: ao/<session-id>/root; unsupported for standalone or Scratch sessions)")
 	f.StringVar(&opts.prompt, "prompt", "", "Initial prompt for the agent")
-	f.StringVar(&opts.model, "model", "", "Agent model override for this session only (e.g. sonnet, gpt-5.6-sol); overrides project/role config without changing it")
+	f.StringVar(&opts.model, "model", "", "Agent model override for this session only (e.g. sonnet, gpt-5.6-sol); overrides project/role config without changing it. The value must be valid for the resolved harness or the daemon blocks the spawn")
+	f.StringVar(&opts.effort, "effort", "", "Reasoning effort for the selected model (e.g. low, medium, high); must be one the model advertises or the daemon blocks the spawn")
 	f.StringVar(&opts.output, "output", "", "Deliverable for the session: artifact asks the agent to write a file in its artifact directory instead of opening a PR (default: ordinary task)")
 	f.BoolVar(&opts.terminateOnPRMerge, "terminate-on-pr-merge", false, "Tear down this session after all its PRs reach a terminal state with at least one merged and the agent quiesces; overrides the project default")
 	f.StringVar(&opts.issue, "issue", "", "Issue id to associate with the session")
@@ -506,6 +515,8 @@ func pathContains(root, child string) bool {
 	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+func spawnBoolPtr(value bool) *bool { return &value }
+
 func resolveSpawnHarness(explicit, kind string, project projectDetails) (string, error) {
 	if harness := strings.TrimSpace(explicit); harness != "" {
 		return harness, nil
@@ -520,6 +531,12 @@ func resolveSpawnHarness(explicit, kind string, project projectDetails) (string,
 				return harness, nil
 			}
 		}
+	}
+	// The target daemon reports its AO_AGENT default in project.Agent. A role
+	// that is not configured falls back to that machine default, matching the
+	// daemon's own resolution.
+	if harness := strings.TrimSpace(project.Agent); harness != "" {
+		return harness, nil
 	}
 	if kind == "orchestrator" {
 		return "", usageError{fmt.Errorf("agent could not be resolved; pass --agent or configure `ao project set-config %s --orchestrator-agent <agent>`", project.ID)}

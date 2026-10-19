@@ -10,9 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -427,6 +425,11 @@ type Manager struct {
 	modelCatalog interface {
 		Models(context.Context, string, string, bool) (ports.AgentModelCatalog, error)
 	}
+	// defaultHarness is the machine's AO_AGENT default for roles that do not
+	// name a harness.
+	defaultHarness domain.AgentHarness
+	// machineLabel names this machine in resolution errors and provenance.
+	machineLabel                string
 	lcm                         lifecycleRecorder
 	preview                     PreviewLifecycle
 	browser                     BrowserLifecycle
@@ -826,6 +829,13 @@ type Deps struct {
 	// Logger receives spawn-time diagnostics (e.g. when the session PATH
 	// cannot be pinned to the daemon binary). Nil defaults to slog.Default().
 	Logger *slog.Logger
+	// DefaultHarness is the machine's AO_AGENT default, used when neither the
+	// spawn nor the role config names a harness. Empty preserves the previous
+	// "role must be configured" behavior.
+	DefaultHarness domain.AgentHarness
+	// MachineLabel names this machine in resolution errors and session
+	// provenance. Empty defaults to the OS hostname.
+	MachineLabel string
 }
 
 // New builds a Session Manager from its dependencies, defaulting the clock to
@@ -894,6 +904,13 @@ func New(d Deps) *Manager {
 		// write (rename, activity) — all of which use time.Now().UTC(). A local
 		// default produced mixed-timezone timestamps in `ao session get`.
 		m.clock = func() time.Time { return time.Now().UTC() }
+	}
+	m.defaultHarness = d.DefaultHarness
+	m.machineLabel = strings.TrimSpace(d.MachineLabel)
+	if m.machineLabel == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			m.machineLabel = strings.TrimSpace(hostname)
+		}
 	}
 	m.statusRecoveries = make(map[domain.SessionID]statusRecovery)
 	m.statusVerificationLimit = statusVerificationLimit
@@ -964,8 +981,15 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		cfg.AgentConfig.Permissions = permissions
 	}
 	// A per-project role override picks the harness when the spawn names none,
-	// so a project can default workers to one agent and orchestrators to another.
-	cfg.Harness = effectiveHarness(cfg.Harness, cfg.Kind, project.Config)
+	// then the machine's AO_AGENT default applies, so a project can default
+	// workers to one agent and orchestrators to another without hiding the
+	// target machine's fallback.
+	harnessExplicit := cfg.Harness != ""
+	if cfg.HarnessExplicitSet {
+		harnessExplicit = cfg.HarnessExplicit
+	}
+	cfg.Harness = effectiveHarness(cfg.Harness, cfg.Kind, project.Config, m.defaultHarness)
+	cfg.HarnessExplicit = harnessExplicit
 	if cfg.Harness == "" {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w: configure project %s.agent or pass --harness", ErrMissingHarness, roleConfigName(cfg.Kind))
 	}
@@ -997,18 +1021,12 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		}
 	}
 
-	// Resolve the effective agent config (project base + role override + spawn
-	// override) and validate the model before any durable state is created. A
-	// model the harness cannot honor should not leave a seed row behind.
-	agentConfig := applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, project.Config), cfg.AgentConfig)
-	if err := validateSpawnModel(cfg.Harness, agentConfig.Model); err != nil {
-		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w: %s", ErrUnsupportedModel, err.Error())
-	}
 	// Resolve the controller mode here, before anything durable is created, for
 	// the same reason an unknown harness is rejected above: an explicit Chat
 	// request AO cannot honor should cost nothing, not leave a terminated row and
 	// a worktree behind. Chat inherited from the daemon preference is best-effort:
 	// if it is unavailable for this harness or installation, fall back to TUI.
+	preflightConfig := applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, project.Config), cfg.AgentConfig)
 	modeExplicitlyRequested := cfg.RequestedMode.Valid()
 	mode := m.resolveSessionMode(ctx, cfg.RequestedMode)
 	if cfg.Kind == domain.KindOrchestrator && !modeExplicitlyRequested {
@@ -1022,7 +1040,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 			m.logger.Warn("spawn: default Chat unavailable; falling back to TUI",
 				"harness", cfg.Harness, "error", ports.ErrChatUnsupported)
 			mode = domain.SessionModeTUI
-		} else if err := m.chat.PreflightChat(ctx, cfg.Harness, agentConfig.Permissions); err != nil {
+		} else if err := m.chat.PreflightChat(ctx, cfg.Harness, preflightConfig.Permissions); err != nil {
 			fallbackAllowed := errors.Is(err, ports.ErrChatUnsupported) ||
 				errors.Is(err, ports.ErrChatDriverUnavailable) ||
 				errors.Is(err, ports.ErrChatDriverIncompatible) ||
@@ -1035,24 +1053,21 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 				"harness", cfg.Harness, "error", err)
 			mode = domain.SessionModeTUI
 		}
-		if mode == domain.SessionModeChat {
-			resolved, err := m.resolveAgentConfig(ctx, cfg, project.Config)
-			if err != nil {
-				return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
-			}
-			cfg.AgentConfig = resolved
-			cfg.AgentConfigResolved = true
-		}
 	}
-	if mode == domain.SessionModeTUI && (cfg.Harness == domain.HarnessClaudeCode || cfg.Harness == domain.HarnessCodex) {
-		resolved, err := m.resolveTUIAgentConfig(ctx, cfg, project.Config, agentConfig)
-		if err != nil {
-			return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
-		}
-		cfg.AgentConfig = resolved
-		cfg.AgentConfigResolved = true
-		agentConfig = resolved
+	// Resolve harness, model, and effort against the target machine's settings
+	// and catalog before any durable state exists. Nothing may launch on an
+	// invalid or unresolvable combination.
+	resolution, err := m.resolveSpawnLaunch(ctx, cfg, project.Config, mode)
+	if err != nil {
+		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
 	}
+	cfg.AgentConfig = resolution.Config
+	cfg.AgentConfigResolved = true
+	cfg.ModelSource = resolution.ModelSource
+	cfg.EffortSource = resolution.EffortSource
+	cfg.AgentConfigMachine = resolution.Machine
+	cfg.HarnessSource = m.harnessSource(cfg, project.Config)
+	agentConfig := resolution.Config
 	cfg.RequestedMode = mode
 
 	// Adapters whose model picker is an agent-owned mode list (e.g. Amp) keep
@@ -1447,6 +1462,12 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		// Model override exists it wins; otherwise fall back to the resolved Mode.
 		Model:  resolvedModelForMetadata(cfg.Harness, agentConfig, adapterConfig),
 		Effort: agentConfig.Effort,
+		// Resolution provenance travels with the durable launch settings so a
+		// session can report which layer and machine supplied them.
+		HarnessSource:      cfg.HarnessSource,
+		ModelSource:        cfg.ModelSource,
+		EffortSource:       cfg.EffortSource,
+		AgentConfigMachine: cfg.AgentConfigMachine,
 	}
 	if prompt != "" {
 		metadata.LatestUserPromptAt = m.clock()
@@ -1521,177 +1542,117 @@ func replayClientRequest(rec domain.SessionRecord, hash string) (domain.SessionR
 	return rec, nil
 }
 
-// resolveTUIAgentConfig validates a terminal launch against the model
-// catalog. Claude Code requires it. The Codex CLI validates its own model and
-// effort, so for Codex the catalog only refines the launch: when it is
-// unavailable, stale, lacks a custom model or lists other efforts, the session
-// launches with the unvalidated config, as it would without a catalog.
-func (m *Manager) resolveTUIAgentConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig, unvalidated ports.AgentConfig) (ports.AgentConfig, error) {
-	resolved, err := m.resolveAgentConfig(ctx, cfg, project)
-	// Only the spawn's own cancellation stops the launch; a catalog lookup's
-	// internal timeout is one more way the catalog can be unavailable.
-	if err == nil || cfg.Harness != domain.HarnessCodex || ctx.Err() != nil {
-		return resolved, err
+// resolveAgentConfig resolves and validates one launch against the target
+// machine's Project Settings and harness catalog. Agent switching keeps its
+// historical rule that a role tuned for another harness does not leak its
+// model/mode onto the target; spawns use resolveAgentLaunchConfig directly.
+func (m *Manager) resolveAgentConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig) (ports.AgentConfig, error) {
+	role := roleOverride(cfg.Kind, project)
+	if role.Harness != "" && role.Harness != cfg.Harness {
+		role.AgentConfig = domain.AgentConfig{}
+		project = withRoleOverride(project, cfg.Kind, role)
+	}
+	result, err := m.resolveAgentLaunchConfig(ctx, cfg, project)
+	if err != nil {
+		return ports.AgentConfig{}, err
+	}
+	return result.Config, nil
+}
+
+func withRoleOverride(project domain.ProjectConfig, kind domain.SessionKind, role domain.RoleOverride) domain.ProjectConfig {
+	if kind == domain.KindOrchestrator {
+		project.Orchestrator = role
+	} else {
+		project.Worker = role
+	}
+	return project
+}
+
+// resolveAgentLaunchConfig returns the resolved config together with the layer
+// that supplied each value.
+func (m *Manager) resolveAgentLaunchConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig) (agentlaunch.Result, error) {
+	role := roleOverride(cfg.Kind, project).AgentConfig
+	request := agentlaunch.Request{
+		Machine:            m.machineLabel,
+		ProjectID:          string(cfg.ProjectID),
+		Harness:            cfg.Harness,
+		Base:               project.AgentConfig,
+		Role:               role,
+		Explicit:           cfg.AgentConfig,
+		EffortExplicit:     cfg.EffortOverride,
+		AvailableHarnesses: m.availableHarnesses(),
+		Catalog:            m.modelCatalog,
+	}
+	result, err := agentlaunch.Resolve(ctx, request)
+	if err == nil {
+		return result, nil
+	}
+	var resolutionErr *agentlaunch.Error
+	if errors.As(err, &resolutionErr) {
+		switch resolutionErr.Field {
+		case "model":
+			return result, fmt.Errorf("%w: %w", ErrUnsupportedModel, err)
+		case "effort":
+			return result, fmt.Errorf("%w: %w", ports.ErrUnsupportedEffort, err)
+		case "catalog":
+			return result, fmt.Errorf("%w: %w", ports.ErrModelCapabilitiesUnavailable, err)
+		}
+	}
+	return result, err
+}
+
+func (m *Manager) harnessSource(cfg ports.SpawnConfig, project domain.ProjectConfig) domain.AgentConfigSource {
+	if cfg.HarnessExplicit {
+		return domain.AgentConfigSourceExplicit
+	}
+	if roleOverride(cfg.Kind, project).Harness != "" {
+		return domain.AgentConfigSourceSettings
+	}
+	return domain.AgentConfigSourceMachineDefault
+}
+
+// resolveSpawnLaunch resolves one spawn. Terminal Codex keeps its historical
+// behavior of trusting the CLI's own validation when the catalog cannot answer;
+// every other harness blocks instead of launching an unvalidated value.
+func (m *Manager) resolveSpawnLaunch(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig, mode domain.SessionMode) (agentlaunch.Result, error) {
+	result, err := m.resolveAgentLaunchConfig(ctx, cfg, project)
+	if err == nil || mode != domain.SessionModeTUI || cfg.Harness != domain.HarnessCodex || ctx.Err() != nil {
+		return result, err
 	}
 	m.logger.Warn("spawn: Codex model catalog could not validate the launch; leaving it to the CLI",
-		"model", unvalidated.Model, "effort", unvalidated.Effort, "error", err)
-	return unvalidated, nil
+		"model", cfg.AgentConfig.Model, "effort", cfg.AgentConfig.Effort, "error", err)
+	return m.unvalidatedLaunchResult(cfg, project), nil
 }
 
-func (m *Manager) resolveAgentConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig) (ports.AgentConfig, error) {
-	base := effectiveAgentConfig(cfg.Harness, cfg.Kind, project)
-	requested := cfg.AgentConfig
-	resolved := applySpawnAgentConfig(base, requested)
-	modelChangedWithoutExplicitEffort := requested.Model != "" && requested.Model != base.Model &&
-		!cfg.EffortOverride && requested.Effort == ""
-	if cfg.EffortOverride {
-		resolved.Effort = requested.Effort
+// unvalidatedLaunchResult records the merged settings without catalog
+// validation, matching the pre-catalog Codex launch path.
+func (m *Manager) unvalidatedLaunchResult(cfg ports.SpawnConfig, project domain.ProjectConfig) agentlaunch.Result {
+	config, modelSource, effortSource := agentlaunch.Merge(
+		project.AgentConfig, roleOverride(cfg.Kind, project).AgentConfig, cfg.AgentConfig, cfg.EffortOverride)
+	if config.Permissions == "" {
+		config.Permissions = ports.PermissionModeAuto
 	}
-	if cfg.Harness != domain.HarnessCodex && cfg.Harness != domain.HarnessClaudeCode && cfg.Harness != domain.HarnessCommandCode {
-		resolved.Effort = ""
-		return resolved, nil
+	return agentlaunch.Result{
+		Config:       config,
+		ModelSource:  modelSource,
+		EffortSource: effortSource,
+		Machine:      m.machineLabel,
 	}
-	if cfg.Harness == domain.HarnessCommandCode {
-		// Command Code's `cmd --list-models` catalog advertises no per-model
-		// effort levels, so there is nothing to validate against: forward the
-		// raw level (empty keeps the adapter default) and let `cmd --effort`
-		// reject unknown values at launch.
-		return resolved, nil
-	}
-	modelID := strings.TrimSpace(resolved.Model)
-	validateClaudeModel := cfg.Harness == domain.HarnessClaudeCode && modelID != ""
-	if resolved.Effort == "" && !validateClaudeModel {
-		return resolved, nil
-	}
-	if m.modelCatalog == nil {
-		if validateClaudeModel {
-			return ports.AgentConfig{}, fmt.Errorf("%w: model catalog is unavailable", ports.ErrModelCapabilitiesUnavailable)
-		}
-		return resolved, nil
-	}
-	catalog, err := m.modelCatalog.Models(ctx, string(cfg.Harness), string(cfg.ProjectID), true)
-	if err != nil {
-		if modelChangedWithoutExplicitEffort {
-			resolved.Effort = ""
-		}
-		if validateClaudeModel || resolved.Effort != "" {
-			return ports.AgentConfig{}, fmt.Errorf("%w: %w", ports.ErrModelCapabilitiesUnavailable, err)
-		}
-		return resolved, nil
-	}
-	if modelID == "" {
-		for _, item := range catalog.Models {
-			if item.IsDefault {
-				modelID = item.ID
-				break
-			}
-		}
-	}
-	if catalog.Stale && validateClaudeModel {
-		return ports.AgentConfig{}, fmt.Errorf("%w for model %q: catalog is stale", ports.ErrModelCapabilitiesUnavailable, modelID)
-	}
-	var selected *ports.AgentModelInfo
-	for i := range catalog.Models {
-		if catalog.Models[i].ID == modelID {
-			selected = &catalog.Models[i]
-			break
-		}
-	}
-	if validateClaudeModel && selected == nil {
-		return ports.AgentConfig{}, fmt.Errorf("%w: model %q is not in the active provider catalog", ErrUnsupportedModel, modelID)
-	}
-	if selected != nil && len(selected.Efforts) == 0 && cfg.Harness == domain.HarnessClaudeCode {
-		// A family alias ("opus") carries no capabilities of its own; the CLI
-		// resolves it to the family's newest model, which the picker shows.
-		if concrete := newestClaudeFamilyModel(catalog.Models, modelID); concrete != nil {
-			selected = concrete
-		}
-	}
-	if modelChangedWithoutExplicitEffort {
-		if selected == nil || !containsString(selected.Efforts, base.Effort) {
-			resolved.Effort = ""
-		}
-	}
-	if resolved.Effort == "" {
-		return resolved, nil
-	}
-	if catalog.Stale || selected == nil {
-		return ports.AgentConfig{}, fmt.Errorf("%w for model %q", ports.ErrModelCapabilitiesUnavailable, modelID)
-	}
-	if resolved.Effort != "" && !containsString(selected.Efforts, resolved.Effort) {
-		return ports.AgentConfig{}, fmt.Errorf("%w %q for model %q", ports.ErrUnsupportedEffort, resolved.Effort, modelID)
-	}
-	return resolved, nil
 }
 
-var (
-	claudeFamilyAliases = []string{"fable", "opus", "sonnet", "haiku"}
-	claudeVersionNumber = regexp.MustCompile(`\d+`)
-	claudeVersionNoise  = regexp.MustCompile(`\(.*?\)|\[.*?\]`)
-)
-
-// newestClaudeFamilyModel returns the newest concrete catalog model of the
-// family a bare alias such as "opus" or "opus[1m]" names, or nil when alias is
-// not a family alias or the catalog has no such model.
-func newestClaudeFamilyModel(models []ports.AgentModelInfo, alias string) *ports.AgentModelInfo {
-	family := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(alias), "[1m]"))
-	if !containsString(claudeFamilyAliases, family) {
+// availableHarnesses lists the harnesses this daemon can launch, so a blocking
+// error can name them.
+func (m *Manager) availableHarnesses() []domain.AgentHarness {
+	if m.agents == nil {
 		return nil
 	}
-	var best *ports.AgentModelInfo
-	var bestVersion []int
-	for i := range models {
-		if len(models[i].Efforts) == 0 {
-			continue
-		}
-		version := claudeFamilyVersion(models[i], family)
-		if version == nil {
-			continue
-		}
-		if best == nil || compareVersions(version, bestVersion) > 0 {
-			best, bestVersion = &models[i], version
+	out := make([]domain.AgentHarness, 0, len(domain.AllHarnesses))
+	for _, harness := range domain.AllHarnesses {
+		if _, ok := m.agents.Agent(harness); ok {
+			out = append(out, harness)
 		}
 	}
-	return best
-}
-
-// claudeFamilyVersion reads major.minor from a model's label or ID, or nil when
-// the model is not in the family. Snapshot dates and "v1:0" suffixes are longer
-// than two digits or beyond the second number, so they are ignored.
-func claudeFamilyVersion(model ports.AgentModelInfo, family string) []int {
-	for _, text := range []string{model.Label, model.ID} {
-		lower := claudeVersionNoise.ReplaceAllString(strings.ToLower(text), "")
-		if !strings.Contains(lower, family) {
-			continue
-		}
-		var version []int
-		for _, part := range claudeVersionNumber.FindAllString(lower, -1) {
-			if len(part) <= 2 && len(version) < 2 {
-				n, _ := strconv.Atoi(part)
-				version = append(version, n)
-			}
-		}
-		if len(version) > 0 {
-			return version
-		}
-	}
-	return nil
-}
-
-func compareVersions(a, b []int) int {
-	for i := 0; i < len(a) || i < len(b); i++ {
-		var x, y int
-		if i < len(a) {
-			x = a[i]
-		}
-		if i < len(b) {
-			y = b[i]
-		}
-		if x != y {
-			return x - y
-		}
-	}
-	return 0
+	return out
 }
 
 func containsString(values []string, value string) bool {
@@ -2151,17 +2112,18 @@ func (m *Manager) preserveFailedSpawnWorkspace(ctx context.Context, id domain.Se
 	}
 }
 
-// effectiveHarness resolves the harness for a spawn: an explicit harness wins;
-// otherwise the project's role override for the session kind applies. Empty is
-// invalid for new worker/orchestrator launches and is rejected by Spawn.
-func effectiveHarness(explicit domain.AgentHarness, kind domain.SessionKind, cfg domain.ProjectConfig) domain.AgentHarness {
+// effectiveHarness resolves the harness for a spawn: an explicit harness wins,
+// then the project's role override for the session kind, then the machine's AO
+// harness default. Empty is invalid for new worker/orchestrator launches and is
+// rejected by Spawn.
+func effectiveHarness(explicit domain.AgentHarness, kind domain.SessionKind, cfg domain.ProjectConfig, defaultHarness domain.AgentHarness) domain.AgentHarness {
 	if explicit != "" {
 		return explicit
 	}
 	if role := roleOverride(kind, cfg).Harness; role != "" {
 		return role
 	}
-	return ""
+	return defaultHarness
 }
 
 func roleConfigName(kind domain.SessionKind) string {
@@ -2179,6 +2141,10 @@ func roleConfigName(kind domain.SessionKind) string {
 // would leak a provider-specific alias onto the wrong harness. An empty role
 // harness means "not pinned" and always matches. Permissions is
 // harness-neutral and is always inherited.
+//
+// Spawns do not use this helper: they resolve through agentlaunch.Merge, which
+// keeps Project Settings values for an explicitly selected harness and
+// validates them against it (see #254).
 func effectiveAgentConfig(harness domain.AgentHarness, kind domain.SessionKind, cfg domain.ProjectConfig) ports.AgentConfig {
 	merged := cfg.AgentConfig
 	role := roleOverride(kind, cfg)
@@ -5266,8 +5232,14 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		Activity:          domain.Activity{State: domain.ActivityIdle, LastActivityAt: now},
 		// Resolved before this point and persisted here. There is no UPDATE
 		// statement that can change it afterwards.
-		Mode:               domain.NormalizeSessionMode(cfg.RequestedMode),
-		Metadata:           domain.SessionMetadata{Permissions: applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, projectConfig), cfg.AgentConfig).Permissions},
+		Mode: domain.NormalizeSessionMode(cfg.RequestedMode),
+		Metadata: domain.SessionMetadata{
+			Permissions:        applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, projectConfig), cfg.AgentConfig).Permissions,
+			HarnessSource:      cfg.HarnessSource,
+			ModelSource:        cfg.ModelSource,
+			EffortSource:       cfg.EffortSource,
+			AgentConfigMachine: cfg.AgentConfigMachine,
+		},
 		RequestedOutput:    cfg.RequestedOutput,
 		OutputType:         domain.SessionOutputNone,
 		AutoReviewEnabled:  projectConfig.AutoReview,

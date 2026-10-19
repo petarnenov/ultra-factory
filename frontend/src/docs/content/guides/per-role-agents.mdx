@@ -54,6 +54,23 @@ The choice belongs to the selected computer. A model a project, task, or session
 
 The Models tab also shows each model's context window in tokens when the harness catalog reports it.
 
+## How harness, model, and effort resolve
+
+Every launch resolves three values in the same order:
+
+1. An explicit spawn directive: `--agent`/`--harness`, `--model`, and `--effort` (API: `harness`, `model`, `effort`).
+2. Project Settings for the role on the machine that will run the agent.
+3. That machine's harness default: the catalog's default model and, when it reports one, default effort.
+4. Otherwise the launch is blocked.
+
+An explicit harness does not discard the configured model or effort. If Project Settings select `opencode-v2` with `opencode/deepseek-v4.1-flash` and a spawn asks for `--agent opencode`, AO still applies the configured model and validates it for `opencode`. A value that harness cannot run blocks the spawn instead of silently starting on the harness's own default.
+
+Project Settings are per machine. Harness availability, credentials, and model catalogs differ between computers, so each daemon resolves its own roles and validates against its own catalog. `ao spawn --host` therefore uses the target machine's Project Settings and harness defaults, not the caller's. A blocking error names that machine and lists its valid harnesses, the selected harness's valid models, and the valid effort levels for the selected model.
+
+The same validation applies to reviewers: a reviewer model or effort configured in Project Settings must be valid for the reviewer harness on the target machine, or the review is blocked before it starts.
+
+The resolved values and their source (`explicit`, `settings`, or `machine-default`) are recorded on the session, together with the machine whose configuration applied. `ao session get` shows them next to the harness, model, and effort.
+
 ## Start an orchestrator or worker
 
 The desktop provides dedicated new-session and orchestrator flows. From the CLI:
@@ -66,7 +83,7 @@ ao spawn --project my-project --kind worker \
   --name issue-42 --issue 42 --mode tui
 ```
 
-`--name` is required and limited to 100 characters. Use `--harness` to choose a different agent for one spawn.
+`--name` is required and limited to 100 characters. Use `--harness`, `--model`, and `--effort` to direct one spawn explicitly. The daemon validates the combination before anything starts.
 
 ## Choose Chat or Terminal UI
 
@@ -77,7 +94,7 @@ Compatible Claude Code and Codex sessions expose **Switch to chat UI** or **Swit
 
 The default interface comes from **Settings → General**. Project `agentConfig.mode` does not set Chat or Terminal UI. A choice made for a task or with the CLI takes precedence.
 
-Model, reasoning effort, permissions, and provider execution modes depend on the selected agent. Chat support and the ability to switch interfaces are separate capabilities, so use the switch action offered for that session.
+Model, reasoning effort, permissions, and provider execution modes depend on the selected agent. The configured model and effort follow whichever harness the spawn selects and are validated against it. Chat support and the ability to switch interfaces are separate capabilities, so use the switch action offered for that session.
 
 ## Project rules
 
