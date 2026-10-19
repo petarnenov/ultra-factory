@@ -6,12 +6,6 @@ name: Issue tracking policy
 on:
   pull_request:
     types: [opened, edited, reopened, synchronize, ready_for_review]
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Pull request number to check
-        required: true
-        type: number
 
 permissions:
   contents: read
@@ -19,7 +13,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.pr }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   # A cancelled run stays in the commit's check rollup as a non-success, so
   # queue instead: this check is fast and idempotent.
   cancel-in-progress: false
@@ -42,5 +36,5 @@ jobs:
       - name: Enforce the issue policy
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: node scripts/issue-policy/check.mjs

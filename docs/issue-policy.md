@@ -78,9 +78,12 @@ The failure names what is missing and prints the fix, for example:
 #412 references #123, which has no priority label: gh issue edit 123 --add-label priority:medium
 ```
 
-The workflow reruns when the pull request is opened, edited, reopened,
+The workflow runs when the pull request is opened, edited, reopened,
 synchronized, or marked ready for review. Labeling the issue does not trigger
-it, so edit the description or rerun the workflow after fixing the labels.
+it. After fixing the labels, re-run the failed check from the Actions tab
+(**Re-run jobs**, or `gh run rerun <run-id>`); the script reads labels live, so
+the new run sees them. Editing the title or description also starts a fresh
+run.
 
 A pull request check only blocks a merge when branch protection requires it.
 A maintainer must add **Issue tracking policy** to the required status checks

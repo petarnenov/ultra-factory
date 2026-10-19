@@ -25,8 +25,9 @@ GH_TOKEN=$(gh auth token) GITHUB_REPOSITORY=owner/repo npm run issue:check -- --
 
 The GitHub Actions workflow is
 [`.github/workflows/issue-policy.yml`](../../.github/workflows/issue-policy.yml).
-It reruns when the pull request is opened, edited, reopened, synchronized, or
-marked ready for review. Label changes on the issue do not trigger it, so after
-labelling the issue, edit the pull request or rerun the workflow from the
-Actions tab. The workflow needs `issues: read`; fork pull requests on a public
-repository are checked normally.
+It runs when the pull request is opened, edited, reopened, synchronized, or
+marked ready for review. Label changes on the issue do not trigger it: after
+labelling, re-run the failed pull request run from the Actions tab (Re-run
+jobs, or `gh run rerun <run-id>`), because the script reads labels live, or
+edit the description. The workflow needs `issues: read`; fork pull requests on
+a public repository are checked normally.

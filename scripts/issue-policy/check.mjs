@@ -116,7 +116,7 @@ function pullNumberFromEnvironment() {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath || !fs.existsSync(eventPath)) return null;
   const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
-  const number = event.pull_request?.number ?? event.inputs?.pr;
+  const number = event.pull_request?.number;
   return Number.isInteger(number) ? number : null;
 }
 
