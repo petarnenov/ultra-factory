@@ -216,7 +216,8 @@ Coordinator behavior at existing kind-keyed sites:
 | `defaultSessionBranch` | Unique session branch | Unchanged |
 | `EligibleForChatHibernation` | Eligible when otherwise idle and settled | Unchanged; delivery wakes it |
 | `report.Service.Create` | Cannot create worker reports | Unchanged; the existing worker-only guard fails closed |
-| `claim_pr`, orchestrator fetch route, orchestrator listing | Root only | Unchanged; helpers appear in session and coordinator reads |
+| `claim_pr` | Workers only; a coordinator cannot claim a PR | Reject every non-worker kind, not only `KindOrchestrator` (the current guard checks the root kind only) |
+| Orchestrator fetch route, orchestrator listing | Root only | Unchanged; helpers appear in session and coordinator reads |
 | Rename restriction | A coordinator is renameable | Unchanged (the restriction checks the root kind only) |
 | `Restore` machine-role check | A coordinator restore applies the same refusal | Widen |
 | `withRoleOverride`, `roleOverride`, `roleConfigName`, `effectiveHarness` | Orchestrator role config | Widen to include `coordinator` |
@@ -874,8 +875,9 @@ coordinator. No coordinator is required for the existing workflow.
   coordinator. No new remote route, credential, or trust relationship is
   introduced; the remote-report ADR's transport policy is unchanged.
 - **No privilege escalation.** A coordinator cannot create coordinators,
-  cannot reassign ownership, cannot claim a PR, cannot merge, and cannot close
-  project-wide work. A worker cannot do any of these either.
+  cannot reassign ownership, cannot claim a PR (the `claim_pr` guard rejects
+  every non-worker kind), cannot merge, and cannot close project-wide work. A
+  worker cannot do any of these either.
 - **The CLI stays a thin daemon client.** Every operation goes through daemon
   HTTP routes; no storage access, no runtime access.
 - **Data sensitivity.** Ownership and scope are session metadata with the same
