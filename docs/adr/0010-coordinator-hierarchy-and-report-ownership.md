@@ -207,7 +207,7 @@ Coordinator behavior at existing kind-keyed sites:
 | Site | Coordinator behavior | Action |
 | --- | --- | --- |
 | `Service.Spawn` singleton branch | Not a root | Add a separate coordinator branch; the orchestrator branch is unchanged |
-| `Service.Spawn` `clientRequestId` guard (`Kind != KindWorker`) | Coordinators may be idempotent too | Widen to worker or coordinator; keep rejecting a root; the replay hash includes kind, scope, and parent |
+| `Service.Spawn` `clientRequestId` guard (`Kind != KindWorker`, `CLIENT_REQUEST_WORKER_REQUIRED`) | Coordinators may be idempotent too | Widen the guard to worker or coordinator; keep rejecting a root; replay uses `replayClientRequest` and returns `CLIENT_REQUEST_CONFLICT` on a mismatched hash, which must cover kind, scope, and parent |
 | `Service.Spawn` project guard (`ProjectID == "" && Kind != KindWorker`) | Coordinators require a project | Unchanged; the existing guard rejects a projectless coordinator |
 | `Service.Spawn` remote guard (`RemoteSpawn && Kind != KindWorker`) | Coordinators are local only | Unchanged; the existing guard rejects a remote coordinator with `REMOTE_SPAWN_WORKER_REQUIRED` |
 | `Service.SpawnOrchestrator`, `activeOrchestrators`, replacement verification | Not a root | Unchanged |
@@ -1028,7 +1028,7 @@ bearer like the rest of the app API.
 
 | Method and path | Purpose | Caller rule | Notes |
 | --- | --- | --- | --- |
-| `POST /api/v1/sessions` with `kind=coordinator` | Spawn a helper | `parentSessionId` is the live root | `scope` required; `clientRequestId` supported with a replay hash over kind, scope, and parent; `remoteSpawn` rejected; capacity checked |
+| `POST /api/v1/sessions` with `kind=coordinator` | Spawn a helper | `parentSessionId` is the live root | `scope` required; `clientRequestId` supported once the section 1 guard is widened, with a replay hash over kind, scope, and parent; `remoteSpawn` rejected; capacity checked |
 | `PUT /api/v1/sessions/{sessionId}/owner` | Assign or reassign a local worker | `requestedBySessionId` is the live root | Body `{ownerSessionId, requestedBySessionId}`; `null` means root; target capacity checked; 200 with the session view |
 | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` | Assign or reassign a remote worker | `requestedBySessionId` is the live root | Same body and rules as the local route; audited in `remote_worker_owner_events` |
 | `GET /api/v1/remote-worker-links` | List linked remote workers | App API caller | Link identity, project, display name, owner, host label |
