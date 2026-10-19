@@ -798,6 +798,7 @@
   "inspector.terminateOnMergeShort": "合并后归档",
   "inspector.archiveShort": "归档",
   "inspector.timeline.createdWorkspace": "已创建工作区",
+  "inspector.timeline.resolvedAgent": "已解析的代理",
   "inspector.timeline.committed": "已提交",
   "inspector.timeline.done": "完成",
   "inspector.timeline.draft": "草稿",
