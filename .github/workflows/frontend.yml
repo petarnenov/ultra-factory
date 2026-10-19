@@ -147,6 +147,8 @@ jobs:
       - name: Run vitest suite
         env:
           AO_AGENT_BROWSER_TEST_BINARY: ${{ github.workspace }}/frontend/agent-browser/agent-browser
+          # CI keeps its own fork limit; local runs cap it at two.
+          AO_VITEST_MAX_FORKS: "0"
         run: npx vitest run
 
       - name: Run guarded-navigation browser integration

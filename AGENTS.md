@@ -25,20 +25,36 @@ This applies even when you talk to the user in another language: conversation ca
 From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`):
 
 ```bash
-npm run lint                         # backend go test ./... + golangci-lint v2.14.0
+npm run lint                         # backend go test -p 2 + golangci-lint v2.14.0
 npm run frontend:typecheck           # frontend TypeScript check
 npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
 npm run api                          # regenerate OpenAPI spec + frontend TS types (see API contract changes below)
 npx @redwoodjs/agent-ci run --all    # local workflow validation; requires Docker socket
 ```
 
+**Local validation on a shared machine runs one heavy check at a time.** Do not
+start a second compiler, linter, or test suite from another shell while one is
+running. The local entry points cap parallelism; raise it deliberately only on a
+larger machine:
+
+```bash
+make test-backend                    # go test -p ${GO_TEST_PARALLELISM:-2} ./...
+make test-race                       # go test -race -p ${GO_TEST_PARALLELISM:-2} ./...
+make test-frontend                   # Vitest with AO_VITEST_MAX_FORKS forks (default 2)
+npm run lint                         # go test -p ${GO_TEST_PARALLELISM:-2} then golangci-lint
+```
+
+`AO_VITEST_MAX_FORKS=0` leaves Vitest's own fork limit. CI keeps its own
+invocations and parallelism. `make check-all` and `make check` run their heavy
+steps serially, including under `make -j`.
+
 Backend-specific checks:
 
 ```bash
 cd backend
 go build ./...
-go test ./...
-go test -race ./...
+go test -p 2 ./...
+go test -race -p 2 ./...
 go vet ./...
 go run ./cmd/ao start
 ```

@@ -2,7 +2,7 @@
 	"name": "agent-orchestrator",
 	"private": true,
 	"scripts": {
-		"lint": "cd backend && go test ./... && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --path-mode=abs",
+		"lint": "cd backend && go test -p ${GO_TEST_PARALLELISM:-2} ./... && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run --path-mode=abs",
 		"comment:check": "node scripts/comment-policy/check.mjs",
 		"comment:test": "node --test scripts/comment-policy/check.test.mjs && cd backend && go test ./cmd/commentpolicy",
 		"issue:check": "node scripts/issue-policy/check.mjs",

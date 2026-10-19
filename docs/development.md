@@ -65,6 +65,15 @@ make check           # lint, vet, typecheck, frontend tests
 make api / make sqlc # regenerate OpenAPI types / sqlc code
 ```
 
+On a shared machine, run one heavy check at a time: do not start a second
+compiler, linter, or test suite from another shell while one is already running.
+The local entry points cap parallelism so a single run does not take every core.
+`make test-backend`, `make test-race`, and `npm run lint` pass
+`-p ${GO_TEST_PARALLELISM:-2}` to `go test`; `make test-frontend` and
+`npm --prefix frontend run test` cap Vitest with `AO_VITEST_MAX_FORKS` (default
+`2`, `0` leaves Vitest's own limit). `make check-all` and `make check` run their
+heavy steps serially, including under `make -j`.
+
 ### Branching
 
 ```bash
@@ -134,9 +143,9 @@ available commands.
 
 ```bash
 cd backend
-go test ./...              # all tests
-go test -race ./...        # with race detection
-go test -v ./internal/cli/ # a specific package
+go test -p 2 ./...              # all tests
+go test -race -p 2 ./...        # with race detection
+go test -v ./internal/cli/      # a specific package
 ```
 
 ### Lint
@@ -198,6 +207,9 @@ npm run test           # Vitest unit tests in a simulated renderer environment
 npm run test:e2e       # Playwright browser-based renderer E2E tests
 npx playwright show-report  # View Playwright report
 ```
+
+`npm run test` caps Vitest at two forks by default. Set `AO_VITEST_MAX_FORKS` to
+raise it on a larger machine, or to `0` to leave Vitest's own fork limit.
 
 ### Typecheck
 
