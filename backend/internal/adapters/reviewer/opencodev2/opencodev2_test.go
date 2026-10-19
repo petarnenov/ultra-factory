@@ -201,6 +201,10 @@ func fakeOpenCode(t *testing.T, version string) (string, string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/usr/bin:/bin")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("VOLTA_HOME", t.TempDir())
+	t.Setenv("FNM_DIR", t.TempDir())
 	restore := opencode.UnixInstallPathsForTest(nil)
 	t.Cleanup(restore)
 	return binary, logPath
