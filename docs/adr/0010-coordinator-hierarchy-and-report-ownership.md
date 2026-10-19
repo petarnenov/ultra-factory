@@ -197,9 +197,9 @@ flowchart TD
 - The API enum and the generated OpenAPI schema add `coordinator` to
   `kind`. `SessionView.kind` and the CLI output carry it.
 - `coordinator` rows carry a required, immutable `coordinator_scope`
-  (trimmed, 1..200 characters). The scope is the helper's bounded area of
-  work. Changing the scope means spawning a different coordinator, not editing
-  this one.
+  (trimmed, 1..200 characters, control characters stripped). The scope is the
+  helper's bounded area of work. Changing the scope means spawning a different
+  coordinator, not editing this one.
 
 Coordinator behavior at existing kind-keyed sites:
 
@@ -233,7 +233,9 @@ The coordinator system prompt is a distinct template. It states the scope, the
 three-worker cap, the escalation rules from CO-3.2.1, the prohibition on
 merging and on closing project-wide work, and that the root is the only
 integration authority. It reuses `orchestratorRules` as standing project
-instructions; it does not reuse the root's operating prompt.
+instructions; it does not reuse the root's operating prompt. It does not
+hard-code the root session ID: escalation is addressed by role, so a root
+replacement does not leave the helper pointing at a terminated session.
 
 ### 2. Durable ownership
 
@@ -350,6 +352,11 @@ Resolution table:
 The remote path uses the same function with the link's `project_id` and
 `owner_session_id`. A remote link never carries a remote coordinator ID, so a
 peer daemon cannot influence local recipient selection.
+
+Routing is exclusive: a coordinator-owned worker's report is delivered to that
+coordinator and not also to the root. The root's visibility comes from the
+coordinator's summaries, escalations, and the operator read model, not from a
+copy of every worker report.
 
 If no live root exists for a root-addressed report, the report stays `pending`
 and is never acknowledged. Coordinator-addressed reports still deliver while
@@ -477,7 +484,7 @@ Failure windows and their bound:
 | Window | Visible effect | Bound |
 | --- | --- | --- |
 | Crash after acceptance, before ack | The report may be delivered again | Same batch key; target dedupe while its checkpoint matches; otherwise one duplicate. At-least-once, unchanged from the remote-report ADR |
-| Crash with claimed rows | Requeued at startup | No loss; re-resolution may route to a new owner if ownership changed |
+| Crash with claimed rows | Requeued at startup | No loss; the old claim is gone, so re-resolution may route to a new owner if ownership changed |
 | Reassignment during a claim (automatic only) | The claimed batch goes to the old owner; the new owner gets later reports | The old owner receives an ownership-removed notice; no duplicate |
 | Coordinator terminated mid-submit | Submit fails; release; next pass resolves to the root | One retry; no ack without acceptance |
 | Remote record inserted, ack fails | Next pass skips delivery and retries the ack | Delivery record prevents duplicate work |
@@ -594,7 +601,7 @@ stateDiagram-v2
 | Owned by C | C is not live at resolution | — | Repair to `NULL`; audit `owner_not_live_reconciled` | Root-owned |
 
 Reassignment has its own transition table because it is the only path that
-moves a live worker between owners:
+moves a worker between owners:
 
 | Reassignment kind | Trigger | Preconditions | Pending reports | Claimed reports | Notifications |
 | --- | --- | --- | --- | --- | --- |
@@ -620,23 +627,25 @@ PR-merge lifecycle, replacement, tracker reactions). Reassignment is enforced
 in the same transaction, by an `AFTER UPDATE OF is_terminated ON sessions`
 trigger that runs when a coordinator becomes terminated:
 
-1. Insert one `session_owner_events` row per owned worker, with
-   `new_owner_session_id=NULL` and reason `coordinator_terminated`.
+1. Insert one `session_owner_events` row per worker that names the coordinator
+   as owner, with `new_owner_session_id=NULL` and reason
+   `coordinator_terminated`.
 2. Set `owner_session_id=NULL` on those workers.
 3. Do the same for `remote_worker_links` and their audit table.
 4. Insert one root-addressed `coordinator_summaries` row with
    `state='blocked'`, `escalation_reason='coordinator_terminated'`, and the
-   returned worker IDs. It is available immediately, so the root learns about
-   the handback without polling.
+   returned worker IDs recorded in `coordinator_summary_workers`. It is
+   available immediately, so the root learns about the handback without
+   polling.
 5. Leave the coordinator's other pending summaries and its workers' pending
    reports durable. The next delivery pass resolves them to the root.
 
 A trigger is used because termination has many callers and the consequence
 must be atomic with the terminal fact. A service-only hook would miss a path
-and leave a dangling owner. A startup reconciler additionally repairs any
-owner that points at a terminated coordinator, which covers restored old data
-and manual edits. The reconciler is idempotent and runs before the report
-coordinator starts.
+and leave a dangling owner. A startup reconciler additionally repairs any local
+owner or remote link owner that points at a terminated coordinator, which
+covers restored old data and manual edits. The reconciler is idempotent and
+runs before the report coordinator starts.
 
 ```mermaid
 stateDiagram-v2
@@ -779,10 +788,11 @@ capacity or ownership conflict prints the code and message and exits 1.
   singleton under the project lock, and backed by a partial unique index
   `ux_sessions_active_root` on `sessions(project_id)`
   `WHERE kind='orchestrator' AND is_terminated=0`. The migration validates the
-  invariant first and fails loudly rather than picking a winner. Because the
-  index is durable, restoring a terminated root must first check for another
-  live root and return `ORCHESTRATOR_ALREADY_ACTIVE` instead of surfacing a
-  raw constraint error.
+  invariant first and fails loudly rather than picking a winner. The previous
+  binary still opens the old schema, so an operator can resolve a duplicate
+  through the daemon before retrying the upgrade. Because the index is durable,
+  restoring a terminated root must first check for another live root and return
+  `ORCHESTRATOR_ALREADY_ACTIVE` instead of surfacing a raw constraint error.
 - **I2.** A root is never owned. A coordinator never has `owner_session_id`.
   Only workers have owners.
 - **I3.** Every worker has at most one owner; `NULL` means the project's live
