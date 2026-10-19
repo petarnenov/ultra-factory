@@ -121,7 +121,8 @@ Three representations of a helper coordinator were considered.
 | Migration cost | Widen a CHECK, using the existing harness-migration pattern | Add a column plus rewrite every kind check | Add a column plus rewrite every kind check |
 
 Option A is the only one whose failure mode is safe. The backend has 44
-`KindOrchestrator` occurrences in non-test code. Some of them are root-only and
+`KindOrchestrator` occurrences in non-test code at `290a8d3e7`, counted with
+tests excluded. Some of them are root-only and
 must stay root-only (singleton spawn, replacement, report recipient, project
 conversation, PR claim, the orchestrator fetch route). Others must treat a
 coordinator as an orchestrator-role session (role config, prompt, Chat default,
@@ -350,7 +351,8 @@ recipient(project, worker):
 "Live" means `is_terminated = 0`. The root selector also skips
 `activity_state='exited'`, as `activeOrchestrator` does today. A coordinator
 whose row is live but whose agent exited is **not** rerouted: delivery retries
-the same owner until termination or repair. That keeps routing predictable and
+the same owner until termination or repair, using the deferred backoff in
+section 4 rather than an immediate release. That keeps routing predictable and
 leaves the failure visible, instead of silently moving work.
 
 Resolution table:
@@ -451,10 +453,12 @@ Scheduler loop, replacing `RunDue`'s project loop:
 2. Resolve its recipient (and repair a stale owner if needed).
 3. Claim that group.
 4. Submit one rendered turn with the batch's stable idempotency key.
-5. Acknowledge only after acceptance. On a transient failure, defer **that
-   group** with a backoff and continue with the next group, up to a bounded
-   number of groups per pass. On a terminal recipient failure, release it so
-   the next pass re-resolves the owner. A failing group must not starve
+5. Acknowledge only after acceptance. On a transient failure - including a
+   live-but-exited owner, an unavailable semantic target, or an acceptance
+   timeout - defer **that group** with a backoff and continue with the next
+   group, up to a bounded number of groups per pass. On a terminal recipient
+   failure - the owner row is terminated or no longer exists - release it so
+   the next pass re-resolves to the root. A failing group must not starve
    another group.
 6. Return the earliest next deadline after the pass.
 
@@ -515,6 +519,7 @@ Failure windows and their bound:
 | Crash after acceptance, before ack | The report may be delivered again | Same batch key; target dedupe while its checkpoint matches; otherwise one duplicate. At-least-once, unchanged from the remote-report ADR |
 | Crash with claimed rows | Requeued at startup | No loss; the old claim is gone, so re-resolution may route to a new owner if ownership changed |
 | Reassignment during a claim (automatic only) | The claimed batch goes to the old owner; the new owner gets later reports | The old owner receives an ownership-removed notice; no duplicate |
+| Live-but-exited coordinator | Submit fails; the group keeps the same recipient | Defer with backoff; no reroute. The reaper's termination trigger later sets the owner to `NULL`, then resolution uses the root |
 | Coordinator terminated mid-submit | Submit fails; release; next pass resolves to the root | One retry; no ack without acceptance |
 | Remote record inserted, ack fails | Next pass skips delivery and retries the ack | Delivery record prevents duplicate work |
 | Remote record fails, ack succeeds | Nothing redelivered | Remote reports are no longer pending |
@@ -728,8 +733,8 @@ Limits for the initial rollout:
 | --- | --- | --- | --- |
 | Live roots per project | `kind='orchestrator' AND is_terminated=0` | 1 | `ORCHESTRATOR_ALREADY_ACTIVE` (existing) |
 | Live coordinators per project | `kind='coordinator' AND is_terminated=0` | 2 | `COORDINATOR_LIMIT_REACHED` |
-| Live workers per coordinator | local `kind='worker' AND owner_session_id=C AND is_terminated=0` **plus** `remote_worker_links.owner_session_id=C` | 3 | `COORDINATOR_WORKER_LIMIT_REACHED` |
-| Live workers per project | local `kind='worker' AND is_terminated=0` **plus** every local link for the project | 6 | `PROJECT_WORKER_LIMIT_REACHED` |
+| Live workers per coordinator (local and remote) | local `kind='worker' AND owner_session_id=C AND is_terminated=0` **plus** `remote_worker_links.owner_session_id=C` | 3 | `COORDINATOR_WORKER_LIMIT_REACHED` |
+| Live workers per project (local and remote) | local `kind='worker' AND is_terminated=0` **plus** every local link for the project | 6 | `PROJECT_WORKER_LIMIT_REACHED` |
 
 A remote link is one active worker. Both the per-owner count and the project
 total are sums over local workers and remote links; a check that reads only
@@ -788,7 +793,7 @@ Stable API errors, all in the existing `apierr` envelope with a request ID:
 | `COORDINATORS_DISABLED` | Conflict / 409 | Coordinator spawn while the feature is off | `projectId` |
 | `COORDINATOR_LIMIT_REACHED` | Conflict / 409 | Third live coordinator | `projectId`, `current`, `allowed` |
 | `COORDINATOR_WORKER_LIMIT_REACHED` | Conflict / 409 | Fourth active worker for one coordinator | `coordinatorId`, `current`, `allowed` |
-| `PROJECT_WORKER_LIMIT_REACHED` | Conflict / 409 | Seventh active worker in the project | `projectId`, `current`, `allowed` |
+| `PROJECT_WORKER_LIMIT_REACHED` | Conflict / 409 | Seventh active worker (local or remote) in the project | `projectId`, `current`, `allowed` |
 | `COORDINATOR_ROOT_REQUIRED` | Forbidden / 403 | Spawn caller is not the live root | `sessionId` |
 | `OWNERSHIP_ROOT_ONLY` | Forbidden / 403 | Non-root ownership write | `sessionId` |
 | `COORDINATOR_SCOPE_REQUIRED` | Invalid / 400 | Missing or empty scope | — |
@@ -816,15 +821,17 @@ capacity or ownership conflict prints the code and message and exits 1.
   `kind='orchestrator' AND is_terminated=0`. This is enforced by the service
   singleton under the project lock, and backed by a partial unique index
   `ux_sessions_active_root` on `sessions(project_id)`
-  `WHERE kind='orchestrator' AND is_terminated=0`. A read-only preflight,
-  in its own migration before any DDL, validates the invariant and reports the
-  offending project IDs rather than picking a winner. Because it runs before
-  any schema change, resolving a duplicate and retrying cannot hit a partially
-  applied column addition. The previous binary still opens the old schema, so
-  an operator can resolve a duplicate through the daemon before retrying the
-  upgrade. Because the index is durable, restoring a terminated root must first
-  check for another live root and return `ORCHESTRATOR_ALREADY_ACTIVE` instead
-  of surfacing a raw constraint error.
+  `WHERE kind='orchestrator' AND is_terminated=0`. A pre-`goose.Up` Go check
+  in `backend/internal/storage/sqlite/db.go`, alongside the existing `prepare*`
+  functions, validates the invariant and reports the offending project IDs
+  rather than picking a winner. It is not a SQL migration: the harness embeds
+  SQL migrations only, and SQL cannot raise an error that lists row values.
+  Because it runs before any schema change, resolving a duplicate and retrying
+  cannot hit a partially applied column addition. The previous binary still
+  opens the old schema, so an operator can resolve a duplicate through the
+  daemon before retrying the upgrade. Because the index is durable, restoring a
+  terminated root must first check for another live root and return
+  `ORCHESTRATOR_ALREADY_ACTIVE` instead of surfacing a raw constraint error.
 - **I2.** A root is never owned. A coordinator never has `owner_session_id`.
   Only workers have owners.
 - **I3.** Every worker has at most one owner; `NULL` means the project's live
@@ -916,18 +923,22 @@ backfilled to a coordinator, because neither ever stored a parent.
 Migration order (a new numbered series after `0206_allow_opencode_v2_usage.sql`;
 the next free number when implementation starts):
 
-The I1 validation is deliberately the **first, read-only** migration, before
-any DDL. The CHECK rewrite uses `PRAGMA writable_schema` with
-`-- +goose NO TRANSACTION`, so a failure after DDL would leave a partially
-applied schema with no goose version recorded. Preflighting I1 removes that
-failure mode: the documented recovery (resolve the duplicate on the old schema,
-then retry) never re-runs a column addition. Each DDL step below is also its
-own migration, so a failure in a later step does not force an earlier step to
-run again.
+The I1 validation is deliberately the **first, read-only step**, before any
+DDL. It is a pre-`goose.Up` Go check in
+`backend/internal/storage/sqlite/db.go`, alongside the existing `prepare*`
+functions, not a SQL migration: the harness embeds SQL migrations only, and SQL
+cannot raise an error that lists row values. The CHECK rewrite uses
+`PRAGMA writable_schema` with `-- +goose NO TRANSACTION`, so a failure after
+DDL would leave a partially applied schema with no goose version recorded.
+Preflighting I1 removes that failure mode: the documented recovery (resolve the
+duplicate on the old schema, then retry) never re-runs a column addition. Each
+DDL step below is also its own migration, so a failure in a later step does not
+force an earlier step to run again.
 
-1. **Preflight, no DDL.** Validate I1. If a project has more than one live
-   root, abort with the offending project IDs. Nothing has been applied, so
-   the operator can resolve the duplicate and retry.
+1. **Preflight, no DDL.** A pre-`goose.Up` Go check queries for projects with
+   more than one live root and fails the upgrade with those project IDs.
+   Nothing has been applied, so the operator can resolve the duplicate and
+   retry.
 2. Widen the `sessions.kind` CHECK to include `coordinator`, using the
    `PRAGMA writable_schema` rewrite pattern from `0192` and `0206`. Guard the
    replace so it is a no-op when the coordinator value is already present.
@@ -1127,9 +1138,9 @@ Implementation stories must add, at minimum:
 - a migration test from a populated 0.17.1 database with local workers, remote
   links, reports, and a live root, asserting unchanged root routing and the new
   constraints;
-- a migration test that seeds two live roots in one project and asserts the I1
-  preflight aborts before any DDL, leaving the kind CHECK and the new columns
-  untouched, then passes after one root is resolved;
+- a database test that seeds two live roots in one project and asserts the
+  pre-`goose.Up` I1 check aborts before any DDL, leaving the kind CHECK and the
+  new columns untouched, then passes after one root is resolved;
 - store tests for owner validation, cross-project and terminated owners, the
   termination trigger, audit rows, and capacity counts under concurrent
   spawns;
