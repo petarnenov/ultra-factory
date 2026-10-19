@@ -69,6 +69,88 @@ func TestCoordinatorRoutesAtAttemptAndLeavesPendingWithoutOrchestrator(t *testin
 	}
 }
 
+func TestCoordinatorRoutesEachOwnerGroupSeparately(t *testing.T) {
+	now := time.Date(2026, 9, 14, 11, 30, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-a")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "coord-a", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "worker-a", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+		{ID: "worker-root", ProjectID: "p", Kind: domain.KindWorker},
+	}
+	store.add(
+		reportAt("owned", "worker-a", now, now, "owned work"),
+		reportAt("rooted", "worker-root", now, now, "root work"),
+	)
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 2 {
+		t.Fatalf("submissions = %#v, want one turn per owner group", delivery.submissions)
+	}
+	got := map[domain.SessionID]string{}
+	for _, sub := range delivery.submissions {
+		got[sub.target] = sub.message
+	}
+	if !strings.Contains(got["coord-a"], "owned work") || strings.Contains(got["coord-a"], "root work") {
+		t.Fatalf("coordinator batch = %q", got["coord-a"])
+	}
+	if !strings.Contains(got["root"], "root work") || strings.Contains(got["root"], "owned work") {
+		t.Fatalf("root batch = %q", got["root"])
+	}
+	if store.acked != 2 {
+		t.Fatalf("acknowledged = %d, want 2", store.acked)
+	}
+}
+
+func TestCoordinatorRepairsTerminatedOwnerToRoot(t *testing.T) {
+	now := time.Date(2026, 9, 14, 11, 45, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-gone")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "coord-gone", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", IsTerminated: true, CreatedAt: now},
+		{ID: "worker", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+	}
+	store.add(reportAt("report", "worker", now, now, "orphaned report"))
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 || delivery.submissions[0].target != "root" {
+		t.Fatalf("submissions = %#v, want the root fallback", delivery.submissions)
+	}
+	if len(store.ownerEvents) != 1 || store.ownerEvents[0].reason != domain.OwnershipOwnerNotLiveReconciled || store.ownerEvents[0].owner != nil {
+		t.Fatalf("owner repair = %#v", store.ownerEvents)
+	}
+}
+
+func TestCoordinatorDeliversToOwnerWhenRootIsAbsent(t *testing.T) {
+	now := time.Date(2026, 9, 14, 11, 50, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-a")
+	store.sessions = []domain.SessionRecord{
+		{ID: "coord-a", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "worker-a", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+	}
+	store.add(reportAt("owned", "worker-a", now, now, "owned work"))
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 || delivery.submissions[0].target != "coord-a" {
+		t.Fatalf("submissions = %#v, want coordinator delivery without a root", delivery.submissions)
+	}
+}
+
 func TestCoordinatorStuckInterruptRateLimitAndCoalescing(t *testing.T) {
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	store := newCoordinatorStore(now)
@@ -100,6 +182,30 @@ func TestCoordinatorStuckInterruptRateLimitAndCoalescing(t *testing.T) {
 	}
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("throttled repeat created an extra wakeup: %#v", delivery.submissions)
+	}
+}
+
+func TestPreparePiggybackClaimsOnlyTheCoordinatorsGroup(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 50, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-a")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "coord-a", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "worker-a", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+		{ID: "worker-root", ProjectID: "p", Kind: domain.KindWorker},
+	}
+	store.add(
+		reportAt("owned", "worker-a", now, now, "owned work"),
+		reportAt("rooted", "worker-root", now, now, "root work"),
+	)
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }, NewToken: func() string { return "piggyback" }})
+	batch, err := c.PreparePiggyback(context.Background(), "coord-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Reports) != 1 || batch.Reports[0].ID != "owned" {
+		t.Fatalf("piggyback batch = %+v, want only the coordinator's worker", batch.Reports)
 	}
 }
 
@@ -145,17 +251,84 @@ func TestCoordinatorAcceptanceAndPiggybackFencing(t *testing.T) {
 	}
 }
 
+func TestResolveRemoteRecipientUsesTheLinksDurableOwner(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 30, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-a")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
+		{ID: "coord-a", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", CreatedAt: now},
+	}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
+	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &owner,
+	})
+	if err != nil || !ok || rec.ID != "coord-a" {
+		t.Fatalf("recipient = %+v ok=%v err=%v", rec, ok, err)
+	}
+	if len(store.ownerEvents) != 0 {
+		t.Fatalf("live owner was repaired: %#v", store.ownerEvents)
+	}
+}
+
+func TestResolveRemoteRecipientRepairsATerminatedOwner(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 35, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-gone")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
+		{ID: "coord-gone", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", IsTerminated: true, CreatedAt: now},
+	}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
+	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &owner,
+	})
+	if err != nil || !ok || rec.ID != "root" {
+		t.Fatalf("recipient = %+v ok=%v err=%v", rec, ok, err)
+	}
+	if len(store.ownerEvents) != 1 || store.ownerEvents[0].reason != domain.OwnershipOwnerNotLiveReconciled || store.ownerEvents[0].owner != nil {
+		t.Fatalf("owner repair = %#v", store.ownerEvents)
+	}
+}
+
+func TestResolveRemoteRecipientRepairsAnOwnerFromAnotherProject(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 40, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord-other")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
+		{ID: "coord-other", ProjectID: "other", Kind: domain.KindCoordinator, CoordinatorScope: "docs", CreatedAt: now},
+	}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
+	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &owner,
+	})
+	if err != nil || !ok || rec.ID != "root" {
+		t.Fatalf("recipient = %+v ok=%v err=%v", rec, ok, err)
+	}
+	if len(store.ownerEvents) != 1 || store.ownerEvents[0].reason != domain.OwnershipOwnerNotLiveReconciled {
+		t.Fatalf("owner repair = %#v", store.ownerEvents)
+	}
+}
+
 type coordinatorStore struct {
-	mu         sync.Mutex
-	now        time.Time
-	reports    []domain.ReportRecord
-	sessions   []domain.SessionRecord
-	interrupts map[domain.SessionID]time.Time
-	acked      int
+	mu          sync.Mutex
+	now         time.Time
+	reports     []domain.ReportRecord
+	sessions    []domain.SessionRecord
+	interrupts  map[domain.SessionID]time.Time
+	acked       int
+	ownerEvents []coordinatorOwnerEvent
 	// claims counts batch claims so a regression can bound a spin instead of
 	// hanging: over the limit the store fails the claim.
 	claims     int
 	claimLimit int
+}
+
+type coordinatorOwnerEvent struct {
+	session domain.SessionID
+	owner   *domain.SessionID
+	reason  domain.OwnershipEventReason
 }
 
 func newCoordinatorStore(now time.Time) *coordinatorStore {
@@ -180,7 +353,7 @@ func (s *coordinatorStore) GetSession(_ context.Context, id domain.SessionID) (d
 	}
 	return domain.SessionRecord{}, false, nil
 }
-func (s *coordinatorStore) ListPendingReportSchedule(context.Context, int64) ([]domain.ReportRecord, error) {
+func (s *coordinatorStore) ListPendingReportSchedule(_ context.Context, limit int64) ([]domain.ReportRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var pending []domain.ReportRecord
@@ -190,12 +363,24 @@ func (s *coordinatorStore) ListPendingReportSchedule(context.Context, int64) ([]
 		}
 	}
 	sortReports(pending)
-	if len(pending) > 1 {
-		pending = pending[:1]
+	if limit > 0 && int64(len(pending)) > limit {
+		pending = pending[:limit]
 	}
 	return pending, nil
 }
-func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project domain.ProjectID, token string, at time.Time) ([]domain.ReportRecord, error) {
+func (s *coordinatorStore) effectiveOwner(sessionID domain.SessionID, root domain.SessionID) domain.SessionID {
+	for _, rec := range s.sessions {
+		if rec.ID == sessionID {
+			if rec.OwnerSessionID != nil {
+				return *rec.OwnerSessionID
+			}
+			return root
+		}
+	}
+	return root
+}
+
+func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project domain.ProjectID, recipient, root domain.SessionID, token string, at time.Time) ([]domain.ReportRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.claims++
@@ -204,24 +389,31 @@ func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project do
 	}
 	batchID := ""
 	for i := range s.reports {
-		if s.reports[i].ProjectID == project && s.reports[i].DeliveryState == domain.ReportPending {
-			batchID = s.reports[i].DeliveryBatchID
+		rec := &s.reports[i]
+		if rec.ProjectID == project && rec.DeliveryState == domain.ReportPending && s.effectiveOwner(rec.SessionID, root) == recipient {
+			batchID = rec.DeliveryBatchID
 			if batchID == "" {
-				batchID = "report-batch:" + s.reports[i].ID
+				batchID = "report-batch:" + rec.ID
 			}
 			break
 		}
 	}
+	if batchID == "" {
+		return nil, nil
+	}
 	var claimed []domain.ReportRecord
 	for i := range s.reports {
-		if s.reports[i].ProjectID == project && s.reports[i].DeliveryState == domain.ReportPending {
-			if s.reports[i].DeliveryBatchID != "" && s.reports[i].DeliveryBatchID != batchID {
-				continue
-			}
-			s.reports[i].DeliveryBatchID = batchID
-			s.reports[i].DeliveryState, s.reports[i].ClaimToken, s.reports[i].ClaimedAt = domain.ReportClaimed, token, at
-			claimed = append(claimed, s.reports[i])
+		rec := &s.reports[i]
+		if rec.ProjectID != project || rec.DeliveryState != domain.ReportPending || s.effectiveOwner(rec.SessionID, root) != recipient {
+			continue
 		}
+		if rec.DeliveryBatchID != "" && rec.DeliveryBatchID != batchID {
+			continue
+		}
+		rec.DeliveryBatchID = batchID
+		rec.DeliveryState, rec.ClaimToken, rec.ClaimedAt = domain.ReportClaimed, token, at
+		rec.DeliveryOwnerID = string(recipient)
+		claimed = append(claimed, *rec)
 	}
 	sortReports(claimed)
 	return claimed, nil
@@ -274,6 +466,29 @@ func (s *coordinatorStore) AcquireReportInterrupt(_ context.Context, worker doma
 	}
 	s.interrupts[worker] = at
 	return true, at, nil
+}
+
+func (s *coordinatorStore) SetSessionOwner(_ context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, _ time.Time, _ bool) (domain.SessionRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.sessions {
+		if s.sessions[i].ID != id {
+			continue
+		}
+		changed := (s.sessions[i].OwnerSessionID == nil) != (owner == nil) ||
+			(owner != nil && (s.sessions[i].OwnerSessionID == nil || *s.sessions[i].OwnerSessionID != *owner))
+		s.sessions[i].OwnerSessionID = owner
+		if changed {
+			s.ownerEvents = append(s.ownerEvents, coordinatorOwnerEvent{session: id, owner: owner, reason: reason})
+		}
+		return s.sessions[i], changed, nil
+	}
+	return domain.SessionRecord{}, false, nil
+}
+
+func (s *coordinatorStore) SetRemoteWorkerOwner(_ context.Context, hostID string, remote domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
+	s.ownerEvents = append(s.ownerEvents, coordinatorOwnerEvent{session: remote, owner: owner, reason: reason})
+	return domain.RemoteWorkerLink{HostID: hostID, RemoteSessionID: remote, OwnerSessionID: owner}, true, nil
 }
 
 func sortReports(records []domain.ReportRecord) {

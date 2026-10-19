@@ -288,12 +288,38 @@ jobs:
           node-version: "24"
 
       - name: Regenerate storage queries with pinned sqlc
-        run: npm run sqlc
+        # `go run ...@v1.31.1` fetches and verifies the sqlc module; a
+        # proxy/sumdb error is retried and named as network, never as drift.
+        run: |
+          log=$(mktemp)
+          network='proxy\.golang\.org|sum\.golang\.org|stream error|INTERNAL_ERROR|ECONNRESET|ETIMEDOUT|i/o timeout|connection reset|dial tcp|TLS handshake'
+          for attempt in 1 2 3; do
+            status=0
+            npm run sqlc >"$log" 2>&1 || status=$?
+            cat "$log"
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if ! grep -Eq "$network" "$log"; then
+              echo "::error title=sqlc generate failed::sqlc generate failed and the log shows no network error; the code or the pinned sqlc version is at fault."
+              exit 1
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error title=sqlc module download failed::could not fetch the sqlc module past a network error, so generated code was never compared. This is not drift; re-run the job."
+              exit 1
+            fi
+            echo "::warning title=sqlc module download retry::network error fetching the sqlc module (attempt $attempt/3); retrying."
+            sleep $((attempt * 10))
+          done
 
       - name: Check for generated storage drift
+        # Only runs after generation succeeded, so a failure here is drift.
         run: |
-          git diff --exit-code -- backend/internal/storage/sqlite/gen
-          test -z "$(git ls-files --others --exclude-standard -- backend/internal/storage/sqlite/gen)"
+          stale=$(git ls-files --others --exclude-standard -- backend/internal/storage/sqlite/gen)
+          if ! git diff --exit-code -- backend/internal/storage/sqlite/gen || [ -n "$stale" ]; then
+            echo "::error title=sqlc drift::generated storage code is stale; run npm run sqlc and commit backend/internal/storage/sqlite/gen."
+            exit 1
+          fi
 
   api-drift:
     runs-on: ubuntu-latest

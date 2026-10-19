@@ -241,6 +241,15 @@ func Run() error {
 	if err := store.ConfigureAgentSwitchFailureEventEncoder(context.Background(), sentryobs.AgentSwitchEventEncoder{}); err != nil {
 		return fmt.Errorf("configure agent switch failure event encoder: %w", err)
 	}
+	// Resolve host identity before any observer can allocate a session. Failure
+	// is not fatal: the probe answers 501 and phones pair without verification.
+	hostIdentity, identityErr := mobilebridge.EnsureLocalIdentity(cfg.DataDir)
+	if identityErr != nil {
+		log.Warn("could not establish host identity; /api/v1/identity will report unimplemented", "error", identityErr)
+	}
+	// Session ids embed a host token so two machines in one project cannot
+	// allocate the same id, which would collide branches, PRs and reviews.
+	store.SetSessionIDHostToken(mobilebridge.HostToken(hostIdentity.HostID))
 
 	// Consent and event metadata are established before any reporting surface or
 	// recovery enrollment exists. SQLite is forced off first on every boot so a
@@ -997,14 +1006,7 @@ func Run() error {
 	})
 
 	// Stable, machine-bound host identity, served by the unauthenticated
-	// GET /api/v1/identity probe. A failure here is not fatal: the probe then
-	// answers 501 and the phone falls back to pairing without identity
-	// verification, which is how it behaved before the probe existed.
-	hostIdentity, identityErr := mobilebridge.EnsureLocalIdentity(cfg.DataDir)
-	if identityErr != nil {
-		log.Warn("could not establish host identity; /api/v1/identity will report unimplemented", "error", identityErr)
-	}
-
+	// GET /api/v1/identity probe. Resolved above, before observers start.
 	bs.HostID = hostIdentity.HostID
 	reportSvc.SetSelfHostID(hostIdentity.HostID)
 	if hostname := reportSourceHostName(); hostname != "" {

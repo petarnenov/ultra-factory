@@ -141,6 +141,9 @@ type ReportRecord struct {
 	AcknowledgedAt     time.Time
 	LastError          string
 	DeliveryBatchID    string
+	// DeliveryOwnerID records the recipient a claimed batch was accepted for.
+	// It is diagnostic only; the next claim re-resolves ownership.
+	DeliveryOwnerID string
 }
 
 // ErrInvalidReport reports an invalid report or delivery transition input.

@@ -1,6 +1,6 @@
 # CO-2.1.1 · Task: Persist coordinator ownership
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#296](https://github.com/petarnenov/ultra-factory/pull/296) (`a429aa38`); issue [#220](https://github.com/petarnenov/ultra-factory/issues/220) is closed.
 
 **Type:** backend and storage. **Estimate:** 1–2 pd. **Story:** CO-2.1.
 

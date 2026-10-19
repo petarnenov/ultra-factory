@@ -31,6 +31,11 @@ Natural-language-to-command mappings for common AO tasks.
 | Clean up terminated sessions | `ao session cleanup` |
 | Make a Docker container this session starts survive AO cleanup | `docker run --label ao.session=$AO_SESSION_ID --label ao.spare=true ...` |
 | See a session's details | `ao session get <id>` |
+| See a session's owner, coordinator scope, and project root | `ao session owner <id>` |
+| Assign, reassign, or clear a worker's coordinator owner | `ao session assign <worker> --owner <coordinator-id\|root>` (live root only) |
+| List a project's coordinators and the workers they own | `ao coordinator ls --project <id>` |
+| List linked remote workers and their local owner | `ao remote-worker ls [--project <id>]` |
+| Assign or clear a linked remote worker's owner | `ao remote-worker assign <host-id> <remote-session-id> --owner <coordinator-id\|root>` |
 | Open the desktop app (operator-only; refused inside AO sessions) | `ao start` |
 | Check the daemon is up | `ao status` |
 | Run health checks | `ao doctor` |

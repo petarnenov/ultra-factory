@@ -85,6 +85,24 @@ describe("app i18next instance", () => {
 		}
 	});
 
+	it("translates the aggregate-Kanban cluster in every non-English catalog", () => {
+		const keys = [
+			"shell.openAggregateKanban",
+			"shell.aggregateKanban",
+			"shell.aggregateKanbanDescription",
+		] as const;
+		for (const locale of APP_LOCALES) {
+			if (locale === "en") continue;
+			const catalog = allCatalogs[locale] as unknown as Record<string, string>;
+			for (const key of keys) {
+				expect(catalog[key], `${locale} still uses English for ${key}`).not.toBe(enMessages[key]);
+			}
+			expect(catalog["shell.aggregateKanban"], `${locale} does not reuse its Kanban term`).toContain(
+				catalog["shell.kanban"],
+			);
+		}
+	});
+
 	it("uses English by default and Chinese when selected", () => {
 		expect(createAppI18n().t("settings.general")).toBe("General");
 		expect(createAppI18n("zh-CN").t("settings.general")).toBe("通用");

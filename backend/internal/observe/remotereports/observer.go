@@ -44,9 +44,10 @@ type Store interface {
 	RecordRemoteReportHistory(context.Context, string, domain.SessionID, []domain.ReportRecord) error
 }
 
-// Deliverer submits pulled reports to a project's active orchestrator.
+// Deliverer resolves a link's durable owner and submits one owner group.
 type Deliverer interface {
-	DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error
+	ResolveRemoteRecipient(context.Context, domain.RemoteWorkerLink) (domain.SessionRecord, bool, error)
+	DeliverExternal(context.Context, domain.ProjectID, domain.SessionID, []domain.ReportRecord) error
 }
 
 // Deps configures an Observer. Lookup defaults to the saved-host file,
@@ -334,34 +335,65 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 	return item, nil
 }
 
-// settle delivers a project's fresh reports in one turn, records them, then
-// acknowledges every pulled report on its host. A failed delivery leaves the
-// remote reports pending. The local record only matters if acknowledgement
-// fails: it keeps the next pass from delivering the same report again.
+// settle delivers each owner group, then acknowledges each link after its
+// group was accepted; a failed group stays pending on its remote host.
 func (o *Observer) settle(ctx context.Context, projectID domain.ProjectID, items []*pulled, pass *settlePass) {
-	var fresh []domain.ReportRecord
+	groups := map[domain.SessionID][]*pulled{}
+	var ackOnly []*pulled
 	for _, item := range items {
-		fresh = append(fresh, item.fresh...)
+		if len(item.fresh) == 0 {
+			ackOnly = append(ackOnly, item)
+			continue
+		}
+		recipient, ok, err := o.deliverer.ResolveRemoteRecipient(ctx, item.link)
+		if err != nil {
+			o.note("link "+item.link.HostID+"/"+string(item.link.RemoteSessionID), item.host.label, err)
+			continue
+		}
+		if !ok {
+			o.note("project "+string(projectID), string(projectID), fmt.Errorf("%w: %s", reportsvc.ErrNoActiveOrchestrator, projectID))
+			continue
+		}
+		groups[recipient.ID] = append(groups[recipient.ID], item)
 	}
-	sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].CreatedAt.Before(fresh[j].CreatedAt) })
-	if len(fresh) > 0 {
-		err := o.deliverer.DeliverExternal(ctx, projectID, fresh)
+	recipients := make([]domain.SessionID, 0, len(groups))
+	for recipient := range groups {
+		recipients = append(recipients, recipient)
+	}
+	sort.Slice(recipients, func(i, j int) bool { return recipients[i] < recipients[j] })
+	for _, recipient := range recipients {
+		group := groups[recipient]
+		var fresh []domain.ReportRecord
+		for _, item := range group {
+			fresh = append(fresh, item.fresh...)
+		}
+		sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].CreatedAt.Before(fresh[j].CreatedAt) })
+		err := o.deliverer.DeliverExternal(ctx, projectID, recipient, fresh)
 		batch := reportsvc.PreparedBatch{ProjectID: projectID, Reports: fresh}
 		unconfirmed := errors.Is(err, domain.ErrSemanticAcceptanceTimeout)
 		switch {
 		case err == nil:
 		case unconfirmed:
-			o.log.Warn("remote report delivery unconfirmed; batch settled", "delivery_id", batch.IdempotencyKey(), "err", err)
+			o.log.Warn("remote report delivery unconfirmed; batch settled", "delivery_id", batch.IdempotencyKey(), "recipient", recipient, "err", err)
 		default:
-			o.log.Warn("remote report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
+			o.log.Warn("remote report delivery failed", "delivery_id", batch.IdempotencyKey(), "recipient", recipient, "err", err)
 		}
-		o.note("project "+string(projectID), string(projectID), err)
-		// The prompt was written before an acceptance timeout, so the batch
-		// is settled: re-pulling it would deliver the same prompt again.
+		o.note("group "+string(projectID)+"/"+string(recipient), string(projectID), err)
+		// The prompt was written before an acceptance timeout, so the group is
+		// settled: re-pulling it would deliver the same prompt again.
 		if err != nil && !unconfirmed {
-			return
+			continue
 		}
+		o.acknowledge(ctx, group, pass)
 	}
+	// Rejections and reports already recorded as delivered still need their
+	// acknowledgement even when their group had nothing fresh to deliver.
+	o.acknowledge(ctx, ackOnly, pass)
+}
+
+// acknowledge records one delivered group per link, then acknowledges each
+// link separately; an unreachable host keeps its reports pending.
+func (o *Observer) acknowledge(ctx context.Context, items []*pulled, pass *settlePass) {
 	at := o.now().UTC()
 	for _, item := range items {
 		ids := make([]string, len(item.fresh))

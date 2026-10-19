@@ -454,7 +454,9 @@ Transition table:
 Scheduler loop, replacing `RunDue`'s project loop:
 
 1. Read the earliest due work across both queues. If none, idle. If the
-   earliest `available_at` is in the future, sleep until then.
+   earliest `available_at` is in the future, sleep until then, except that a
+   pending report of a terminated worker session is due at once and is flushed
+   in that pass.
 2. Resolve its recipient (and repair a stale owner if needed).
 3. Claim that group.
 4. Submit one rendered turn with the batch's stable idempotency key.
@@ -533,10 +535,11 @@ design:
    instead of waiting out their fallback deadline, so the next pass delivers
    them in one batch and acknowledges it. `Create` then rejects further reports
    for that session, so a dead worker cannot enqueue a delivery.
-8. **A flush that consumes nothing is not retried in the same pass.** The
-   scheduler keys the batch it claimed; a batch it deferred or could not claim
-   waits for its next deadline instead of being claimed again, so a deferral
-   cannot spin the coordinator.
+8. **A group is claimed at most once per pass.** The scheduler keys each group
+   it claims, and a claim that acknowledged nothing (a coalesced stuck batch, a
+   release, or an empty claim) leaves the pass with the deadline read back from
+   the store, never with an immediate re-claim. That also covers a terminated
+   worker's flush, so a deferral cannot spin the coordinator.
 
 Failure windows and their bound:
 

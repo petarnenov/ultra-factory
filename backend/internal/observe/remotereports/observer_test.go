@@ -121,23 +121,49 @@ func (m *memStore) linkCount() int {
 }
 
 type delivery struct {
-	project domain.ProjectID
-	reports []domain.ReportRecord
+	project   domain.ProjectID
+	recipient domain.SessionID
+	reports   []domain.ReportRecord
 }
 
 type fakeDeliverer struct {
-	mu    sync.Mutex
-	calls []delivery
-	err   error
+	mu          sync.Mutex
+	calls       []delivery
+	err         error
+	root        domain.SessionID
+	noRecipient bool
+	owners      map[domain.SessionID]domain.SessionRecord
+	resolveErr  error
 }
 
-func (f *fakeDeliverer) DeliverExternal(_ context.Context, project domain.ProjectID, reports []domain.ReportRecord) error {
+func (f *fakeDeliverer) ResolveRemoteRecipient(_ context.Context, link domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.resolveErr != nil {
+		return domain.SessionRecord{}, false, f.resolveErr
+	}
+	if link.OwnerSessionID != nil {
+		if rec, ok := f.owners[*link.OwnerSessionID]; ok && !rec.IsTerminated && rec.Kind == domain.KindCoordinator && rec.ProjectID == link.ProjectID {
+			return rec, true, nil
+		}
+	}
+	if f.noRecipient {
+		return domain.SessionRecord{}, false, nil
+	}
+	root := f.root
+	if root == "" {
+		root = "orchestrator"
+	}
+	return domain.SessionRecord{ID: root, ProjectID: link.ProjectID, Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (f *fakeDeliverer) DeliverExternal(_ context.Context, project domain.ProjectID, recipient domain.SessionID, reports []domain.ReportRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
-	f.calls = append(f.calls, delivery{project, reports})
+	f.calls = append(f.calls, delivery{project, recipient, reports})
 	return nil
 }
 
@@ -1071,9 +1097,98 @@ func TestAnOfflineHostDoesNotBlockTheOthersAndCatchesUpWhenItReturns(t *testing.
 	}
 }
 
+func TestPollRoutesEachRemoteLinkToItsOwnersGroup(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 30, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-a", now))
+	host.pending["widgets-4"] = reportsJSON(needsInput("rpt-b", now))
+	ownerA, ownerB := domain.SessionID("coord-a"), domain.SessionID("coord-b")
+	linkA, linkB := link("host-build", "widgets-3"), link("host-build", "widgets-4")
+	linkA.OwnerSessionID, linkB.OwnerSessionID = &ownerA, &ownerB
+	store := newMemStore(linkA, linkB)
+	deliverer := &fakeDeliverer{owners: map[domain.SessionID]domain.SessionRecord{
+		ownerA: {ID: ownerA, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+		ownerB: {ID: ownerB, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+	}}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 2 {
+		t.Fatalf("deliveries = %+v, want one turn per owner", deliverer.calls)
+	}
+	byRecipient := map[domain.SessionID]delivery{}
+	for _, call := range deliverer.calls {
+		byRecipient[call.recipient] = call
+	}
+	if got := byRecipient[ownerA]; len(got.reports) != 1 || got.reports[0].ID != "rpt-a" {
+		t.Fatalf("coordinator A call = %+v", got)
+	}
+	if got := byRecipient[ownerB]; len(got.reports) != 1 || got.reports[0].ID != "rpt-b" {
+		t.Fatalf("coordinator B call = %+v", got)
+	}
+	if acks := host.acks(); len(acks) != 2 {
+		t.Fatalf("acks = %v, want one per link", acks)
+	}
+}
+
+func TestPollGroupsRemoteLinksThatShareAnOwnerIntoOneTurn(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 40, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-a", now))
+	host.pending["widgets-4"] = reportsJSON(needsInput("rpt-b", now.Add(time.Second)))
+	owner := domain.SessionID("coord-a")
+	linkA, linkB := link("host-build", "widgets-3"), link("host-build", "widgets-4")
+	linkA.OwnerSessionID, linkB.OwnerSessionID = &owner, &owner
+	store := newMemStore(linkA, linkB)
+	deliverer := &fakeDeliverer{owners: map[domain.SessionID]domain.SessionRecord{
+		owner: {ID: owner, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+	}}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 || deliverer.calls[0].recipient != owner || len(deliverer.calls[0].reports) != 2 {
+		t.Fatalf("delivery = %+v, want one turn for the shared owner", deliverer.calls)
+	}
+	if acks := host.acks(); len(acks) != 2 {
+		t.Fatalf("acks = %v, want one per link", acks)
+	}
+}
+
+func TestPollRoutesAStaleRemoteOwnerToTheRoot(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 45, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-gone", now))
+	owner := domain.SessionID("coord-gone")
+	linked := link("host-build", "widgets-3")
+	linked.OwnerSessionID = &owner
+	store := newMemStore(linked)
+	deliverer := &fakeDeliverer{
+		root: "root",
+		owners: map[domain.SessionID]domain.SessionRecord{
+			owner: {ID: owner, ProjectID: "ultra-factory", Kind: domain.KindCoordinator, IsTerminated: true},
+		},
+	}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 || deliverer.calls[0].recipient != "root" || deliverer.calls[0].reports[0].ID != "rpt-gone" {
+		t.Fatalf("delivery = %+v, want the root fallback", deliverer.calls)
+	}
+	if acks := host.acks(); len(acks) != 1 {
+		t.Fatalf("acks = %v", acks)
+	}
+}
+
 type timeoutDeliverer struct{ attempts int }
 
-func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error {
+func (d *timeoutDeliverer) ResolveRemoteRecipient(context.Context, domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{ID: "orchestrator", Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, domain.SessionID, []domain.ReportRecord) error {
 	d.attempts++
 	return domain.ErrSemanticAcceptanceTimeout
 }

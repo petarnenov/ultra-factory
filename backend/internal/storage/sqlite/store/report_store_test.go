@@ -183,7 +183,7 @@ func TestReportStoreDurableBatchIdentityExcludesLaterReportsOnRetry(t *testing.T
 	}
 	create("first")
 	create("second")
-	claimed, err := s.ClaimPendingReportBatch(ctx, "ao", "token-1", now)
+	claimed, err := s.ClaimPendingReportBatch(ctx, "ao", "root", "root", "token-1", now)
 	if err != nil || len(claimed) != 2 || claimed[0].DeliveryBatchID == "" || claimed[0].DeliveryBatchID != claimed[1].DeliveryBatchID {
 		t.Fatalf("claimed = %+v, err = %v", claimed, err)
 	}
@@ -192,20 +192,73 @@ func TestReportStoreDurableBatchIdentityExcludesLaterReportsOnRetry(t *testing.T
 		t.Fatal(err)
 	}
 	create("later")
-	retried, err := s.ClaimPendingReportBatch(ctx, "ao", "token-2", now)
+	retried, err := s.ClaimPendingReportBatch(ctx, "ao", "root", "root", "token-2", now)
 	if err != nil || len(retried) != 2 || retried[0].DeliveryBatchID != batchID {
 		t.Fatalf("retried = %+v, err = %v", retried, err)
 	}
 	if _, err := s.AcknowledgeReportBatch(ctx, "ao", "token-2", now); err != nil {
 		t.Fatal(err)
 	}
-	next, err := s.ClaimPendingReportBatch(ctx, "ao", "token-3", now)
+	next, err := s.ClaimPendingReportBatch(ctx, "ao", "root", "root", "token-3", now)
 	if err != nil || len(next) != 1 || next[0].ID != "later" || next[0].DeliveryBatchID == batchID {
 		t.Fatalf("next = %+v, err = %v", next, err)
 	}
 }
 
+func TestReportStoreClaimsOnlyTheRecipientsOwnerGroup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "ao")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	coordinator := sampleRecord("ao")
+	coordinator.Kind = domain.KindCoordinator
+	coordinator.CoordinatorScope = "auth"
+	coordinator, err := s.CreateSession(ctx, coordinator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := sampleRecord("ao")
+	owned.OwnerSessionID = &coordinator.ID
+	owned, err = s.CreateSession(ctx, owned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootOwned, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range []domain.ReportRecord{
+		{ID: "rpt_owned", SessionID: owned.ID, ProjectID: "ao", Message: "owned", CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: now, RepeatCount: 1},
+		{ID: "rpt_root", SessionID: rootOwned.ID, ProjectID: "ao", Message: "root", CreatedAt: now.Add(time.Second), DeliveryState: domain.ReportPending, AvailableAt: now.Add(time.Second), RepeatCount: 1},
+	} {
+		if _, err := s.CreateReport(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ownedBatch, err := s.ClaimPendingReportBatch(ctx, "ao", coordinator.ID, "root-session", "owned-token", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ownedBatch) != 1 || ownedBatch[0].ID != "rpt_owned" || ownedBatch[0].DeliveryOwnerID != string(coordinator.ID) {
+		t.Fatalf("owned batch = %+v", ownedBatch)
+	}
+	if _, err := s.AcknowledgeReportBatch(ctx, "ao", "owned-token", now); err != nil {
+		t.Fatal(err)
+	}
+
+	rootBatch, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "root-token", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rootBatch) != 1 || rootBatch[0].ID != "rpt_root" || rootBatch[0].DeliveryOwnerID != "root-session" {
+		t.Fatalf("root batch = %+v", rootBatch)
+	}
+}
+
 func TestReportStoreInterruptLimitSurvivesRestart(t *testing.T) {
+
 	ctx := context.Background()
 	dir := t.TempDir()
 	s, err := sqlite.Open(dir)

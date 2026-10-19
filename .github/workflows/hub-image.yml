@@ -102,7 +102,19 @@ jobs:
         env:
           TAGS: ao-hub:smoke
           PLATFORMS: linux/amd64
-        run: docker buildx bake -f deploy/railway/docker-bake.hcl hub --load
+        run: |
+          # Reuse the publish job's cached layers so a re-run rebuilds only what
+          # changed, leaving less to fetch. local-ci has no cache service.
+          cache=()
+          if [ "${LOCAL_CI_LOCAL:-}" != true ]; then
+            cache=(
+              --set "hub.cache-from=type=gha,scope=hub-image"
+              --set "hub.cache-to=type=gha,mode=max,scope=hub-image"
+              --set "worker.cache-from=type=gha,scope=worker-image"
+              --set "worker.cache-to=type=gha,mode=max,scope=worker-image"
+            )
+          fi
+          docker buildx bake -f deploy/railway/docker-bake.hcl hub --load "${cache[@]}"
 
       - name: Start the hub on a temporary volume
         run: |
