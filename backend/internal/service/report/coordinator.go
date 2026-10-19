@@ -127,6 +127,9 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// A batch claimed in this pass that acknowledged nothing waits for its
+	// deadline instead of being claimed again, so a deferral cannot spin.
+	attempted := map[string]bool{}
 	for {
 		pending, err := c.store.ListPendingReportSchedule(ctx, 1)
 		if err != nil {
@@ -136,16 +139,24 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 			return -1, nil
 		}
 		now := c.now().UTC()
-		if pending[0].AvailableAt.After(now) {
-			if !c.terminatedWorker(ctx, pending[0].SessionID) {
-				return pending[0].AvailableAt.Sub(now), nil
-			}
-			// A terminated worker cannot report again, so its queued report
-			// is flushed now instead of trickling in after its deadline.
+		key := batchKey(pending[0])
+		flushing := pending[0].AvailableAt.After(now)
+		if flushing && (attempted[key] || !c.terminatedWorker(ctx, pending[0].SessionID)) {
+			return pending[0].AvailableAt.Sub(now), nil
 		}
-		if err := c.deliverProject(ctx, pending[0].ProjectID); err != nil {
+		// A terminated worker cannot report again, so a not-yet-due report of
+		// its queue is flushed now instead of trickling in after its deadline.
+		consumed, err := c.deliverProject(ctx, pending[0].ProjectID)
+		if err != nil {
 			return c.retryDelay, err
 		}
+		if consumed {
+			continue
+		}
+		if attempted[key] {
+			return c.retryDelay, nil
+		}
+		attempted[key] = true
 	}
 }
 
@@ -155,17 +166,29 @@ func (c *Coordinator) terminatedWorker(ctx context.Context, id domain.SessionID)
 	return err == nil && found && session.IsTerminated
 }
 
-func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.ProjectID) error {
+// batchKey names the durable batch a pending report belongs to. A report with
+// no batch id yet gets the one a claim would derive from its own id.
+func batchKey(r domain.ReportRecord) string {
+	batch := r.DeliveryBatchID
+	if batch == "" {
+		batch = "report-batch:" + r.ID
+	}
+	return string(r.ProjectID) + "\x00" + batch
+}
+
+// deliverProject reports whether it acknowledged a batch, which is the only
+// outcome that makes another look at the schedule worthwhile.
+func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.ProjectID) (bool, error) {
 	target, ok, err := c.activeOrchestrator(ctx, projectID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !ok {
-		return fmt.Errorf("project %s has no active orchestrator", projectID)
+		return false, fmt.Errorf("project %s has no active orchestrator", projectID)
 	}
 	batch, err := c.claim(ctx, projectID)
 	if err != nil || len(batch.Reports) == 0 {
-		return err
+		return false, err
 	}
 	if batch.hasState(domain.ReportStuck) {
 		interrupted := false
@@ -173,12 +196,12 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 		for _, worker := range batch.stuckWorkers() {
 			acquired, next, acquireErr := c.store.AcquireReportInterrupt(ctx, worker, c.now().UTC(), ReportInterruptWindow)
 			if acquireErr != nil {
-				return c.release(ctx, batch, acquireErr)
+				return false, c.release(ctx, batch, acquireErr)
 			}
 			if acquired {
 				interrupted = true
 				if interruptErr := c.delivery.Interrupt(ctx, target.ID); interruptErr != nil {
-					return c.release(ctx, batch, interruptErr)
+					return false, c.release(ctx, batch, interruptErr)
 				}
 			} else if nextInterrupt.IsZero() || next.Before(nextInterrupt) {
 				nextInterrupt = next
@@ -186,23 +209,26 @@ func (c *Coordinator) deliverProject(ctx context.Context, projectID domain.Proje
 		}
 		if !interrupted && !batch.hasState(domain.ReportNeedsInput) {
 			_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, nextInterrupt, "repeated stuck report coalesced inside interrupt window")
-			return deferErr
+			return false, deferErr
 		}
 	}
 	if err := c.delivery.Submit(ctx, target.ID, batch.Render(), batch.IdempotencyKey()); err != nil {
 		if !errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
 			slog.Warn("report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
-			return c.release(ctx, batch, err)
+			return false, c.release(ctx, batch, err)
 		}
 		// The prompt was written; only its acceptance hook is late. Re-arming
 		// the batch re-pastes it on every retry, so it is consumed once here.
 		slog.Warn("report delivery unconfirmed; batch consumed", "delivery_id", batch.IdempotencyKey(), "err", err)
 		if ackErr := c.consume(ctx, batch); ackErr != nil {
-			return errors.Join(err, ackErr)
+			return false, errors.Join(err, ackErr)
 		}
-		return nil
+		return true, nil
 	}
-	return c.consume(ctx, batch)
+	if err := c.consume(ctx, batch); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // consume acknowledges a submitted batch, so no later pass sends it again.

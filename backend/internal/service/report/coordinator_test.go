@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -151,6 +152,10 @@ type coordinatorStore struct {
 	sessions   []domain.SessionRecord
 	interrupts map[domain.SessionID]time.Time
 	acked      int
+	// claims counts batch claims so a regression can bound a spin instead of
+	// hanging: over the limit the store fails the claim.
+	claims     int
+	claimLimit int
 }
 
 func newCoordinatorStore(now time.Time) *coordinatorStore {
@@ -193,6 +198,10 @@ func (s *coordinatorStore) ListPendingReportSchedule(context.Context, int64) ([]
 func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project domain.ProjectID, token string, at time.Time) ([]domain.ReportRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.claims++
+	if s.claimLimit > 0 && s.claims > s.claimLimit {
+		return nil, errors.New("claim limit reached")
+	}
 	batchID := ""
 	for i := range s.reports {
 		if s.reports[i].ProjectID == project && s.reports[i].DeliveryState == domain.ReportPending {
@@ -324,6 +333,37 @@ func TestCoordinatorAcceptanceTimeoutConsumesTheBatchOnce(t *testing.T) {
 	}
 	if d.attempts != 1 || len(d.submissions) != 0 {
 		t.Fatalf("attempts=%d submissions=%d, want no replay of a consumed batch", d.attempts, len(d.submissions))
+	}
+}
+
+// A flush that acknowledges nothing must not be retried in the same pass:
+// a terminated worker's rate-limited stuck batch used to be claimed forever.
+func TestCoordinatorTerminatedStuckFlushDoesNotSpin(t *testing.T) {
+	now := time.Date(2026, 9, 14, 15, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{
+		{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator},
+		{ID: "ended", ProjectID: "p", Kind: domain.KindWorker, IsTerminated: true},
+	}
+	stuck := reportAt("stuck", "ended", now.Add(-time.Minute), now, "blocked")
+	stuck.State = domain.ReportStuck
+	checkpoint := reportAt("later", "ended", now, now.Add(30*time.Minute), "older head")
+	store.add(stuck, checkpoint)
+	// The interrupt window from an earlier interruption is still open.
+	store.interrupts["ended"] = now
+	store.claimLimit = 3
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+
+	delay, err := c.RunDue(context.Background())
+	if err != nil {
+		t.Fatalf("the deferred flush spun: %v", err)
+	}
+	if delay != ReportInterruptWindow {
+		t.Fatalf("delay = %v, want the deferral deadline %v", delay, ReportInterruptWindow)
+	}
+	if store.claims != 1 || len(delivery.submissions) != 0 {
+		t.Fatalf("claims=%d submissions=%d, want one deferred claim and no delivery", store.claims, len(delivery.submissions))
 	}
 }
 
