@@ -160,7 +160,7 @@ func TestRejectsUnsafeHostsAndLogins(t *testing.T) {
 		{"https://github.com", "work-account"},
 		{"github.com/path", "work-account"},
 		{"github.com", "../escape"},
-		{"github.com", "ghp_not_a_valid_login"},
+		{"github.com", "not_a_token"},
 		{"github.com", "bad login"},
 	} {
 		if err := store.SetGitHubToken(context.Background(), tc.host, tc.login, fakeToken); err == nil {

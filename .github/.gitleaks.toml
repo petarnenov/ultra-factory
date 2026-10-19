@@ -39,6 +39,10 @@ title = "gitleaks config"
     description = "Github Personal Access Token"
     regex = '''ghp_[0-9a-zA-Z]{36}'''
     tags = ["key", "Github"]
+    [rules.allowlist]
+        description = "Synthetic PAT-shaped fixtures in project SCM secret tests, never a live credential"
+        files = ['''^backend/internal/(domain/projectconfig_test|service/scmsecret/scmsecret_test|scmidentity/scmidentity_test|session_manager/manager_test|httpd/controllers/secrets_test|cli/secret_test)\.go$''']
+        regexes = ['''ghp_FAKE[0-9A-Za-z]{32}''', '''ghp_a{36}''']
 [[rules]]
     description = "Github OAuth Access Token"
     regex = '''gho_[0-9a-zA-Z]{36}'''
@@ -197,15 +201,6 @@ title = "gitleaks config"
         # The fake GitHub token the cloud redaction tests feed through
         # checkout errors and Setup output to prove it never reaches events.
         '''gh[ps]_abcdefghijklmnopqrstuvwxyz0123456789''',
-        # Obviously fake PAT-shaped fixtures in project SCM secret tests. These
-        # exact strings are intentionally token-shaped to exercise detection and
-        # redaction, and no live credential uses them.
-        '''ghp_FAKE000000000000000000000000000000''',
-        '''ghp_FAKE111111111111111111111111111111''',
-        '''ghp_FAKE222222222222222222222222222222''',
-        '''ghp_FAKE333333333333333333333333333333''',
-        '''ghp_FAKE444444444444444444444444444444''',
-        '''ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa''',
     ]
     # Historical false positives from the ReverbCode rewrite graft (#2166).
     # All offenders are example secret-patterns in security docs and

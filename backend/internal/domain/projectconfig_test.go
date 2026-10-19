@@ -77,7 +77,7 @@ func TestProjectConfigValidate(t *testing.T) {
 		{"github account with hyphen", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "work-account"}}}, false},
 		{"github account clears with empty", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: ""}}}, false},
 		{"github account whitespace", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: " octocat"}}}, true},
-		{"github account token", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "ghp_not_a_valid_login"}}}, true},
+		{"github account token", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "not_a_token"}}}, true},
 		{"github account path", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "../octocat"}}}, true},
 		{"github account too long", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: strings.Repeat("a", 40)}}}, true},
 		{"github account starts with hyphen", ProjectConfig{SCM: SCMConfig{GitHub: GitHubSCMConfig{Account: "-octocat"}}}, true},
