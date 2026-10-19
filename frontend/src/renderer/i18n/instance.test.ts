@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { APP_LOCALES, coerceLocale, DEFAULT_LOCALE } from "./locales";
 import { createAppI18n as createBaseAppI18n, createLazyAppI18n, loadLocaleCatalog, type TranslationCatalogs } from "./instance";
 import { createFullAppI18n as createAppI18n } from "./all-messages";
+import { chatRoleLabelKey } from "../lib/chat-role";
 import {
 	deMessages,
 	enMessages,
@@ -66,19 +67,10 @@ describe("app i18next instance", () => {
 		}
 	});
 
-	it("reuses the established role terms in the chat header", () => {
-		for (const locale of APP_LOCALES) {
-			const catalog = allCatalogs[locale] as unknown as Record<string, string>;
-			expect(catalog["chat.role.orchestrator"], `${locale} orchestrator`).toBe(
-				catalog["shell.orchestrator"],
-			);
-			expect(catalog["chat.role.worker"], `${locale} worker`).toBe(
-				catalog["settings.models.workerRole"],
-			);
-			expect(catalog["chat.role.reviewer"], `${locale} reviewer`).toBe(
-				catalog["terminal.reviewer"],
-			);
-		}
+	it("maps chat roles to the established labels", () => {
+		expect(chatRoleLabelKey("orchestrator")).toBe("shell.orchestrator");
+		expect(chatRoleLabelKey("worker")).toBe("settings.models.workerRole");
+		expect(chatRoleLabelKey("reviewer")).toBe("terminal.reviewer");
 	});
 
 	it("uses English by default and Chinese when selected", () => {

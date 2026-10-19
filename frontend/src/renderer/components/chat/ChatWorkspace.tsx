@@ -98,10 +98,10 @@ import { inspectorIsOpen, sidebarOccupiesLayout, useUiStore } from "../../stores
 import type { TerminalTarget } from "../../types/terminal";
 import {
 	isOrchestratorSession,
-	type SessionKind,
 	type WorkspaceSession,
 	type SessionProvisionStep,
 } from "../../types/workspace";
+import { chatRoleLabelKey, type ChatRole } from "../../lib/chat-role";
 import { AgentAvatar } from "../AgentAvatar";
 import { SessionPaneTab } from "../CenterPane";
 import { Badge } from "../ui/badge";
@@ -172,15 +172,6 @@ const EMPTY_CHAT_PLACEHOLDERS = [
 	"Plan the next step for this feature",
 	"Find and fix a bug in this project",
 ] as const;
-
-/** A session role plus the reviewer surface a chat can be showing. */
-type ChatRole = SessionKind | "reviewer";
-
-function chatRoleLabelKey(role: ChatRole) {
-	if (role === "orchestrator") return "chat.role.orchestrator" as const;
-	if (role === "reviewer") return "chat.role.reviewer" as const;
-	return "chat.role.worker" as const;
-}
 
 /**
  * The newest pending approval or question the live turn is waiting on.
@@ -2180,7 +2171,7 @@ function ChatHeader({
 											{tab.kind === "reviewer" || tab.kind === "reviewer-chat" ? (
 												<button
 													aria-current={reviewerActive && !workspaceActiveTabKey ? true : undefined}
-													aria-label={t("chat.role.reviewer")}
+													aria-label={t(chatRoleLabelKey("reviewer"))}
 													aria-selected={Boolean(reviewerActive && !workspaceActiveTabKey)}
 													className={cn(
 														"group relative inline-flex min-w-shell-tab-min max-w-shell-tab-max self-stretch cursor-pointer items-center gap-1.5 border-r border-border px-3 text-control font-medium leading-none transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent/50",
@@ -2195,7 +2186,7 @@ function ChatHeader({
 													type="button"
 												>
 													<AgentAvatar className="size-icon-base" decorative provider={tab.terminal.harness} />
-													<span className="truncate">{t("chat.role.reviewer")}</span>
+													<span className="truncate">{t(chatRoleLabelKey("reviewer"))}</span>
 												</button>
 											) : (
 												tab.tab.content
