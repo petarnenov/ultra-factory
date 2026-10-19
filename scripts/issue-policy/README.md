@@ -10,7 +10,8 @@ references outside fenced blocks and inline code, and ignores references to
 other pull requests and to other repositories. It prints one actionable line
 per failure, including the `gh issue edit` command that fixes it.
 
-Two pull requests are exempt, by head and base branch only:
+Two same-repository pull requests are exempt, by head and base branch only;
+a fork branch carrying one of those names is not exempt:
 
 - promotion of `dev` into `main`: the batch record, not a single change;
 - the automated agent-pin refresh on `chore/agent-cli-pins`.

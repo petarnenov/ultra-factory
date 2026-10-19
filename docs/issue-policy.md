@@ -96,10 +96,11 @@ narrow:
 | Promotion          | head `dev`, base `main`                        | The promotion pull request is the batch record, not a single change.   |
 | Agent pin refresh  | head `chore/agent-cli-pins`                    | The weekly agent-pin workflow owns that change and its record.         |
 
-Nothing else is exempt by default. A feature pull request that targets `main`
-instead of `dev` is still checked, and fork pull requests are checked normally.
-If a path turns out to be genuinely impossible to check, document the evidence
-here and narrow the exemption rather than widening it.
+Both exemptions also require the head branch to live in this repository. A
+fork branch named `dev` or `chore/agent-cli-pins` is still checked, as is a
+feature pull request that targets `main` instead of `dev`. Nothing else is
+exempt by default. If a path turns out to be genuinely impossible to check,
+document the evidence here and narrow the exemption rather than widening it.
 
 ## Pull requests
 

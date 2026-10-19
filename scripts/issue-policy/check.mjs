@@ -42,8 +42,12 @@ export function extractIssueReferences(...texts) {
   return numbers;
 }
 
-// Two narrow exemptions; anything else is checked. Keep in sync with the docs.
+// Two narrow exemptions, both inside this repository: a fork branch name is
+// never trusted. Keep in sync with the docs.
 export function exemptionFor(pull) {
+  const baseRepo = pull?.base?.repo?.full_name;
+  const headRepo = pull?.head?.repo?.full_name;
+  if (!baseRepo || baseRepo !== headRepo) return null;
   const base = pull?.base?.ref;
   const head = pull?.head?.ref;
   if (base === PROMOTION_BASE && head === PROMOTION_HEAD) {

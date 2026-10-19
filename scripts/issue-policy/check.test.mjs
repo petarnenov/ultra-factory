@@ -141,34 +141,55 @@ test('does not count an unknown priority label as the priority', () => {
   ]);
 });
 
+const REPO = 'petarnenov/ultra-factory';
+
+function branch(ref, repo = REPO) {
+  return { ref, repo: { full_name: repo } };
+}
+
 test('exempts a promotion pull request of dev into main', () => {
-  const reason = exemptionFor({
-    base: { ref: 'main' },
-    head: { ref: 'dev' },
-  });
+  const reason = exemptionFor({ base: branch('main'), head: branch('dev') });
   assert.match(reason, /promotion of dev into main/);
 });
 
 test('exempts the automated agent-pin pull request', () => {
   const reason = exemptionFor({
-    base: { ref: 'main' },
-    head: { ref: AGENT_PIN_BRANCH },
+    base: branch('main'),
+    head: branch(AGENT_PIN_BRANCH),
   });
   assert.match(reason, /automated agent-pin refresh/);
 });
 
 test('does not exempt an ordinary feature pull request into dev', () => {
   assert.equal(exemptionFor({
-    base: { ref: 'dev' },
-    head: { ref: 'feat/issue-policy' },
+    base: branch('dev'),
+    head: branch('feat/issue-policy'),
   }), null);
 });
 
 test('does not exempt a feature pull request into main', () => {
   assert.equal(exemptionFor({
-    base: { ref: 'main' },
-    head: { ref: 'feat/issue-policy' },
+    base: branch('main'),
+    head: branch('feat/issue-policy'),
   }), null);
+});
+
+test('does not exempt a fork branch named dev into main', () => {
+  assert.equal(exemptionFor({
+    base: branch('main'),
+    head: branch('dev', 'someone/ultra-factory'),
+  }), null);
+});
+
+test('does not exempt a fork branch named chore/agent-cli-pins', () => {
+  assert.equal(exemptionFor({
+    base: branch('main'),
+    head: branch(AGENT_PIN_BRANCH, 'someone/ultra-factory'),
+  }), null);
+});
+
+test('does not exempt a pull request without repository identity', () => {
+  assert.equal(exemptionFor({ base: { ref: 'main' }, head: { ref: 'dev' } }), null);
 });
 
 test('declares the documented label sets', () => {
