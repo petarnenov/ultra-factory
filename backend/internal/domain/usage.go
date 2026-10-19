@@ -16,6 +16,9 @@ const (
 	UsageSourceClaudeSubagent UsageSourceKind = "claude_subagent"
 	UsageSourceCodexRollout   UsageSourceKind = "codex_rollout"
 	UsageSourceKimiWire       UsageSourceKind = "kimi_wire"
+	// UsageSourceOpencodeV2 is OpenCode 2's SQLite session store: a snapshot
+	// source read once, with no append-only transcript.
+	UsageSourceOpencodeV2 UsageSourceKind = "opencode_v2_session"
 )
 
 // UsageBindingState tracks the root native-session binding lifecycle.
@@ -79,8 +82,8 @@ type UsageBindingRecord struct {
 	UpdatedAt      time.Time
 }
 
-// UsageSourceRecord tracks one physical JSONL artifact generation and its
-// durable read cursor.
+// UsageSourceRecord tracks one native artifact generation and its durable read
+// cursor: a transcript for the JSONL harnesses, a store for the snapshot ones.
 type UsageSourceRecord struct {
 	ID              int64
 	BindingID       int64
