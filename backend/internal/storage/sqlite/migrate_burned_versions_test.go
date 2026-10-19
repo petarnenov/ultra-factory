@@ -216,6 +216,7 @@ var shippedMigrations = map[int64]string{
 	211: "0211_add_remote_worker_link_owner.sql",
 	212: "0212_ownership_triggers.sql",
 	213: "0213_coordinator_termination_releases_owners.sql",
+	214: "0214_report_delivery_owner.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they

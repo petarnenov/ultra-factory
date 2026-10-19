@@ -87,7 +87,11 @@ func (s *wiringRemoteStore) polls() int {
 
 type wiringDeliverer struct{}
 
-func (wiringDeliverer) DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error {
+func (wiringDeliverer) ResolveRemoteRecipient(context.Context, domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{ID: "orchestrator", Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (wiringDeliverer) DeliverExternal(context.Context, domain.ProjectID, domain.SessionID, []domain.ReportRecord) error {
 	return nil
 }
 
