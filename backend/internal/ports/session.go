@@ -44,9 +44,7 @@ type SpawnConfig struct {
 	Kind         domain.SessionKind
 	Harness      domain.AgentHarness
 	// HarnessExplicit records that the caller named Harness instead of leaving
-	// it to the project role or machine default, so session provenance can say
-	// which layer selected it. HarnessExplicitSet distinguishes a caller that
-	// explicitly reported a resolved harness from one that did not set the flag.
+	// it to the role or machine default; HarnessExplicitSet marks the flag set.
 	HarnessExplicit    bool
 	HarnessExplicitSet bool
 	Branch             string

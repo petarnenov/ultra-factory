@@ -533,8 +533,7 @@ func resolveSpawnHarness(explicit, kind string, project projectDetails) (string,
 		}
 	}
 	// The target daemon reports its AO_AGENT default in project.Agent. A role
-	// that is not configured falls back to that machine default, matching the
-	// daemon's own resolution.
+	// that is not configured falls back to that machine default.
 	if harness := strings.TrimSpace(project.Agent); harness != "" {
 		return harness, nil
 	}

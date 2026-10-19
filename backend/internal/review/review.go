@@ -378,10 +378,8 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	hasConfigOverride := false
 	if hasHarnessOverride {
 		harness = override
-		// Project Settings are the next precedence level after the explicit
-		// harness, even when the override selects a different reviewer agent.
-		// Resolution validates the settings model and effort against the
-		// overridden harness instead of silently dropping them.
+		// Settings are the next level after the explicit harness, even when the
+		// override selects another agent, and are validated against it.
 		config = mergeReviewerAgentConfig(resolvedConfig, overrideConfig)
 		hasConfigOverride = config != resolvedConfig
 	} else if !overrideConfig.IsZero() {
@@ -389,8 +387,7 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 		hasConfigOverride = config != resolvedConfig
 	}
 	// Validate the selected reviewer against this machine's catalog before any
-	// review run is created. An invalid model or effort blocks the trigger and
-	// names the valid options, exactly as a worker spawn does.
+	// run is created. Invalid input blocks with the valid options.
 	resolved, err := agentlaunch.Resolve(ctx, agentlaunch.Request{
 		Machine:               e.machineLabel,
 		Harness:               domain.AgentHarness(harness),

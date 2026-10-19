@@ -1982,11 +1982,7 @@ func TestSpawnModelPersisted(t *testing.T) {
 }
 
 // A spawn that names a harness other than the role override's still uses that
-// role's model and effort. Project Settings are the next precedence level after
-// an explicit spawn directive; resolution validates the values against the
-// selected harness rather than silently dropping them. Both roles resolve
-// through the same override, so the orchestrator case is asserted explicitly
-// rather than left implied.
+// role's model and effort, validated against the selected harness.
 func TestSpawn_KeepsRoleConfigOnHarnessMismatch(t *testing.T) {
 	roleConfig := domain.RoleOverride{
 		Harness:     domain.HarnessOpenCode,
@@ -11636,10 +11632,8 @@ func TestSpawn_PassesAOShellEnvWithoutCredentials(t *testing.T) {
 	}
 }
 
-// TestSpawn_ExplicitHarnessKeepsRoleModel reproduces #254: an orchestrator
-// spawns with an explicit harness that differs from the role's configured
-// agent, and the role's model and effort must still reach the launch instead
-// of being dropped so the harness CLI silently picks its own defaults.
+// TestSpawn_ExplicitHarnessKeepsRoleModel reproduces #254: a role model and
+// effort must reach an explicitly selected harness, not its own default.
 func TestSpawn_ExplicitHarnessKeepsRoleModel(t *testing.T) {
 	const (
 		roleModel  = "opencode/deepseek-v4.1-flash"
@@ -11733,10 +11727,8 @@ func TestSpawnFallsBackToMachineDefaultHarness(t *testing.T) {
 	}
 }
 
-// TestSpawnBlocksSettingsModelInvalidForExplicitHarness covers the second
-// acceptance case: only a harness is named, so the Project Settings model and
-// effort apply to it; when they are invalid for that harness, nothing launches
-// and the error lists the harness's valid models.
+// TestSpawnBlocksSettingsModelInvalidForExplicitHarness covers the case where
+// only a harness is named and the Settings model is invalid for it.
 func TestSpawnBlocksSettingsModelInvalidForExplicitHarness(t *testing.T) {
 	st := newFakeStore()
 	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{

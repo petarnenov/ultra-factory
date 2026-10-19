@@ -830,8 +830,7 @@ type Deps struct {
 	// cannot be pinned to the daemon binary). Nil defaults to slog.Default().
 	Logger *slog.Logger
 	// DefaultHarness is the machine's AO_AGENT default, used when neither the
-	// spawn nor the role config names a harness. Empty preserves the previous
-	// "role must be configured" behavior.
+	// spawn nor the role config names a harness.
 	DefaultHarness domain.AgentHarness
 	// MachineLabel names this machine in resolution errors and session
 	// provenance. Empty defaults to the OS hostname.
@@ -981,9 +980,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		cfg.AgentConfig.Permissions = permissions
 	}
 	// A per-project role override picks the harness when the spawn names none,
-	// then the machine's AO_AGENT default applies, so a project can default
-	// workers to one agent and orchestrators to another without hiding the
-	// target machine's fallback.
+	// then the machine's AO_AGENT default applies.
 	harnessExplicit := cfg.Harness != ""
 	if cfg.HarnessExplicitSet {
 		harnessExplicit = cfg.HarnessExplicit
@@ -1055,8 +1052,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		}
 	}
 	// Resolve harness, model, and effort against the target machine's settings
-	// and catalog before any durable state exists. Nothing may launch on an
-	// invalid or unresolvable combination.
+	// and catalog before durable state exists. Nothing launches on invalid input.
 	resolution, err := m.resolveSpawnLaunch(ctx, cfg, project.Config, mode)
 	if err != nil {
 		return domain.SessionRecord{}, 0, 0, fmt.Errorf("spawn: %w", err)
@@ -1543,9 +1539,7 @@ func replayClientRequest(rec domain.SessionRecord, hash string) (domain.SessionR
 }
 
 // resolveAgentConfig resolves and validates one launch against the target
-// machine's Project Settings and harness catalog. Agent switching keeps its
-// historical rule that a role tuned for another harness does not leak its
-// model/mode onto the target; spawns use resolveAgentLaunchConfig directly.
+// machine's Project Settings and catalog for agent switching.
 func (m *Manager) resolveAgentConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig) (ports.AgentConfig, error) {
 	role := roleOverride(cfg.Kind, project)
 	if role.Harness != "" && role.Harness != cfg.Harness {
@@ -1611,9 +1605,8 @@ func (m *Manager) harnessSource(cfg ports.SpawnConfig, project domain.ProjectCon
 	return domain.AgentConfigSourceMachineDefault
 }
 
-// resolveSpawnLaunch resolves one spawn. Terminal Codex keeps its historical
-// behavior of trusting the CLI's own validation when the catalog cannot answer;
-// every other harness blocks instead of launching an unvalidated value.
+// resolveSpawnLaunch resolves one spawn. Terminal Codex trusts the CLI's own
+// validation when the catalog cannot answer; every other harness blocks.
 func (m *Manager) resolveSpawnLaunch(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig, mode domain.SessionMode) (agentlaunch.Result, error) {
 	result, err := m.resolveAgentLaunchConfig(ctx, cfg, project)
 	if err == nil || mode != domain.SessionModeTUI || cfg.Harness != domain.HarnessCodex || ctx.Err() != nil {
@@ -2113,9 +2106,7 @@ func (m *Manager) preserveFailedSpawnWorkspace(ctx context.Context, id domain.Se
 }
 
 // effectiveHarness resolves the harness for a spawn: an explicit harness wins,
-// then the project's role override for the session kind, then the machine's AO
-// harness default. Empty is invalid for new worker/orchestrator launches and is
-// rejected by Spawn.
+// then the project's role override, then the machine's AO harness default.
 func effectiveHarness(explicit domain.AgentHarness, kind domain.SessionKind, cfg domain.ProjectConfig, defaultHarness domain.AgentHarness) domain.AgentHarness {
 	if explicit != "" {
 		return explicit
@@ -2133,18 +2124,8 @@ func roleConfigName(kind domain.SessionKind) string {
 	return "worker"
 }
 
-// effectiveAgentConfig merges the role override's agent config over the
-// project's base agent config; set override fields win.
-//
-// Model/Mode are inherited only when the launch harness matches the role's
-// configured harness — otherwise they were tuned for a different agent and
-// would leak a provider-specific alias onto the wrong harness. An empty role
-// harness means "not pinned" and always matches. Permissions is
-// harness-neutral and is always inherited.
-//
-// Spawns do not use this helper: they resolve through agentlaunch.Merge, which
-// keeps Project Settings values for an explicitly selected harness and
-// validates them against it (see #254).
+// effectiveAgentConfig merges the role override over the base agent config.
+// Model, effort, and mode need a matching harness. Spawns use Merge instead.
 func effectiveAgentConfig(harness domain.AgentHarness, kind domain.SessionKind, cfg domain.ProjectConfig) ports.AgentConfig {
 	merged := cfg.AgentConfig
 	role := roleOverride(kind, cfg)

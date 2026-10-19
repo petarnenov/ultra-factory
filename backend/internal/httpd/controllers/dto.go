@@ -511,8 +511,7 @@ type SpawnSessionRequest struct {
 	Kind            domain.SessionKind     `json:"kind,omitempty" enum:"worker,orchestrator"`
 	Harness         domain.AgentHarness    `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
-	// was resolved by the CLI from Project Settings / the machine default.
-	// Omitted means explicit when Harness is set, preserving older clients.
+	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`
 	Branch          string `json:"branch,omitempty"`
 	// Mode picks the conversation controller: chat talks to the agent over a

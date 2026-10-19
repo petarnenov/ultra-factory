@@ -458,8 +458,7 @@ func (c mapCatalog) Models(_ context.Context, harness, _ string, _ bool) (ports.
 }
 
 // A reviewer role resolves through the same catalog validation as a worker
-// spawn: Project Settings' model must be valid for the reviewer's harness, and
-// an invalid value blocks before the reviewer starts.
+// spawn: an invalid settings model blocks before the reviewer starts.
 func TestReviewerConfigBlocksInvalidModelAndUsesSettings(t *testing.T) {
 	projects := fakeProjects{cfg: domain.ProjectConfig{
 		Reviewers: []domain.ReviewerConfig{{
@@ -495,8 +494,7 @@ func TestReviewerConfigBlocksInvalidModelAndUsesSettings(t *testing.T) {
 }
 
 // An explicit reviewer harness keeps Project Settings' reviewer model and
-// effort; when they are invalid for the overridden harness, the trigger blocks
-// with that harness's valid options instead of starting on its own default.
+// effort; when they are invalid for it, the trigger blocks with its options.
 func TestReviewerHarnessOverrideKeepsAndValidatesSettingsConfig(t *testing.T) {
 	projects := fakeProjects{cfg: domain.ProjectConfig{
 		Reviewers: []domain.ReviewerConfig{{

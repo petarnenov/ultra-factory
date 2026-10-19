@@ -286,10 +286,8 @@ func TestEffectiveHarnessAndAgentConfig(t *testing.T) {
 	if got := effectiveAgentConfig(domain.HarnessClaudeCode, domain.KindOrchestrator, cfg); got.Model != "base" {
 		t.Fatalf("orchestrator config = %#v, want base", got)
 	}
-	// A launch harness that differs from the role's configured harness drops the
-	// role's model/mode — they were tuned for the other agent — but keeps the
-	// harness-neutral permissions. Spawn resolution uses agentlaunch.Merge and
-	// does not go through this helper.
+	// A launch harness that differs from the role's configured harness drops
+	// the role's model/mode but keeps the harness-neutral permissions.
 	if got := effectiveAgentConfig(domain.HarnessAider, domain.KindWorker, cfg); got.Model != "base" || got.Mode != "low" || got.Permissions != domain.PermissionModeAuto {
 		t.Fatalf("mismatched-harness worker config = %#v, want model=base mode=low permissions=auto", got)
 	}

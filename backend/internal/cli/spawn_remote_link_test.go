@@ -55,8 +55,7 @@ func TestRemoteSpawnInsideSessionLinksWorkerOnLocalDaemon(t *testing.T) {
 }
 
 // TestRemoteSpawnResolvesHarnessOnTargetMachine asserts `spawn --host` sends
-// the target machine's Project Settings role agent, or its harness default when
-// the role names none, without presenting either as an explicit directive.
+// the target's Project Settings role agent, or its harness default, unmarked.
 func TestRemoteSpawnResolvesHarnessOnTargetMachine(t *testing.T) {
 	cases := []struct {
 		name         string

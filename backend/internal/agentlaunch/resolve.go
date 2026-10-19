@@ -1,7 +1,5 @@
-// Package agentlaunch resolves one agent launch configuration from explicit
-// spawn directives, Project Settings, and the machine's harness catalog. Every
-// launch path (worker, orchestrator, reviewer) uses the same precedence so a
-// configuration accepted by one surface is not rejected by another.
+// Package agentlaunch resolves one launch config from explicit directives,
+// Project Settings, and the machine catalog with one precedence per role.
 package agentlaunch
 
 import (
@@ -23,8 +21,7 @@ type Catalog interface {
 }
 
 // Request describes one launch resolution. Base is the project's base agent
-// config, Role is the selected role's config (worker, orchestrator, or
-// reviewer), and Explicit carries spawn or trigger parameters.
+// config, Role the selected role's, and Explicit the spawn/trigger overrides.
 type Request struct {
 	// Machine names the machine whose settings and catalog apply. Remote spawns
 	// resolve on the target daemon, so this is the target machine.
@@ -56,9 +53,8 @@ type Result struct {
 	Machine      string
 }
 
-// Error reports a launch configuration that cannot be resolved safely. It
-// carries the machine's valid options so the CLI and API can tell the caller
-// exactly what to change instead of launching a harness default.
+// Error reports a launch config that cannot be resolved safely. It carries
+// the machine's valid options so callers can say what to change.
 type Error struct {
 	Machine   string
 	Harness   domain.AgentHarness
@@ -114,11 +110,8 @@ func list(items []string) string {
 	return fmt.Sprintf("%s, ... (%d more)", strings.Join(items[:maxListed], ", "), len(items)-maxListed)
 }
 
-// Merge applies the documented precedence to the three configuration layers
-// without consulting a catalog. It returns the merged config and the layer that
-// supplied the model and effort, so a caller that must defer validation (for
-// example a Codex terminal launch whose catalog is unavailable) still records
-// the same resolved values and provenance.
+// Merge applies the documented precedence without consulting a catalog. It
+// also returns the model and effort sources for provenance.
 func Merge(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.AgentConfig, domain.AgentConfigSource, domain.AgentConfigSource) {
 	config := ports.AgentConfig{
 		Model:       strings.TrimSpace(base.Model),
@@ -162,13 +155,8 @@ func Merge(base, role, explicit domain.AgentConfig, effortExplicit bool) (ports.
 	return config, modelSource, effortSource
 }
 
-// Resolve applies the documented precedence:
-//
-//	explicit directive -> Project Settings -> machine harness default -> block
-//
-// A model or effort a caller supplied explicitly is never silently discarded
-// when it is invalid for the selected harness; resolution fails with the
-// harness's valid options instead.
+// Resolve applies the documented precedence: explicit directive, then Project
+// Settings, then the machine default, otherwise it blocks with valid options.
 func Resolve(ctx context.Context, req Request) (Result, error) {
 	harnesses := harnessNames(req.AvailableHarnesses)
 	if req.Harness == "" {
@@ -197,9 +185,8 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 		EffortSource: effortSource,
 		Machine:      req.Machine,
 	}
-	// Command Code's `cmd --list-models` catalog advertises no per-model effort
-	// levels, so there is nothing AO can validate: forward the raw level and
-	// let `cmd --effort` reject unknown values at launch.
+	// Command Code's catalog advertises no effort levels, so forward the raw
+	// level and let `cmd --effort` reject unknown values at launch.
 	if req.Harness == domain.HarnessCommandCode {
 		return result, nil
 	}
@@ -223,9 +210,8 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 	modelIDs := catalogModelIDs(catalog)
-	// Agents whose picker is an agent-owned mode list (for example Amp) keep
-	// their selection in Mode. Treat that selection as the model so a project
-	// default is not replaced with the catalog's default.
+	// Agents whose picker is a mode list (for example Amp) keep the selection
+	// in Mode. Treat it as the model so a project default survives.
 	if config.Model == "" && catalog.SelectionMode == ports.ModelSelectionModeList && strings.TrimSpace(config.Mode) != "" {
 		config.Model = strings.TrimSpace(config.Mode)
 		switch {
@@ -354,9 +340,8 @@ var (
 	claudeVersionNoise  = regexp.MustCompile(`\(.*?\)|\[.*?\]`)
 )
 
-// newestClaudeFamilyModel returns the newest concrete catalog model of the
-// family a bare alias such as "opus" or "opus[1m]" names, or nil when alias is
-// not a family alias or the catalog has no such model.
+// newestClaudeFamilyModel returns the newest catalog model of the family a
+// bare alias such as "opus" names, or nil when there is none.
 func newestClaudeFamilyModel(models []ports.AgentModelInfo, alias string) *ports.AgentModelInfo {
 	family := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(alias), "[1m]"))
 	if !contains(claudeFamilyAliases, family) {
@@ -379,9 +364,8 @@ func newestClaudeFamilyModel(models []ports.AgentModelInfo, alias string) *ports
 	return best
 }
 
-// claudeFamilyVersion reads major.minor from a model's label or ID, or nil when
-// the model is not in the family. Snapshot dates and "v1:0" suffixes are longer
-// than two digits or beyond the second number, so they are ignored.
+// claudeFamilyVersion reads major.minor from a model's label or ID, or nil
+// when the model is not in the family. Snapshot dates are ignored.
 func claudeFamilyVersion(model ports.AgentModelInfo, family string) []int {
 	for _, text := range []string{model.Label, model.ID} {
 		lower := claudeVersionNoise.ReplaceAllString(strings.ToLower(text), "")

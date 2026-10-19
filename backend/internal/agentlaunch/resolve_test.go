@@ -107,9 +107,8 @@ func TestResolveHonorsRoleModelForDifferentExplicitHarness(t *testing.T) {
 	}
 }
 
-// An explicit harness keeps the configured model and effort, but a value the
-// selected harness cannot run blocks with that harness's valid options instead
-// of silently falling back to the harness's own default.
+// An explicit harness keeps the configured model and effort, but a value it
+// cannot run blocks instead of falling back to the harness default.
 func TestResolveBlocksSettingsModelInvalidForExplicitHarness(t *testing.T) {
 	req := request()
 	req.Harness = domain.HarnessOpenCode

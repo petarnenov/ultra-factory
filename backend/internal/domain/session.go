@@ -241,8 +241,7 @@ type SessionMetadata struct {
 	// resolved value is pinned so project-default changes cannot alter resume.
 	Effort string `json:"effort,omitempty"`
 	// HarnessSource, ModelSource, and EffortSource record which layer supplied
-	// each resolved launch value: explicit spawn parameter, the target
-	// machine's Project Settings, or its harness default.
+	// each launch value: explicit parameter, Project Settings, or machine default.
 	HarnessSource AgentConfigSource `json:"harnessSource,omitempty"`
 	ModelSource   AgentConfigSource `json:"modelSource,omitempty"`
 	EffortSource  AgentConfigSource `json:"effortSource,omitempty"`

@@ -1043,9 +1043,8 @@ function ActivityTimeline({ hostId, prs, session }: { hostId?: string; prs: Sess
 		createdAt,
 	);
 
-	// Show the resolved launch configuration and its provenance when the daemon
-	// recorded it: which layer and machine supplied the harness, model, and
-	// effort this session actually runs with.
+	// Show the resolved launch configuration and which layer and machine
+	// supplied the harness, model, and effort this session runs with.
 	const resolvedAgent = [
 		session.model ?? "",
 		session.effort ? `${session.effort} effort` : "",
