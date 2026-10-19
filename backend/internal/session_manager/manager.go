@@ -1576,13 +1576,15 @@ func withRoleOverride(project domain.ProjectConfig, kind domain.SessionKind, rol
 // resolveAgentLaunchConfig returns the resolved config together with the layer
 // that supplied each value.
 func (m *Manager) resolveAgentLaunchConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig) (agentlaunch.Result, error) {
-	role := roleOverride(cfg.Kind, project).AgentConfig
+	override := roleOverride(cfg.Kind, project)
 	request := agentlaunch.Request{
 		Machine:            m.machineLabel,
 		ProjectID:          string(cfg.ProjectID),
 		Harness:            cfg.Harness,
+		RoleHarness:        override.Harness,
+		RoleName:           roleConfigName(cfg.Kind),
 		Base:               project.AgentConfig,
-		Role:               role,
+		Role:               override.AgentConfig,
 		Explicit:           cfg.AgentConfig,
 		EffortExplicit:     cfg.EffortOverride,
 		AvailableHarnesses: m.availableHarnesses(),

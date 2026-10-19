@@ -148,6 +148,53 @@ func TestResolveBlocksSettingsModelInvalidForExplicitHarness(t *testing.T) {
 	}
 }
 
+// TestResolveBlocksCrossHarnessSettingsModelEvenWhenCustomEntryIsAllowed pins
+// #266: another harness's Settings model cannot use direct-entry allowance.
+func TestResolveBlocksCrossHarnessSettingsModelEvenWhenCustomEntryIsAllowed(t *testing.T) {
+	req := request()
+	req.Harness = domain.HarnessOpenCodeV2
+	req.RoleHarness = domain.HarnessCodex
+	req.RoleName = "worker"
+	req.Role = domain.AgentConfig{Model: "gpt-6-luna", Effort: "low"}
+	req.Catalog = fakeCatalog{catalog: ports.AgentModelCatalog{
+		AllowCustom: true,
+		Models: []ports.AgentModelInfo{
+			{ID: "opencode-v2/default", IsDefault: true},
+			{ID: "opencode-v2/deepseek", Efforts: []string{"low", "high"}},
+		},
+	}}
+
+	_, err := Resolve(context.Background(), req)
+	var resolutionErr *Error
+	if !errors.As(err, &resolutionErr) {
+		t.Fatalf("error = %v, want *Error", err)
+	}
+	if resolutionErr.Field != "model" || resolutionErr.Machine != "build-box" {
+		t.Fatalf("error = %#v, want a model block on build-box", resolutionErr)
+	}
+	if len(resolutionErr.Models) != 2 {
+		t.Fatalf("valid models = %v, want the selected harness's catalog list", resolutionErr.Models)
+	}
+	for _, want := range []string{
+		"Project Settings", "worker", "codex", "gpt-6-luna", "opencode-v2/default", "opencode-v2/deepseek",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("message %q missing %q", err.Error(), want)
+		}
+	}
+
+	// An explicit model is still authoritative even when the settings model
+	// belongs to another harness.
+	req.Explicit = domain.AgentConfig{Model: "opencode-v2/deepseek"}
+	got, err := Resolve(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Config.Model != "opencode-v2/deepseek" || got.ModelSource != domain.AgentConfigSourceExplicit {
+		t.Fatalf("explicit result = %#v, want the explicit model", got)
+	}
+}
+
 func TestResolveBlocksInvalidModelAndListsOptions(t *testing.T) {
 	req := request()
 	req.Explicit = domain.AgentConfig{Model: "opencode/missing"}

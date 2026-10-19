@@ -29,7 +29,12 @@ type Request struct {
 	// ProjectID scopes project-aware model catalogs.
 	ProjectID string
 	// Harness is the already-selected harness.
-	Harness  domain.AgentHarness
+	Harness domain.AgentHarness
+	// RoleHarness is the role's Settings harness; a Settings model written for
+	// another harness must be listed in the selected harness's catalog.
+	RoleHarness domain.AgentHarness
+	// RoleName labels the role in blocking errors (for example "worker").
+	RoleName string
 	Base     domain.AgentConfig
 	Role     domain.AgentConfig
 	Explicit domain.AgentConfig
@@ -228,6 +233,27 @@ func strictResolutionField(field string) bool {
 	return field == "catalog" || field == "model" || field == "effort"
 }
 
+// settingsModelFromOtherHarness reports a Settings model written for a
+// different harness, which direct entry must not treat as a custom value.
+func settingsModelFromOtherHarness(req Request, modelSource domain.AgentConfigSource) bool {
+	return modelSource == domain.AgentConfigSourceSettings &&
+		req.RoleHarness != "" && req.RoleHarness != req.Harness
+}
+
+func crossHarnessModelError(req Request, model string, models []string) *Error {
+	role := strings.TrimSpace(req.RoleName)
+	if role == "" {
+		role = "selected"
+	}
+	return &Error{
+		Machine: req.Machine, Harness: req.Harness, Field: "model",
+		Reason: fmt.Sprintf(
+			"Project Settings model %q for the %s role was configured for harness %q and is not valid for this harness",
+			model, role, req.RoleHarness),
+		Models: models,
+	}
+}
+
 // resolveWithCatalog validates one merged configuration against one catalog.
 func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effortSource domain.AgentConfigSource, catalog ports.AgentModelCatalog) (Result, *Error) {
 	result := Result{
@@ -252,8 +278,10 @@ func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effo
 	}
 
 	var selected *ports.AgentModelInfo
+	crossHarnessSettings := settingsModelFromOtherHarness(req, modelSource)
 	strictModel := req.Harness == domain.HarnessClaudeCode && len(catalog.Models) > 0 ||
-		(!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect)
+		(!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect) ||
+		crossHarnessSettings
 	if catalog.Stale && config.Model != "" && strictModel {
 		return Result{}, staleCatalogError(req, catalog, config.Model)
 	}
@@ -285,9 +313,13 @@ func resolveWithCatalog(req Request, config ports.AgentConfig, modelSource, effo
 		}
 		if selected == nil {
 			strictClaude := req.Harness == domain.HarnessClaudeCode && len(catalog.Models) > 0
-			if strictClaude || (!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect) {
+			if strictClaude || (!catalog.AllowCustom && catalog.CustomModelEntry != ports.CustomModelEntryDirect) ||
+				crossHarnessSettings {
 				if catalog.Stale {
 					return Result{}, staleCatalogError(req, catalog, config.Model)
+				}
+				if crossHarnessSettings {
+					return Result{}, crossHarnessModelError(req, config.Model, modelIDs)
 				}
 				return Result{}, &Error{
 					Machine: req.Machine, Harness: req.Harness, Field: "model",
