@@ -18,10 +18,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 )
 
-// ownershipWorld is the fixed set of sessions the ownership scenarios share.
-// No production path creates a coordinator yet (CO-3), so the rows are seeded
-// straight into the daemon's database; everything the tests then do goes
-// through the real binary and the real HTTP routes.
+// ownershipWorld is the session set the scenarios share. Coordinators have
+// no production path before CO-3, so rows are seeded into the daemon's DB.
 type ownershipWorld struct {
 	root, otherRoot                       domain.SessionRecord
 	coordA, coordB, coordDead, coordOther domain.SessionRecord
@@ -129,7 +127,7 @@ func (e env) ownershipOf(t *testing.T, id domain.SessionID) ownershipView {
 	return view
 }
 
-// sessionViewOwner reads owner as the session view (GET /sessions/{id}) shows it.
+// sessionViewOwner reads the owner from GET /sessions/{id}.
 func (e env) sessionViewOwner(t *testing.T, id domain.SessionID) *string {
 	t.Helper()
 	status, _, raw := e.httpJSON(t, "GET", "sessions/"+string(id), nil)
@@ -196,10 +194,8 @@ func contains(ids []string, want domain.SessionID) bool {
 
 func ptrEq(got *string, want string) bool { return got != nil && *got == want }
 
-// TestE2E_Ownership drives the merged coordinator-ownership surface (ADR 0010)
-// through the real `ao` binary against a disposable daemon: assign, read back
-// through the session view and the coordinator roster, reassign, clear, the root
-// fallback, every rejection with its stable error code, and the CLI exit codes.
+// TestE2E_Ownership drives the ADR 0010 ownership surface through the real
+// ao binary and a disposable daemon.
 func TestE2E_Ownership(t *testing.T) {
 	e := newEnv(t)
 	e.startDaemon(t)
@@ -502,11 +498,16 @@ func TestE2E_Ownership(t *testing.T) {
 
 	t.Run("CLI exit codes: usage 2, daemon error 1 with request id", func(t *testing.T) {
 		usage := [][]string{
-			{"session", "assign", string(w.worker.ID), "--requested-by", root},         // missing --owner
-			{"session", "assign", string(w.worker.ID), "--owner", string(w.coordA.ID)}, // no caller (AO_SESSION_ID stripped)
-			{"session", "assign"}, // missing worker arg
-			{"coordinator", "ls"}, // no project
-			{"session", "assign", string(w.worker.ID), "--owner", "root", "--requested-by", root, "--bogus"}, // unknown flag
+			// missing --owner
+			{"session", "assign", string(w.worker.ID), "--requested-by", root},
+			// no caller: AO_SESSION_ID is stripped from the child env
+			{"session", "assign", string(w.worker.ID), "--owner", string(w.coordA.ID)},
+			// missing worker argument
+			{"session", "assign"},
+			// no project
+			{"coordinator", "ls"},
+			// unknown flag
+			{"session", "assign", string(w.worker.ID), "--owner", "root", "--bogus"},
 		}
 		for _, args := range usage {
 			if out, code := e.run(t, args...); code != 2 {
