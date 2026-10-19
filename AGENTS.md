@@ -25,7 +25,7 @@ This applies even when you talk to the user in another language: conversation ca
 From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`):
 
 ```bash
-npm run lint                         # backend go test ./... + golangci-lint v2.13.2
+npm run lint                         # backend go test ./... + golangci-lint v2.14.0
 npm run frontend:typecheck           # frontend TypeScript check
 npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
 npm run api                          # regenerate OpenAPI spec + frontend TS types (see API contract changes below)
