@@ -812,12 +812,15 @@ capacity or ownership conflict prints the code and message and exits 1.
   `kind='orchestrator' AND is_terminated=0`. This is enforced by the service
   singleton under the project lock, and backed by a partial unique index
   `ux_sessions_active_root` on `sessions(project_id)`
-  `WHERE kind='orchestrator' AND is_terminated=0`. The migration validates the
-  invariant first and fails loudly rather than picking a winner. The previous
-  binary still opens the old schema, so an operator can resolve a duplicate
-  through the daemon before retrying the upgrade. Because the index is durable,
-  restoring a terminated root must first check for another live root and return
-  `ORCHESTRATOR_ALREADY_ACTIVE` instead of surfacing a raw constraint error.
+  `WHERE kind='orchestrator' AND is_terminated=0`. A read-only preflight,
+  in its own migration before any DDL, validates the invariant and reports the
+  offending project IDs rather than picking a winner. Because it runs before
+  any schema change, resolving a duplicate and retrying cannot hit a partially
+  applied column addition. The previous binary still opens the old schema, so
+  an operator can resolve a duplicate through the daemon before retrying the
+  upgrade. Because the index is durable, restoring a terminated root must first
+  check for another live root and return `ORCHESTRATOR_ALREADY_ACTIVE` instead
+  of surfacing a raw constraint error.
 - **I2.** A root is never owned. A coordinator never has `owner_session_id`.
   Only workers have owners.
 - **I3.** Every worker has at most one owner; `NULL` means the project's live
@@ -906,21 +909,39 @@ coordinator. No coordinator is required for the existing workflow.
 The migration is additive. Existing local and remote workers are never
 backfilled to a coordinator, because neither ever stored a parent.
 
-Migration order (a new numbered migration after `0206_allow_opencode_v2_usage.sql`;
+Migration order (a new numbered series after `0206_allow_opencode_v2_usage.sql`;
 the next free number when implementation starts):
 
-1. Widen the `sessions.kind` CHECK to include `coordinator`, using the
-   `PRAGMA writable_schema` rewrite pattern from `0192` and `0206`.
-2. Add `sessions.coordinator_scope` and `sessions.owner_session_id` with
-   `ALTER TABLE ADD COLUMN`. Add the scope/owner validation triggers and
-   `idx_sessions_owner`.
-3. Validate I1 and create `ux_sessions_active_root`. If a legacy database
-   violates I1, the migration fails with the offending project IDs.
-4. Add `remote_worker_links.owner_session_id` with the same validation.
-5. Create the two audit tables.
-6. Create `coordinator_summaries` and `coordinator_summary_workers`.
-7. Create the termination trigger that releases local owners and remote link
-   owners atomically and writes the recovery summary.
+The I1 validation is deliberately the **first, read-only** migration, before
+any DDL. The CHECK rewrite uses `PRAGMA writable_schema` with
+`-- +goose NO TRANSACTION`, so a failure after DDL would leave a partially
+applied schema with no goose version recorded. Preflighting I1 removes that
+failure mode: the documented recovery (resolve the duplicate on the old schema,
+then retry) never re-runs a column addition. Each DDL step below is also its
+own migration, so a failure in a later step does not force an earlier step to
+run again.
+
+1. **Preflight, no DDL.** Validate I1. If a project has more than one live
+   root, abort with the offending project IDs. Nothing has been applied, so
+   the operator can resolve the duplicate and retry.
+2. Widen the `sessions.kind` CHECK to include `coordinator`, using the
+   `PRAGMA writable_schema` rewrite pattern from `0192` and `0206`. Guard the
+   replace so it is a no-op when the coordinator value is already present.
+3. Add `sessions.coordinator_scope` with `ALTER TABLE ADD COLUMN`.
+4. Add `sessions.owner_session_id` with `ALTER TABLE ADD COLUMN`.
+5. Add the scope/owner validation triggers and `idx_sessions_owner`, using
+   `CREATE TRIGGER IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`.
+6. Add `remote_worker_links.owner_session_id` and its validation in its own
+   migration.
+7. Create the two audit tables and, in a following migration,
+   `coordinator_summaries` and `coordinator_summary_workers`, using
+   `CREATE TABLE IF NOT EXISTS` so a retry is safe.
+8. Create `ux_sessions_active_root` with
+   `CREATE UNIQUE INDEX IF NOT EXISTS`; the preflight guarantees it can
+   succeed.
+9. Create the termination trigger that releases local owners and remote link
+   owners atomically and writes the recovery summary, using
+   `CREATE TRIGGER IF NOT EXISTS`.
 
 Compatibility rules:
 
@@ -1102,6 +1123,9 @@ Implementation stories must add, at minimum:
 - a migration test from a populated 0.17.1 database with local workers, remote
   links, reports, and a live root, asserting unchanged root routing and the new
   constraints;
+- a migration test that seeds two live roots in one project and asserts the I1
+  preflight aborts before any DDL, leaving the kind CHECK and the new columns
+  untouched, then passes after one root is resolved;
 - store tests for owner validation, cross-project and terminated owners, the
   termination trigger, audit rows, and capacity counts under concurrent
   spawns;
