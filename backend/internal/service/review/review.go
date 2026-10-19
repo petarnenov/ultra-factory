@@ -804,7 +804,7 @@ func (s *Service) releaseCheckouts(ctx context.Context, workerID domain.SessionI
 	keys := make(map[string]bool)
 	for _, run := range runs {
 		if run.ReviewedTree == domain.ReviewCheckoutDisposable {
-			keys[reviewCheckoutKey(run)] = true
+			keys[reviewcore.CheckoutKey(run)] = true
 		}
 	}
 	if len(keys) == 0 {
@@ -815,21 +815,11 @@ func (s *Service) releaseCheckouts(ctx context.Context, workerID domain.SessionI
 		return
 	}
 	for _, run := range running {
-		delete(keys, reviewCheckoutKey(run))
+		delete(keys, reviewcore.CheckoutKey(run))
 	}
 	for key := range keys {
 		_ = s.checkouts.Release(context.WithoutCancel(ctx), key)
 	}
-}
-
-func reviewCheckoutKey(run domain.ReviewRun) string {
-	if key := strings.TrimSpace(run.ReviewedCheckoutKey); key != "" {
-		return key
-	}
-	if key := strings.TrimSpace(run.BatchID); key != "" {
-		return key
-	}
-	return run.ID
 }
 
 func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, review SubmittedReview) (domain.ReviewRun, error) {

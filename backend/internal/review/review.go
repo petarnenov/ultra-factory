@@ -633,7 +633,8 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 		}()
 	}
 	for _, run := range queueRuns {
-		if _, err := e.store.UpdateReviewRunCheckout(ctx, run.ID, prepared.SHA, prepared.Tree, prepared.Key); err != nil {
+		reviewedSHA, tree := reviewedCheckoutForRun(run, prepared)
+		if _, err := e.store.UpdateReviewRunCheckout(ctx, run.ID, reviewedSHA, tree, prepared.Key); err != nil {
 			return TriggerResult{}, failRuns(0, fmt.Errorf("record reviewed checkout: %w", err))
 		}
 	}
@@ -781,13 +782,11 @@ func (e *Engine) TriggerWithOptions(ctx stdctx.Context, workerID domain.SessionI
 	}
 	for i := range created {
 		created[i].ReviewID = reviewRow.ID
-		created[i].ReviewedSHA = prepared.SHA
-		created[i].ReviewedTree = prepared.Tree
+		created[i].ReviewedSHA, created[i].ReviewedTree = reviewedCheckoutForRun(created[i], prepared)
 		created[i].ReviewedCheckoutKey = prepared.Key
 	}
 	for i := range restarted {
-		restarted[i].ReviewedSHA = prepared.SHA
-		restarted[i].ReviewedTree = prepared.Tree
+		restarted[i].ReviewedSHA, restarted[i].ReviewedTree = reviewedCheckoutForRun(restarted[i], prepared)
 		restarted[i].ReviewedCheckoutKey = prepared.Key
 	}
 	triggerRuns := append([]domain.ReviewRun{}, created...)
@@ -1451,7 +1450,7 @@ func (e *Engine) releaseFinishedCheckouts(ctx stdctx.Context, workerID domain.Se
 		if run.ReviewedTree != domain.ReviewCheckoutDisposable {
 			continue
 		}
-		keys[checkoutKey(run)] = true
+		keys[CheckoutKey(run)] = true
 	}
 	if len(keys) == 0 {
 		return
@@ -1461,14 +1460,16 @@ func (e *Engine) releaseFinishedCheckouts(ctx stdctx.Context, workerID domain.Se
 		return
 	}
 	for _, run := range running {
-		delete(keys, checkoutKey(run))
+		delete(keys, CheckoutKey(run))
 	}
 	for key := range keys {
 		_ = e.checkout.Release(stdctx.WithoutCancel(ctx), key)
 	}
 }
 
-func checkoutKey(run domain.ReviewRun) string {
+// CheckoutKey names the checkout a run was verified against for cleanup and
+// restore. It is exported so the service can release the same key.
+func CheckoutKey(run domain.ReviewRun) string {
 	if key := strings.TrimSpace(run.ReviewedCheckoutKey); key != "" {
 		return key
 	}
@@ -1496,7 +1497,10 @@ func (e *Engine) prepareLaunchCheckout(ctx stdctx.Context, worker domain.Session
 		PRURL:         launch.PRURL,
 	})
 	if err != nil {
-		return PreparedCheckout{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+		if errors.Is(err, ErrCheckoutMismatch) || errors.Is(err, ErrInvalid) {
+			return PreparedCheckout{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		return PreparedCheckout{}, fmt.Errorf("prepare review checkout: %w", err)
 	}
 	if prepared.Disposable {
 		for _, run := range queueRuns {
@@ -1518,25 +1522,40 @@ func applyPreparedCheckout(spec *LaunchSpec, prepared PreparedCheckout) {
 	spec.CheckoutTree = prepared.Tree
 }
 
-// restoreCheckout reopens the tree of a running pass before its pane is
-// recreated, so a disposable pass never falls back to the worker checkout.
+// reviewedCheckoutForRun records verification only when the run's target
+// matches the prepared checkout; other queued heads stay unverified.
+func reviewedCheckoutForRun(run domain.ReviewRun, prepared PreparedCheckout) (string, domain.ReviewCheckoutTree) {
+	if run.TargetSHA == "" || !strings.EqualFold(run.TargetSHA, prepared.SHA) {
+		return "", ""
+	}
+	return prepared.SHA, prepared.Tree
+}
+
+// restoreCheckout reopens or re-verifies the tree of a running pass before its
+// pane is recreated, so a restored pass never reads an unverified worker tree.
 func (e *Engine) restoreCheckout(ctx stdctx.Context, worker domain.SessionRecord, runs []domain.ReviewRun) (PreparedCheckout, bool, error) {
 	for _, run := range runs {
 		if run.Status != domain.ReviewRunRunning || run.Verdict != domain.VerdictNone {
 			continue
 		}
-		if run.ReviewedTree != domain.ReviewCheckoutDisposable {
-			return PreparedCheckout{
-				Key:      checkoutKey(run),
-				Path:     worker.Metadata.WorkspacePath,
-				RepoPath: worker.Metadata.WorkspacePath,
-				SHA:      run.TargetSHA,
-				Tree:     domain.ReviewCheckoutWorker,
-			}, true, nil
+		if run.ReviewedTree == domain.ReviewCheckoutDisposable {
+			prepared, err := e.checkout.Reopen(ctx, CheckoutKey(run))
+			if err != nil {
+				return PreparedCheckout{}, false, err
+			}
+			return prepared, true, nil
 		}
-		prepared, err := e.checkout.Reopen(ctx, checkoutKey(run))
+		prepared, err := e.checkout.Prepare(ctx, CheckoutRequest{
+			Key:           CheckoutKey(run),
+			WorkspacePath: worker.Metadata.WorkspacePath,
+			TargetSHA:     run.TargetSHA,
+			PRURL:         run.PRURL,
+		})
 		if err != nil {
-			return PreparedCheckout{}, false, err
+			if errors.Is(err, ErrCheckoutMismatch) || errors.Is(err, ErrInvalid) {
+				return PreparedCheckout{}, false, fmt.Errorf("%w: %w", ErrInvalid, err)
+			}
+			return PreparedCheckout{}, false, fmt.Errorf("verify restored review checkout: %w", err)
 		}
 		return prepared, true, nil
 	}

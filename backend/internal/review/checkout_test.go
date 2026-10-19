@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,6 +67,9 @@ func (f *fakeCheckout) Prepare(_ context.Context, req CheckoutRequest) (Prepared
 	}
 	if out.Path == "" {
 		out.Path = req.WorkspacePath
+	}
+	if out.Tree == "" {
+		out.Tree = domain.ReviewCheckoutWorker
 	}
 	return out, nil
 }
@@ -301,6 +305,56 @@ func TestRerunPreparesCheckoutAtTheRequestedRunTarget(t *testing.T) {
 	}
 }
 
+func TestRestoreCheckoutReVerifiesMovedWorkerCheckout(t *testing.T) {
+	dataDir := t.TempDir()
+	origin := filepath.Join(t.TempDir(), "origin")
+	first := initGitRepo(t, origin, "file.txt", "one")
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	runGit(t, t.TempDir(), "clone", origin, workspace)
+	second := commitFile(t, origin, "file.txt", "two")
+	runGit(t, workspace, "fetch", "origin")
+	runGit(t, workspace, "checkout", "--detach", second)
+
+	worker := liveWorker()
+	worker.Metadata.WorkspacePath = workspace
+	manager := NewGitCheckout(dataDir)
+	eng := &Engine{checkout: manager}
+	prepared, ok, err := eng.restoreCheckout(context.Background(), worker, []domain.ReviewRun{{
+		ID: "run-1", BatchID: "batch-1", Status: domain.ReviewRunRunning,
+		TargetSHA: first, ReviewedTree: domain.ReviewCheckoutWorker,
+	}})
+	if err != nil || !ok {
+		t.Fatalf("restoreCheckout ok=%v err=%v", ok, err)
+	}
+	if !prepared.Disposable || prepared.Path == workspace {
+		t.Fatalf("prepared = %+v, want a disposable worktree because the worker moved", prepared)
+	}
+	if got := runGit(t, prepared.Path, "rev-parse", "HEAD"); got != first {
+		t.Fatalf("restored checkout HEAD = %s, want %s", got, first)
+	}
+	if err := manager.Release(context.Background(), prepared.Key); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+}
+
+func TestTriggerSurfacesCheckoutIOErrorWithoutInvalid(t *testing.T) {
+	store := &fakeStore{}
+	launcher := &fakeLauncher{handle: "review-mer-1"}
+	eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), fakeProjects{}, launcher)
+	eng.checkout = &fakeCheckout{err: errors.New("git fetch: connection reset")}
+
+	_, err := trigger(context.Background(), eng, "mer-1", "", domain.AgentConfig{})
+	if err == nil {
+		t.Fatal("Trigger succeeded despite a checkout I/O error")
+	}
+	if errors.Is(err, ErrInvalid) {
+		t.Fatalf("err = %v, want an internal checkout error, not ErrInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "prepare review checkout") {
+		t.Fatalf("err = %v, want the checkout preparation context", err)
+	}
+}
+
 func TestRestoreCheckoutReopensDisposableWorktree(t *testing.T) {
 	checkout := &fakeCheckout{prepared: PreparedCheckout{
 		Path: "/tmp/review-worktree", SHA: "sha1", Tree: domain.ReviewCheckoutDisposable, Disposable: true,
@@ -391,6 +445,42 @@ func TestTriggerSharesDisposableCheckoutAcrossSameHeadQueue(t *testing.T) {
 	}
 }
 
+func TestTriggerLeavesUnverifiedQueueRunsWithoutReviewedSHA(t *testing.T) {
+	store := &fakeStore{}
+	launcher := &fakeLauncher{handle: "review-mer-1"}
+	checkout := &fakeCheckout{prepared: PreparedCheckout{
+		Path: "/ws/mer-1", SHA: "sha1", Tree: domain.ReviewCheckoutWorker,
+	}}
+	prs := fakePRs{prs: []domain.PullRequest{
+		{URL: "https://github.com/o/r/pull/1", Number: 1, HeadSHA: "sha1"},
+		{URL: "https://github.com/o/r/pull/2", Number: 2, HeadSHA: "sha2"},
+	}}
+	eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prs, fakeProjects{}, launcher)
+	eng.checkout = checkout
+
+	res, err := trigger(context.Background(), eng, "mer-1", "", domain.AgentConfig{})
+	if err != nil {
+		t.Fatalf("Trigger: %v", err)
+	}
+	if !res.Created || len(store.runs) != 2 {
+		t.Fatalf("runs = %+v", store.runs)
+	}
+	bySHA := make(map[string]domain.ReviewRun, len(store.runs))
+	for _, run := range store.runs {
+		bySHA[run.TargetSHA] = run
+	}
+	first, second := bySHA["sha1"], bySHA["sha2"]
+	if first.ReviewedSHA != "sha1" || first.ReviewedTree != domain.ReviewCheckoutWorker {
+		t.Fatalf("verified run = %+v, want sha1/worker_checkout", first)
+	}
+	if second.ReviewedSHA != "" || second.ReviewedTree != "" {
+		t.Fatalf("unverified run = %+v, want empty reviewed SHA/tree", second)
+	}
+	if first.ReviewedCheckoutKey == "" || first.ReviewedCheckoutKey != second.ReviewedCheckoutKey {
+		t.Fatalf("checkout keys = %q/%q, want one shared cleanup key", first.ReviewedCheckoutKey, second.ReviewedCheckoutKey)
+	}
+}
+
 func TestTriggerRefusesDisposableCheckoutForMultipleHeads(t *testing.T) {
 	store := &fakeStore{}
 	launcher := &fakeLauncher{handle: "review-mer-1"}
@@ -425,7 +515,7 @@ func TestTriggerFailsWhenCheckoutCannotBeVerified(t *testing.T) {
 	store := &fakeStore{}
 	launcher := &fakeLauncher{handle: "review-mer-1"}
 	eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), fakeProjects{}, launcher)
-	eng.checkout = &fakeCheckout{err: errors.New("worker checkout is at abc, target def")}
+	eng.checkout = &fakeCheckout{err: fmt.Errorf("%w: worker checkout is at abc, target def", ErrCheckoutMismatch)}
 
 	_, err := trigger(context.Background(), eng, "mer-1", "", domain.AgentConfig{})
 	if err == nil || !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "worker checkout is at abc") {

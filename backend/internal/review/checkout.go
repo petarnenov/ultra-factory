@@ -15,6 +15,10 @@ import (
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
 )
 
+// ErrCheckoutMismatch marks a checkout that cannot be verified at its target
+// commit, as opposed to a git/IO failure while trying.
+var ErrCheckoutMismatch = errors.New("review checkout mismatch")
+
 // CheckoutRequest identifies one review pass's checkout. Key is the batch (or
 // run) id that a disposable worktree is created and released under.
 type CheckoutRequest struct {
@@ -55,7 +59,7 @@ type workerCheckout struct{}
 
 func (workerCheckout) Prepare(_ context.Context, req CheckoutRequest) (PreparedCheckout, error) {
 	if strings.TrimSpace(req.WorkspacePath) == "" {
-		return PreparedCheckout{}, errors.New("review worker session has no workspace")
+		return PreparedCheckout{}, fmt.Errorf("%w: review worker session has no workspace", ErrInvalid)
 	}
 	return PreparedCheckout{
 		Key:      req.Key,
@@ -98,10 +102,10 @@ func (g *GitCheckout) Prepare(ctx context.Context, req CheckoutRequest) (Prepare
 	workspace := strings.TrimSpace(req.WorkspacePath)
 	target := strings.TrimSpace(req.TargetSHA)
 	if workspace == "" {
-		return PreparedCheckout{}, errors.New("review worker session has no workspace")
+		return PreparedCheckout{}, fmt.Errorf("%w: review worker session has no workspace", ErrInvalid)
 	}
 	if target == "" {
-		return PreparedCheckout{}, errors.New("review target SHA is required to verify the checkout")
+		return PreparedCheckout{}, fmt.Errorf("%w: review target SHA is required to verify the checkout", ErrInvalid)
 	}
 	head, err := g.gitOutput(ctx, workspace, "rev-parse", "HEAD")
 	if err != nil {
@@ -122,7 +126,7 @@ func (g *GitCheckout) Prepare(ctx context.Context, req CheckoutRequest) (Prepare
 	}
 	key := strings.TrimSpace(req.Key)
 	if key == "" {
-		return PreparedCheckout{}, errors.New("review checkout key is required for a disposable worktree")
+		return PreparedCheckout{}, fmt.Errorf("%w: review checkout key is required for a disposable worktree", ErrInvalid)
 	}
 	if g.dataDir == "" {
 		return PreparedCheckout{}, g.mismatch(ctx, workspace, head, target, "AO has no data directory")
@@ -168,11 +172,11 @@ func (g *GitCheckout) Prepare(ctx context.Context, req CheckoutRequest) (Prepare
 func (g *GitCheckout) Reopen(ctx context.Context, key string) (PreparedCheckout, error) {
 	key = strings.TrimSpace(key)
 	if g == nil || g.dataDir == "" || key == "" {
-		return PreparedCheckout{}, errors.New("review checkout key is required to restore a review")
+		return PreparedCheckout{}, fmt.Errorf("%w: review checkout key is required to restore a review", ErrInvalid)
 	}
 	meta, err := readCheckoutMetadata(g.metadataPath(key))
 	if err != nil {
-		return PreparedCheckout{}, fmt.Errorf("review checkout for %s is no longer available: %w", shortCheckoutSHA(key), err)
+		return PreparedCheckout{}, fmt.Errorf("review checkout %s is no longer available: %w", key, err)
 	}
 	head, err := g.gitOutput(ctx, meta.WorktreePath, "rev-parse", "HEAD")
 	if err != nil || !strings.EqualFold(head, meta.SHA) {
@@ -249,8 +253,8 @@ func (g *GitCheckout) mismatch(ctx context.Context, workspace, head, target, rea
 	if status, err := g.gitOutput(ctx, workspace, "status", "--porcelain"); err == nil && status != "" {
 		state = "has uncommitted changes"
 	}
-	return fmt.Errorf("review checkout mismatch: worker checkout is at %s and %s, target %s cannot be verified (%s)",
-		shortCheckoutSHA(head), state, shortCheckoutSHA(target), reason)
+	return fmt.Errorf("%w: worker checkout is at %s and %s, target %s cannot be verified (%s)",
+		ErrCheckoutMismatch, shortCheckoutSHA(head), state, shortCheckoutSHA(target), reason)
 }
 
 func (g *GitCheckout) commitExists(ctx context.Context, dir, sha string) bool {
