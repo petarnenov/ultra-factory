@@ -330,6 +330,9 @@ func TestTrackedPRsForSessionRetainsTerminalPRsOnlyForAutoTerminationRetry(t *te
 	if got := trackedPRsForSession(domain.SessionRecord{TerminateOnPRMerge: true}, prs); len(got) != 3 {
 		t.Fatalf("auto-termination tracked PRs = %+v, want open and terminal PRs", got)
 	}
+	if got := trackedPRsForSession(domain.SessionRecord{TerminateOnPRMerge: true, IsTerminated: true}, prs); len(got) != 1 || got[0].Number != 1 {
+		t.Fatalf("terminated auto-termination tracked PRs = %+v, want only open PR", got)
+	}
 }
 func quietSlog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
@@ -2151,8 +2154,9 @@ func TestPoll_KeepsUnsettledPRsOfRecentlyTerminatedSession(t *testing.T) {
 	mergedObs.PR.Merged = true
 	mergedObs.PR.State = "merged"
 
-	poll := func(updatedAt time.Time) (*fakeStore, *fakeProvider) {
+	poll := func(terminatedAt, updatedAt time.Time) (*fakeStore, *fakeProvider) {
 		store := testStoreWithSession()
+		terminated.Activity = domain.Activity{State: domain.ActivityExited, LastActivityAt: terminatedAt}
 		terminated.UpdatedAt = updatedAt
 		store.sessions = []domain.SessionRecord{terminated}
 		store.prs["p-1"] = []domain.PullRequest{knownPR(1)}
@@ -2163,7 +2167,7 @@ func TestPoll_KeepsUnsettledPRsOfRecentlyTerminatedSession(t *testing.T) {
 		return store, provider
 	}
 
-	store, provider := poll(now.Add(-time.Hour))
+	store, provider := poll(now.Add(-time.Hour), now.Add(-time.Minute))
 	if len(provider.fetchBatches) != 1 {
 		t.Fatalf("recently terminated session must stay refreshed, fetch batches = %d", len(provider.fetchBatches))
 	}
@@ -2177,10 +2181,202 @@ func TestPoll_KeepsUnsettledPRsOfRecentlyTerminatedSession(t *testing.T) {
 		t.Fatalf("merge observed after termination was not persisted, writes = %#v", store.writes)
 	}
 
-	store, provider = poll(now.Add(-(terminatedPRRefreshWindow + time.Hour)))
+	// A rename or pin after termination advances UpdatedAt, but the window
+	// still expires from the termination stamp.
+	store, provider = poll(now.Add(-(terminatedPRRefreshWindow + time.Hour)), now)
 	if len(provider.fetchBatches) != 0 || len(store.writes) != 0 {
-		t.Fatalf("session past the window must be left alone, batches = %d writes = %d", len(provider.fetchBatches), len(store.writes))
+		t.Fatalf("session past the window must be left alone even after a later UpdatedAt, batches = %d writes = %d", len(provider.fetchBatches), len(store.writes))
 	}
+
+	// Legacy rows carry no termination activity stamp; UpdatedAt is the
+	// fallback until their next termination writes one.
+	store, provider = poll(time.Time{}, now.Add(-time.Hour))
+	if len(provider.fetchBatches) != 1 {
+		t.Fatalf("legacy recently terminated session must stay refreshed, fetch batches = %d", len(provider.fetchBatches))
+	}
+	store, provider = poll(time.Time{}, now.Add(-(terminatedPRRefreshWindow + time.Hour)))
+	if len(provider.fetchBatches) != 0 || len(store.writes) != 0 {
+		t.Fatalf("legacy session past the window must be left alone, batches = %d writes = %d", len(provider.fetchBatches), len(store.writes))
+	}
+}
+
+// TestTrackTerminatedPRsAnchorsWindowToTermination proves the refresh window
+// is dated by termination, not by the last row write.
+func TestTrackTerminatedPRsAnchorsWindowToTermination(t *testing.T) {
+	now := time.Unix(1000, 0).UTC()
+	terminated := func(terminatedAt, updatedAt time.Time) domain.SessionRecord {
+		return domain.SessionRecord{
+			IsTerminated: true,
+			Activity:     domain.Activity{State: domain.ActivityExited, LastActivityAt: terminatedAt},
+			UpdatedAt:    updatedAt,
+		}
+	}
+	cases := []struct {
+		name string
+		sess domain.SessionRecord
+		want bool
+	}{
+		{"live session", domain.SessionRecord{UpdatedAt: now.Add(-365 * 24 * time.Hour)}, true},
+		{"inside window, later rename", terminated(now.Add(-time.Hour), now), true},
+		{"past window, later rename", terminated(now.Add(-(terminatedPRRefreshWindow + time.Hour)), now), false},
+		{"past window, later pin", terminated(now.Add(-(terminatedPRRefreshWindow + time.Hour)), now.Add(-time.Minute)), false},
+		{"legacy inside window", terminated(time.Time{}, now.Add(-time.Hour)), true},
+		{"legacy past window", terminated(time.Time{}, now.Add(-(terminatedPRRefreshWindow + time.Hour))), false},
+		{"no timestamps", terminated(time.Time{}, time.Time{}), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trackTerminatedPRs(tc.sess, now); got != tc.want {
+				t.Fatalf("trackTerminatedPRs() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPoll_TerminatedSessionDoesNotAdoptNewPRs: tracking a dead session's
+// existing PRs must not let a new PR on its branch become its baseline row.
+func TestPoll_TerminatedSessionDoesNotAdoptNewPRs(t *testing.T) {
+	now := time.Unix(1000, 0).UTC()
+	store := testStoreWithSession()
+	store.sessions = []domain.SessionRecord{{
+		ID: "p-1", ProjectID: "p", IsTerminated: true,
+		Activity:  domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(-time.Hour)},
+		UpdatedAt: now.Add(-time.Hour),
+		Metadata:  domain.SessionMetadata{Branch: "feat"},
+	}}
+	provider := &fakeProvider{
+		repoGuards: map[string]ports.SCMGuardResult{prKey(testRepo, 0): {ETag: "v2"}},
+		openPRs: map[string][]ports.SCMPRObservation{prKey(testRepo, 0): {
+			{URL: "https://github.com/o/r/pull/2", Number: 2, SourceBranch: "feat", HeadRepo: "o/r", TargetBranch: "main", HeadSHA: "sha2"},
+		}},
+		observations: map[string]ports.SCMObservation{},
+	}
+	if err := newTestObserver(store, provider, &fakeLifecycle{}, now).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, write := range store.writes {
+		if write.pr.Number == 2 {
+			t.Fatalf("new PR #2 was attributed to the terminated session: %#v", write.pr)
+		}
+	}
+}
+
+// TestPoll_TerminatedSessionRefreshesTrackedPRWhenRepoGuardChanges: a dead-only
+// repository skips branch listing but still refreshes the tracked PR.
+func TestPoll_TerminatedSessionRefreshesTrackedPRWhenRepoGuardChanges(t *testing.T) {
+	now := time.Unix(1000, 0).UTC()
+	store := testStoreWithSession()
+	store.sessions = []domain.SessionRecord{{
+		ID: "p-1", ProjectID: "p", IsTerminated: true,
+		Activity:  domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(-time.Hour)},
+		UpdatedAt: now.Add(-time.Hour),
+		Metadata:  domain.SessionMetadata{Branch: "feat"},
+	}}
+	pr := knownPR(1)
+	pr.MetadataHash = "durable-meta"
+	pr.CIHash = "durable-ci"
+	pr.ReviewHash = "durable-review"
+	store.prs["p-1"] = []domain.PullRequest{pr}
+	mergedObs := testObs(1)
+	mergedObs.PR.Merged = true
+	mergedObs.PR.State = "merged"
+	provider := &fakeProvider{
+		repoGuards:   map[string]ports.SCMGuardResult{prKey(testRepo, 0): {ETag: "repo2"}},
+		openPRs:      map[string][]ports.SCMPRObservation{},
+		observations: map[string]ports.SCMObservation{prKey(testRepo, 1): mergedObs},
+	}
+	obs := newTestObserver(store, provider, &fakeLifecycle{}, now)
+	obs.Cache.RepoPRListETag[prKey(testRepo, 0)] = "repo1"
+	obs.Cache.LastSyncCursor[prKey(testRepo, 0)] = now.Add(-time.Hour)
+	if err := obs.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if provider.listCalls != 0 {
+		t.Fatalf("terminated-only repo must not be branch-listed, list calls = %d", provider.listCalls)
+	}
+	if len(provider.fetchBatches) != 1 || len(provider.fetchBatches[0]) != 1 || provider.fetchBatches[0][0].Number != 1 {
+		t.Fatalf("tracked PR must be refreshed from the guard change, batches = %#v", provider.fetchBatches)
+	}
+	found := false
+	for _, write := range store.writes {
+		if write.pr.Number == 1 && write.pr.Merged {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("merge observation not persisted, writes = %#v", store.writes)
+	}
+}
+
+// TestPoll_TerminatedSessionSettledPRIsNotRefreshed: a settled PR of a
+// terminated session is neither fetched nor written.
+func TestPoll_TerminatedSessionSettledPRIsNotRefreshed(t *testing.T) {
+	now := time.Unix(1000, 0).UTC()
+	for _, settled := range []struct {
+		name   string
+		mutate func(*domain.PullRequest)
+	}{
+		{"merged", func(pr *domain.PullRequest) { pr.Merged = true }},
+		{"closed", func(pr *domain.PullRequest) { pr.Closed = true }},
+	} {
+		t.Run(settled.name, func(t *testing.T) {
+			store := testStoreWithSession()
+			store.sessions = []domain.SessionRecord{{
+				ID: "p-1", ProjectID: "p", IsTerminated: true, TerminateOnPRMerge: true,
+				Activity:  domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(-time.Hour)},
+				UpdatedAt: now.Add(-time.Hour),
+				Metadata:  domain.SessionMetadata{Branch: "feat"},
+			}}
+			pr := knownPR(1)
+			settled.mutate(&pr)
+			store.prs["p-1"] = []domain.PullRequest{pr}
+			provider := &fakeProvider{
+				repoGuards:   map[string]ports.SCMGuardResult{prKey(testRepo, 0): {ETag: "v2"}},
+				openPRs:      map[string][]ports.SCMPRObservation{},
+				observations: map[string]ports.SCMObservation{prKey(testRepo, 1): testObs(1)},
+			}
+			if err := newTestObserver(store, provider, &fakeLifecycle{}, now).Poll(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(provider.fetchBatches) != 0 {
+				t.Fatalf("settled PR must not be fetched, batches = %#v", provider.fetchBatches)
+			}
+			if len(store.writes) != 0 {
+				t.Fatalf("settled PR must not be written, writes = %#v", store.writes)
+			}
+		})
+	}
+}
+
+// TestPoll_TerminatedSessionPersistsClosedObservation: a close without a merge
+// is still a terminal observation, and it must reach durable storage.
+func TestPoll_TerminatedSessionPersistsClosedObservation(t *testing.T) {
+	now := time.Unix(1000, 0).UTC()
+	store := testStoreWithSession()
+	store.sessions = []domain.SessionRecord{{
+		ID: "p-1", ProjectID: "p", IsTerminated: true,
+		Activity:  domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(-time.Hour)},
+		UpdatedAt: now.Add(-time.Hour),
+		Metadata:  domain.SessionMetadata{Branch: "feat"},
+	}}
+	store.prs["p-1"] = []domain.PullRequest{knownPR(1)}
+	closedObs := testObs(1)
+	closedObs.PR.Closed = true
+	closedObs.PR.State = "closed"
+	provider := &fakeProvider{
+		repoGuards:   map[string]ports.SCMGuardResult{prKey(testRepo, 0): {ETag: "v2"}},
+		openPRs:      map[string][]ports.SCMPRObservation{},
+		observations: map[string]ports.SCMObservation{prKey(testRepo, 1): closedObs},
+	}
+	if err := newTestObserver(store, provider, &fakeLifecycle{}, now).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, write := range store.writes {
+		if write.pr.Number == 1 && write.pr.Closed && !write.pr.Merged {
+			return
+		}
+	}
+	t.Fatalf("closed-not-merged observation not persisted, writes = %#v", store.writes)
 }
 
 // TestDiscoverSubjects_NonGitPathDoesNotBackfill confirms the backfill is

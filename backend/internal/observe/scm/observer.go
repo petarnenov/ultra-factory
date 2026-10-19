@@ -426,7 +426,7 @@ func (o *Observer) Poll(ctx context.Context) error {
 		return err
 	}
 
-	selection := o.selectRefreshCandidates(ctx, subjects, repoGuards, listedPRs, markRepoRefreshFailed, now)
+	selection := o.selectRefreshCandidates(ctx, subjects, repoGuards, listedPRs, listedRepos, markRepoRefreshFailed, now)
 	// Item 2 — terminal-state reconciliation for GitHub: tracked open PRs
 	// not in the current state=open listing may have transitioned to
 	// merged/closed. Run a reconciliation pass that issues a full detail
@@ -819,15 +819,22 @@ func (o *Observer) discoverSubjects(ctx context.Context) (map[string]*subject, [
 const terminatedPRRefreshWindow = 14 * 24 * time.Hour
 
 // trackTerminatedPRs reports whether the session's PRs stay in the refresh
-// set. A terminated session's UpdatedAt dates its termination.
+// set. Termination time is the activity stamp MarkTerminated writes.
 func trackTerminatedPRs(sess domain.SessionRecord, now time.Time) bool {
 	if !sess.IsTerminated {
 		return true
 	}
-	if sess.UpdatedAt.IsZero() {
+	terminatedAt := sess.Activity.LastActivityAt
+	// Legacy rows predate the termination activity stamp.
+	if terminatedAt.IsZero() {
+		terminatedAt = sess.UpdatedAt
+	}
+	// UpdatedAt alone is not an anchor: rename, pin and preview writes
+	// advance it after termination and would restart the window.
+	if terminatedAt.IsZero() {
 		return false
 	}
-	return now.Sub(sess.UpdatedAt) <= terminatedPRRefreshWindow
+	return now.Sub(terminatedAt) <= terminatedPRRefreshWindow
 }
 
 // The stored origin remains usable when the checkout is temporarily unavailable.
@@ -972,7 +979,9 @@ func openTrackedPRs(prs []domain.PullRequest) []domain.PullRequest {
 // session remains live. If merge-driven teardown fails, the observer has not
 // acknowledged the terminal semantic hash, so a later poll can redeliver it.
 func trackedPRsForSession(sess domain.SessionRecord, prs []domain.PullRequest) []domain.PullRequest {
-	if !sess.TerminateOnPRMerge {
+	// A terminated session needs no teardown retry, so settled PRs drop out
+	// of its refresh set and only open ones stay.
+	if !sess.TerminateOnPRMerge || sess.IsTerminated {
 		return openTrackedPRs(prs)
 	}
 	out := make([]domain.PullRequest, 0, len(prs))
@@ -1027,6 +1036,11 @@ func (o *Observer) discoverNewPRs(ctx context.Context, sessionRepos []sessionRep
 	for _, sr := range sessionRepos {
 		key := prKey(sr.repo, 0)
 		byRepo[key] = append(byRepo[key], sr)
+		// A terminated session never lists its branches: its tracked PRs
+		// stay refreshed from the repo guard change signal instead.
+		if sr.session.IsTerminated {
+			continue
+		}
 		repos[key] = sr.repo
 	}
 	// listed tracks which repos had their PR list fetched this poll, and
@@ -1145,7 +1159,7 @@ func (o *Observer) discoverNewPRs(ctx context.Context, sessionRepos []sessionRep
 				headRepo = repoFullName(repo)
 			}
 			eligible := candidatesForHeadRepo(byRepo[repoKey], headRepo)
-			sr, ok := matchSession(eligible, pr.SourceBranch)
+			sr, ok := matchSession(discoverableCandidates(eligible), pr.SourceBranch)
 			if !ok {
 				continue
 			}
@@ -1245,6 +1259,18 @@ func candidatesForHeadRepo(candidates []sessionRepo, headRepo string) []sessionR
 	return out
 }
 
+// discoverableCandidates drops terminated sessions: their tracked PRs stay
+// refreshed, but a new PR must never be attributed to a dead session.
+func discoverableCandidates(candidates []sessionRepo) []sessionRepo {
+	out := make([]sessionRepo, 0, len(candidates))
+	for _, sr := range candidates {
+		if !sr.session.IsTerminated {
+			out = append(out, sr)
+		}
+	}
+	return out
+}
+
 // matchSession prefers exact branches, then the longest owned prefix. Root
 // leaves own slash siblings. Legacy workspace branches are bare refs, so they
 // also own hyphen siblings, but only under the validated AO session branch.
@@ -1307,7 +1333,7 @@ func sessionBranchPrefixes(branch string) []string {
 	return prefixes
 }
 
-func (o *Observer) selectRefreshCandidates(ctx context.Context, subjects map[string]*subject, guards map[string]repoGuardState, listedPRs map[string]bool, markRepoFailed func(ports.SCMRepo), now time.Time) refreshSelection {
+func (o *Observer) selectRefreshCandidates(ctx context.Context, subjects map[string]*subject, guards map[string]repoGuardState, listedPRs, listedRepos map[string]bool, markRepoFailed func(ports.SCMRepo), now time.Time) refreshSelection {
 	selection := refreshSelection{
 		subjectsByPR:  map[string]*subject{},
 		commitETags:   map[string]pendingCacheString{},
@@ -1320,15 +1346,19 @@ func (o *Observer) selectRefreshCandidates(ctx context.Context, subjects map[str
 		key := keyForTrackedPR(s.known, s.repo)
 		selection.subjectsByPR[key] = s
 		candidate := missingLocalState(s.known)
-		repoCursor := o.Cache.LastSyncCursor[prKey(s.repo, 0)]
+		repoKey := prKey(s.repo, 0)
+		repoCursor := o.Cache.LastSyncCursor[repoKey]
 		hasCursor := !repoCursor.IsZero()
-		g := guards[prKey(s.repo, 0)]
+		g := guards[repoKey]
+		// A terminated session has no branch listing to compare against, so a
+		// changed repo guard is the signal that its tracked PRs moved.
+		unlistedTerminated := s.session.IsTerminated && !listedRepos[repoKey]
 		if g.err == nil && !g.result.NotModified {
 			// Incremental discovery: on polls after the first (hasCursor), only
 			// refresh MRs that appeared in the updated set. On the first poll
 			// (no cursor), refresh all tracked MRs
 			if hasCursor && listedPRs != nil {
-				if listedPRs[key] {
+				if listedPRs[key] || unlistedTerminated {
 					candidate = true
 				}
 			} else {
@@ -1374,7 +1404,7 @@ func (o *Observer) selectRefreshCandidates(ctx context.Context, subjects map[str
 			// updated set are left to the terminal-reconciliation pass — do not
 			// promote them here or reconciliation will skip them (it checks
 			// candidateKeys to avoid double-fetching).
-			if !hasCursor || listedPRs == nil || listedPRs[key] {
+			if !hasCursor || listedPRs == nil || listedPRs[key] || unlistedTerminated {
 				last := o.Cache.LastPRFetchAt[key]
 				if last.IsZero() || now.Sub(last) > DefaultPRMaxAge {
 					candidate = true
