@@ -24,10 +24,18 @@ Four coding tools are read, each described in `scripts/ai-actual/sessions.mjs`:
 | Codex | `~/.codex/sessions/**/rollout-*.jsonl` | per event |
 | Claude Code | `~/.claude/projects/*/*.jsonl` | per event |
 | OpenCode | `~/.local/share/opencode/opencode.db` (SQLite) | per message, milliseconds |
-| Copilot CLI | `~/.copilot/session-store.db` (SQLite) | per turn |
+| Copilot CLI | `~/.copilot/session-store.db`, then `~/snap/copilot-cli/common/.copilot/session-store.db` (SQLite) | per turn |
 
-A store that does not exist is skipped, so a machine only needs the tools it
-actually runs. `--tools codex,opencode` narrows the set.
+A Linux snap install of the Copilot CLI moves its store under `~/snap`, so the
+reader tries the documented path first and the snap path second.
+`--copilot-store <path>` or `AI_ACTUAL_COPILOT_STORE` overrides both; the flag
+wins over the environment.
+
+A store that cannot be read is reported as a warning naming the tool and every
+path tried, then skipped so the other tools still measure. A machine only needs
+the tools it actually runs, so an absent tool appears as a warning rather than
+a silent zero. `--tools codex,opencode` narrows the set; spaces are trimmed and
+duplicate names are collapsed.
 
 Consecutive events closer than the idle cut are summed; a longer gap is time
 the tool was not working on the task and is dropped. The default cut is five
@@ -79,7 +87,8 @@ npm run ai-actual:test                    # unit tests, plus live checks with a 
 | `--pr <number>` | Pull request to measure. Required. |
 | `--issue <number>` | Record this issue instead of the ones the PR closes. |
 | `--cwd <path>` | Extra working directory to attribute sessions from. |
-| `--tools <list>` | Stores to read. Default: all four. |
+| `--tools <list>` | Stores to read. Default: all four. Duplicates and spaces are ignored. |
+| `--copilot-store <path>` | Copilot CLI store to read. Default: the documented path, then the snap path. |
 | `--idle-cut <minutes>` | Gap treated as idle. Default 5. |
 | `--ref <branch>` | Branch holding the workflow. Default: the default branch. |
 | `--workflow <name>` | Workflow file name. Default `ai-actual.yml`. |

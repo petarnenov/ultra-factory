@@ -1,6 +1,6 @@
 // Session stores for Codex, Claude Code, OpenCode, and the Copilot CLI.
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -16,27 +16,73 @@ export const STORES = {
 };
 
 const DAY_SECONDS = 86_400;
+export const COPILOT_STORE_ENV = 'AI_ACTUAL_COPILOT_STORE';
 
-export function defaultRoot(name) {
-	if (name === 'codex') return join(homedir(), '.codex', 'sessions');
-	if (name === 'claude') return join(homedir(), '.claude', 'projects');
-	if (name === 'opencode') return join(homedir(), '.local', 'share', 'opencode', 'opencode.db');
-	if (name === 'copilot') return join(homedir(), '.copilot', 'session-store.db');
+export function defaultRoot(name, home = homedir()) {
+	if (name === 'codex') return join(home, '.codex', 'sessions');
+	if (name === 'claude') return join(home, '.claude', 'projects');
+	if (name === 'opencode') return join(home, '.local', 'share', 'opencode', 'opencode.db');
+	if (name === 'copilot') return join(home, '.copilot', 'session-store.db');
 	throw new Error(`unknown store ${name}`);
 }
 
-export function discoverSessions({ windowStart, windowEnd, stores }) {
-	const names = stores ?? Object.keys(STORES);
+// A Linux snap install of the Copilot CLI moves its store under ~/snap.
+export function storePaths(name, { home = homedir(), copilotStore, env = process.env } = {}) {
+	if (name !== 'copilot') return [defaultRoot(name, home)];
+	const override = copilotStore || env[COPILOT_STORE_ENV];
+	if (override) return [override];
+	return [
+		defaultRoot(name, home),
+		join(home, 'snap', 'copilot-cli', 'common', '.copilot', 'session-store.db'),
+	];
+}
+
+// Trims, drops empty entries, and keeps one of each store name.
+export function parseStoreList(value) {
+	if (value === undefined || value === null) return undefined;
+	const names = String(value).split(',').map((name) => name.trim()).filter(Boolean);
+	return [...new Set(names)];
+}
+
+export function discoverSessions({
+	windowStart,
+	windowEnd,
+	stores,
+	home = homedir(),
+	copilotStore,
+	env = process.env,
+	warn = console.warn,
+}) {
+	const names = [...new Set(stores ?? Object.keys(STORES))];
 	const found = [];
 	for (const name of names) {
 		if (!Object.hasOwn(STORES, name)) throw new Error(`unknown store ${name}`);
-		const root = defaultRoot(name);
-		const options = { name, root, windowStart, windowEnd };
-		found.push(...(STORES[name].kind === 'jsonl' ? jsonlSessions(options) : sqliteSessions(options)));
+		const kind = STORES[name].kind;
+		const paths = storePaths(name, { home, copilotStore, env });
+		const failures = [];
+		let read = false;
+		for (const path of paths) {
+			try {
+				if (!existsSync(path)) throw new Error('not found');
+				if (kind === 'jsonl') readdirSync(path);
+				else statSync(path);
+				const options = { name, root: path, windowStart, windowEnd };
+				found.push(...(kind === 'jsonl' ? jsonlSessions(options) : sqliteSessions(options)));
+				read = true;
+				break;
+			} catch (error) {
+				// One unreadable store must not hide the other tools' time.
+				failures.push(`${path} (${error.message})`);
+			}
+		}
+		if (!read) {
+			warn(`warning: ${name} session store unavailable; tried ${failures.join(', ')}; skipping ${name}`);
+		}
 	}
 	return found;
 }
 
+// Callers pass events in time order; SQL readers sort before calling.
 function inWindow(events, windowStart, windowEnd) {
 	if (events.length === 0) return false;
 	if (events[events.length - 1].at < windowStart) return false;
@@ -44,8 +90,12 @@ function inWindow(events, windowStart, windowEnd) {
 	return true;
 }
 
+function byTime(left, right) {
+	return left.at - right.at;
+}
+
 function session(name, cwd, branch, events) {
-	events.sort((left, right) => left.at - right.at);
+	events.sort(byTime);
 	return { name, cwd, branch, events, pull: null, pullRepository: null };
 }
 
@@ -131,7 +181,7 @@ export function openCodeSessions({ name, root, windowStart, windowEnd }) {
 		const sessions = [];
 		for (const [id, group] of grouped) {
 			// OpenCode records no branch: the worktree has to name one.
-			const events = group.events.filter((event) => event.at !== null);
+			const events = group.events.filter((event) => event.at !== null).sort(byTime);
 			if (!inWindow(events, windowStart, windowEnd)) continue;
 			sessions.push(session(`${name}/${group.slug ?? id.slice(0, 8)}`, group.cwd, null, events));
 		}
@@ -151,7 +201,9 @@ export function copilotSessions({ name, root, windowStart, windowEnd }) {
 		}
 		const found = [];
 		for (const row of sessions) {
-			const events = (grouped.get(String(row.id)) ?? []).filter((event) => event.at !== null);
+			const events = (grouped.get(String(row.id)) ?? [])
+				.filter((event) => event.at !== null)
+				.sort(byTime);
 			if (!inWindow(events, windowStart, windowEnd)) continue;
 			// The store records one branch per session, so every turn on that
 			// session carries it.
