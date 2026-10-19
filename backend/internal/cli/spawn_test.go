@@ -997,6 +997,62 @@ func TestSpawnInvalidHarnessPreservesDaemonErrorEnvelope(t *testing.T) {
 	}
 }
 
+// TestSpawnBlockedResolutionSurfacesCatalogOptions covers #266 at the CLI wire:
+// the blocking message lists valid models and no session request follows.
+func TestSpawnBlockedResolutionSurfacesCatalogOptions(t *testing.T) {
+	cfg := setConfigEnv(t)
+	const message = `agent configuration for machine "IMac" harness "opencode-v2": ` +
+		`Project Settings model "gpt-6-luna" for the worker role was configured for harness "codex" ` +
+		`and is not valid for this harness; valid models for "opencode-v2": ` +
+		`opencode-v2/machine-default, opencode-v2/deepseek-v4.1-flash`
+	var requests []string
+	var spawned spawnRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appendPrimaryRequest(&requests, r)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
+			_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo",`+
+				`"agent":"opencode-v2","config":{"worker":{"agent":"codex","agentConfig":`+
+				`{"model":"gpt-6-luna","effort":"low"}}}}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agents/readiness/ensure":
+			_, _ = io.WriteString(w, authorizedAgentsJSON("opencode-v2"))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+			if err := json.NewDecoder(r.Body).Decode(&spawned); err != nil {
+				t.Fatal(err)
+			}
+			writeTestJSON(w, http.StatusBadRequest, map[string]any{
+				"error": "validation", "message": message, "code": "AGENT_CONFIGURATION_INVALID",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	_, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }},
+		"spawn", "--project", "demo", "--agent", "opencode-v2", "--name", "worker")
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("err=%v exit=%d, want a blocked spawn", err, ExitCode(err))
+	}
+	for _, want := range []string{message, "AGENT_CONFIGURATION_INVALID"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+	}
+	// Only the harness is explicit; the model stays empty so the daemon applies
+	// and validates the target machine's role settings.
+	if spawned.Harness != "opencode-v2" || spawned.Model != "" ||
+		spawned.HarnessExplicit == nil || !*spawned.HarnessExplicit {
+		t.Fatalf("spawn request = %#v, want explicit harness and no model", spawned)
+	}
+	want := []string{"GET /api/v1/projects/demo", "POST /api/v1/agents/readiness/ensure", "POST /api/v1/sessions"}
+	if !reflect.DeepEqual(requests, want) {
+		t.Fatalf("requests=%#v want %#v (blocked spawn must not create a session)", requests, want)
+	}
+}
+
 func TestSpawnUnknownAuthEnsureWarnsAndAllows(t *testing.T) {
 	cfg := setConfigEnv(t)
 	var req spawnRequest

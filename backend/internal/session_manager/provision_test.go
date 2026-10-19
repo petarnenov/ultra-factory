@@ -380,6 +380,31 @@ func TestResolveChatAgentConfigValidatesDependentTuning(t *testing.T) {
 	}
 }
 
+// TestResolveAgentConfigDoesNotBlockBaseModelOnHarnessSwitch pins the review
+// follow-up: the remaining base model must not inherit the role's harness.
+func TestResolveAgentConfigDoesNotBlockBaseModelOnHarnessSwitch(t *testing.T) {
+	m := &Manager{modelCatalog: tuningCatalog{catalog: ports.AgentModelCatalog{
+		AllowCustom: true,
+		Models:      []ports.AgentModelInfo{{ID: "opencode-v2/default", IsDefault: true}},
+	}}}
+	project := domain.ProjectConfig{
+		AgentConfig: domain.AgentConfig{Model: "provider/custom-model"},
+		Worker: domain.RoleOverride{
+			Harness:     domain.HarnessCodex,
+			AgentConfig: domain.AgentConfig{Model: "gpt-6-luna", Effort: "low"},
+		},
+	}
+	got, err := m.resolveAgentConfig(context.Background(), ports.SpawnConfig{
+		ProjectID: "p", Kind: domain.KindWorker, Harness: domain.HarnessOpenCodeV2,
+	}, project)
+	if err != nil {
+		t.Fatalf("base model was blocked as a role model: %v", err)
+	}
+	if got.Model != "provider/custom-model" {
+		t.Fatalf("model = %q, want the base model", got.Model)
+	}
+}
+
 func TestResolveChatAgentConfigValidatesClaudeEffort(t *testing.T) {
 	catalogCalls := 0
 	m := &Manager{modelCatalog: tuningCatalog{calls: &catalogCalls, catalog: ports.AgentModelCatalog{Models: []ports.AgentModelInfo{

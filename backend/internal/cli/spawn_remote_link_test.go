@@ -63,6 +63,7 @@ func TestRemoteSpawnResolvesHarnessOnTargetMachine(t *testing.T) {
 		args         []string
 		wantHarness  string
 		wantExplicit bool
+		wantModel    string
 	}{
 		{
 			name: "role settings",
@@ -82,6 +83,15 @@ func TestRemoteSpawnResolvesHarnessOnTargetMachine(t *testing.T) {
 			args:         []string{"--agent", "opencode"},
 			wantHarness:  "opencode",
 			wantExplicit: true,
+		},
+		{
+			name: "explicit directive with model",
+			project: projectDetails{ID: "widgets", Repo: "https://github.com/acme/widgets",
+				Agent: "codex", Config: &projectConfig{Worker: roleOverride{Agent: "opencode-v2"}}},
+			args:         []string{"--agent", "opencode-v2", "--model", "opencode-v2/deepseek"},
+			wantHarness:  "opencode-v2",
+			wantExplicit: true,
+			wantModel:    "opencode-v2/deepseek",
 		},
 	}
 	for _, tc := range cases {
@@ -110,6 +120,9 @@ func TestRemoteSpawnResolvesHarnessOnTargetMachine(t *testing.T) {
 			}
 			if spawned.Harness != tc.wantHarness {
 				t.Fatalf("harness = %q, want %q", spawned.Harness, tc.wantHarness)
+			}
+			if spawned.Model != tc.wantModel {
+				t.Fatalf("model = %q, want %q", spawned.Model, tc.wantModel)
 			}
 			explicit := spawned.HarnessExplicit != nil && *spawned.HarnessExplicit
 			if explicit != tc.wantExplicit {
