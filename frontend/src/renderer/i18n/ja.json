@@ -3254,7 +3254,7 @@
   "reports.loadingMore": "Loading more reports…",
   "reports.loadMoreError": "Reports could not be loaded.",
   "chat.role.orchestrator": "オーケストレーター",
-  "chat.role.worker": "作業者",
+  "chat.role.worker": "ワーカー",
   "chat.role.reviewer": "レビュアー",
   "chat.killOrchestrator.action": "強制終了",
   "chat.killOrchestrator.aria": "オーケストレーターを強制終了",

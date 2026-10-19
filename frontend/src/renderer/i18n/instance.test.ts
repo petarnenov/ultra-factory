@@ -66,6 +66,21 @@ describe("app i18next instance", () => {
 		}
 	});
 
+	it("reuses the established role terms in the chat header", () => {
+		for (const locale of APP_LOCALES) {
+			const catalog = allCatalogs[locale] as unknown as Record<string, string>;
+			expect(catalog["chat.role.orchestrator"], `${locale} orchestrator`).toBe(
+				catalog["shell.orchestrator"],
+			);
+			expect(catalog["chat.role.worker"], `${locale} worker`).toBe(
+				catalog["settings.models.workerRole"],
+			);
+			expect(catalog["chat.role.reviewer"], `${locale} reviewer`).toBe(
+				catalog["terminal.reviewer"],
+			);
+		}
+	});
+
 	it("uses English by default and Chinese when selected", () => {
 		expect(createAppI18n().t("settings.general")).toBe("General");
 		expect(createAppI18n("zh-CN").t("settings.general")).toBe("通用");

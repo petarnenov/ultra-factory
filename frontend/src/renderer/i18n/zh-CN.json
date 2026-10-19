@@ -3235,13 +3235,13 @@
   "reports.loadMore": "Load more",
   "reports.loadingMore": "Loading more reports…",
   "reports.loadMoreError": "Reports could not be loaded.",
-  "chat.role.orchestrator": "协调器",
-  "chat.role.worker": "工作器",
+  "chat.role.orchestrator": "编排器",
+  "chat.role.worker": "Worker",
   "chat.role.reviewer": "评审者",
   "chat.killOrchestrator.action": "结束",
   "chat.killOrchestrator.aria": "结束协调器",
   "chat.killOrchestrator.killing": "正在结束…",
-  "archive.killOrchestratorTitle": "结束此协调器吗？",
-  "archive.killOrchestratorBody": "这会结束协调器会话，效果与 `ao session kill <id>` 相同。之后可以用 `ao session restore <id>` 恢复；不会自动启动替代会话。",
-  "archive.killOrchestratorConfirmAria": "确认，结束协调器"
+  "archive.killOrchestratorTitle": "结束此编排器吗？",
+  "archive.killOrchestratorBody": "这会结束编排器会话，效果与 `ao session kill <id>` 相同。之后可以用 `ao session restore <id>` 恢复；不会自动启动替代会话。",
+  "archive.killOrchestratorConfirmAria": "确认，结束编排器"
 }

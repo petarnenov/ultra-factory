@@ -3299,7 +3299,7 @@
   "reports.loadingMore": "Loading more reports…",
   "reports.loadMoreError": "Reports could not be loaded.",
   "chat.role.orchestrator": "Orquestador",
-  "chat.role.worker": "Trabajador",
+  "chat.role.worker": "Worker",
   "chat.role.reviewer": "Revisor",
   "chat.killOrchestrator.action": "Detener",
   "chat.killOrchestrator.aria": "Detener orquestador",
