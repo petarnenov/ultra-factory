@@ -623,7 +623,7 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 		);
 	}
 
-	// The orchestrator's own chat is where a runaway session is noticed.
+	// Local orchestrators only; Cloud chat uses CloudSessionChatSurface.
 	const chatHeaderActions =
 		isOrchestratorSession(session) && !session.isTerminated ? (
 			<>

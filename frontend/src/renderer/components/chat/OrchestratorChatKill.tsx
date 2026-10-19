@@ -24,6 +24,7 @@ export function OrchestratorChatKill({ hostId, session }: { hostId?: string; ses
 
 	const confirmKill = ({ deleteArtifacts }: SessionArchiveChoice) => {
 		setConfirmOpen(false);
+		// Stay on the terminated chat so the terminal state remains visible.
 		kill.mutate({ ...ownedSession, deleteArtifacts });
 	};
 

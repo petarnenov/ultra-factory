@@ -2068,6 +2068,7 @@ function ChatHeader({
 	const sessionIsOrchestrator = session
 		? isOrchestratorSession(session)
 		: sessionRole === "orchestrator";
+	// The badge repeats role-shaped tab titles so the role stays visible.
 	const chatRole: ChatRole = reviewerActive
 		? "reviewer"
 		: sessionIsOrchestrator
