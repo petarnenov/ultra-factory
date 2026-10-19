@@ -28,6 +28,12 @@ type SpawnConfig struct {
 	// through `ao spawn`. The daemon validates this reference and derives any
 	// inherited settings itself; callers never supply an inherited policy.
 	ParentSessionID domain.SessionID
+	// OwnerSessionID is the durable coordinator owner derived from
+	// ParentSessionID at spawn. Nil means the worker is root-owned.
+	OwnerSessionID *domain.SessionID
+	// CoordinatorScope bounds a coordinator session's work. It is required for
+	// KindCoordinator and ignored for every other kind.
+	CoordinatorScope string
 	// RemoteSpawned marks a worker another machine started with `ao spawn
 	// --host`. Its orchestrator runs on that machine, so this daemon refuses to
 	// start one of its own while the worker is active.

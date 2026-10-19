@@ -2049,6 +2049,9 @@ func reconcileSchema(db *sql.DB) error {
 	if err := reconcileHarnessConstraint(db); err != nil {
 		return err
 	}
+	if err := reconcileSessionKindConstraint(db); err != nil {
+		return err
+	}
 	// A missing column fails reads loudly; a missing revision trigger silently
 	// disables every session CAS. Do not admit that database as healthy.
 	var revisionColumn, revisionTrigger int
@@ -2273,6 +2276,50 @@ WHERE type = 'table' AND name = 'sessions'`,
 	}
 	if !strings.Contains(schema, "'command-code'") {
 		return fmt.Errorf("schema repair: sessions harness constraint is missing Command Code and did not match known pre-Command-Code schema")
+	}
+	return nil
+}
+
+const (
+	sessionsKindCheckLegacy          = `CHECK (kind IN ('worker', 'orchestrator'))`
+	sessionsKindCheckWithCoordinator = `CHECK (kind IN ('worker', 'orchestrator', 'coordinator'))`
+)
+
+// reconcileSessionKindConstraint widens sessions.kind when a burnt goose
+// version recorded 0207 without applying it, so coordinator writes still work.
+func reconcileSessionKindConstraint(db *sql.DB) error {
+	var schema string
+	if err := db.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'`,
+	).Scan(&schema); err != nil {
+		return fmt.Errorf("schema verification: inspect sessions kind constraint: %w", err)
+	}
+	if strings.Contains(schema, "'coordinator'") {
+		return nil
+	}
+	if !strings.Contains(schema, sessionsKindCheckLegacy) {
+		return fmt.Errorf("schema repair: sessions kind constraint is missing coordinator and did not match the known pre-coordinator schema")
+	}
+	if _, err := db.Exec(`PRAGMA writable_schema = ON`); err != nil {
+		return fmt.Errorf("schema repair: enable writable_schema for sessions kind constraint: %w", err)
+	}
+	if _, err := db.Exec(
+		`UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'sessions'`,
+		sessionsKindCheckLegacy,
+		sessionsKindCheckWithCoordinator,
+	); err != nil {
+		return fmt.Errorf("schema repair: widen sessions kind constraint: %w", err)
+	}
+	if _, err := db.Exec(`PRAGMA writable_schema = RESET`); err != nil {
+		return fmt.Errorf("schema repair: reparse sessions kind constraint: %w", err)
+	}
+	if err := db.QueryRow(
+		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sessions'`,
+	).Scan(&schema); err != nil {
+		return fmt.Errorf("schema verification: inspect repaired sessions kind constraint: %w", err)
+	}
+	if !strings.Contains(schema, "'coordinator'") {
+		return fmt.Errorf("schema repair: sessions kind constraint is missing coordinator after repair")
 	}
 	return nil
 }

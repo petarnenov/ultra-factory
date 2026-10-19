@@ -562,6 +562,17 @@ type RemoteWorkerLink struct {
 	HostLabel       string
 	DisplayName     string
 	CreatedAt       time.Time
+	OwnerSessionID  *domain.SessionID
+}
+
+type RemoteWorkerOwnerEvent struct {
+	ID                     int64
+	HostID                 string
+	RemoteSessionID        domain.SessionID
+	PreviousOwnerSessionID *domain.SessionID
+	NewOwnerSessionID      *domain.SessionID
+	Reason                 domain.OwnershipEventReason
+	CreatedAt              time.Time
 }
 
 type RemoteWorkerReport struct {
@@ -742,6 +753,8 @@ type Session struct {
 	HibernatedAt                     sql.NullTime
 	BranchState                      string
 	RequestedOutput                  string
+	CoordinatorScope                 string
+	OwnerSessionID                   *domain.SessionID
 }
 
 type SessionArtifactVersion struct {
@@ -802,6 +815,15 @@ type SessionInterfaceTransitionMessage struct {
 	ClientMessageID string
 	SenderSessionID string
 	AuthoredByUser  bool
+}
+
+type SessionOwnerEvent struct {
+	ID                     int64
+	SessionID              domain.SessionID
+	PreviousOwnerSessionID *domain.SessionID
+	NewOwnerSessionID      *domain.SessionID
+	Reason                 domain.OwnershipEventReason
+	CreatedAt              time.Time
 }
 
 type SessionProgress struct {

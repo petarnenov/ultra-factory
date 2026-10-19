@@ -880,3 +880,17 @@ func (q *Queries) RequeueClaimedReports(ctx context.Context) (int64, error) {
 	}
 	return result.RowsAffected()
 }
+
+const sessionHasClaimedReport = `-- name: SessionHasClaimedReport :one
+SELECT EXISTS(
+    SELECT 1 FROM reports
+    WHERE session_id = ? AND delivery_state = 'claimed'
+)
+`
+
+func (q *Queries) SessionHasClaimedReport(ctx context.Context, sessionID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, sessionHasClaimedReport, sessionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

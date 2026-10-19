@@ -65,6 +65,8 @@ func (f *fakeAgentReadiness) RecheckAgent(agentID string) {
 type fakeStore struct {
 	cleanupFacts        map[domain.SessionID]domain.SessionCleanupRecord
 	sessions            map[domain.SessionID]domain.SessionRecord
+	ownerEvents         []domain.SessionOwnerEvent
+	claimedReports      map[domain.SessionID]bool
 	getSessionErr       error
 	activeSwitches      map[domain.SessionID]domain.AgentSwitch
 	activeSwitchGetErr  error
@@ -90,6 +92,7 @@ type fakeStore struct {
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		sessions:       map[domain.SessionID]domain.SessionRecord{},
+		claimedReports: map[domain.SessionID]bool{},
 		activeSwitches: map[domain.SessionID]domain.AgentSwitch{},
 		pr:             map[domain.SessionID]domain.PRFacts{},
 		prFacts:        map[domain.SessionID][]domain.PRFacts{},
@@ -270,6 +273,31 @@ func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.S
 	}
 	r, ok := f.sessions[id]
 	return r, ok, nil
+}
+
+func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time) (domain.SessionRecord, bool, error) {
+	rec, ok := f.sessions[id]
+	if !ok {
+		return domain.SessionRecord{}, false, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	if sameSessionOwner(rec.OwnerSessionID, owner) {
+		return rec, false, nil
+	}
+	f.ownerEvents = append(f.ownerEvents, domain.SessionOwnerEvent{
+		SessionID:              id,
+		PreviousOwnerSessionID: rec.OwnerSessionID,
+		NewOwnerSessionID:      owner,
+		Reason:                 reason,
+		CreatedAt:              at,
+	})
+	rec.OwnerSessionID = owner
+	rec.UpdatedAt = at
+	f.sessions[id] = rec
+	return rec, true, nil
+}
+
+func (f *fakeStore) SessionHasClaimedReport(_ context.Context, id domain.SessionID) (bool, error) {
+	return f.claimedReports[id], nil
 }
 
 func (f *fakeStore) GetSessionByClientRequestID(_ context.Context, id string) (domain.SessionRecord, bool, error) {
