@@ -286,11 +286,15 @@ runtime.
   owner: a live `coordinator` parent in the same project becomes the owner;
   a root parent, a worker parent, or no owner-eligible parent stores `NULL`.
 - The owner is chosen when the link is created. It is never sent to the remote
-  host. Re-registering an existing `(host_id, remote_session_id)` link
-  preserves the stored owner and updates display metadata only; a coordinator
-  cannot adopt a remote worker by re-registering it. Changing a remote owner
-  uses the ownership write path like a local worker, and is audited in
-  `remote_worker_owner_events`.
+  host. Re-registering an existing `(host_id, remote_session_id)` link keeps
+  `project_id` and `owner_session_id` fixed; it updates only
+  `remote_project_id`, `host_label`, and `display_name`. A re-registration
+  naming a different local project is rejected with
+  `REMOTE_WORKER_LINK_PROJECT_CONFLICT` rather than moving the link. This keeps
+  I4 true: the stored owner is always a coordinator in the link's project. A
+  coordinator cannot adopt a remote worker by re-registering it. Changing a
+  remote owner uses the ownership write path like a local worker, and is
+  audited in `remote_worker_owner_events`.
 - A remote link counts as one active worker until the remote-report ADR's
   retire rule deletes it. Local runtime state for a remote worker is not
   readable here, so link presence is the durable capacity fact.
@@ -779,6 +783,7 @@ Stable API errors, all in the existing `apierr` envelope with a request ID:
 | `OWNER_CROSS_PROJECT` | Conflict / 409 | Owner is in another project | `ownerSessionId` |
 | `OWNER_TERMINATED` | Conflict / 409 | Owner is terminated | `ownerSessionId` |
 | `OWNER_REASSIGNMENT_IN_FLIGHT` | Conflict / 409 | A report of the worker is claimed | `sessionId` |
+| `REMOTE_WORKER_LINK_PROJECT_CONFLICT` | Conflict / 409 | Re-registration names a different local project | `hostId`, `remoteSessionId`, `projectId` |
 | `MERGE_ROOT_ONLY` | Forbidden / 403 | Merge requested by a live coordinator or worker | `sessionId` |
 | `REPORT_WORKER_REQUIRED` | Invalid / 400 | Coordinator tried `ao report` (existing code) | — |
 
@@ -914,6 +919,15 @@ Compatibility rules:
 - Every existing `remote_worker_links.owner_session_id` is `NULL`, so every
   existing link resolves to the root exactly as today. The backlog's claim
   that the parent was stored is false; there is nothing to migrate.
+- Re-registration behavior changes. Today `UpsertRemoteWorkerLink` also
+  rewrites `project_id`. After this ADR the link's local project and owner are
+  fixed: the upsert updates only `remote_project_id`, `host_label`, and
+  `display_name`, and a different local project is rejected with
+  `REMOTE_WORKER_LINK_PROJECT_CONFLICT`. The store upsert drops `project_id`
+  from its update set, and the service rejects a differing project before
+  calling it. A silent project move would strand a non-NULL owner outside its
+  project and violate I4. CO-2.1.1 covers the new behavior with a store test
+  and an API test.
 - Reports queued in the CLI outbox before an upgrade are replayed as ordinary
   report rows; ownership is resolved at delivery, so enqueue time does not
   matter.
