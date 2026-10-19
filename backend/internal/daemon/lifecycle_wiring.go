@@ -314,6 +314,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		Scratch:  scratchWS,
 		Projects: store,
 	})
+	scmIdentity := scmidentity.New(scmsecret.New(cfg.DataDir), nil)
 	mgr := sessionmanager.New(sessionmanager.Deps{
 		Runtime:             runtime,
 		Agents:              agents,
@@ -335,7 +336,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		ReconcileWorkers:    startupReconcileWorkers,
 		CodexOperationGate:  codexOperationGate,
 		DefaultHarness:      defaultAgentHarness(cfg.Agent),
-		SCMIdentity:         scmidentity.New(scmsecret.New(cfg.DataDir), nil),
+		SCMIdentity:         scmIdentity,
 	})
 	mgr.SetAgentReadiness(agentReadiness)
 	scmProvider := newMultiSCMProvider(cfg.GitLab, cfg.DataDir, log)
@@ -381,12 +382,13 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 	reviewCheckout := reviewcore.NewGitCheckout(cfg.DataDir)
 	reviewEngine := reviewcore.New(reviewcore.Deps{
 		// The manager's installer gate is bound after the installer is built.
-		HarnessUse: mgr,
-		Store:      store,
-		Sessions:   store,
-		PRs:        store,
-		Projects:   store,
-		Checkout:   reviewCheckout,
+		HarnessUse:  mgr,
+		Store:       store,
+		Sessions:    store,
+		PRs:         store,
+		Projects:    store,
+		SCMIdentity: scmIdentity,
+		Checkout:    reviewCheckout,
 		Launcher: reviewcore.NewLauncher(reviewers, runtime, cfg.DataDir,
 			reviewcore.WithRunFilePath(cfg.RunFilePath),
 			reviewcore.WithAgentAuth(reviewerAgentAuth{readiness: agentReadiness}),

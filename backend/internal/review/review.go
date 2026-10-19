@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/agentlaunch"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 )
 
 // ErrInvalid and ErrNotFound let the transport layer map failures to 422/404.
@@ -112,6 +113,9 @@ type Deps struct {
 	ModelCatalog agentlaunch.Catalog
 	// MachineLabel names this machine in resolution errors.
 	MachineLabel string
+	// SCMIdentity resolves the project's bound GitHub account for a reviewer.
+	// Nil keeps today's machine-level fallback.
+	SCMIdentity *scmidentity.Resolver
 
 	// Clock and NewID are injectable for deterministic tests.
 	Clock func() time.Time
@@ -133,6 +137,7 @@ type Engine struct {
 	chatRecoveryDone <-chan struct{}
 	modelCatalog     agentlaunch.Catalog
 	machineLabel     string
+	scmIdentity      *scmidentity.Resolver
 
 	// triggerMu guards triggerLocks; triggerLocks holds one mutex per worker
 	// session so concurrent Trigger calls for the same worker serialise (see
@@ -172,6 +177,7 @@ func New(d Deps) *Engine {
 		chatRecoveryDone: d.ChatRecoveryDone,
 		modelCatalog:     d.ModelCatalog,
 		machineLabel:     d.MachineLabel,
+		scmIdentity:      d.SCMIdentity,
 	}
 }
 
@@ -2204,7 +2210,17 @@ func (e *Engine) projectEnv(ctx stdctx.Context, id domain.ProjectID) (map[string
 	if err != nil || !ok {
 		return nil, err
 	}
-	return project.Config.Env, nil
+	env := project.Config.Env
+	if e.scmIdentity != nil {
+		resolved, err := e.scmIdentity.Resolve(ctx, project)
+		if err != nil {
+			return nil, err
+		}
+		if len(resolved.Env) > 0 {
+			env = agentlaunch.MergeEnv(env, resolved.Env)
+		}
+	}
+	return env, nil
 }
 
 func (e *Engine) upsertReview(ctx stdctx.Context, worker domain.SessionRecord, harness domain.ReviewerHarness, handleID, agentSessionID, reviewerLaunchID string, activityState domain.ActivityState, now time.Time) (domain.Review, error) {
