@@ -10,6 +10,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/opencode"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/lifecycle"
 )
 
 // TestCollectorRegistersOpencodeV2StoreAsSnapshotSource proves the harness
@@ -47,6 +48,53 @@ func TestCollectorRegistersOpencodeV2StoreAsSnapshotSource(t *testing.T) {
 	sources, err = store.ListUsageSourcesForBinding(context.Background(), bindings[0].ID)
 	if err != nil || len(sources) != 1 {
 		t.Fatalf("sources = %+v err = %v", sources, err)
+	}
+	resolved, err := filepath.EvalSymlinks(storePath)
+	mustNoError(t, err)
+	if sources[0].Kind != domain.UsageSourceOpencodeV2 || sources[0].ArtifactPath != resolved ||
+		sources[0].NativeSessionID != "ses_opencode" {
+		t.Fatalf("source = %+v, want the resolved store path %q", sources[0], resolved)
+	}
+}
+
+// TestCollectorDiscoversOpencodeV2StoreAfterSessionTerminated covers a hook
+// arrived before the store, with no second hook before termination.
+func TestCollectorDiscoversOpencodeV2StoreAfterSessionTerminated(t *testing.T) {
+	store := collectorTestStore(t)
+	session := collectorTestSession(t, store, domain.HarnessOpenCodeV2, "ses_opencode", false)
+	home := t.TempDir()
+	collector := NewCollector(store, SourceRoots{OpencodeV2Home: home}, nil)
+	manager := lifecycle.New(store, nil)
+	manager.SetUsageFinalizer(collector)
+
+	if err := collector.RecordHook(context.Background(), session.ID, HookSignal{
+		Harness:         domain.HarnessOpenCodeV2,
+		Event:           "session-start",
+		NativeSessionID: "ses_opencode",
+	}); err != nil {
+		t.Fatalf("record start before the store exists: %v", err)
+	}
+	bindings, err := store.ListUsageBindingsForSession(context.Background(), session.ID)
+	if err != nil || len(bindings) != 1 || bindings[0].State != domain.UsageBindingActive {
+		t.Fatalf("bindings = %+v err = %v, want one active binding", bindings, err)
+	}
+	assertNoUsageSourcesForSession(t, store, session.ID)
+
+	// No second hook: termination is the only event left, and the lifecycle
+	// finalizer is all it commits before the session is marked dead.
+	mustNoError(t, manager.MarkTerminated(context.Background(), session.ID), "terminate session")
+	bindings, err = store.ListUsageBindingsForSession(context.Background(), session.ID)
+	if err != nil || len(bindings) != 1 || bindings[0].State != domain.UsageBindingFinalizing {
+		t.Fatalf("bindings after termination = %+v err = %v, want finalizing", bindings, err)
+	}
+
+	storePath := filepath.Join(home, "opencode.db")
+	mustNoError(t, os.WriteFile(storePath, []byte("store"), 0o600))
+	mustNoError(t, collector.ReconcileSources(context.Background(), 8), "reconcile")
+
+	sources, err := store.ListUsageSourcesForBinding(context.Background(), bindings[0].ID)
+	if err != nil || len(sources) != 1 {
+		t.Fatalf("sources = %+v err = %v, want the store discovered", sources, err)
 	}
 	resolved, err := filepath.EvalSymlinks(storePath)
 	mustNoError(t, err)

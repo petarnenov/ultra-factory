@@ -118,9 +118,9 @@ SELECT CAST(EXISTS (
     FROM usage_bindings ub
     JOIN sessions s ON s.id = ub.session_id
     WHERE (s.is_terminated = 0 OR ub.state = 'finalizing')
-      AND ub.harness IN ('claude-code', 'codex', 'kimi')
+      AND ub.harness IN ('claude-code', 'codex', 'kimi', 'opencode-v2')
       AND (
-          ub.harness = 'kimi'
+          ub.harness IN ('kimi', 'opencode-v2')
           OR ub.state = 'discovering'
           OR ub.last_error_code = 'source_discovery_pending'
           OR EXISTS (
@@ -169,13 +169,15 @@ SELECT ub.*
 FROM usage_bindings ub
 JOIN sessions s ON s.id = ub.session_id
 WHERE (s.is_terminated = 0 OR ub.state = 'finalizing')
-  AND ub.harness IN ('claude-code', 'codex', 'kimi')
+  AND ub.harness IN ('claude-code', 'codex', 'kimi', 'opencode-v2')
   AND (
       ub.state IN ('discovering', 'active', 'finalizing')
       OR (ub.state = 'partial' AND ub.last_error_code = 'codex_source_budget_exceeded')
   )
+  -- These harnesses can register their only source after the hook, so they
+  -- stay eligible even once a source exists.
   AND (
-      ub.harness IN ('claude-code', 'kimi')
+      ub.harness IN ('claude-code', 'kimi', 'opencode-v2')
       OR ub.state = 'discovering'
       OR ub.state = 'finalizing'
       OR ub.last_error_code = 'codex_source_budget_exceeded'
