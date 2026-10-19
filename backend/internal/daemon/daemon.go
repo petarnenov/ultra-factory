@@ -1006,6 +1006,9 @@ func Run() error {
 	}
 
 	bs.HostID = hostIdentity.HostID
+	// Session ids embed a host token so two machines in one project cannot
+	// allocate the same id, which would collide branches, PRs and reviews.
+	store.SetSessionIDHostToken(mobilebridge.HostToken(hostIdentity.HostID))
 	reportSvc.SetSelfHostID(hostIdentity.HostID)
 	if hostname := reportSourceHostName(); hostname != "" {
 		reportSvc.SetSelfHostName(hostname)
