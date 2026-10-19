@@ -34,6 +34,7 @@ Natural-language-to-command mappings for common AO tasks.
 | See a session's owner, coordinator scope, and project root | `ao session owner <id>` |
 | Assign, reassign, or clear a worker's coordinator owner | `ao session assign <worker> --owner <coordinator-id\|root>` (live root only) |
 | List a project's coordinators and the workers they own | `ao coordinator ls --project <id>` |
+| Send the root a status summary or escalation (coordinator only) | `ao coordinator report --state <planning\|working\|blocked\|done> [--worker <id>]... [--escalate <reason>]` |
 | List linked remote workers and their local owner | `ao remote-worker ls [--project <id>]` |
 | Assign or clear a linked remote worker's owner | `ao remote-worker assign <host-id> <remote-session-id> --owner <coordinator-id\|root>` |
 | Open the desktop app (operator-only; refused inside AO sessions) | `ao start` |

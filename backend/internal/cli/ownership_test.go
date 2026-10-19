@@ -323,3 +323,40 @@ func TestSessionListShowsOwnerColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestCoordinatorReportPostsASummaryAsTheCallingCoordinator(t *testing.T) {
+	srv, capture := ownershipServer(t, http.StatusCreated, `{"id":"csum_1","state":"blocked","escalation":true,"deliveryState":"pending"}`)
+	t.Setenv("AO_SESSION_ID", "demo-coord")
+
+	out, errOut, err := runOwnershipCLI(t, srv, "coordinator", "report", "--state", "blocked", "--escalate", "other",
+		"--note", "need a call", "--worker", "demo-1", "--worker", "demo-2", "--result", "stuck on schema", "--submission-key", "key-1")
+	if err != nil {
+		t.Fatalf("coordinator report failed: %v\nstderr=%s", err, errOut)
+	}
+	if capture.method != http.MethodPost || capture.path != "/api/v1/coordinator-summaries" {
+		t.Fatalf("request = %s %s", capture.method, capture.path)
+	}
+	var body coordinatorSummaryBody
+	if err := json.Unmarshal([]byte(capture.body), &body); err != nil {
+		t.Fatalf("body %q: %v", capture.body, err)
+	}
+	if body.CoordinatorSessionID != "demo-coord" || body.SubmissionKey != "key-1" || body.State != "blocked" ||
+		body.EscalationReason != "other" || body.EscalationNote != "need a call" || len(body.WorkerSessionIDs) != 2 || body.Result != "stuck on schema" {
+		t.Fatalf("body = %+v", body)
+	}
+	if !strings.Contains(out, "escalation csum_1 queued for the root") {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestCoordinatorReportRequiresStateAndCaller(t *testing.T) {
+	srv, _ := ownershipServer(t, http.StatusCreated, `{}`)
+	t.Setenv("AO_SESSION_ID", "")
+	if _, _, err := runOwnershipCLI(t, srv, "coordinator", "report", "--state", "working"); err == nil || !strings.Contains(err.Error(), "AO_SESSION_ID") {
+		t.Fatalf("missing caller err = %v", err)
+	}
+	t.Setenv("AO_SESSION_ID", "demo-coord")
+	if _, _, err := runOwnershipCLI(t, srv, "coordinator", "report"); err == nil || !strings.Contains(err.Error(), "--state") {
+		t.Fatalf("missing state err = %v", err)
+	}
+}

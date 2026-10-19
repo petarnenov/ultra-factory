@@ -385,6 +385,34 @@ type ConversationTurn struct {
 	HandledByReviewID    sql.NullString
 }
 
+type CoordinatorSummary struct {
+	ID                   string
+	CoordinatorSessionID string
+	ProjectID            string
+	SubmissionKey        string
+	Scope                string
+	State                string
+	Result               string
+	EscalationReason     string
+	EscalationNote       string
+	CreatedAt            time.Time
+	AvailableAt          time.Time
+	DeliveryBatchID      string
+	DeliveryOwnerID      string
+	DeliveryState        string
+	ClaimToken           string
+	ClaimedAt            sql.NullTime
+	DeliveryAttempts     int64
+	AcknowledgedAt       sql.NullTime
+	LastError            string
+}
+
+type CoordinatorSummaryWorker struct {
+	SummaryID       string
+	WorkerSessionID string
+	Position        int64
+}
+
 type Cue struct {
 	ID        domain.CueID
 	ProjectID domain.ProjectID

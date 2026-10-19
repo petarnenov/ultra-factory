@@ -552,6 +552,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coordinator-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a coordinator summary or escalation to the project root */
+        post: operations["submitCoordinatorSummary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cues/{cueId}": {
         parameters: {
             query?: never;
@@ -3220,6 +3237,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a coordinator's summaries newest first with delivery state */
+        get: operations["listCoordinatorSummaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{sessionId}/switch-agent": {
         parameters: {
             query?: never;
@@ -4502,6 +4536,44 @@ export interface components {
         };
         ContainerReapConfig: {
             disabled?: boolean;
+        };
+        ControllersCoordinatorSummaryHistoryResponse: {
+            summaries: components["schemas"]["ControllersCoordinatorSummaryResponse"][];
+        };
+        ControllersCoordinatorSummaryRequest: {
+            coordinatorSessionId: string;
+            escalationNote?: string;
+            /** @enum {string} */
+            escalationReason?: "overlapping_files" | "unclear_acceptance" | "worker_failed" | "scope_decision" | "coordinator_terminated" | "other";
+            result?: string;
+            scope?: string;
+            /** @enum {string} */
+            state: "planning" | "working" | "blocked" | "done";
+            submissionKey: string;
+            workerSessionIds?: string[];
+        };
+        ControllersCoordinatorSummaryResponse: {
+            /** Format: date-time */
+            acknowledgedAt?: null | string;
+            coordinatorSessionId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            deliveryAttempts: number;
+            /** @enum {string} */
+            deliveryState: "pending" | "claimed" | "acknowledged";
+            escalation: boolean;
+            escalationNote?: string;
+            escalationReason?: string;
+            id: string;
+            lastError?: string;
+            projectId: string;
+            result: string;
+            scope: string;
+            /** @enum {string} */
+            state: "planning" | "working" | "blocked" | "done";
+            submissionKey: string;
+            workerSessionIds: string[];
         };
         ControllersKeepAwakeStatus: {
             active: boolean;
@@ -8915,6 +8987,93 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    submitCoordinatorSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllersCoordinatorSummaryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCoordinatorSummaryResponse"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCoordinatorSummaryResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -19241,6 +19400,68 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listCoordinatorSummaries: {
+        parameters: {
+            query?: {
+                /** @description Maximum summaries to return, newest first. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCoordinatorSummaryHistoryResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

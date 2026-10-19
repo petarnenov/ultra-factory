@@ -1483,6 +1483,67 @@ paths:
       summary: Check whether the desktop browser runtime is connected for a session
       tags:
       - browser
+  /api/v1/coordinator-summaries:
+    post:
+      operationId: submitCoordinatorSummary
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControllersCoordinatorSummaryRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCoordinatorSummaryResponse'
+          description: OK
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCoordinatorSummaryResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Submit a coordinator summary or escalation to the project root
+      tags:
+      - reports
   /api/v1/cues/{cueId}:
     delete:
       operationId: deleteCue
@@ -9895,6 +9956,59 @@ paths:
       summary: Send a message to a running session's agent
       tags:
       - sessions
+  /api/v1/sessions/{sessionId}/summaries:
+    get:
+      operationId: listCoordinatorSummaries
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      - description: Maximum summaries to return, newest first.
+        in: query
+        name: limit
+        schema:
+          description: Maximum summaries to return, newest first.
+          maximum: 100
+          minimum: 1
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersCoordinatorSummaryHistoryResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List a coordinator's summaries newest first with delivery state
+      tags:
+      - reports
   /api/v1/sessions/{sessionId}/switch-agent:
     post:
       operationId: switchSessionAgent
@@ -13434,6 +13548,122 @@ components:
       properties:
         disabled:
           type: boolean
+      type: object
+    ControllersCoordinatorSummaryHistoryResponse:
+      properties:
+        summaries:
+          items:
+            $ref: '#/components/schemas/ControllersCoordinatorSummaryResponse'
+          type: array
+      required:
+      - summaries
+      type: object
+    ControllersCoordinatorSummaryRequest:
+      properties:
+        coordinatorSessionId:
+          type: string
+        escalationNote:
+          maxLength: 500
+          type: string
+        escalationReason:
+          enum:
+          - overlapping_files
+          - unclear_acceptance
+          - worker_failed
+          - scope_decision
+          - coordinator_terminated
+          - other
+          type: string
+        result:
+          maxLength: 2000
+          type: string
+        scope:
+          maxLength: 200
+          type: string
+        state:
+          enum:
+          - planning
+          - working
+          - blocked
+          - done
+          type: string
+        submissionKey:
+          maxLength: 200
+          minLength: 1
+          type: string
+        workerSessionIds:
+          items:
+            type: string
+          maxItems: 3
+          type: array
+      required:
+      - coordinatorSessionId
+      - submissionKey
+      - state
+      type: object
+    ControllersCoordinatorSummaryResponse:
+      properties:
+        acknowledgedAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        coordinatorSessionId:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        deliveryAttempts:
+          format: int64
+          type: integer
+        deliveryState:
+          enum:
+          - pending
+          - claimed
+          - acknowledged
+          type: string
+        escalation:
+          type: boolean
+        escalationNote:
+          type: string
+        escalationReason:
+          type: string
+        id:
+          type: string
+        lastError:
+          type: string
+        projectId:
+          type: string
+        result:
+          type: string
+        scope:
+          type: string
+        state:
+          enum:
+          - planning
+          - working
+          - blocked
+          - done
+          type: string
+        submissionKey:
+          type: string
+        workerSessionIds:
+          items:
+            type: string
+          type: array
+      required:
+      - id
+      - coordinatorSessionId
+      - projectId
+      - submissionKey
+      - scope
+      - state
+      - workerSessionIds
+      - result
+      - escalation
+      - createdAt
+      - deliveryState
+      - deliveryAttempts
       type: object
     ControllersKeepAwakeStatus:
       properties:

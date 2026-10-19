@@ -55,6 +55,7 @@ type Coordinator struct {
 	retryDelay time.Duration
 	wake       chan struct{}
 	mu         sync.Mutex
+	summaries  SummaryDeliveryStore
 }
 
 // CoordinatorDeps configures durable scheduling and delivery.
@@ -64,6 +65,8 @@ type CoordinatorDeps struct {
 	Now        func() time.Time
 	NewToken   func() string
 	RetryDelay time.Duration
+	// Summaries enables coordinator summary delivery to the root. Optional.
+	Summaries SummaryDeliveryStore
 }
 
 // NewCoordinator constructs an idle report delivery coordinator.
@@ -77,7 +80,7 @@ func NewCoordinator(d CoordinatorDeps) *Coordinator {
 	if d.RetryDelay <= 0 {
 		d.RetryDelay = 5 * time.Second
 	}
-	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1)}
+	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1), summaries: d.Summaries}
 }
 
 // Wake asks the coordinator to inspect durable scheduling state.
@@ -139,6 +142,29 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	reportDelay, reportErr := c.runReportsLocked(ctx)
+	summaryDelay, summaryErr := c.runSummariesLocked(ctx)
+	if err := errors.Join(reportErr, summaryErr); err != nil {
+		return c.retryDelay, err
+	}
+	return earliestDelay(reportDelay, summaryDelay), nil
+}
+
+// earliestDelay merges two scheduler deadlines; a negative delay means idle.
+func earliestDelay(a, b time.Duration) time.Duration {
+	switch {
+	case a < 0:
+		return b
+	case b < 0:
+		return a
+	case b < a:
+		return b
+	}
+	return a
+}
+
+// runReportsLocked is the worker report pass; the caller holds c.mu.
+func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, error) {
 	pending, err := c.store.ListPendingReportSchedule(ctx, reportScheduleScanLimit)
 	if err != nil {
 		return c.retryDelay, err
