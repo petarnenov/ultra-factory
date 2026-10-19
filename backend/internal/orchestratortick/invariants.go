@@ -33,7 +33,7 @@ func Violations(cfg Config, facts Facts, now time.Time) []Violation {
 	} else {
 		gh := facts.GitHub
 		out = append(out, behindMain(cfg, gh)...)
-		out = append(out, greenPRsLeftOpen(cfg, gh, now)...)
+		out = append(out, greenPRsLeftOpen(cfg, facts, now)...)
 		out = append(out, mergedPRsWithOpenIssues(gh)...)
 	}
 	out = append(out, idleWorkersWithoutPR(cfg, facts.Hosts, now)...)
@@ -51,10 +51,14 @@ func behindMain(cfg Config, gh *GitHubState) []Violation {
 	return []Violation{{Key: text, Text: text}}
 }
 
-// 2. A green, mergeable pull request does not sit unmerged.
-func greenPRsLeftOpen(cfg Config, gh *GitHubState, now time.Time) []Violation {
+// 2. A green, mergeable pull request does not sit unmerged. Its review state
+// decides whether the remaining work is a merge or a review.
+func greenPRsLeftOpen(cfg Config, facts Facts, now time.Time) []Violation {
 	var out []Violation
-	for _, pr := range gh.OpenPRs {
+	if facts.GitHub == nil {
+		return nil
+	}
+	for _, pr := range facts.GitHub.OpenPRs {
 		if pr.Mergeable != "MERGEABLE" || CheckSummary(pr.Checks) != "green" {
 			continue
 		}
@@ -67,15 +71,64 @@ func greenPRsLeftOpen(cfg Config, gh *GitHubState, now time.Time) []Violation {
 		if last.IsZero() {
 			continue
 		}
-		if age := now.Sub(last); age >= cfg.GreenPRMax {
-			out = append(out, Violation{
-				Key: fmt.Sprintf("green-pr:#%d", pr.Number),
-				Text: fmt.Sprintf("#%d (%s) has been green and mergeable for %d min → review it per \"Review and merge\" and merge it",
-					pr.Number, pr.Head, minutes(age)),
-			})
+		age := now.Sub(last)
+		if age < cfg.GreenPRMax {
+			continue
 		}
+		pr.AOReviewStatus = aoReviewStatus(facts, pr)
+		if reviewWaitsOnAuthor(pr) {
+			continue
+		}
+		out = append(out, Violation{
+			Key:  fmt.Sprintf("green-pr:#%d", pr.Number),
+			Text: greenPRText(pr, age),
+		})
 	}
 	return out
+}
+
+// greenPRText names the work left: merge a clean pull request, or run the
+// review that is still pending for this head.
+func greenPRText(pr PullRequest, age time.Duration) string {
+	text := fmt.Sprintf("#%d (%s) has been green and mergeable for %d min → review it per \"Review and merge\"",
+		pr.Number, pr.Head, minutes(age))
+	if blocker := reviewBlocker(pr); blocker != "" {
+		return text + "; " + blocker
+	}
+	return text + " and merge it"
+}
+
+// reviewWaitsOnAuthor reports a verdict or thread only the worker can clear.
+// Such a pull request is not a merge violation; completion reports it.
+func reviewWaitsOnAuthor(pr PullRequest) bool {
+	if unresolvedThreads(pr.Threads) > 0 {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(pr.ReviewDecision), "CHANGES_REQUESTED") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(pr.AOReviewStatus), "changes_requested")
+}
+
+// aoReviewStatus finds AO's verdict for the exact head, the same fact the
+// completion pass attaches through applyWorkerReview.
+func aoReviewStatus(facts Facts, pr PullRequest) string {
+	if status := strings.TrimSpace(pr.AOReviewStatus); status != "" {
+		return status
+	}
+	for _, host := range facts.Hosts {
+		for _, worker := range host.Sessions {
+			for _, review := range worker.Reviews {
+				if review.PRNumber != pr.Number {
+					continue
+				}
+				if strings.EqualFold(strings.TrimSpace(review.TargetSHA), strings.TrimSpace(pr.HeadSHA)) {
+					return review.Status
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // 3. A merged pull request leaves none of the issues it closes open.
