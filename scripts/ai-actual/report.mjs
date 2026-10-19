@@ -14,7 +14,7 @@ import {
 	timesOnBranch,
 	toBlocks,
 } from './lib.mjs';
-import { discoverSessions, STORES } from './sessions.mjs';
+import { discoverSessions, parseStoreList, STORES } from './sessions.mjs';
 
 const USAGE = `Usage: npm run ai-actual -- --pr <number> [options]
 
@@ -26,6 +26,7 @@ Options:
   --issue <number>     Record this issue instead of the ones the PR closes
   --cwd <path>         Extra working directory to attribute sessions from
   --tools <list>       Stores to read: ${Object.keys(STORES).join(', ')}
+  --copilot-store <p>  Copilot CLI store (default: documented path, then snap)
   --idle-cut <minutes> Gap treated as idle (default 5)
   --ref <branch>       Branch holding the workflow (default: default branch)
   --workflow <name>    Workflow file name (default ai-actual.yml)
@@ -132,7 +133,8 @@ function main() {
 	const found = discoverSessions({
 		windowStart,
 		windowEnd: mergedAt,
-		stores: args.tools ? args.tools.split(',') : undefined,
+		stores: parseStoreList(args.tools),
+		copilotStore: args.copilotStore,
 	});
 	if (args.verbose) {
 		for (const session of found) {

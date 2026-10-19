@@ -2,14 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
 	copilotSessions,
+	defaultRoot,
 	discoverSessions,
 	jsonlSessions,
 	openCodeSessions,
+	parseStoreList,
 	sqliteSessions,
+	storePaths,
 } from './sessions.mjs';
 
 const ALL = { windowStart: 0, windowEnd: null };
@@ -110,8 +113,8 @@ test('openCodeSessions drops a session outside the window', () => {
 	assert.deepEqual(sessions.map((session) => session.name), ['opencode/clever-panda']);
 });
 
-function copilotFixture() {
-	const path = join(tempDir(), 'session-store.db');
+function copilotFixture(path = join(tempDir(), 'session-store.db'), { descending = false } = {}) {
+	mkdirSync(dirname(path), { recursive: true });
 	const database = new DatabaseSync(path);
 	database.exec(`
 		create table sessions (id text primary key, cwd text, branch text);
@@ -121,10 +124,22 @@ function copilotFixture() {
 		.run('a1b2c3d4-0000-0000-0000-000000000000', '/repo/wt', 'feat/copilot');
 	const insertTurn = database.prepare('insert into turns values (?, ?, ?)');
 	// SQLite's datetime() writes a space and no zone, meaning UTC.
-	insertTurn.run(1, 'a1b2c3d4-0000-0000-0000-000000000000', '2026-10-19 10:00:00');
-	insertTurn.run(2, 'a1b2c3d4-0000-0000-0000-000000000000', '2026-10-19T10:30:00.000Z');
+	const turns = [
+		[1, 'a1b2c3d4-0000-0000-0000-000000000000', '2026-10-19 10:00:00'],
+		[2, 'a1b2c3d4-0000-0000-0000-000000000000', '2026-10-19T10:30:00.000Z'],
+	];
+	if (descending) turns.reverse();
+	for (const turn of turns) insertTurn.run(...turn);
 	database.close();
 	return path;
+}
+
+function homeWithCodex() {
+	const home = tempDir();
+	const root = join(home, '.codex', 'sessions', '2026/10/19');
+	mkdirSync(root, { recursive: true });
+	writeFileSync(join(root, 'rollout-2026-10-19T10-00-00-01a130db-c056-7480-9651-1f894b43c3c8.jsonl'), CODEX);
+	return home;
 }
 
 test('copilotSessions reads the cwd, branch, and turn times as UTC', () => {
@@ -145,6 +160,144 @@ test('sqliteSessions tolerates a missing database', () => {
 	assert.deepEqual(openCodeSessions({ name: 'opencode', root, ...ALL }), []);
 	assert.deepEqual(copilotSessions({ name: 'copilot', root, ...ALL }), []);
 	assert.deepEqual(sqliteSessions({ name: 'opencode', root, ...ALL }), []);
+});
+
+test('defaultRoot names the documented path for every store', () => {
+	const home = '/home/test';
+	assert.equal(defaultRoot('codex', home), join(home, '.codex', 'sessions'));
+	assert.equal(defaultRoot('claude', home), join(home, '.claude', 'projects'));
+	assert.equal(defaultRoot('opencode', home), join(home, '.local', 'share', 'opencode', 'opencode.db'));
+	assert.equal(defaultRoot('copilot', home), join(home, '.copilot', 'session-store.db'));
+	assert.throws(() => defaultRoot('unknown', home), /unknown store/);
+});
+
+test('storePaths tries the documented Copilot store before the snap store', () => {
+	const home = '/home/test';
+	assert.deepEqual(storePaths('copilot', { home, env: {} }), [
+		join(home, '.copilot', 'session-store.db'),
+		join(home, 'snap', 'copilot-cli', 'common', '.copilot', 'session-store.db'),
+	]);
+});
+
+test('storePaths prefers a Copilot override from the flag or the environment', () => {
+	const home = '/home/test';
+	assert.deepEqual(storePaths('copilot', { home, copilotStore: '/tmp/flag.db', env: {} }), ['/tmp/flag.db']);
+	assert.deepEqual(
+		storePaths('copilot', { home, env: { AI_ACTUAL_COPILOT_STORE: '/tmp/env.db' } }),
+		['/tmp/env.db'],
+	);
+	assert.deepEqual(
+		storePaths('copilot', {
+			home,
+			copilotStore: '/tmp/flag.db',
+			env: { AI_ACTUAL_COPILOT_STORE: '/tmp/env.db' },
+		}),
+		['/tmp/flag.db'],
+	);
+});
+
+test('discoverSessions resolves both Copilot layouts', () => {
+	const documented = tempDir();
+	copilotFixture(join(documented, '.copilot', 'session-store.db'));
+	const fromDocumented = discoverSessions({
+		...ALL,
+		stores: ['copilot'],
+		home: documented,
+		env: {},
+		warn: () => assert.fail('unexpected warning'),
+	});
+	assert.equal(fromDocumented.length, 1);
+
+	const snap = tempDir();
+	copilotFixture(join(snap, 'snap', 'copilot-cli', 'common', '.copilot', 'session-store.db'));
+	const fromSnap = discoverSessions({
+		...ALL,
+		stores: ['copilot'],
+		home: snap,
+		env: {},
+		warn: () => assert.fail('unexpected warning'),
+	});
+	assert.equal(fromSnap.length, 1);
+});
+
+test('discoverSessions resolves a Copilot override from the flag or environment', () => {
+	const byFlag = discoverSessions({
+		...ALL,
+		stores: ['copilot'],
+		copilotStore: copilotFixture(),
+		env: {},
+		warn: () => assert.fail('unexpected warning'),
+	});
+	assert.equal(byFlag.length, 1);
+
+	const byEnvironment = discoverSessions({
+		...ALL,
+		stores: ['copilot'],
+		env: { AI_ACTUAL_COPILOT_STORE: copilotFixture() },
+		warn: () => assert.fail('unexpected warning'),
+	});
+	assert.equal(byEnvironment.length, 1);
+});
+
+test('discoverSessions warns with the tool and every path when a store is missing', () => {
+	const home = tempDir();
+	const warnings = [];
+	const sessions = discoverSessions({
+		...ALL,
+		stores: ['copilot'],
+		home,
+		env: {},
+		warn: (line) => warnings.push(line),
+	});
+	assert.deepEqual(sessions, []);
+	assert.equal(warnings.length, 1);
+	assert.match(warnings[0], /copilot/);
+	assert.ok(warnings[0].includes(join(home, '.copilot', 'session-store.db')));
+	assert.ok(warnings[0].includes(join(home, 'snap', 'copilot-cli', 'common', '.copilot', 'session-store.db')));
+});
+
+test('discoverSessions keeps measuring other tools when a Copilot store is corrupt', () => {
+	const home = homeWithCodex();
+	const corrupt = join(home, '.copilot', 'session-store.db');
+	mkdirSync(dirname(corrupt), { recursive: true });
+	writeFileSync(corrupt, 'not a sqlite database');
+	const warnings = [];
+	const sessions = discoverSessions({
+		...ALL,
+		stores: ['copilot', 'codex'],
+		home,
+		env: {},
+		warn: (line) => warnings.push(line),
+	});
+	assert.equal(sessions.filter((session) => session.name.startsWith('codex/')).length, 1);
+	assert.equal(warnings.length, 1);
+	assert.match(warnings[0], /copilot/);
+	assert.ok(warnings[0].includes(corrupt));
+});
+
+test('copilotSessions sorts turns before applying the window', () => {
+	const path = copilotFixture(undefined, { descending: true });
+	const windowStart = Date.parse('2026-10-19T10:15:00Z') / 1000;
+	const sessions = copilotSessions({ name: 'copilot', root: path, windowStart, windowEnd: null });
+	assert.equal(sessions.length, 1);
+	assert.equal(iso(sessions[0].events[0].at), '2026-10-19T10:00:00.000Z');
+});
+
+test('parseStoreList trims and deduplicates tools', () => {
+	assert.deepEqual(parseStoreList(' codex, codex , claude '), ['codex', 'claude']);
+	assert.deepEqual(parseStoreList('codex,,codex'), ['codex']);
+	assert.equal(parseStoreList(undefined), undefined);
+});
+
+test('discoverSessions does not double count a duplicated store', () => {
+	const sessions = discoverSessions({
+		...ALL,
+		stores: ['codex', 'codex'],
+		home: homeWithCodex(),
+		env: {},
+		warn: () => assert.fail('unexpected warning'),
+	});
+	assert.equal(sessions.length, 1);
 });
 
 test('discoverSessions rejects an unknown store', () => {
