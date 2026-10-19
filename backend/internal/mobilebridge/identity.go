@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -111,6 +112,16 @@ func EnsureIdentityFor(path string, ifaces []net.Interface) (Identity, error) {
 		return Identity{}, err
 	}
 	return issued, nil
+}
+
+// HostToken derives a short, stable token from a HostID for names that must be
+// unique across machines. Generated session ids embed it.
+func HostToken(hostID string) string {
+	if strings.TrimSpace(hostID) == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(hostID))
+	return "h" + hex.EncodeToString(sum[:])[:6]
 }
 
 func equalStrings(a, b []string) bool {

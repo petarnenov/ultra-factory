@@ -117,7 +117,7 @@ func (s *Store) createSessionLocked(ctx context.Context, rec domain.SessionRecor
 		return domain.SessionRecord{}, false, fmt.Errorf("next session num for %s: %w", rec.ProjectID, err)
 	}
 	for {
-		rec.ID = domain.SessionID(fmt.Sprintf("%s-%d", prefix, num))
+		rec.ID = nextSessionID(prefix, num, s.sessionIDHostToken)
 		exists, err := s.qw.SessionIDExists(ctx, rec.ID)
 		if err != nil {
 			return domain.SessionRecord{}, false, fmt.Errorf("check session id %s: %w", rec.ID, err)
@@ -143,6 +143,15 @@ func (s *Store) createSessionLocked(ctx context.Context, rec domain.SessionRecor
 		return domain.SessionRecord{}, false, fmt.Errorf("insert session %s: %w", rec.ID, err)
 	}
 	return rec, true, nil
+}
+
+// nextSessionID formats a project-scoped id. The host token sits before the
+// counter so it can never extend a legacy id's branch prefix; empty is legacy.
+func nextSessionID(prefix string, num int64, hostToken string) domain.SessionID {
+	if hostToken == "" {
+		return domain.SessionID(fmt.Sprintf("%s-%d", prefix, num))
+	}
+	return domain.SessionID(fmt.Sprintf("%s-%s-%d", prefix, hostToken, num))
 }
 
 // SetSessionProvisionedWorkspace records the worktree as soon as it exists,
