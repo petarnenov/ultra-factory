@@ -40,7 +40,11 @@ All references are to `origin/dev` at `290a8d3e7` (0.17.1).
   and `DeferReportBatch` all filter on `project_id` plus a claim token
   (`backend/internal/storage/sqlite/queries/reports.sql`). Delivery is
   acceptance-before-ack: `Submit` returns only after the target agent accepted
-  the exact message, and the batch is acknowledged only after that.
+  the exact message, and the batch is acknowledged only after that. One case is
+  consumed instead: `SendSemantic` returns an acceptance timeout only after the
+  prompt was written, so that batch is acknowledged and never re-sent. A
+  terminated worker's queue is due at once, and its session accepts no new
+  reports (`409 SESSION_TERMINATED`).
 - `remote_worker_links` stores `host_id`, `remote_session_id`,
   `remote_project_id`, `project_id`, `host_label`, `display_name`, and
   `created_at` (`0199_remote_worker_links.sql`). It does not store the spawning
@@ -425,8 +429,8 @@ stateDiagram-v2
     [*] --> Pending
     Pending --> Claimed: claim(group) sets token, owner, attempts+1
     Claimed --> Acknowledged: Submit accepted, ack(token)
+    Claimed --> Acknowledged: acceptance timeout after a written prompt
     Claimed --> Pending: delivery error, defer(now+backoff)
-    Claimed --> Pending: acceptance timeout, defer(now+5m)
     Claimed --> Pending: daemon restart, requeue all claimed
     Claimed --> Pending: owner terminated, submit fails, release
     Acknowledged --> [*]
@@ -440,9 +444,10 @@ Transition table:
 | `pending` | Claim | No other live claim in the group | Set `delivery_batch_id`, `delivery_owner_id`, `claim_token`, `claimed_at`; `delivery_attempts+1` | `claimed` |
 | `claimed` | Target accepts the turn | Same claim token | Set `acknowledged_at`, `delivery_state='acknowledged'` | `acknowledged` |
 | `claimed` | Delivery error | Same token | `last_error`; `available_at=max(available_at, now+backoff)` | `pending` |
-| `claimed` | Acceptance timeout | Same token | `last_error`; `available_at=max(available_at, now+5m)` | `pending` |
+| `claimed` | Acceptance timeout after a written prompt | Same token | Log the delivery id; set `acknowledged_at`, `delivery_state='acknowledged'` | `acknowledged` |
 | `claimed` | Process dies | — | Startup `RequeueClaimedReports` clears the token | `pending` |
 | `claimed` | Owner terminates mid-submit | Submit fails with a terminal error | Release, then resolve on the next pass | `pending` |
+| `claimed` | Worker session terminated | Pending reports are due at once | Deliver the queue once, then acknowledge it; `Create` refuses the session | `acknowledged` |
 | `claimed` | Ownership changes | — | The claimed batch keeps its frozen `delivery_owner_id` | `claimed` |
 | `acknowledged` | — | — | Terminal; never re-delivered | `acknowledged` |
 
@@ -453,23 +458,28 @@ Scheduler loop, replacing `RunDue`'s project loop:
 2. Resolve its recipient (and repair a stale owner if needed).
 3. Claim that group.
 4. Submit one rendered turn with the batch's stable idempotency key.
-5. Acknowledge only after acceptance. On a transient failure - including a
-   live-but-exited owner, an unavailable semantic target, or an acceptance
-   timeout - defer **that group** with a backoff and continue with the next
-   group, up to a bounded number of groups per pass. On a terminal recipient
-   failure - the owner row is terminated or no longer exists - release it so
-   the next pass re-resolves to the root. A failing group must not starve
-   another group.
+5. Acknowledge after the turn is accepted. An acceptance timeout is returned
+   only after the prompt was written, so acknowledge that group; deferring it
+   re-sends the same batch, which is the duplicate this rule exists to
+   prevent. On other transient failures - a live-but-exited owner or an
+   unavailable semantic target - defer **that group** with a backoff and
+   continue with the next group, up to a bounded number of groups per pass. On
+   a terminal recipient failure - the owner row is terminated or no longer
+   exists - release it so the next pass re-resolves to the root. A failing
+   group must not starve another group.
 6. Return the earliest next deadline after the pass.
 
 Group backoff is exponential from the existing 5 s floor to a 5 minute ceiling,
 derived from `delivery_attempts`. `DeferReportBatch` uses
 `max(available_at, now+delay)`, so a deferral never moves a report earlier.
-Reports are never dropped; pending age is the operator signal (CO-4.2.1). A
-group whose recipient cannot be resolved (no live root) is deferred without a
-claim, using the same backoff, so an absent root cannot spin the scheduler;
-CO-2.2.1 adds the store operation that pushes `available_at` for a pending
-group.
+A failed delivery is never dropped; pending age is the operator signal
+(CO-4.2.1). Two cases end a report's life without a successful turn: an
+acceptance timeout after a written prompt, which is consumed so it cannot be
+re-sent, and a report of a terminated worker session, which is flushed once
+and cannot be created again. A group whose recipient cannot be resolved (no
+live root) is deferred without a claim, using the same backoff, so an absent
+root cannot spin the scheduler; CO-2.2.1 adds the store operation that pushes
+`available_at` for a pending group.
 
 Partial multi-owner delivery:
 
@@ -493,9 +503,13 @@ acknowledges only after the combined user turn is accepted.
 These invariants are load-bearing and are preserved from the current report
 design:
 
-1. **No acknowledgement before acceptance.** `Delivery.Submit` returns nil only
-   after `SendSemantic` observed the exact message accepted. The ack follows
-   that return. A pane write or a queued message is not acceptance.
+1. **No acknowledgement before a written prompt.** `Delivery.Submit` returns
+   nil only after `SendSemantic` observed the exact message accepted, and the
+   ack follows that return; a queued message is never acceptance. The one
+   exception is `domain.ErrSemanticAcceptanceTimeout`, which `SendSemantic`
+   returns only after the pane write succeeded: the prompt is delivered even
+   though its hook never reported the batch id, so that batch is acknowledged
+   once and is never re-sent.
 2. **One live claim per report.** The claim is a conditional update on
    `delivery_state='pending'`; the token fences ack, release, and defer. Two
    concurrent claims cannot both win.
@@ -505,22 +519,33 @@ design:
    deduplicated at the target while its accepted-turn checkpoint still matches.
 4. **The claimed recipient does not change.** Reassignment affects pending
    reports only.
-5. **Remote acknowledgement follows local acceptance.** The puller records the
-   delivered IDs, then calls `POST /reports/acknowledge`. A failed delivery
-   acknowledges nothing.
+5. **Remote acknowledgement follows local delivery.** The puller records the
+   delivered IDs, then calls `POST /reports/acknowledge`; an acceptance timeout
+   after a written prompt settles the same way, so the next pull does not
+   deliver it again. A failed delivery acknowledges nothing.
 6. **Summary submission is idempotent.** The unique key is
    `(coordinator_session_id, submission_key)`; a duplicate submission returns
    the existing summary and enqueues no second delivery.
+7. **A terminated worker's queue ends.** Its pending reports are due at once
+   instead of waiting out their fallback deadline, so the next pass delivers
+   them in one batch and acknowledges it. `Create` then rejects further reports
+   for that session, so a dead worker cannot enqueue a delivery.
+8. **A flush that consumes nothing is not retried in the same pass.** The
+   scheduler keys the batch it claimed; a batch it deferred or could not claim
+   waits for its next deadline instead of being claimed again, so a deferral
+   cannot spin the coordinator.
 
 Failure windows and their bound:
 
 | Window | Visible effect | Bound |
 | --- | --- | --- |
 | Crash after acceptance, before ack | The report may be delivered again | Same batch key; target dedupe while its checkpoint matches; otherwise one duplicate. At-least-once, unchanged from the remote-report ADR |
+| Acceptance hook never arrives after a written prompt | The batch is acknowledged and never re-sent | Loss window: a prompt written but never submitted by its harness is not recovered by AO |
+| Terminated worker with queued reports | The queue is delivered once, then nothing | New reports are refused (`409 SESSION_TERMINATED`); a queued report is dropped if that one delivery never happens |
 | Crash with claimed rows | Requeued at startup | No loss; the old claim is gone, so re-resolution may route to a new owner if ownership changed |
 | Reassignment during a claim (automatic only) | The claimed batch goes to the old owner; the new owner gets later reports | The old owner receives an ownership-removed notice; no duplicate |
 | Live-but-exited coordinator | Submit fails; the group keeps the same recipient | Defer with backoff; no reroute. The reaper's termination trigger later sets the owner to `NULL`, then resolution uses the root |
-| Coordinator terminated mid-submit | Submit fails; release; next pass resolves to the root | One retry; no ack without acceptance |
+| Coordinator terminated mid-submit | Submit fails; release; next pass resolves to the root | One retry; a failed submit is never acknowledged |
 | Remote record inserted, ack fails | Next pass skips delivery and retries the ack | Delivery record prevents duplicate work |
 | Remote record fails, ack succeeds | Nothing redelivered | Remote reports are no longer pending |
 | Remote record fails, ack fails | Next pull delivers again | At-least-once; the same class as the remote-report ADR |
@@ -533,7 +558,7 @@ deleted on failure.
 ### 6. Coordinator summaries and escalations
 
 A coordinator summary is a distinct durable record, not a worker report. It
-uses its own table and the same claim-token, acceptance-before-ack delivery
+uses its own table and the same claim-token, delivered-before-ack delivery
 pattern. Worker report invariants (settlement, repeat coalescing, stuck
 interrupts, host attribution) stay untouched.
 
@@ -1070,7 +1095,7 @@ Acceptance mapping for this ADR:
 Positive:
 
 - Worker reports reach the helper that owns the worker, including reports
-  pulled from a paired host, without weakening acceptance-before-ack.
+  pulled from a paired host, without weakening the section 5 invariants.
 - A helper failure returns its work to the root atomically, with audit history
   and a visible escalation.
 - The one-root invariant stays true by construction: helpers are a different
