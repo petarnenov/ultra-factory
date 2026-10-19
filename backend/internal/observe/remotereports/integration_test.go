@@ -175,8 +175,8 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 		t.Fatalf("redelivered: %v", delivery.submissions)
 	}
 
-	// The worker ends while its checkpoint is still batched: the link must
-	// survive until that report is due and delivered.
+	// The worker ends while its checkpoint is still batched. A terminated
+	// worker's queue is due at once, so this pass still delivers it.
 	worker.IsTerminated = true
 	if err := remoteStore.UpdateSession(ctx, worker); err != nil {
 		t.Fatal(err)
@@ -184,20 +184,14 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 	if err := observer.Poll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if remaining, _ := localStore.ListRemoteWorkerLinks(ctx); len(remaining) != 1 {
-		t.Fatal("link retired while the ended worker still had a pending report")
-	}
-	clockMu.Lock()
-	remoteNow = remoteNow.Add(domain.ReportBatchFallback + time.Second)
-	clockMu.Unlock()
-	if err := observer.Poll(ctx); err != nil {
-		t.Fatal(err)
-	}
 	if len(delivery.submissions) != 2 || !strings.Contains(delivery.submissions[1], "tests green") {
-		t.Fatalf("the batched checkpoint never arrived: %v", delivery.submissions)
+		t.Fatalf("the batched checkpoint of a terminated worker did not arrive: %v", delivery.submissions)
+	}
+	if remaining, _ := localStore.ListRemoteWorkerLinks(ctx); len(remaining) != 1 {
+		t.Fatal("link retired in the pass that still delivered its report")
 	}
 
-	// Nothing is left: the link is retired.
+	// Nothing is left: the next pass retires the link.
 	if err := observer.Poll(ctx); err != nil {
 		t.Fatal(err)
 	}
