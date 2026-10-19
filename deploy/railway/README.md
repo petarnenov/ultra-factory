@@ -909,6 +909,17 @@ workload in the workspace offline, the hub included,** and that stops live
 agent sessions just like a redeploy does. Prefer a soft limit plus the worker
 cap; set a hard limit only as a backstop well above the expected bill.
 
+### Per-process resource baseline
+
+The 23.84 GB service-level maximum against a 24 GB limit in the CO-1.1.1
+backlog is **unverified**: no committed sample attributes it to a process. The
+capture protocol for a six-worker window, the current-topology workload
+definition, and the comparison template are in
+[resource-baseline.md](resource-baseline.md). It is read-only, needs no
+deployment or configuration change, and its remaining step is one operator run
+with Railway access. The capture helper is
+[`scripts/railway/resource-sample.mjs`](../../scripts/railway/resource-sample.mjs).
+
 ### Recommended sizes
 
 These are starting points, not measured values: no worker load was measured on
@@ -1077,4 +1088,5 @@ recorded above.
 | Five-failure lockout and client isolation through Railway's proxy | Not run | Operator, isolated test source |
 | Worker and hub password/account-token rotation | Behavior inspected in source; not run | Operator maintenance window |
 | Readiness timing, image size, idle memory | Not measured | Operator |
+| Per-process resource baseline (#218) | Protocol drafted, not run; the 23.84 GB figure is unverified | Operator, [resource-baseline.md](resource-baseline.md) |
 | Custom domain DNS/TLS for the hub | Only the Railway-generated domain was used | Operator, if a custom domain is added |
