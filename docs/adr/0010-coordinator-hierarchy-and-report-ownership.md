@@ -210,6 +210,9 @@ Coordinator behavior at existing kind-keyed sites:
 | `report.Coordinator.activeOrchestrator` | Not a root | Unchanged (root selector) |
 | `PreparePiggyback` | May receive a piggybacked batch as a recipient | Accept `coordinator` and claim that recipient's group |
 | `chat.Service` conversation scope | Session-scoped conversation | Unchanged (only `orchestrator` gets the project scope) |
+| `chat_handoff` first Chat use | Session-scoped; no project-conversation fallback | Unchanged |
+| `conversation_store` competing live orchestrator check | Root only | Unchanged |
+| Promptless orchestrator relaunch | A coordinator has a scope prompt, so it is not promptless | Unchanged |
 | `defaultSessionBranch` | Unique session branch | Unchanged |
 | `EligibleForChatHibernation` | Eligible when otherwise idle and settled | Unchanged; delivery wakes it |
 | `report.Service.Create` | Cannot create worker reports | Unchanged; the existing worker-only guard fails closed |
@@ -220,14 +223,19 @@ Coordinator behavior at existing kind-keyed sites:
 | `resolveAgentLaunchConfig` and permission-mode mapping | Orchestrator role config | Widen |
 | Default mode (`manager.resolveSessionMode` path) | Chat by default, like a root | Widen |
 | Async Chat spawn guard | Allowed | Widen |
-| `inheritedSpawnPermissions` | A coordinator parent may lend its policy | Widen |
+| `inheritedSpawnPermissions` | A coordinator parent may lend its policy; a root parent may lend to a coordinator | Widen |
 | `RecordSessionInteraction` | A coordinator sender counts as direction | Widen |
 | Machine-role refusals | Any live orchestrator-role session counts | Widen (section 9) |
 | `promptRoleForKind`, system prompt, workspace prompt | New coordinator role and template | Add a case; do not reuse the root template |
 | `activeOrchestratorSessionID` in a worker's system prompt | Resolve to the worker's owner, not necessarily the root | Make owner-aware |
-| Kiro, gitworktree, and scratch kind branches | Worker-like | Unchanged; covered by coordinator spawn tests |
+| Kiro, gitworktree branch-collision, and scratch kind branches | Worker-like | Unchanged; covered by coordinator spawn tests |
 | Automation input kinds | Workers and roots only | Unchanged |
 | Copilot orchestrator message | Root-only | Unchanged |
+
+The table groups call sites by behavior, not one row per line. CO-2.1.1 and
+CO-2.2.1 must walk every `KindOrchestrator` occurrence and classify it into one
+of these rows; a `coordinator` case that is neither root-like nor worker-like
+needs a test.
 
 The coordinator system prompt is a distinct template. It states the scope, the
 three-worker cap, the escalation rules from CO-3.2.1, the prohibition on
