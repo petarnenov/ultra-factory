@@ -204,6 +204,9 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Post("/sessions", c.spawn)
 	r.Post("/sessions/cleanup", c.cleanup)
 	r.Get("/sessions/{sessionId}", c.get)
+	r.Get("/sessions/{sessionId}/ownership", c.getOwnership)
+	r.Put("/sessions/{sessionId}/owner", c.assignOwner)
+	r.Get("/projects/{id}/coordinators", c.listCoordinators)
 	r.Get("/sessions/{sessionId}/preview", c.preview)
 	r.Post("/sessions/{sessionId}/preview", c.setPreview)
 	r.Delete("/sessions/{sessionId}/preview", c.clearPreview)
@@ -2689,9 +2692,11 @@ func sessionView(r *http.Request, s domain.Session) SessionView {
 			}
 			return &at
 		}(),
-		LastEventAt:   s.LastEventAt(),
-		PRs:           sessionPRFacts(s.PRs),
-		ArtifactFiles: sessionArtifactFiles(r, s),
+		LastEventAt:      s.LastEventAt(),
+		PRs:              sessionPRFacts(s.PRs),
+		OwnerSessionID:   sessionIDString(s.OwnerSessionID),
+		CoordinatorScope: s.CoordinatorScope,
+		ArtifactFiles:    sessionArtifactFiles(r, s),
 	}
 	if s.ActiveAgentSwitch != nil {
 		active := agentSwitchView(*s.ActiveAgentSwitch)

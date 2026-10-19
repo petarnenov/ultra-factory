@@ -195,3 +195,105 @@ func TestAssignOwnerAllowsReassignmentOfATerminatedWorker(t *testing.T) {
 		t.Fatalf("owner = %v", assigned.OwnerSessionID)
 	}
 }
+
+func TestOwnershipReadsResolveOwnerScopeAndLiveRoot(t *testing.T) {
+	st := newFakeStore()
+	st.sessions["ao-1"] = domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}
+	st.sessions["ao-2"] = domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
+	st.sessions["ao-3"] = domain.SessionRecord{ID: "ao-3", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-2")}
+	st.sessions["ao-4"] = domain.SessionRecord{ID: "ao-4", ProjectID: "ao", Kind: domain.KindWorker}
+	svc := &Service{store: st}
+	ctx := context.Background()
+
+	owned, err := svc.Ownership(ctx, "ao-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owned.Owner == nil || owned.Owner.ID != "ao-2" || owned.Owner.CoordinatorScope != "auth" {
+		t.Fatalf("owner = %+v, want coordinator ao-2 with scope auth", owned.Owner)
+	}
+	if owned.RootSessionID == nil || *owned.RootSessionID != "ao-1" {
+		t.Fatalf("root = %v, want ao-1", owned.RootSessionID)
+	}
+
+	rootOwned, err := svc.Ownership(ctx, "ao-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootOwned.Owner != nil {
+		t.Fatalf("root-owned worker owner = %s, want nil", rootOwned.Owner.ID)
+	}
+	if rootOwned.RootSessionID == nil || *rootOwned.RootSessionID != "ao-1" {
+		t.Fatalf("root-owned worker root = %v, want ao-1", rootOwned.RootSessionID)
+	}
+
+	coordinator, err := svc.Ownership(ctx, "ao-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if coordinator.Owner != nil || coordinator.Session.CoordinatorScope != "auth" {
+		t.Fatalf("coordinator ownership = %+v", coordinator)
+	}
+
+	root, err := svc.Ownership(ctx, "ao-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root.RootSessionID == nil || *root.RootSessionID != "ao-1" {
+		t.Fatalf("root root = %v, want itself", root.RootSessionID)
+	}
+}
+
+func TestCoordinatorRosterGroupsOwnedWorkersAndHidesTerminatedByDefault(t *testing.T) {
+	st := newFakeStore()
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+	st.sessions["ao-1"] = domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}
+	st.sessions["ao-2"] = domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
+	st.sessions["ao-3"] = domain.SessionRecord{ID: "ao-3", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "docs"}
+	st.sessions["ao-4"] = domain.SessionRecord{ID: "ao-4", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-2")}
+	st.sessions["ao-5"] = domain.SessionRecord{ID: "ao-5", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-2")}
+	st.sessions["ao-6"] = domain.SessionRecord{ID: "ao-6", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-3")}
+	st.sessions["ao-7"] = domain.SessionRecord{ID: "ao-7", ProjectID: "ao", Kind: domain.KindWorker}
+	st.sessions["ao-8"] = domain.SessionRecord{ID: "ao-8", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "old", IsTerminated: true}
+	st.sessions["ao-9"] = domain.SessionRecord{ID: "ao-9", ProjectID: "ao", Kind: domain.KindWorker, IsTerminated: true}
+	svc := &Service{store: st}
+
+	roster, err := svc.CoordinatorRoster(context.Background(), "ao", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roster.RootSessionID == nil || *roster.RootSessionID != "ao-1" {
+		t.Fatalf("root = %v, want ao-1", roster.RootSessionID)
+	}
+	if len(roster.Coordinators) != 2 {
+		t.Fatalf("coordinators = %+v, want 2 live", roster.Coordinators)
+	}
+	if len(roster.Coordinators[0].Workers) != 2 || roster.Coordinators[0].Workers[0].ID != "ao-4" {
+		t.Fatalf("coordinator ao-2 workers = %+v", roster.Coordinators[0].Workers)
+	}
+	if len(roster.Coordinators[1].Workers) != 1 || roster.Coordinators[1].Workers[0].ID != "ao-6" {
+		t.Fatalf("coordinator ao-3 workers = %+v", roster.Coordinators[1].Workers)
+	}
+	if len(roster.RootWorkers) != 1 || roster.RootWorkers[0].ID != "ao-7" {
+		t.Fatalf("root workers = %+v", roster.RootWorkers)
+	}
+
+	all, err := svc.CoordinatorRoster(context.Background(), "ao", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Coordinators) != 3 || !all.Coordinators[2].Coordinator.IsTerminated {
+		t.Fatalf("coordinators with history = %+v", all.Coordinators)
+	}
+	if len(all.RootWorkers) != 2 || all.RootWorkers[1].ID != "ao-9" {
+		t.Fatalf("root workers with history = %+v", all.RootWorkers)
+	}
+}
+
+func TestCoordinatorRosterRejectsAnUnknownProject(t *testing.T) {
+	_, err := (&Service{store: newFakeStore()}).CoordinatorRoster(context.Background(), "ghost", false)
+	var apiErr *apierr.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "PROJECT_NOT_FOUND" {
+		t.Fatalf("err = %v, want PROJECT_NOT_FOUND", err)
+	}
+}

@@ -3153,6 +3153,57 @@ paths:
       summary: Replace a project's per-project config
       tags:
       - projects
+  /api/v1/projects/{id}/coordinators:
+    get:
+      operationId: listProjectCoordinators
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      - description: Include terminated coordinators and workers.
+        in: query
+        name: includeTerminated
+        schema:
+          description: Include terminated coordinators and workers.
+          type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoordinatorRosterResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List a project's coordinators and owned workers
+      tags:
+      - sessions
   /api/v1/projects/{id}/permissions:
     patch:
       operationId: setProjectPermissions
@@ -3806,6 +3857,43 @@ paths:
       tags:
       - mobile
   /api/v1/remote-worker-links:
+    get:
+      operationId: listRemoteWorkerLinks
+      parameters:
+      - description: Only links owned by this local project.
+        in: query
+        name: project
+        schema:
+          description: Only links owned by this local project.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListRemoteWorkerLinksResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List linked remote workers with their local owner
+      tags:
+      - reports
     post:
       operationId: createRemoteWorkerLink
       requestBody:
@@ -3853,6 +3941,76 @@ paths:
           description: Not Implemented
       summary: Link a worker on a saved remote host so this daemon pulls its reports
         (loopback only)
+      tags:
+      - reports
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner:
+    put:
+      operationId: assignRemoteWorkerOwner
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionOwnerRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerLinkResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Assign or clear a linked remote worker's local owner
       tags:
       - reports
   /api/v1/reports:
@@ -7779,6 +7937,108 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Not Implemented
       summary: Configure whether PR completion terminates the session
+      tags:
+      - sessions
+  /api/v1/sessions/{sessionId}/owner:
+    put:
+      operationId: assignSessionOwner
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionOwnerRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Assign or clear a worker's coordinator owner (live root only)
+      tags:
+      - sessions
+  /api/v1/sessions/{sessionId}/ownership:
+    get:
+      operationId: getSessionOwnership
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionOwnershipResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Read one session's owner, coordinator scope, and root
       tags:
       - sessions
   /api/v1/sessions/{sessionId}/pin:
@@ -13308,6 +13568,8 @@ components:
           $ref: '#/components/schemas/SessionBranchState'
         chatProviderPreserved:
           type: boolean
+        coordinatorScope:
+          type: string
         createdAt:
           format: date-time
           type: string
@@ -13412,6 +13674,10 @@ components:
           - artifact
           - pr_artifact
           type: string
+        ownerSessionId:
+          type:
+          - "null"
+          - string
         pinnedAt:
           format: date-time
           type:
@@ -13546,6 +13812,7 @@ components:
       - health
       - lastEventAt
       - prs
+      - ownerSessionId
       type: object
     ControllersSetKeepAwakeRequest:
       properties:
@@ -14284,6 +14551,49 @@ components:
       - outputTokens
       - cachedTokens
       - totalTokens
+      type: object
+    CoordinatorRosterEntry:
+      properties:
+        coordinatorScope:
+          type: string
+        coordinatorSessionId:
+          type: string
+        isTerminated:
+          type: boolean
+        workerCount:
+          type: integer
+        workerSessionIds:
+          items:
+            type: string
+          type: array
+      required:
+      - coordinatorSessionId
+      - coordinatorScope
+      - isTerminated
+      - workerSessionIds
+      - workerCount
+      type: object
+    CoordinatorRosterResponse:
+      properties:
+        coordinators:
+          items:
+            $ref: '#/components/schemas/CoordinatorRosterEntry'
+          type: array
+        projectId:
+          type: string
+        rootSessionId:
+          type:
+          - "null"
+          - string
+        rootWorkerSessionIds:
+          items:
+            type: string
+          type: array
+      required:
+      - projectId
+      - rootSessionId
+      - coordinators
+      - rootWorkerSessionIds
       type: object
     CreateAutomationRequest:
       properties:
@@ -15512,6 +15822,15 @@ components:
       required:
       - projects
       type: object
+    ListRemoteWorkerLinksResponse:
+      properties:
+        links:
+          items:
+            $ref: '#/components/schemas/RemoteWorkerLinkResponse'
+          type: array
+      required:
+      - links
+      type: object
     ListReportsResponse:
       properties:
         nextCursor:
@@ -16406,6 +16725,10 @@ components:
           type: string
         hostLabel:
           type: string
+        ownerSessionId:
+          type:
+          - "null"
+          - string
         projectId:
           type: string
         pullBlocked:
@@ -16420,6 +16743,7 @@ components:
       - remoteSessionId
       - remoteProjectId
       - projectId
+      - ownerSessionId
       - createdAt
       type: object
     RemoveProjectResult:
@@ -17215,6 +17539,54 @@ components:
       - cpuPercent
       - sampledAt
       - processes
+      type: object
+    SessionOwnerRequest:
+      properties:
+        ownerSessionId:
+          type:
+          - "null"
+          - string
+        requestedBySessionId:
+          type: string
+      required:
+      - ownerSessionId
+      - requestedBySessionId
+      type: object
+    SessionOwnershipResponse:
+      properties:
+        coordinatorScope:
+          type: string
+        kind:
+          enum:
+          - worker
+          - orchestrator
+          - coordinator
+          type: string
+        ownerKind:
+          enum:
+          - worker
+          - orchestrator
+          - coordinator
+          type: string
+        ownerScope:
+          type: string
+        ownerSessionId:
+          type:
+          - "null"
+          - string
+        projectId:
+          type: string
+        rootSessionId:
+          type:
+          - "null"
+          - string
+        sessionId:
+          type: string
+      required:
+      - sessionId
+      - kind
+      - ownerSessionId
+      - rootSessionId
       type: object
     SessionPRCISummary:
       properties:

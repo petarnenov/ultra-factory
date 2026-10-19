@@ -49,7 +49,9 @@ ao session <subcommand> [args] [flags]
 
 ### ao session ls
 
-List sessions.
+List sessions. The `OWNER` column names a worker's coordinator owner, or `root`
+when the worker is root-owned. Coordinator and orchestrator rows show `-`
+because only workers can be owned.
 
 **Syntax:**
 ```
@@ -105,6 +107,86 @@ ao session get mer-3
 ```bash
 # Get session details as JSON
 ao session get mer-3 --json
+```
+
+---
+
+### ao session owner
+
+Show one session's durable ownership relation: its kind, its coordinator owner
+(if any), the owner's scope, and the project's live root.
+
+**Syntax:**
+```
+ao session owner <id> [flags]
+```
+
+**Flags:**
+
+| Flag | Meaning | Default / Required |
+|---|---|---|
+| `--json` | Output as JSON | - |
+| `-p, --project string` | Project id to scope the lookup | - |
+| `--host string` | Read through a saved remote host's daemon | this machine |
+
+**Examples:**
+
+```bash
+ao session owner mer-3
+```
+
+```bash
+ao session owner mer-3 --json
+```
+
+---
+
+### ao session assign
+
+Assign, reassign, or clear a worker's coordinator owner. Only the project's
+live root may write ownership. Use `--owner root` to return a worker to direct
+root delegation.
+
+The daemon enforces ADR 0010: a root and a coordinator are never owned, the
+owner must be a live coordinator in the worker's project, and an explicit
+reassignment is refused while one of the worker's reports is claimed. Rejections
+use the stable `OWNERSHIP_ROOT_ONLY`, `OWNER_NOT_COORDINATOR`,
+`OWNER_CROSS_PROJECT`, `OWNER_TERMINATED`, and `OWNER_REASSIGNMENT_IN_FLIGHT`
+codes with a request ID.
+
+**Syntax:**
+```
+ao session assign <worker> --owner <coordinator-id|root> [flags]
+```
+
+**Flags:**
+
+| Flag | Meaning | Default / Required |
+|---|---|---|
+| `--owner string` | Coordinator session id, or `root` to clear the owner | Required |
+| `--requested-by string` | Session id of the assigning live root | `AO_SESSION_ID` |
+| `--json` | Output as JSON | - |
+| `-p, --project string` | Project id to scope the lookup | - |
+| `--host string` | Write through a saved remote host's daemon | this machine |
+
+With `--host`, always pass `--requested-by` explicitly: a local
+`AO_SESSION_ID` is never forwarded to another daemon.
+
+**Examples:**
+
+```bash
+# Give mer-3 to coordinator mer-2
+ao session assign mer-3 --owner mer-2
+```
+
+```bash
+# Return mer-3 to direct root ownership
+ao session assign mer-3 --owner root
+```
+
+```bash
+# Assign on a paired host as that host's root
+ao session assign mer-3 --host build-box --requested-by build-root --owner mer-2
 ```
 
 ---

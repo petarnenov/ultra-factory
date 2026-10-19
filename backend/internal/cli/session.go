@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 type sessionOptions struct {
@@ -58,6 +60,10 @@ type sessionDTO struct {
 	Branch       string          `json:"branch,omitempty"`
 	BranchState  *branchStateDTO `json:"branchState,omitempty"`
 	PRs          []sessionPRDTO  `json:"prs"`
+	// OwnerSessionID is a worker's durable coordinator owner; nil is root-owned.
+	OwnerSessionID *string `json:"ownerSessionId"`
+	// CoordinatorScope bounds a coordinator's work and is empty otherwise.
+	CoordinatorScope string `json:"coordinatorScope,omitempty"`
 	// Model, Effort, and their sources record the resolved launch
 	// configuration and the layer and machine that supplied it.
 	Model              string           `json:"model,omitempty"`
@@ -189,21 +195,23 @@ type claimPRResponse struct {
 }
 
 type sessionListEntry struct {
-	ID             string           `json:"id"`
-	ProjectID      string           `json:"projectId"`
-	Role           string           `json:"role"`
-	DisplayName    string           `json:"displayName,omitempty"`
-	Status         string           `json:"status,omitempty"`
-	Activity       string           `json:"activity,omitempty"`
-	Health         sessionHealthDTO `json:"health"`
-	IssueID        string           `json:"issueId,omitempty"`
-	Harness        string           `json:"harness,omitempty"`
-	Branch         string           `json:"branch,omitempty"`
-	PRs            []sessionListPR  `json:"prs"`
-	IsTerminated   bool             `json:"isTerminated"`
-	LastActivityAt *time.Time       `json:"lastActivityAt,omitempty"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	UpdatedAt      time.Time        `json:"updatedAt"`
+	ID               string           `json:"id"`
+	ProjectID        string           `json:"projectId"`
+	Role             string           `json:"role"`
+	DisplayName      string           `json:"displayName,omitempty"`
+	Status           string           `json:"status,omitempty"`
+	Activity         string           `json:"activity,omitempty"`
+	Health           sessionHealthDTO `json:"health"`
+	IssueID          string           `json:"issueId,omitempty"`
+	Harness          string           `json:"harness,omitempty"`
+	Branch           string           `json:"branch,omitempty"`
+	PRs              []sessionListPR  `json:"prs"`
+	OwnerSessionID   *string          `json:"ownerSessionId,omitempty"`
+	CoordinatorScope string           `json:"coordinatorScope,omitempty"`
+	IsTerminated     bool             `json:"isTerminated"`
+	LastActivityAt   *time.Time       `json:"lastActivityAt,omitempty"`
+	CreatedAt        time.Time        `json:"createdAt"`
+	UpdatedAt        time.Time        `json:"updatedAt"`
 }
 
 type sessionListPR struct {
@@ -235,6 +243,8 @@ func newSessionCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newSessionExitAgentCommand(ctx))
 	cmd.AddCommand(newSessionResumeAgentCommand(ctx))
 	cmd.AddCommand(newSessionRenameCommand(ctx))
+	cmd.AddCommand(newSessionOwnerCommand(ctx))
+	cmd.AddCommand(newSessionAssignCommand(ctx))
 	cmd.AddCommand(newSessionCleanupCommand(ctx))
 	cmd.AddCommand(newSessionClaimPRCommand(ctx))
 	cmd.AddCommand(newSessionSwitchAgentCommand(ctx))
@@ -890,21 +900,23 @@ func sessionListEntries(sessions []sessionDTO, summaries map[string][]sessionPRS
 			last = &activity
 		}
 		entries = append(entries, sessionListEntry{
-			ID:             sess.ID,
-			ProjectID:      sess.ProjectID,
-			Role:           sessionRole(sess),
-			DisplayName:    sess.DisplayName,
-			Status:         sess.Status,
-			Activity:       sess.Activity.State,
-			Health:         sess.Health,
-			IssueID:        sess.IssueID,
-			Harness:        sess.Harness,
-			Branch:         sess.Branch,
-			PRs:            listPRsForSession(sess, summaries[sess.ID]),
-			IsTerminated:   sess.IsTerminated,
-			LastActivityAt: last,
-			CreatedAt:      sess.CreatedAt,
-			UpdatedAt:      sess.UpdatedAt,
+			ID:               sess.ID,
+			ProjectID:        sess.ProjectID,
+			Role:             sessionRole(sess),
+			DisplayName:      sess.DisplayName,
+			Status:           sess.Status,
+			Activity:         sess.Activity.State,
+			Health:           sess.Health,
+			IssueID:          sess.IssueID,
+			Harness:          sess.Harness,
+			Branch:           sess.Branch,
+			PRs:              listPRsForSession(sess, summaries[sess.ID]),
+			OwnerSessionID:   sess.OwnerSessionID,
+			CoordinatorScope: sess.CoordinatorScope,
+			IsTerminated:     sess.IsTerminated,
+			LastActivityAt:   last,
+			CreatedAt:        sess.CreatedAt,
+			UpdatedAt:        sess.UpdatedAt,
 		})
 	}
 	return entries
@@ -974,12 +986,12 @@ func writeSessionList(cmd *cobra.Command, sessions []sessionDTO, summaries map[s
 				if _, err := fmt.Fprintf(table, "%s:\n", currentProject); err != nil {
 					return err
 				}
-				if _, err := fmt.Fprintln(table, "  SESSION\tROLE\tBRANCH\tPR\tCI\tREVIEW\tTHREADS\tACTIVITY\tHEALTH\tAGE"); err != nil {
+				if _, err := fmt.Fprintln(table, "  SESSION\tROLE\tOWNER\tBRANCH\tPR\tCI\tREVIEW\tTHREADS\tACTIVITY\tHEALTH\tAGE"); err != nil {
 					return err
 				}
 			}
 			pr, ci, review, threads := sessionPRColumns(sess, summaries[sess.ID])
-			if _, err := fmt.Fprintf(table, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sess.ID, sessionRole(sess), emptyDash(sess.Branch), pr, ci, review, threads, emptyDash(sess.Activity.State), sessionHealthColumn(sess.Health), sessionAge(now, sess.Activity.LastActivityAt)); err != nil {
+			if _, err := fmt.Fprintf(table, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sess.ID, sessionRole(sess), sessionOwnerColumn(sess), emptyDash(sess.Branch), pr, ci, review, threads, emptyDash(sess.Activity.State), sessionHealthColumn(sess.Health), sessionAge(now, sess.Activity.LastActivityAt)); err != nil {
 				return err
 			}
 		}
@@ -1082,6 +1094,8 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"project", sess.ProjectID},
 		{"name", sess.DisplayName},
 		{"role", sessionRole(sess)},
+		{"coordinator scope", sess.CoordinatorScope},
+		{"owner", sessionOwnerDetails(sess)},
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
 		{"health", sessionHealthDetails(sess.Health)},
@@ -1151,10 +1165,14 @@ func formatBranchState(sess sessionDTO) string {
 }
 
 func sessionRole(sess sessionDTO) string {
-	if sess.Kind == "orchestrator" {
+	switch sess.Kind {
+	case string(domain.KindOrchestrator):
 		return "orchestrator"
+	case string(domain.KindCoordinator):
+		return "coordinator"
+	default:
+		return "worker"
 	}
-	return "worker"
 }
 
 func formatSessionAge(d time.Duration) string {

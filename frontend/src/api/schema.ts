@@ -1192,6 +1192,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/coordinators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a project's coordinators and owned workers */
+        get: operations["listProjectCoordinators"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/permissions": {
         parameters: {
             query?: never;
@@ -1455,10 +1472,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List linked remote workers with their local owner */
+        get: operations["listRemoteWorkerLinks"];
         put?: never;
         /** Link a worker on a saved remote host so this daemon pulls its reports (loopback only) */
         post: operations["createRemoteWorkerLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign or clear a linked remote worker's local owner */
+        put: operations["assignRemoteWorkerOwner"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2663,6 +2698,40 @@ export interface paths {
         head?: never;
         /** Configure whether PR completion terminates the session */
         patch: operations["setSessionMergePolicy"];
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign or clear a worker's coordinator owner (live root only) */
+        put: operations["assignSessionOwner"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one session's owner, coordinator scope, and root */
+        get: operations["getSessionOwnership"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/sessions/{sessionId}/pin": {
@@ -4491,6 +4560,7 @@ export interface components {
             branch?: string;
             branchState?: components["schemas"]["SessionBranchState"];
             chatProviderPreserved: boolean;
+            coordinatorScope?: string;
             /** Format: date-time */
             createdAt: string;
             displayName?: string;
@@ -4525,6 +4595,7 @@ export interface components {
             modelSource?: "explicit" | "settings" | "machine-default";
             /** @enum {string} */
             outputType: "none" | "pr" | "artifact" | "pr_artifact";
+            ownerSessionId: null | string;
             /** Format: date-time */
             pinnedAt?: null | string;
             /** Format: int64 */
@@ -4839,6 +4910,19 @@ export interface components {
             outputTokens: number;
             /** Format: int64 */
             totalTokens: number;
+        };
+        CoordinatorRosterEntry: {
+            coordinatorScope: string;
+            coordinatorSessionId: string;
+            isTerminated: boolean;
+            workerCount: number;
+            workerSessionIds: string[];
+        };
+        CoordinatorRosterResponse: {
+            coordinators: components["schemas"]["CoordinatorRosterEntry"][];
+            projectId: string;
+            rootSessionId: null | string;
+            rootWorkerSessionIds: string[];
         };
         CreateAutomationRequest: {
             cron?: string;
@@ -5291,6 +5375,9 @@ export interface components {
         ListProjectsResponse: {
             projects: components["schemas"]["ProjectSummary"][];
         };
+        ListRemoteWorkerLinksResponse: {
+            links: components["schemas"]["RemoteWorkerLinkResponse"][];
+        };
         ListReportsResponse: {
             nextCursor?: string;
             reports: components["schemas"]["ReportResponse"][];
@@ -5647,6 +5734,7 @@ export interface components {
             displayName?: string;
             hostId: string;
             hostLabel: string;
+            ownerSessionId: null | string;
             projectId: string;
             pullBlocked?: string;
             remoteProjectId: string;
@@ -5962,6 +6050,22 @@ export interface components {
             rssBytes: number;
             /** Format: date-time */
             sampledAt: string;
+            sessionId: string;
+        };
+        SessionOwnerRequest: {
+            ownerSessionId: null | string;
+            requestedBySessionId: string;
+        };
+        SessionOwnershipResponse: {
+            coordinatorScope?: string;
+            /** @enum {string} */
+            kind: "worker" | "orchestrator" | "coordinator";
+            /** @enum {string} */
+            ownerKind?: "worker" | "orchestrator" | "coordinator";
+            ownerScope?: string;
+            ownerSessionId: null | string;
+            projectId?: string;
+            rootSessionId: null | string;
             sessionId: string;
         };
         SessionPRCISummary: {
@@ -11084,6 +11188,68 @@ export interface operations {
             };
         };
     };
+    listProjectCoordinators: {
+        parameters: {
+            query?: {
+                /** @description Include terminated coordinators and workers. */
+                includeTerminated?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Project identifier (registry key). */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorRosterResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     setProjectPermissions: {
         parameters: {
             query?: never;
@@ -11912,6 +12078,56 @@ export interface operations {
             };
         };
     };
+    listRemoteWorkerLinks: {
+        parameters: {
+            query?: {
+                /** @description Only links owned by this local project. */
+                project?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListRemoteWorkerLinksResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     createRemoteWorkerLink: {
         parameters: {
             query?: never;
@@ -11936,6 +12152,89 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    assignRemoteWorkerOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Linked remote host identifier. */
+                hostId: string;
+                /** @description Session identifier on the remote host. */
+                remoteSessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteWorkerLinkResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16582,6 +16881,137 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    assignSessionOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getSessionOwnership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOwnershipResponse"];
                 };
             };
             /** @description Not Found */

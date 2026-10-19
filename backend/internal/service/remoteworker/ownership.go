@@ -3,6 +3,7 @@ package remoteworker
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
@@ -10,7 +11,7 @@ import (
 )
 
 // AssignOwner sets or clears one linked remote worker's owner; nil is root.
-// This is the service boundary CO-2.1.2 exposes; no route is added here yet.
+// This is the service boundary the remote ownership write route calls.
 func (s *Service) AssignOwner(
 	ctx context.Context,
 	hostID string,
@@ -59,4 +60,28 @@ func (s *Service) AssignOwner(
 		return domain.RemoteWorkerLink{}, err
 	}
 	return updated, nil
+}
+
+// List returns the links this daemon polls, optionally scoped to a project.
+func (s *Service) List(ctx context.Context, project domain.ProjectID) ([]domain.RemoteWorkerLink, error) {
+	if s == nil || s.store == nil {
+		return nil, fmt.Errorf("remoteworker: store is required")
+	}
+	links, err := s.store.ListRemoteWorkerLinks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.RemoteWorkerLink, 0, len(links))
+	for _, link := range links {
+		if project == "" || link.ProjectID == project {
+			out = append(out, link)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].HostID != out[j].HostID {
+			return out[i].HostID < out[j].HostID
+		}
+		return out[i].RemoteSessionID < out[j].RemoteSessionID
+	})
+	return out, nil
 }
