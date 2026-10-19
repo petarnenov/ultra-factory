@@ -247,6 +247,52 @@ func TestRemoteWorkerListShowsRootAndCoordinatorOwners(t *testing.T) {
 	}
 }
 
+func TestSessionListJSONKeepsNullOwnerForRootOwnedWorker(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/sessions" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("active") == "false" {
+			_, _ = io.WriteString(w, `{"sessions":[]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"sessions":[
+			{"id":"demo-1","projectId":"demo","kind":"worker","ownerSessionId":"demo-c1","activity":{"state":"working","lastActivityAt":"2026-06-02T12:00:00Z"},"isTerminated":false,"createdAt":"2026-06-02T11:00:00Z","updatedAt":"2026-06-02T12:00:00Z","status":"working","prs":[]},
+			{"id":"demo-2","projectId":"demo","kind":"worker","ownerSessionId":null,"activity":{"state":"working","lastActivityAt":"2026-06-02T12:00:00Z"},"isTerminated":false,"createdAt":"2026-06-02T11:00:00Z","updatedAt":"2026-06-02T12:00:00Z","status":"working","prs":[]}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "ls", "--project", "demo", "--json")
+	if err != nil {
+		t.Fatalf("session ls --json failed: %v\nstderr=%s", err, errOut)
+	}
+	var got struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not decodable: %v\n%s", err, out)
+	}
+	ownerByID := map[string]json.RawMessage{}
+	for _, entry := range got.Data {
+		id := strings.Trim(string(entry["id"]), `"`)
+		owner, ok := entry["ownerSessionId"]
+		if !ok {
+			t.Fatalf("entry %s has no ownerSessionId key: %s", id, out)
+		}
+		ownerByID[id] = owner
+	}
+	if string(ownerByID["demo-1"]) != `"demo-c1"` {
+		t.Fatalf("demo-1 owner = %s, want demo-c1", ownerByID["demo-1"])
+	}
+	if string(ownerByID["demo-2"]) != "null" {
+		t.Fatalf("demo-2 owner = %s, want explicit null", ownerByID["demo-2"])
+	}
+}
+
 func TestSessionListShowsOwnerColumn(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

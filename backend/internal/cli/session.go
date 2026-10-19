@@ -206,7 +206,7 @@ type sessionListEntry struct {
 	Harness          string           `json:"harness,omitempty"`
 	Branch           string           `json:"branch,omitempty"`
 	PRs              []sessionListPR  `json:"prs"`
-	OwnerSessionID   *string          `json:"ownerSessionId,omitempty"`
+	OwnerSessionID   *string          `json:"ownerSessionId"`
 	CoordinatorScope string           `json:"coordinatorScope,omitempty"`
 	IsTerminated     bool             `json:"isTerminated"`
 	LastActivityAt   *time.Time       `json:"lastActivityAt,omitempty"`
