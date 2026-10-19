@@ -162,9 +162,9 @@ func (o *Observer) evaluate(ctx context.Context, rec domain.SessionRecord, progr
 		return nil
 	}
 	if !active && !progress.LastNotifiedProgressAt.IsZero() {
-		if o.onRecovered != nil && rec.Kind == domain.KindWorker && rec.ProjectID != "" {
+		if o.onRecovered != nil && rec.Kind == domain.KindWorker && rec.ProjectID != "" && realProgress(health, progress) {
 			if err := o.onRecovered(ctx, rec, progress, health); err != nil {
-				return err
+				o.logger.Warn("session health: recovery report failed", "session", rec.ID, "err", err)
 			}
 		}
 		if o.notifier != nil {
@@ -181,6 +181,19 @@ func (o *Observer) evaluate(ctx context.Context, rec domain.SessionRecord, progr
 		return o.store.RecordSessionProgress(ctx, rec.ID, update)
 	}
 	return nil
+}
+
+// realProgress reports whether the session left the reported episode because
+// new work happened, rather than because it terminated, exited, or hibernated.
+func realProgress(health domain.SessionHealth, progress domain.SessionProgress) bool {
+	if health.State != domain.SessionHealthOK || health.LastAt == nil {
+		return false
+	}
+	switch health.Reason {
+	case "terminated", "exited", "hibernated", "provisioning", "not_working":
+		return false
+	}
+	return health.LastAt.After(progress.LastNotifiedProgressAt)
 }
 
 func timeValue(t *time.Time) time.Time {

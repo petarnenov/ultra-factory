@@ -153,6 +153,44 @@ func TestObserverReportsOneStallEpisodeAndResolvesOnRecovery(t *testing.T) {
 	}
 }
 
+func TestObserverDoesNotReportRecoveryForTerminatedSession(t *testing.T) {
+	now := time.Unix(10_000, 0).UTC()
+	rec := domain.SessionRecord{
+		ID: "s-1", ProjectID: "p-1", Kind: domain.KindWorker,
+		Activity: domain.Activity{State: domain.ActivityActive},
+	}
+	store := &fakeStore{
+		sessions: []domain.SessionRecord{rec},
+		progress: map[domain.SessionID]domain.SessionProgress{
+			"s-1": {ProviderAt: now.Add(-30 * time.Minute)},
+		},
+	}
+	notifier := &fakeNotifier{}
+	recoveries := 0
+	observer := NewObserver(store, notifier, ObserverConfig{
+		Health: DefaultConfig(),
+		Clock:  func() time.Time { return now },
+		OnRecovered: func(context.Context, domain.SessionRecord, domain.SessionProgress, domain.SessionHealth) error {
+			recoveries++
+			return nil
+		},
+	})
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rec.IsTerminated = true
+	store.sessions[0] = rec
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recoveries != 0 {
+		t.Fatalf("terminated session reported recovery %d times", recoveries)
+	}
+	if len(notifier.resolutions) != 1 {
+		t.Fatalf("resolutions = %+v, want the stall notification resolved", notifier.resolutions)
+	}
+}
+
 func withProgress(progress domain.SessionProgress, at time.Time) domain.SessionProgress {
 	progress.ProviderAt = at
 	return progress

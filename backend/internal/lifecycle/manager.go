@@ -1080,6 +1080,8 @@ retryProjection:
 			return m.acknowledgeAgentSwitchTarget(ctx, id, s, now)
 		}
 		m.mu.Unlock()
+		// A same-state hook is still a real work boundary.
+		m.recordActivityProgress(ctx, id, s, now)
 		return nil
 	}
 	next := rec

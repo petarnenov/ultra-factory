@@ -63,9 +63,48 @@ func (s *rejectedProgressStore) UpdateSessionFromActivitySignal(context.Context,
 	return false, nil
 }
 
+func TestSameStateHookStillRecordsToolProgress(t *testing.T) {
+	store := &progressFakeStore{fakeStore: newFakeStore()}
+	rec := working("s-1")
+	rec.FirstSignalAt = time.Unix(9_000, 0).UTC()
+	store.sessions["s-1"] = rec
+	m := New(store, nil)
+	now := time.Unix(10_000, 0).UTC()
+
+	if err := m.ApplyActivitySignal(context.Background(), "s-1", ports.ActivitySignal{
+		Valid: true, State: domain.ActivityActive, Event: "pre-tool-use",
+		ToolName: "Bash", ToolUseID: "tool-1", Timestamp: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.updates) != 2 {
+		t.Fatalf("updates = %+v, want provider and tool start", store.updates)
+	}
+	if store.updates[0].InFlightTool == nil || *store.updates[0].InFlightTool != "Bash" {
+		t.Fatalf("tool start = %+v", store.updates[0])
+	}
+
+	store.updates = nil
+	if err := m.ApplyActivitySignal(context.Background(), "s-1", ports.ActivitySignal{
+		Valid: true, State: domain.ActivityActive, Event: "post-tool-use",
+		ToolName: "Bash", ToolUseID: "tool-1", Timestamp: now.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cleared := false
+	for _, update := range store.updates {
+		cleared = cleared || update.ClearInFlight
+	}
+	if !cleared {
+		t.Fatalf("post-tool-use did not clear the in-flight tool: %+v", store.updates)
+	}
+}
+
 func TestRejectedActivitySignalDoesNotRecordProgress(t *testing.T) {
 	store := &rejectedProgressStore{progressFakeStore: &progressFakeStore{fakeStore: newFakeStore()}}
-	store.sessions["s-1"] = working("s-1")
+	rec := working("s-1")
+	rec.Activity = domain.Activity{State: domain.ActivityIdle, LastActivityAt: time.Unix(9_000, 0).UTC()}
+	store.sessions["s-1"] = rec
 	m := New(store, nil)
 	if err := m.ApplyActivitySignal(context.Background(), "s-1", ports.ActivitySignal{
 		Valid: true, State: domain.ActivityActive, Event: "pre-tool-use",
