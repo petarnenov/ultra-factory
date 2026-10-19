@@ -44,7 +44,7 @@ FROM ${NODE_IMAGE} AS worker
 ARG TARGETARCH
 # npm packages installed globally, each pinned. Override the whole list to add
 # or drop a CLI; Claude Code must stay because Claude Code Chat runs it.
-ARG AGENT_NPM_PACKAGES="@anthropic-ai/claude-code@2.1.228 @openai/codex@0.147.0 opencode-ai@1.19.3"
+ARG AGENT_NPM_PACKAGES="@anthropic-ai/claude-code@2.1.302 @openai/codex@0.163.0 opencode-ai@1.19.3"
 ARG SKIP_AGENT_INSTALL=0
 # Optional; build with --build-arg CURSOR_AGENT_VERSION= to leave it out.
 ARG CURSOR_AGENT_VERSION=2026.08.11-e8db854

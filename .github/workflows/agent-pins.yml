@@ -1,0 +1,187 @@
+name: Agent CLI pins
+
+# Weekly check that the agent CLIs pinned in the Railway worker and hub images
+# still match npm latest. On drift it updates the Dockerfile ARGs, opens or
+# updates one PR against main, and starts the Hub image check on that branch.
+#
+# A PR created with GITHUB_TOKEN does not start pull_request workflows, so the
+# Hub image workflow is dispatched explicitly unless AGENT_PINS_TOKEN is set.
+# Without that token the repository must allow Actions to create pull requests
+# (Settings > Actions > General); otherwise the branch is pushed and
+# `gh pr create` fails.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "deploy/railway/worker/Dockerfile"
+      - "deploy/railway/hub/Dockerfile"
+      - "deploy/railway/worker/README.md"
+      - "deploy/railway/scripts/update-agent-pins.mjs"
+      - "deploy/railway/scripts/update-agent-pins.test.mjs"
+      - "deploy/railway/scripts/agent-pins-workflow.test.sh"
+      - ".github/workflows/agent-pins.yml"
+
+permissions:
+  contents: read
+
+# Scheduled and manual runs must not race on the pin branch.
+concurrency:
+  group: agent-cli-pins
+  cancel-in-progress: false
+
+env:
+  BRANCH: chore/agent-cli-pins
+
+jobs:
+  test:
+    name: Script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Run the pin update tests
+        run: node --test deploy/railway/scripts/update-agent-pins.test.mjs
+
+      - name: Test the branch-match decision
+        run: bash deploy/railway/scripts/agent-pins-workflow.test.sh
+
+  update:
+    name: Open the pin PR
+    needs: test
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'schedule' || !github.event.repository.fork)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PINS_TOKEN: ${{ secrets.AGENT_PINS_TOKEN }}
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AGENT_PINS_TOKEN || github.token }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Note the pull request prerequisite
+        if: env.PINS_TOKEN == ''
+        run: |
+          echo "::warning::Set AGENT_PINS_TOKEN or enable 'Allow GitHub Actions to create and approve pull requests' in Settings > Actions > General; gh pr create will fail without one."
+
+      - name: Start from main
+        id: branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B "$BRANCH" origin/main
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "$BRANCH"
+            echo "exists=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve npm latest and update the pins
+        run: |
+          node deploy/railway/scripts/update-agent-pins.mjs \
+            --summary "$RUNNER_TEMP/pin-summary.md"
+          cat "$RUNNER_TEMP/pin-summary.md" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push the update
+        id: commit
+        env:
+          EXISTS: ${{ steps.branch.outputs.exists }}
+        run: |
+          set -euo pipefail
+          paths=(
+            deploy/railway/worker/Dockerfile
+            deploy/railway/hub/Dockerfile
+            deploy/railway/worker/README.md
+          )
+          git add -- "${paths[@]}"
+          if git diff --cached --quiet; then
+            echo "All pins are current; nothing to push."
+            echo "changed=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >>"$GITHUB_OUTPUT"
+          if [ "$EXISTS" = true ] && \
+            git diff --cached --quiet "origin/$BRANCH" -- "${paths[@]}"; then
+            # changed=true is set above: HEAD stays on main on this path.
+            # Keep in sync with agent-pins-workflow.test.sh.
+            echo "The pin branch already has these versions; nothing to push."
+            exit 0
+          fi
+          git commit -m "chore(railway): refresh agent CLI pins"
+          if [ "$EXISTS" = true ]; then
+            # The pin branch is bot-owned; rebuild it from main, never merge.
+            git push --force-with-lease origin "$BRANCH"
+          else
+            git push --set-upstream origin "$BRANCH"
+          fi
+          echo "pushed=true" >>"$GITHUB_OUTPUT"
+
+      - name: Open or update the pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_PINS_TOKEN || github.token }}
+          CHANGED: ${{ steps.commit.outputs.changed }}
+        run: |
+          set -euo pipefail
+          # HEAD is still origin/main on the branch-match skip, so use the
+          # commit step's changed output instead of a commit diff.
+          if [ "$CHANGED" != true ]; then
+            number=$(gh pr list --head "$BRANCH" --state open \
+              --json number --jq '.[0].number // empty')
+            if [ -n "$number" ]; then
+              gh pr close "$number" \
+                --comment "Main now has the current agent CLI pins; closing this automated PR."
+            fi
+            echo "No pin changes; nothing to open."
+            exit 0
+          fi
+          {
+            echo "Automated weekly refresh of the agent CLI pins used by the"
+            echo "Railway worker and hub images."
+            echo
+            if [ -s "$RUNNER_TEMP/pin-summary.md" ]; then
+              cat "$RUNNER_TEMP/pin-summary.md"
+              echo
+            fi
+            echo "Refs #234."
+          } >"$RUNNER_TEMP/pr-body.md"
+          number=$(gh pr list --head "$BRANCH" --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --body-file "$RUNNER_TEMP/pr-body.md"
+            url=$(gh pr view "$number" --json url --jq .url)
+          else
+            url=$(gh pr create --base main --head "$BRANCH" \
+              --title "chore(railway): refresh agent CLI pins" \
+              --body-file "$RUNNER_TEMP/pr-body.md")
+          fi
+          echo "url=$url" >>"$GITHUB_OUTPUT"
+
+      # The bump PR does not trigger pull_request workflows when GITHUB_TOKEN
+      # opened it, so start the image build explicitly.
+      - name: Start the Hub image check on the pin branch
+        if: steps.commit.outputs.pushed == 'true' && env.PINS_TOKEN == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run hub-image.yml --ref "$BRANCH"
