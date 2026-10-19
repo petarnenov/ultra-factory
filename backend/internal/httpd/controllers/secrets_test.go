@@ -34,7 +34,7 @@ func (f *fakeSecretService) DeleteGitHubToken(_ context.Context, login string) e
 }
 
 func TestPutGitHubSecretNeverEchoesToken(t *testing.T) {
-	const fakeToken = "ghp_FAKE333333333333333333333333333333"
+	const fakeToken = "fake-test-token-value"
 	svc := &fakeSecretService{}
 	router := chi.NewRouter()
 	(&SecretsController{Svc: svc}).Register(router)
@@ -78,7 +78,7 @@ func TestListGitHubSecretsReturnsLoginsOnly(t *testing.T) {
 	if len(response.Accounts) != 2 || response.Accounts[0] != "hobby" || response.Accounts[1] != "work-account" {
 		t.Fatalf("accounts = %v", response.Accounts)
 	}
-	if strings.Contains(recorder.Body.String(), "ghp_") {
+	if strings.Contains(recorder.Body.String(), "fake-test-token") {
 		t.Fatal("list response contained a token-like value")
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const fakeToken = "ghp_FAKE000000000000000000000000000000"
+const fakeToken = "fake-test-token-value"
 
 func TestGitHubTokenRoundTrip(t *testing.T) {
 	store := New(t.TempDir())
@@ -119,7 +119,7 @@ func TestDeleteGitHubTokenIsIdempotent(t *testing.T) {
 
 func TestRejectsUnsafeLogins(t *testing.T) {
 	store := New(t.TempDir())
-	for _, login := range []string{"", " ", "../escape", "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bad login"} {
+	for _, login := range []string{"", " ", "../escape", "ghp_not_a_valid_login", "bad login"} {
 		if err := store.SetGitHubToken(context.Background(), login, fakeToken); err == nil {
 			t.Fatalf("SetGitHubToken(%q) = nil, want error", login)
 		}

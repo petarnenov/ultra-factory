@@ -9,7 +9,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
-const fakeToken = "ghp_FAKE111111111111111111111111111111"
+const fakeToken = "fake-test-token-value"
 
 type fakeTokens struct {
 	token   string

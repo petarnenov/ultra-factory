@@ -39,7 +39,7 @@ func secretServer(t *testing.T, response string) (*httptest.Server, *secretCaptu
 }
 
 func TestSecretSetReadsTokenFromStdin(t *testing.T) {
-	const fakeToken = "ghp_FAKE444444444444444444444444444444"
+	const fakeToken = "fake-test-token-value"
 	cfg := setConfigEnv(t)
 	srv, capture := secretServer(t, `{"status":"ok","account":"work-account"}`)
 	writeRunFileFor(t, cfg, srv)
@@ -83,7 +83,7 @@ func TestSecretListShowsLoginsOnly(t *testing.T) {
 	if !strings.Contains(out, "github/hobby") || !strings.Contains(out, "github/work-account") {
 		t.Fatalf("output = %q, want both logins", out)
 	}
-	if strings.Contains(out, "ghp_") {
+	if strings.Contains(out, "fake-test-token") {
 		t.Fatal("list output contained a token")
 	}
 }

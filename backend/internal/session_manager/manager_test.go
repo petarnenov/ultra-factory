@@ -1597,7 +1597,7 @@ func TestSend_RejectsAttachmentWithEmptyWorkspace(t *testing.T) {
 }
 
 func TestSpawnInjectsBoundGitHubTokenWithoutPersistingIt(t *testing.T) {
-	const fakeToken = "ghp_FAKE222222222222222222222222222222"
+	const fakeToken = "fake-test-token-value"
 	st := newFakeStore()
 	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{
 		Worker: domain.RoleOverride{Harness: domain.HarnessClaudeCode},
@@ -1664,7 +1664,7 @@ func TestSpawnFailsFastWhenBoundAccountHasNoToken(t *testing.T) {
 	if ws.createCount != 0 || rt.created != 0 {
 		t.Fatalf("workspace/runtime started before failing: ws=%d rt=%d", ws.createCount, rt.created)
 	}
-	if strings.Contains(err.Error(), "ghp_") {
+	if strings.Contains(err.Error(), "fake-test-token") {
 		t.Fatal("failure leaked a token")
 	}
 }
