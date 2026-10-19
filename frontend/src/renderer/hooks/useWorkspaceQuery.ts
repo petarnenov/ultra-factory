@@ -22,6 +22,7 @@ import {
 	type PRState,
 	type PullRequestFacts,
 	type SessionArtifact,
+	type SessionHealth,
 	toAgentProvider,
 	toKanbanColumn,
 	toProjectKind,
@@ -81,6 +82,24 @@ function toSessionArtifact(artifact: components["schemas"]["SessionArtifact"]): 
 		inlineUrl: artifact.inlineUrl,
 		size: artifact.size,
 		updatedAt: artifact.updatedAt,
+	};
+}
+
+type DaemonSessionHealth = NonNullable<components["schemas"]["ControllersSessionView"]["health"]>;
+
+function toSessionHealth(health: DaemonSessionHealth): SessionHealth {
+	return {
+		state: health.state,
+		reason: health.reason || undefined,
+		class: health.class || undefined,
+		since: health.since ?? undefined,
+		lastProgressAt: health.lastProgressAt ?? undefined,
+		silentForSeconds: health.silentForSeconds ?? undefined,
+		thresholdSeconds: health.thresholdSeconds ?? undefined,
+		inFlightTool: health.inFlightTool || undefined,
+		stallCount: health.stallCount ?? undefined,
+		lastStallAt: health.lastStallAt ?? undefined,
+		lastStallForSeconds: health.lastStallForSeconds ?? undefined,
 	};
 }
 
@@ -149,6 +168,7 @@ export function toWorkspaceSession(
 		lastUserMessageAt: session.lastUserMessageAt ?? undefined,
 		lastInteractionAt: session.lastInteractionAt ?? undefined,
 		activity,
+		health: session.health ? toSessionHealth(session.health) : undefined,
 		activeAgentSwitch: session.activeAgentSwitch ? toAgentSwitchSummary(session.activeAgentSwitch) : undefined,
 		previewUrl: session.previewUrl,
 		previewRevision: session.previewRevision,
@@ -258,6 +278,7 @@ function toLocalWorkspaceSession(
 		lastUserMessageAt: session.lastUserMessageAt ?? undefined,
 		lastInteractionAt: session.lastInteractionAt ?? undefined,
 		activity,
+		health: session.health ? toSessionHealth(session.health) : undefined,
 		activeAgentSwitch: session.activeAgentSwitch ? toAgentSwitchSummary(session.activeAgentSwitch) : undefined,
 		previewUrl: session.previewUrl,
 		previewRevision: session.previewRevision,

@@ -32,6 +32,24 @@ func TestEnrichReadyToMergePrioritizesPRContext(t *testing.T) {
 	}
 }
 
+func TestEnrichSessionStalledNeedsNoPR(t *testing.T) {
+	t.Parallel()
+
+	rec, err := enrich(Intent{
+		Type:               domain.NotificationSessionStalled,
+		SessionID:          "sess-1",
+		ProjectID:          "proj-1",
+		SessionDisplayName: "Checkout flow",
+		CreatedAt:          time.Date(2026, 8, 5, 4, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("enrich stalled notification: %v", err)
+	}
+	if want := "Checkout flow needs attention"; rec.Title != want {
+		t.Fatalf("title = %q, want %q", rec.Title, want)
+	}
+}
+
 func TestEnrichReadyToMergeFallsBackWithoutPRTitle(t *testing.T) {
 	t.Parallel()
 

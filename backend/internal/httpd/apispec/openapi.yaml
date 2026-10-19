@@ -13237,6 +13237,8 @@ components:
           - settings
           - machine-default
           type: string
+        health:
+          $ref: '#/components/schemas/SessionHealth'
         hibernatedAt:
           format: date-time
           type:
@@ -13424,6 +13426,7 @@ components:
       - status
       - kanbanColumn
       - displayStatus
+      - health
       - lastEventAt
       - prs
       type: object
@@ -16845,6 +16848,56 @@ components:
       required:
       - commits
       - unpushed
+      type: object
+    SessionHealth:
+      properties:
+        class:
+          enum:
+          - provider
+          - tool
+          - terminal
+          - git
+          type: string
+        inFlightTool:
+          type: string
+        lastProgressAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        lastStallAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        lastStallForSeconds:
+          format: int64
+          type: integer
+        reason:
+          type: string
+        silentForSeconds:
+          format: int64
+          type: integer
+        since:
+          format: date-time
+          type:
+          - "null"
+          - string
+        stallCount:
+          type: integer
+        state:
+          enum:
+          - ok
+          - stalled
+          - blocked
+          - unreachable
+          - unknown
+          type: string
+        thresholdSeconds:
+          format: int64
+          type: integer
+      required:
+      - state
       type: object
     SessionInterfaceTransition:
       properties:

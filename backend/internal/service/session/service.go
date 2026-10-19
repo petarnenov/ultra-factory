@@ -22,6 +22,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 	"github.com/aoagents/agent-orchestrator/backend/internal/telemetrymeta"
 )
 
@@ -216,6 +217,7 @@ type Service struct {
 	// each session's last reconciled branch, remote, and base tips.
 	branchStateMu sync.Mutex
 	branchTips    map[domain.SessionID]string
+	worktreeTips  map[domain.SessionID]string
 	// signalCapable reports whether a harness has a hook pipeline that can
 	// deliver activity signals at all. Only capable harnesses are eligible for
 	// the no_signal downgrade: a hook-less harness staying silent forever is
@@ -242,6 +244,9 @@ type Service struct {
 	// remoteSpawned records workers started from another machine and lists the
 	// active ones. Nil records nothing and never refuses an orchestrator.
 	remoteSpawned remoteSpawnedStore
+	// healthConfig holds the derived-health thresholds. It is read-only at
+	// request time; nothing here is persisted.
+	healthConfig sessionhealth.Config
 }
 
 // remoteSpawnedStore persists which sessions `ao spawn --host` started here.
@@ -348,6 +353,9 @@ type Deps struct {
 	// ArtifactDeleter deletes a session's artifacts; daemon wiring passes the
 	// shared *artifactversions.Capturer so a delete cannot race a capture.
 	ArtifactDeleter artifactDeleter
+	// HealthConfig holds derived session-health thresholds. The zero value uses
+	// sessionhealth.DefaultConfig().
+	HealthConfig sessionhealth.Config
 }
 
 // NewWithDeps wires a session service with optional PR-claim dependencies.
@@ -356,7 +364,11 @@ func NewWithDeps(d Deps) *Service {
 	if backgroundContext == nil {
 		backgroundContext = context.Background()
 	}
-	s := &Service{manager: d.Manager, store: d.Store, prClaimer: d.PRClaimer, scm: d.SCM, tracker: d.Tracker, clock: d.Clock, dataDir: d.DataDir, signalCapable: d.SignalCapable, telemetry: d.Telemetry, logger: d.Logger, backgroundContext: backgroundContext, agentReadiness: d.AgentReadiness, githubIdentity: d.GithubIdentity, titleRefinementSlots: make(chan struct{}, delegatedTaskTitleConcurrency), titleRefinementCancels: map[domain.SessionID]context.CancelFunc{}, outputTypeReconciler: d.OutputTypeReconciler, artifactDeleter: d.ArtifactDeleter}
+	healthConfig := d.HealthConfig
+	if healthConfig.ProviderSilence <= 0 {
+		healthConfig = sessionhealth.DefaultConfig()
+	}
+	s := &Service{manager: d.Manager, store: d.Store, prClaimer: d.PRClaimer, scm: d.SCM, tracker: d.Tracker, clock: d.Clock, dataDir: d.DataDir, signalCapable: d.SignalCapable, telemetry: d.Telemetry, logger: d.Logger, backgroundContext: backgroundContext, agentReadiness: d.AgentReadiness, githubIdentity: d.GithubIdentity, titleRefinementSlots: make(chan struct{}, delegatedTaskTitleConcurrency), titleRefinementCancels: map[domain.SessionID]context.CancelFunc{}, outputTypeReconciler: d.OutputTypeReconciler, artifactDeleter: d.ArtifactDeleter, healthConfig: healthConfig}
 	if s.prClaimer == nil {
 		if w, ok := d.Store.(ports.PRClaimer); ok {
 			s.prClaimer = w
@@ -1255,8 +1267,10 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]domain.Session
 	if err != nil {
 		return nil, fmt.Errorf("list review runs: %w", err)
 	}
+	progressBySession := s.progressForSessions(ctx)
 	out := make([]domain.Session, 0, len(filtered))
 	for _, rec := range filtered {
+		rec.Progress = progressBySession[rec.ID]
 		sess, err := s.toSessionWithFacts(ctx, rec, prsBySession[rec.ID], runsBySession[rec.ID])
 		if err != nil {
 			return nil, err
@@ -1279,6 +1293,45 @@ func (s *Service) statusRecoveryRevision() uint64 {
 		return recovery.StatusRecoveryRevision()
 	}
 	return 0
+}
+
+// progressForSessions reads the durable heartbeat map once per list. A store
+// without the narrow progress surface reads as no progress yet.
+func (s *Service) progressForSessions(ctx context.Context) map[domain.SessionID]domain.SessionProgress {
+	reader, ok := s.store.(interface {
+		ListSessionProgress(context.Context) (map[domain.SessionID]domain.SessionProgress, error)
+	})
+	if !ok {
+		return nil
+	}
+	progress, err := reader.ListSessionProgress(ctx)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("list session progress", "err", err)
+		}
+		return nil
+	}
+	return progress
+}
+
+func (s *Service) progressForSession(ctx context.Context, id domain.SessionID) domain.SessionProgress {
+	reader, ok := s.store.(interface {
+		GetSessionProgress(context.Context, domain.SessionID) (domain.SessionProgress, bool, error)
+	})
+	if !ok {
+		return domain.SessionProgress{}
+	}
+	progress, found, err := reader.GetSessionProgress(ctx, id)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("get session progress", "session", id, "err", err)
+		}
+		return domain.SessionProgress{}
+	}
+	if !found {
+		return domain.SessionProgress{}
+	}
+	return progress
 }
 
 func (s *Service) listRecords(ctx context.Context, project domain.ProjectID) ([]domain.SessionRecord, error) {
@@ -1326,6 +1379,7 @@ func (s *Service) Get(ctx context.Context, id domain.SessionID) (domain.Session,
 	if rec.IsTaskPreparation {
 		return domain.Session{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 	}
+	rec.Progress = s.progressForSession(ctx, id)
 	sess, err := s.toSession(ctx, rec)
 	if err != nil {
 		return domain.Session{}, err
@@ -1423,6 +1477,7 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 		ChatProviderPreserved: rec.Mode == domain.SessionModeChat && !rec.IsTerminated &&
 			s.chatProviderPreserved != nil && s.chatProviderPreserved(rec.ID),
 		Status:           deriveStatus(rec, prs, now, s.harnessSignals(rec.Harness)),
+		Health:           sessionhealth.Derive(rec, rec.Progress, now, s.healthConfig),
 		SCMStatus:        deriveSCMStatus(prs),
 		KanbanColumn:     presentation.Column,
 		DisplayStatus:    presentation.DisplayStatus,
@@ -1704,6 +1759,9 @@ func (s *Service) replayClientRequest(ctx context.Context, id, hash string) (dom
 }
 
 func (s *Service) toSession(ctx context.Context, rec domain.SessionRecord) (domain.Session, error) {
+	if rec.Progress == (domain.SessionProgress{}) {
+		rec.Progress = s.progressForSession(ctx, rec.ID)
+	}
 	prs, err := s.store.ListPRFactsForSession(ctx, rec.ID)
 	if err != nil {
 		return domain.Session{}, fmt.Errorf("pr facts %s: %w", rec.ID, err)

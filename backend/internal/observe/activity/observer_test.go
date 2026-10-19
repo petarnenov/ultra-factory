@@ -15,6 +15,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/muse"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 )
 
 type fakeSessions struct {
@@ -34,6 +35,22 @@ type fakeSink struct {
 func (f *fakeSink) ApplyActivitySignal(_ context.Context, id domain.SessionID, signal ports.ActivitySignal) error {
 	f.id = id
 	f.signals = append(f.signals, signal)
+	return nil
+}
+
+type progressFakeSink struct {
+	fakeSink
+	progress []sessionhealth.Signal
+	blocked  []string
+}
+
+func (f *progressFakeSink) RecordProgress(_ context.Context, _ domain.SessionID, signal sessionhealth.Signal) error {
+	f.progress = append(f.progress, signal)
+	return nil
+}
+
+func (f *progressFakeSink) RecordBlocked(_ context.Context, _ domain.SessionID, reason string, _ time.Time) error {
+	f.blocked = append(f.blocked, reason)
 	return nil
 }
 
@@ -322,6 +339,89 @@ func TestPollSkipsFreshActiveAndOutputFailures(t *testing.T) {
 	observer.sessions = fakeSessions{rows: []domain.SessionRecord{stale}}
 	if err := observer.Poll(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPollRecordsTerminalProgressOnlyWhenOutputChanges(t *testing.T) {
+	now := time.Unix(500, 0).UTC()
+	sink := &progressFakeSink{}
+	runtime := &fakeRuntime{output: "• Working (3m 10s • esc to interrupt)\n› Add tests\n\ngpt-5.6-sol low · ~/project\n"}
+	observer := New(
+		fakeSessions{rows: []domain.SessionRecord{activeSession(now, domain.HarnessCodex)}},
+		sink,
+		runtime,
+		fakeAgents{domain.HarnessCodex: codex.New()},
+		Config{Clock: func() time.Time { return now }, Logger: testLogger()},
+	)
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 1 || sink.progress[0].Class != sessionhealth.ClassTerminal {
+		t.Fatalf("progress = %+v, want one terminal heartbeat", sink.progress)
+	}
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 1 {
+		t.Fatalf("unchanged output recorded another heartbeat: %+v", sink.progress)
+	}
+	runtime.output += "new line\n"
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 2 {
+		t.Fatalf("changed output did not record a heartbeat: %+v", sink.progress)
+	}
+}
+
+func TestPollIgnoresSpinnerAndTimerRedraws(t *testing.T) {
+	now := time.Unix(500, 0).UTC()
+	sink := &progressFakeSink{}
+	runtime := &fakeRuntime{output: "✻ Thinking… (312s · esc to interrupt)\n› Add tests\n"}
+	observer := New(
+		fakeSessions{rows: []domain.SessionRecord{activeSession(now, domain.HarnessClaudeCode)}},
+		sink,
+		runtime,
+		fakeAgents{domain.HarnessClaudeCode: claudecode.New()},
+		Config{Clock: func() time.Time { return now }, Logger: testLogger()},
+	)
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 1 {
+		t.Fatalf("progress = %+v, want one initial heartbeat", sink.progress)
+	}
+	runtime.output = "✻ Thinking… (313s · esc to interrupt)\n› Add tests\n"
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 1 {
+		t.Fatalf("timer redraw recorded progress: %+v", sink.progress)
+	}
+	runtime.output = "✔ Added tests\n"
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.progress) != 2 {
+		t.Fatalf("real output did not record progress: %+v", sink.progress)
+	}
+}
+
+func TestPollRecordsGitAuthFailureAsBlocked(t *testing.T) {
+	now := time.Unix(500, 0).UTC()
+	sink := &progressFakeSink{}
+	observer := New(
+		fakeSessions{rows: []domain.SessionRecord{activeSession(now, domain.HarnessCodex)}},
+		sink,
+		&fakeRuntime{output: "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"},
+		fakeAgents{domain.HarnessCodex: codex.New()},
+		Config{Clock: func() time.Time { return now }, Logger: testLogger()},
+	)
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.blocked) != 1 || sink.blocked[0] != "git_credential_missing" {
+		t.Fatalf("blocked = %+v", sink.blocked)
 	}
 }
 

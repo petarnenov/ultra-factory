@@ -60,12 +60,29 @@ type sessionDTO struct {
 	PRs          []sessionPRDTO  `json:"prs"`
 	// Model, Effort, and their sources record the resolved launch
 	// configuration and the layer and machine that supplied it.
-	Model              string `json:"model,omitempty"`
-	Effort             string `json:"effort,omitempty"`
-	HarnessSource      string `json:"harnessSource,omitempty"`
-	ModelSource        string `json:"modelSource,omitempty"`
-	EffortSource       string `json:"effortSource,omitempty"`
-	AgentConfigMachine string `json:"agentConfigMachine,omitempty"`
+	Model              string           `json:"model,omitempty"`
+	Effort             string           `json:"effort,omitempty"`
+	HarnessSource      string           `json:"harnessSource,omitempty"`
+	ModelSource        string           `json:"modelSource,omitempty"`
+	EffortSource       string           `json:"effortSource,omitempty"`
+	AgentConfigMachine string           `json:"agentConfigMachine,omitempty"`
+	Health             sessionHealthDTO `json:"health"`
+}
+
+// sessionHealthDTO mirrors the daemon's derived health view. It is deliberately
+// a hand-mirrored CLI DTO, like the rest of this package.
+type sessionHealthDTO struct {
+	State               string     `json:"state"`
+	Reason              string     `json:"reason,omitempty"`
+	Class               string     `json:"class,omitempty"`
+	Since               *time.Time `json:"since,omitempty"`
+	LastProgressAt      *time.Time `json:"lastProgressAt,omitempty"`
+	SilentForSeconds    int64      `json:"silentForSeconds,omitempty"`
+	ThresholdSeconds    int64      `json:"thresholdSeconds,omitempty"`
+	InFlightTool        string     `json:"inFlightTool,omitempty"`
+	StallCount          int        `json:"stallCount,omitempty"`
+	LastStallAt         *time.Time `json:"lastStallAt,omitempty"`
+	LastStallForSeconds int64      `json:"lastStallForSeconds,omitempty"`
 }
 
 type branchStateDTO struct {
@@ -172,20 +189,21 @@ type claimPRResponse struct {
 }
 
 type sessionListEntry struct {
-	ID             string          `json:"id"`
-	ProjectID      string          `json:"projectId"`
-	Role           string          `json:"role"`
-	DisplayName    string          `json:"displayName,omitempty"`
-	Status         string          `json:"status,omitempty"`
-	Activity       string          `json:"activity,omitempty"`
-	IssueID        string          `json:"issueId,omitempty"`
-	Harness        string          `json:"harness,omitempty"`
-	Branch         string          `json:"branch,omitempty"`
-	PRs            []sessionListPR `json:"prs"`
-	IsTerminated   bool            `json:"isTerminated"`
-	LastActivityAt *time.Time      `json:"lastActivityAt,omitempty"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	ID             string           `json:"id"`
+	ProjectID      string           `json:"projectId"`
+	Role           string           `json:"role"`
+	DisplayName    string           `json:"displayName,omitempty"`
+	Status         string           `json:"status,omitempty"`
+	Activity       string           `json:"activity,omitempty"`
+	Health         sessionHealthDTO `json:"health"`
+	IssueID        string           `json:"issueId,omitempty"`
+	Harness        string           `json:"harness,omitempty"`
+	Branch         string           `json:"branch,omitempty"`
+	PRs            []sessionListPR  `json:"prs"`
+	IsTerminated   bool             `json:"isTerminated"`
+	LastActivityAt *time.Time       `json:"lastActivityAt,omitempty"`
+	CreatedAt      time.Time        `json:"createdAt"`
+	UpdatedAt      time.Time        `json:"updatedAt"`
 }
 
 type sessionListPR struct {
@@ -877,6 +895,7 @@ func sessionListEntries(sessions []sessionDTO, summaries map[string][]sessionPRS
 			DisplayName:    sess.DisplayName,
 			Status:         sess.Status,
 			Activity:       sess.Activity.State,
+			Health:         sess.Health,
 			IssueID:        sess.IssueID,
 			Harness:        sess.Harness,
 			Branch:         sess.Branch,
@@ -954,12 +973,12 @@ func writeSessionList(cmd *cobra.Command, sessions []sessionDTO, summaries map[s
 				if _, err := fmt.Fprintf(table, "%s:\n", currentProject); err != nil {
 					return err
 				}
-				if _, err := fmt.Fprintln(table, "  SESSION\tROLE\tBRANCH\tPR\tCI\tREVIEW\tTHREADS\tACTIVITY\tAGE"); err != nil {
+				if _, err := fmt.Fprintln(table, "  SESSION\tROLE\tBRANCH\tPR\tCI\tREVIEW\tTHREADS\tACTIVITY\tHEALTH\tAGE"); err != nil {
 					return err
 				}
 			}
 			pr, ci, review, threads := sessionPRColumns(sess, summaries[sess.ID])
-			if _, err := fmt.Fprintf(table, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sess.ID, sessionRole(sess), emptyDash(sess.Branch), pr, ci, review, threads, emptyDash(sess.Activity.State), sessionAge(now, sess.Activity.LastActivityAt)); err != nil {
+			if _, err := fmt.Fprintf(table, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sess.ID, sessionRole(sess), emptyDash(sess.Branch), pr, ci, review, threads, emptyDash(sess.Activity.State), sessionHealthColumn(sess.Health), sessionAge(now, sess.Activity.LastActivityAt)); err != nil {
 				return err
 			}
 		}
@@ -1013,6 +1032,41 @@ func emptyDash(value string) string {
 	return value
 }
 
+func sessionHealthDetails(health sessionHealthDTO) string {
+	if health.State == "" {
+		return "-"
+	}
+	value := health.State
+	if health.Class != "" {
+		value += " (class " + health.Class
+		if health.ThresholdSeconds > 0 {
+			value += fmt.Sprintf(", threshold %s", formatSessionAge(time.Duration(health.ThresholdSeconds)*time.Second))
+		}
+		value += ")"
+	}
+	if health.Reason != "" {
+		value += ": " + health.Reason
+	}
+	if health.InFlightTool != "" {
+		value += "; in-flight tool: " + health.InFlightTool
+	}
+	if health.StallCount > 0 {
+		value += fmt.Sprintf("; stalls: %d", health.StallCount)
+	}
+	return value
+}
+
+func sessionHealthColumn(health sessionHealthDTO) string {
+	if health.State == "" || health.State == "ok" {
+		return "-"
+	}
+	value := health.State
+	if health.SilentForSeconds > 0 {
+		value += " " + formatSessionAge(time.Duration(health.SilentForSeconds)*time.Second)
+	}
+	return value
+}
+
 func sessionAge(now, at time.Time) string {
 	if at.IsZero() {
 		return "-"
@@ -1029,6 +1083,7 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"role", sessionRole(sess)},
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
+		{"health", sessionHealthDetails(sess.Health)},
 		{"harness", formatResolvedValue(sess.Harness, sess.HarnessSource)},
 		{"model", formatResolvedValue(sess.Model, sess.ModelSource)},
 		{"effort", formatResolvedValue(sess.Effort, sess.EffortSource)},

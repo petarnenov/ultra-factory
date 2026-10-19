@@ -111,6 +111,21 @@ export type SessionProvisionStep = {
 /** The daemon's observed branch facts. `unpushed` equals `commits` until the branch reaches its remote. */
 export type SessionBranchState = { commits: number; remoteBranch?: string; unpushed: number };
 
+/** Read-time progress health from real heartbeats, never a stored status. */
+export type SessionHealth = {
+	state: "ok" | "stalled" | "blocked" | "unreachable" | "unknown";
+	reason?: string;
+	class?: "provider" | "tool" | "terminal" | "git";
+	since?: string;
+	lastProgressAt?: string;
+	silentForSeconds?: number;
+	thresholdSeconds?: number;
+	inFlightTool?: string;
+	stallCount?: number;
+	lastStallAt?: string;
+	lastStallForSeconds?: number;
+};
+
 export type WorkspaceSession = {
 	workspaceCleanup?: "pending" | "removed" | "preserved_dirty" | "failed" | "not_applicable";
 	id: string;
@@ -213,6 +228,8 @@ export type WorkspaceSession = {
 	pinnedAt?: string;
 	/** Raw agent lifecycle activity from the daemon. */
 	activity?: SessionActivity;
+	/** Read-time progress health derived from real heartbeats. */
+	health?: SessionHealth;
 	activeAgentSwitch?: AgentSwitchSummary;
 	/**
 	 * Live preview target set by the daemon (via `ao preview`) and streamed over

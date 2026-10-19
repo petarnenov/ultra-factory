@@ -4463,6 +4463,7 @@ export interface components {
             harness?: string;
             /** @enum {string} */
             harnessSource?: "explicit" | "settings" | "machine-default";
+            health: components["schemas"]["SessionHealth"];
             /** Format: date-time */
             hibernatedAt?: null | string;
             id: string;
@@ -5822,6 +5823,27 @@ export interface components {
             commits: number;
             remoteBranch?: string;
             unpushed: number;
+        };
+        SessionHealth: {
+            /** @enum {string} */
+            class?: "provider" | "tool" | "terminal" | "git";
+            inFlightTool?: string;
+            /** Format: date-time */
+            lastProgressAt?: null | string;
+            /** Format: date-time */
+            lastStallAt?: null | string;
+            /** Format: int64 */
+            lastStallForSeconds?: number;
+            reason?: string;
+            /** Format: int64 */
+            silentForSeconds?: number;
+            /** Format: date-time */
+            since?: null | string;
+            stallCount?: number;
+            /** @enum {string} */
+            state: "ok" | "stalled" | "blocked" | "unreachable" | "unknown";
+            /** Format: int64 */
+            thresholdSeconds?: number;
         };
         SessionInterfaceTransition: {
             /** Format: date-time */

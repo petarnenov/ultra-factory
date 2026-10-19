@@ -1314,6 +1314,8 @@ function notificationIcon(type: string) {
 	switch (type) {
 		case "needs_input":
 			return MessageSquareDot;
+		case "session_stalled":
+			return CircleAlert;
 		case "review_feedback":
 			return MessageSquareDiff;
 		case "ready_to_merge":
@@ -1341,6 +1343,8 @@ function notificationIconClass(type: string): string {
 		case "needs_input":
 		case "review_feedback":
 			return "text-warning";
+		case "session_stalled":
+			return "text-error";
 		case "agent_failed":
 			return "text-error";
 		case "agent_completed":

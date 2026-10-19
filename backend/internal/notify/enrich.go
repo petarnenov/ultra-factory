@@ -20,7 +20,8 @@ func enrich(intent Intent) (domain.NotificationRecord, error) {
 	if !intent.Type.Valid() {
 		return domain.NotificationRecord{}, domain.ErrInvalidNotificationType
 	}
-	if intent.Type != domain.NotificationNeedsInput && rec.PRURL == "" {
+	if intent.Type != domain.NotificationNeedsInput &&
+		intent.Type != domain.NotificationSessionStalled && rec.PRURL == "" {
 		return domain.NotificationRecord{}, domain.ErrInvalidNotificationRecord
 	}
 	rec.Title = titleForIntent(intent)
@@ -51,6 +52,8 @@ func titleForIntent(intent Intent) string {
 		return fmt.Sprintf("Review complete for %s", prLabel(intent))
 	case domain.NotificationReviewChangesRequested:
 		return fmt.Sprintf("Review found changes for %s", prLabel(intent))
+	case domain.NotificationSessionStalled:
+		return fmt.Sprintf("%s needs attention", sessionLabel(intent))
 	default:
 		return "Notification"
 	}
@@ -83,6 +86,8 @@ func bodyForIntent(intent Intent) string {
 		return "Orchestrator finished reviewing this pull request and approved it."
 	case domain.NotificationReviewChangesRequested:
 		return "Orchestrator finished reviewing this pull request and found changes to address."
+	case domain.NotificationSessionStalled:
+		return "The agent reports that it is working but has produced no real progress inside its budget. It may be hung, waiting on a missing credential, or running a long step."
 	default:
 		return ""
 	}
