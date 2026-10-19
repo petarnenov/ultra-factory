@@ -206,6 +206,9 @@ Coordinator behavior at existing kind-keyed sites:
 | Site | Coordinator behavior | Action |
 | --- | --- | --- |
 | `Service.Spawn` singleton branch | Not a root | Add a separate coordinator branch; the orchestrator branch is unchanged |
+| `Service.Spawn` `clientRequestId` guard (`Kind != KindWorker`) | Coordinators may be idempotent too | Widen to worker or coordinator; keep rejecting a root; the replay hash includes kind, scope, and parent |
+| `Service.Spawn` project guard (`ProjectID == "" && Kind != KindWorker`) | Coordinators require a project | Unchanged; the existing guard rejects a projectless coordinator |
+| `Service.Spawn` remote guard (`RemoteSpawn && Kind != KindWorker`) | Coordinators are local only | Unchanged; the existing guard rejects a remote coordinator with `REMOTE_SPAWN_WORKER_REQUIRED` |
 | `Service.SpawnOrchestrator`, `activeOrchestrators`, replacement verification | Not a root | Unchanged |
 | `report.Coordinator.activeOrchestrator` | Not a root | Unchanged (root selector) |
 | `PreparePiggyback` | May receive a piggybacked batch as a recipient | Accept `coordinator` and claim that recipient's group |
@@ -230,13 +233,15 @@ Coordinator behavior at existing kind-keyed sites:
 | `promptRoleForKind`, system prompt, workspace prompt | New coordinator role and template | Add a case; do not reuse the root template |
 | `activeOrchestratorSessionID` in a worker's system prompt | Resolve to the worker's owner, not necessarily the root | Make owner-aware |
 | Kiro, gitworktree branch-collision, and scratch kind branches | Worker-like | Unchanged; covered by coordinator spawn tests |
+| Worker-only surfaces (agent switching, task reports, session-health reports, preview polling, auto-review) | Not a worker | Unchanged; each keeps rejecting a coordinator |
 | Automation input kinds | Workers and roots only | Unchanged |
 | Copilot orchestrator message | Root-only | Unchanged |
 
 The table groups call sites by behavior, not one row per line. CO-2.1.1 and
-CO-2.2.1 must walk every `KindOrchestrator` occurrence and classify it into one
-of these rows; a `coordinator` case that is neither root-like nor worker-like
-needs a test.
+CO-2.2.1 must walk every `KindOrchestrator` occurrence and every
+`kind != worker` guard, because a search for `KindOrchestrator` alone misses
+the worker-only guards; classify each into one of these rows. A `coordinator`
+case that is neither root-like nor worker-like needs a test.
 
 The coordinator system prompt is a distinct template. It states the scope, the
 three-worker cap, the escalation rules from CO-3.2.1, the prohibition on
@@ -789,7 +794,6 @@ Stable API errors, all in the existing `apierr` envelope with a request ID:
 | `COORDINATOR_SCOPE_REQUIRED` | Invalid / 400 | Missing or empty scope | — |
 | `COORDINATOR_SCOPE_TOO_LONG` | Invalid / 400 | Scope over 200 characters | `maxLength` |
 | `COORDINATOR_LIMITS_INVALID` | Invalid / 400 | Config limit above the rollout cap | `field`, `max` |
-| `COORDINATOR_REMOTE_UNSUPPORTED` | Invalid / 400 | Coordinator spawn with `remoteSpawn` or `--host` | — |
 | `OWNER_NOT_COORDINATOR` | Conflict / 409 | Owner is not a live coordinator | `ownerSessionId` |
 | `OWNER_CROSS_PROJECT` | Conflict / 409 | Owner is in another project | `ownerSessionId` |
 | `OWNER_TERMINATED` | Conflict / 409 | Owner is terminated | `ownerSessionId` |
@@ -1013,7 +1017,7 @@ bearer like the rest of the app API.
 
 | Method and path | Purpose | Caller rule | Notes |
 | --- | --- | --- | --- |
-| `POST /api/v1/sessions` with `kind=coordinator` | Spawn a helper | `parentSessionId` is the live root | `scope` required; `clientRequestId` supported; `remoteSpawn` rejected; capacity checked |
+| `POST /api/v1/sessions` with `kind=coordinator` | Spawn a helper | `parentSessionId` is the live root | `scope` required; `clientRequestId` supported with a replay hash over kind, scope, and parent; `remoteSpawn` rejected; capacity checked |
 | `PUT /api/v1/sessions/{sessionId}/owner` | Assign or reassign a local worker | `requestedBySessionId` is the live root | Body `{ownerSessionId, requestedBySessionId}`; `null` means root; target capacity checked; 200 with the session view |
 | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` | Assign or reassign a remote worker | `requestedBySessionId` is the live root | Same body and rules as the local route; audited in `remote_worker_owner_events` |
 | `GET /api/v1/remote-worker-links` | List linked remote workers | App API caller | Link identity, project, display name, owner, host label |
