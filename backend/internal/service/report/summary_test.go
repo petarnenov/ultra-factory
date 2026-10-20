@@ -326,15 +326,14 @@ func TestSummaryRetryReusesBatchIdentityAndAcknowledgesOnlyAfterAcceptance(t *te
 	f.delivery.submitErr = nil
 	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow)
 	f.run()
-	if len(f.delivery.submissions) != 1 {
-		t.Fatalf("submissions = %#v, want the retried batch", f.delivery.submissions)
+	if len(f.delivery.submissions) != 2 {
+		t.Fatalf("submissions = %#v, want the retried batch then k3", f.delivery.submissions)
 	}
 	retried := f.delivery.submissions[0]
 	if strings.Contains(retried.message, "result k3") || !strings.Contains(retried.message, "result k1") || !strings.Contains(retried.message, "result k2") {
 		t.Fatalf("retry changed the coalesced set:\n%s", retried.message)
 	}
-	f.run()
-	if len(f.delivery.submissions) != 2 || !strings.Contains(f.delivery.submissions[1].message, "result k3") {
+	if !strings.Contains(f.delivery.submissions[1].message, "result k3") {
 		t.Fatalf("submissions = %#v, want k3 as its own later batch", f.delivery.submissions)
 	}
 	if retried.key == f.delivery.submissions[1].key || !strings.HasPrefix(f.delivery.submissions[1].key, "coordinator-summary:") {
@@ -511,5 +510,31 @@ func TestOlderDueSummaryDoesNotPullANewerOneBeforeItsWindow(t *testing.T) {
 	f.run()
 	if len(f.delivery.submissions) != 2 || !strings.Contains(f.delivery.submissions[1].message, "result new") {
 		t.Fatalf("submissions = %#v, want the newer one after its own window", f.delivery.submissions)
+	}
+}
+
+func TestEscalationSubmittedAfterAReleasedBatchIsNotStranded(t *testing.T) {
+	f := newSummaryFixture(t)
+	f.submit(f.coordA.ID, "a", domain.SummaryWorking)
+	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow)
+	f.delivery.submitErr = errors.New("root pane unavailable")
+	if _, err := f.coord.RunDue(context.Background()); err == nil {
+		t.Fatal("expected the delivery failure")
+	}
+	f.escalate(f.coordA.ID, "esc", domain.EscalationScopeDecision)
+
+	f.delivery.submitErr = nil
+	delay, err := f.coord.RunDue(context.Background())
+	if err != nil || delay >= 0 {
+		t.Fatalf("delay=%v err=%v, want idle with nothing left due", delay, err)
+	}
+	if len(f.delivery.submissions) != 2 || !strings.Contains(f.delivery.submissions[0].message, "result a") ||
+		!strings.Contains(f.delivery.submissions[1].message, "[escalation: scope_decision]") {
+		t.Fatalf("submissions = %#v, want the retried batch then the escalation in one pass", f.delivery.submissions)
+	}
+	for _, s := range f.history(f.coordA.ID) {
+		if s.DeliveryState != domain.ReportAcknowledged {
+			t.Fatalf("summary left pending: %+v", s)
+		}
 	}
 }

@@ -85,10 +85,22 @@ func (c *Coordinator) runSummariesLocked(ctx context.Context) (time.Duration, er
 		}
 		return c.retryDelay, nil
 	}
-	for _, summary := range pending {
-		if summary.AvailableAt.After(now) {
-			return summary.AvailableAt.Sub(now), nil
+	if delivered > 0 {
+		// Deliveries change the schedule, so read the deadlines back.
+		fresh, err := c.summaries.ListPendingCoordinatorSummarySchedule(ctx, reportScheduleScanLimit)
+		if err != nil {
+			return c.retryDelay, err
 		}
+		pending = fresh
+	}
+	for _, summary := range pending {
+		if !summary.AvailableAt.After(now) {
+			if delivered > 0 {
+				return c.retryDelay, nil
+			}
+			continue
+		}
+		return summary.AvailableAt.Sub(now), nil
 	}
 	if stalled || len(pending) >= reportScheduleScanLimit || delivered >= maxDeliveryGroupsPerPass {
 		return c.retryDelay, nil
@@ -96,11 +108,30 @@ func (c *Coordinator) runSummariesLocked(ctx context.Context) (time.Duration, er
 	return -1, nil
 }
 
+// maxSummaryBatchesPerGroup bounds the batches one group delivers per pass.
+const maxSummaryBatchesPerGroup = 4
+
+// deliverSummaryGroup claims and delivers the group's due batches until none
+// is left, so a retried batch never strands a newer due summary or escalation.
 func (c *Coordinator) deliverSummaryGroup(ctx context.Context, projectID domain.ProjectID, coordinator, root domain.SessionID) (bool, error) {
+	delivered := false
+	for i := 0; i < maxSummaryBatchesPerGroup; i++ {
+		claimed, ok, err := c.deliverSummaryBatch(ctx, projectID, coordinator, root)
+		delivered = delivered || claimed
+		if err != nil || !ok {
+			return delivered, err
+		}
+	}
+	return delivered, nil
+}
+
+// deliverSummaryBatch reports whether it claimed a batch and whether that
+// batch was acknowledged.
+func (c *Coordinator) deliverSummaryBatch(ctx context.Context, projectID domain.ProjectID, coordinator, root domain.SessionID) (claimed, acknowledged bool, err error) {
 	token := c.newToken()
 	rows, err := c.summaries.ClaimPendingCoordinatorSummaryBatch(ctx, projectID, coordinator, root, token, c.now().UTC())
 	if err != nil || len(rows) == 0 {
-		return false, err
+		return false, false, err
 	}
 	batch := summaryBatch{ProjectID: projectID, Token: token, Summaries: rows}
 	batch.resolveNames(ctx, c.store)
@@ -109,11 +140,11 @@ func (c *Coordinator) deliverSummaryGroup(ctx context.Context, projectID domain.
 		// is not. Inside the window the turn is delivered without interrupting.
 		acquired, _, acquireErr := c.store.AcquireReportInterrupt(ctx, coordinator, c.now().UTC(), ReportInterruptWindow)
 		if acquireErr != nil {
-			return true, c.releaseSummaries(ctx, batch, acquireErr)
+			return true, false, c.releaseSummaries(ctx, batch, acquireErr)
 		}
 		if acquired {
 			if interruptErr := c.delivery.Interrupt(ctx, root); interruptErr != nil {
-				return true, c.releaseSummaries(ctx, batch, interruptErr)
+				return true, false, c.releaseSummaries(ctx, batch, interruptErr)
 			}
 		}
 	}
@@ -123,14 +154,16 @@ func (c *Coordinator) deliverSummaryGroup(ctx context.Context, projectID domain.
 			// The prompt was written; a retry would re-paste it, so it is
 			// consumed once (ADR 0010 section 5).
 			if _, ackErr := c.summaries.AcknowledgeCoordinatorSummaryBatch(ctx, projectID, token, c.now().UTC()); ackErr != nil {
-				return true, errors.Join(err, ackErr)
+				return true, false, errors.Join(err, ackErr)
 			}
-			return true, nil
+			return true, true, nil
 		}
-		return true, c.releaseSummaries(ctx, batch, err)
+		return true, false, c.releaseSummaries(ctx, batch, err)
 	}
-	_, err = c.summaries.AcknowledgeCoordinatorSummaryBatch(ctx, projectID, token, c.now().UTC())
-	return true, err
+	if _, err = c.summaries.AcknowledgeCoordinatorSummaryBatch(ctx, projectID, token, c.now().UTC()); err != nil {
+		return true, false, err
+	}
+	return true, true, nil
 }
 
 func (c *Coordinator) releaseSummaries(ctx context.Context, batch summaryBatch, cause error) error {
