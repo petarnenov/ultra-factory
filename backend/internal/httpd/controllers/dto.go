@@ -566,8 +566,11 @@ type SpawnSessionRequest struct {
 	// validates it before deriving inherited worker settings.
 	ParentSessionID domain.SessionID       `json:"parentSessionId,omitempty"`
 	TrackerProvider domain.TrackerProvider `json:"trackerProvider,omitempty" enum:"github,gitlab"`
-	Kind            domain.SessionKind     `json:"kind,omitempty" enum:"worker,orchestrator"`
-	Harness         domain.AgentHarness    `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
+	Kind            domain.SessionKind     `json:"kind,omitempty" enum:"worker,orchestrator,coordinator"`
+	// Scope bounds a coordinator's work. Required for kind coordinator, whose
+	// parentSessionId must be the live root.
+	Scope   string              `json:"scope,omitempty" maxLength:"200"`
+	Harness domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`

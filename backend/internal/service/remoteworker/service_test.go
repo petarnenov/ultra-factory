@@ -26,6 +26,18 @@ func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.S
 	return rec, ok, nil
 }
 
+func (f *fakeStore) ListSessions(_ context.Context, project domain.ProjectID) ([]domain.SessionRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.SessionRecord
+	for _, rec := range f.sessions {
+		if rec.ProjectID == project {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -36,6 +36,13 @@ func (s *Service) AssignOwner(
 	if worker.ProjectID == "" {
 		return domain.SessionRecord{}, apierr.Invalid("OWNERSHIP_PROJECT_REQUIRED", "Standalone workers have no project ownership", map[string]any{"sessionId": string(worker.ID)})
 	}
+	unlock := s.lockOrchestratorProject(worker.ProjectID)
+	defer unlock()
+	if worker, ok, err = s.store.GetSession(ctx, workerID); err != nil {
+		return domain.SessionRecord{}, fmt.Errorf("load worker %s: %w", workerID, err)
+	} else if !ok {
+		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
 	caller, ok, err := s.store.GetSession(ctx, requestedBy)
 	if err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("load ownership caller %s: %w", requestedBy, err)
@@ -57,6 +64,9 @@ func (s *Service) AssignOwner(
 		if err := coordownership.RequireCoordinator(owner, worker.ProjectID); err != nil {
 			return domain.SessionRecord{}, err
 		}
+		if err := s.checkReassignCapacity(ctx, worker, *ownerID); err != nil {
+			return domain.SessionRecord{}, err
+		}
 	}
 	record, _, err := s.store.SetSessionOwner(ctx, worker.ID, ownerID, domain.OwnershipExplicitAssignment, s.now(), false)
 	if errors.Is(err, ports.ErrOwnerReassignmentInFlight) {
@@ -66,6 +76,19 @@ func (s *Service) AssignOwner(
 		return domain.SessionRecord{}, err
 	}
 	return record, nil
+}
+
+// checkReassignCapacity rejects moving a live worker into a full coordinator.
+// A terminated worker or the current owner needs no slot.
+func (s *Service) checkReassignCapacity(ctx context.Context, worker domain.SessionRecord, owner domain.SessionID) error {
+	if worker.IsTerminated || (worker.OwnerSessionID != nil && *worker.OwnerSessionID == owner) {
+		return nil
+	}
+	counts, err := s.countCapacity(ctx, worker.ProjectID)
+	if err != nil {
+		return err
+	}
+	return counts.CheckOwner(&owner)
 }
 
 // Ownership is one session's durable ownership plus the project's live root.

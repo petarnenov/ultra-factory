@@ -29,6 +29,14 @@ func (s *Service) AssignOwner(
 	if !ok {
 		return domain.RemoteWorkerLink{}, apierr.NotFound("REMOTE_WORKER_LINK_NOT_FOUND", "Unknown remote worker link")
 	}
+	projectLock := s.capacity.Project(link.ProjectID)
+	projectLock.Lock()
+	defer projectLock.Unlock()
+	if link, ok, err = s.store.GetRemoteWorkerLink(ctx, hostID, remoteSessionID); err != nil {
+		return domain.RemoteWorkerLink{}, err
+	} else if !ok {
+		return domain.RemoteWorkerLink{}, apierr.NotFound("REMOTE_WORKER_LINK_NOT_FOUND", "Unknown remote worker link")
+	}
 	caller, ok, err := s.store.GetSession(ctx, requestedBy)
 	if err != nil {
 		return domain.RemoteWorkerLink{}, err
@@ -49,6 +57,15 @@ func (s *Service) AssignOwner(
 		}
 		if err := coordownership.RequireCoordinator(owner, link.ProjectID); err != nil {
 			return domain.RemoteWorkerLink{}, err
+		}
+		if link.OwnerSessionID == nil || *link.OwnerSessionID != *ownerID {
+			counts, err := coordownership.Count(ctx, s.store, s.store, link.ProjectID)
+			if err != nil {
+				return domain.RemoteWorkerLink{}, err
+			}
+			if err := counts.CheckOwner(ownerID); err != nil {
+				return domain.RemoteWorkerLink{}, err
+			}
 		}
 	}
 	reason := domain.OwnershipExplicitReassignment

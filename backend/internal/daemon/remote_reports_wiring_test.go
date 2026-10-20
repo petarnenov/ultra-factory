@@ -26,6 +26,10 @@ func (s *wiringRemoteStore) GetSession(_ context.Context, id domain.SessionID) (
 	return domain.SessionRecord{ID: id, ProjectID: "ultra-factory", Kind: domain.KindOrchestrator}, true, nil
 }
 
+func (s *wiringRemoteStore) ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error) {
+	return nil, nil
+}
+
 func (s *wiringRemoteStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -120,7 +124,7 @@ func TestRemoteReportsWiringSharesTheHostIdentityAndWakesOnLink(t *testing.T) {
 	t.Setenv("AO_REMOTES_FILE", remotes)
 	store := &wiringRemoteStore{links: []domain.RemoteWorkerLink{{HostID: "host-local", RemoteSessionID: "w-1"}}}
 	var logs syncBuffer
-	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", slog.New(slog.NewTextHandler(&logs, nil)))
+	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", nil, slog.New(slog.NewTextHandler(&logs, nil)))
 
 	// The link service refuses this machine.
 	_, err := links.Register(context.Background(), remoteworker.RegisterInput{

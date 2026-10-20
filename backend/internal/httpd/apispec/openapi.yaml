@@ -19118,6 +19118,7 @@ components:
           enum:
           - worker
           - orchestrator
+          - coordinator
           type: string
         mode:
           enum:
@@ -19139,6 +19140,9 @@ components:
         requestedOutput:
           enum:
           - artifact
+          type: string
+        scope:
+          maxLength: 200
           type: string
         terminateOnPrMerge:
           type:

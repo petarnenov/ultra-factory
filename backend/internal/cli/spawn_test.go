@@ -1087,14 +1087,14 @@ func TestSpawnUnknownAuthEnsureWarnsAndAllows(t *testing.T) {
 	}
 }
 
-// TestSpawnCommand_RejectsInvalidKind asserts `ao spawn` rejects a --kind value
-// outside worker/orchestrator at the CLI boundary, without contacting the daemon.
+// TestSpawnCommand_RejectsInvalidKind asserts `ao spawn` rejects an unknown
+// --kind at the CLI boundary, without contacting the daemon.
 func TestSpawnCommand_RejectsInvalidKind(t *testing.T) {
 	// Pass a valid --name so this exercises the --kind boundary specifically:
 	// spawn validates the required --name before --kind, so omitting it would
 	// trip the "--name is required" error instead of the kind error.
 	_, _, err := executeCLI(t, Deps{}, "spawn", "--project", "demo", "--name", "orch", "--kind", "orchestartor")
-	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), `--kind must be "worker" or "orchestrator"`) {
+	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), `--kind must be "worker", "orchestrator", or "coordinator"`) {
 		t.Fatalf("err=%v exit=%d, want --kind validation error", err, ExitCode(err))
 	}
 }
