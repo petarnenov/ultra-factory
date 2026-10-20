@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { gzipSync } from "node:zlib";
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import request from "supertest";
@@ -82,6 +83,26 @@ describe("REST proxy", () => {
 		expect(res.status).toBe(200);
 		expect(received[0].headers.cookie).toBe("ao_conn=upstream-secret");
 		expect(res.headers["set-cookie"]).toBeUndefined();
+	});
+	it("forwards Accept-Encoding and passes a gzip body through with its Content-Encoding", async () => {
+		const gz = gzipSync(JSON.stringify({ ok: true }));
+		upstream.removeAllListeners("request");
+		upstream.on("request", (req, res) => {
+			received.push(req);
+			res.writeHead(200, { "Content-Type": "application/json", "Content-Encoding": "gzip", "Content-Length": gz.length });
+			res.end(gz);
+		});
+		// supertest inflates transparently; a raw request shows the wire bytes.
+		const res = await new Promise<{ headers: IncomingMessage["headers"]; body: Buffer }>((resolve, reject) => {
+			httpRequest(`${address}/hosts/h_test/api/v1/sessions`, { headers: { Cookie: cookie, "Accept-Encoding": "gzip" } }, (r) => {
+				const chunks: Buffer[] = [];
+				r.on("data", (c: Buffer) => chunks.push(c));
+				r.on("end", () => resolve({ headers: r.headers, body: Buffer.concat(chunks) }));
+			}).on("error", reject).end();
+		});
+		expect(received[0].headers["accept-encoding"]).toBe("gzip");
+		expect(res.headers["content-encoding"]).toBe("gzip");
+		expect(res.body.toString("hex")).toBe(gz.toString("hex"));
 	});
 	it("maps credential rejection to 502 without exposing the upstream body", async () => {
 		const res = await request(bff).get("/api/reject").set("Cookie", cookie);

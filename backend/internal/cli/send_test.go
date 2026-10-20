@@ -59,6 +59,157 @@ func sendServer(t *testing.T, status int, respBody string) (*httptest.Server, *s
 	return srv, capture
 }
 
+func TestSend_ReportsWhenMessageOnlyQueues(t *testing.T) {
+	cases := []struct {
+		name    string
+		send    string
+		wantOut []string
+		wantNot []string
+	}{
+		{
+			name: "queued behind a structured input",
+			send: `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true,"pendingInputRequestIds":["acp-request:host:1"]}}`,
+			wantOut: []string{
+				"queued behind 1 unanswered structured input",
+				"will not read it until it is answered",
+				"ao session input demo-1 --request-id acp-request:host:1 --action accept",
+			},
+		},
+		{
+			name: "queued behind two structured inputs",
+			send: `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true,"pendingInputRequestIds":["q1","q2"]}}`,
+			wantOut: []string{
+				"queued behind 2 unanswered structured inputs",
+				"will not read it until they are answered",
+				"ao session input demo-1 --request-id q1 --action accept",
+				"ao session input demo-1 --request-id q2 --action accept",
+			},
+		},
+		{
+			name: "queued behind a running turn",
+			send: `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true}}`,
+			wantOut: []string{
+				"queued behind the turn already running on session demo-1",
+				"reads it when that turn ends",
+			},
+			wantNot: []string{"structured input"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AO_SESSION_ID", "")
+			cfg := setConfigEnv(t)
+			srv, capture := sendServer(t, http.StatusOK, tc.send)
+			writeRunFileFor(t, cfg, srv)
+
+			out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
+			if err != nil {
+				t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+			}
+			if capture.path != "/api/v1/sessions/demo-1/send" {
+				t.Fatalf("path = %q, want the send route", capture.path)
+			}
+			for _, want := range tc.wantOut {
+				if !strings.Contains(out, want) {
+					t.Errorf("output = %q, want it to contain %q", out, want)
+				}
+			}
+			for _, not := range tc.wantNot {
+				if strings.Contains(out, not) {
+					t.Errorf("output = %q, want it not to contain %q", out, not)
+				}
+			}
+		})
+	}
+}
+
+func TestSend_RemoteQueuedHintKeepsTheHost(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/send",
+		func(w http.ResponseWriter, _ *http.Request) {
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"ok": true, "sessionId": "widgets-3", "message": "hi",
+				"delivery": map[string]any{
+					"queued":                 true,
+					"pendingInputRequestIds": []string{"acp-request:build:4"},
+				},
+			})
+		})
+	writeRemotesFile(t, remoteEntry{
+		Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build",
+	})
+
+	out, errOut, err := executeCLI(t, aliveDeps(),
+		"send", "--session", "widgets-3", "--host", "build-box", "--message", "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	want := "ao session input widgets-3 --host build-box --request-id acp-request:build:4 --action accept"
+	if !strings.Contains(out, want) {
+		t.Fatalf("output = %q, want the answer hint to target the same host", out)
+	}
+}
+
+func TestSend_StaysSilentWhenDaemonReportsNoQueue(t *testing.T) {
+	// The daemon's accepted-send outcome is the only source of the queue claim:
+	// a delivered message stays silent even if the session looks blocked later.
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	srv, _ := sendServer(t, http.StatusOK,
+		`{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":false}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if out != "" {
+		t.Fatalf("output = %q, want no queue claim for a delivered message", out)
+	}
+}
+
+func TestSend_StaysSilentWhenDaemonCannotReportDelivery(t *testing.T) {
+	// A daemon that predates the delivery field reports nothing; unknown is
+	// not "delivered" and is not "queued".
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	srv, _ := sendServer(t, http.StatusOK, `{"ok":true,"sessionId":"demo-1","message":"hi"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if out != "" {
+		t.Fatalf("output = %q, want silence when delivery is unknown", out)
+	}
+}
+
+func TestSend_FailureKeepsErrorEnvelopeAndReportsNoQueue(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	srv, _ := sendServer(t, http.StatusInternalServerError,
+		`{"error":"internal","code":"SESSION_OPERATION_FAILED","message":"Session operation failed"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
+	if err == nil {
+		t.Fatal("expected runtime error from 500")
+	}
+	if got := ExitCode(err); got != 1 {
+		t.Fatalf("exit code = %d, want 1", got)
+	}
+	if !strings.Contains(err.Error(), "SESSION_OPERATION_FAILED") && !strings.Contains(errOut, "SESSION_OPERATION_FAILED") {
+		t.Fatalf("error did not surface the server error envelope: %v\nstderr=%s", err, errOut)
+	}
+	if strings.Contains(out, "queued") {
+		t.Fatalf("output = %q, a failed send must not report delivery", out)
+	}
+}
+
 func TestSend_Success(t *testing.T) {
 	t.Setenv("AO_SESSION_ID", "")
 	cfg := setConfigEnv(t)

@@ -47,12 +47,27 @@ type steerOrSendAPIResponse struct {
 	Duplicate      bool   `json:"duplicate"`
 }
 
+// sendAPIResponse mirrors the daemon's send acknowledgement. Delivery is
+// absent on a daemon that cannot report one, which is not "delivered".
+type sendAPIResponse struct {
+	Delivery *sendAPIDelivery `json:"delivery,omitempty"`
+}
+
+type sendAPIDelivery struct {
+	Queued                 bool     `json:"queued"`
+	PendingInputRequestIDs []string `json:"pendingInputRequestIds,omitempty"`
+}
+
 func newSendCommand(ctx *commandContext) *cobra.Command {
 	var opts sendOptions
 	cmd := &cobra.Command{
 		Use:   "send",
 		Short: "Send a message to a running agent session",
-		Args:  noArgs,
+		Long: "Deliver a message to a session's agent. A message that arrives while the " +
+			"agent is mid-turn is queued and read when that turn ends. When the session " +
+			"is waiting on a structured question, answer it first with `ao session input`: " +
+			"the message stays queued until that question is answered.",
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return ctx.sendMessage(cmd.Context(), opts)
 		},
@@ -102,9 +117,75 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 	// from sanitized issue refs; keep the URL well-formed regardless.
 	path := "sessions/" + url.PathEscape(session)
 	if !opts.steer {
-		return c.postJSON(ctx, path+"/send", sendAPIRequest{Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored}, nil)
+		return c.plainSend(ctx, path, session, message, senderSessionID, userAuthored)
 	}
 	return c.steerMessage(ctx, path, message, senderSessionID, strings.TrimSpace(opts.clientMessageID), opts.recoverOnly)
+}
+
+// plainSend explains a queue the daemon reports. The outcome comes from the
+// accepted send, so the note cannot describe a state the delivery never saw.
+func (c *commandContext) plainSend(
+	ctx context.Context,
+	path, session, message, senderSessionID string,
+	userAuthored bool,
+) error {
+	var res sendAPIResponse
+	if err := c.postJSON(ctx, path+"/send", sendAPIRequest{
+		Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored,
+	}, &res); err != nil {
+		return err
+	}
+	if res.Delivery == nil || !res.Delivery.Queued {
+		return nil
+	}
+	return c.writeQueuedSend(session, res.Delivery.PendingInputRequestIDs)
+}
+
+// writeQueuedSend names what the accepted message waits behind, using only the
+// facts the daemon returned with that send.
+func (c *commandContext) writeQueuedSend(session string, requestIDs []string) error {
+	out := c.deps.Out
+	requestIDs = nonEmptyStrings(requestIDs)
+	if len(requestIDs) > 0 {
+		count := len(requestIDs)
+		unblocker := "it is"
+		if count > 1 {
+			unblocker = "they are"
+		}
+		if _, err := fmt.Fprintf(out,
+			"Message accepted and queued behind %d unanswered structured input%s on session %s.\n"+
+				"The agent will not read it until %s answered.\n",
+			count, pluralS(count), session, unblocker); err != nil {
+			return err
+		}
+		hostArg := ""
+		if c.targetsRemote() {
+			hostArg = " --host " + shellQuote(strings.TrimSpace(c.hostSelector))
+		}
+		for _, requestID := range requestIDs {
+			if _, err := fmt.Fprintf(out, "  Answer with: ao session input %s%s --request-id %s --action accept\n",
+				shellQuote(session), hostArg, shellQuote(requestID)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	_, err := fmt.Fprintf(out,
+		"Message accepted and queued behind the turn already running on session %s;"+
+			" the agent reads it when that turn ends.\n", session)
+	return err
+}
+
+// nonEmptyStrings drops blanks so a malformed daemon cannot produce an empty
+// request id in the hint.
+func nonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func (c *commandContext) steerMessage(

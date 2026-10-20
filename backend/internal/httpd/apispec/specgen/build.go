@@ -396,6 +396,7 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersRollbackSessionResponse":                  "RollbackSessionResponse",
 	"ControllersSendSessionMessageRequest":                "SendSessionMessageRequest",
 	"ControllersSendSessionMessageResponse":               "SendSessionMessageResponse",
+	"ControllersSendSessionMessageDelivery":               "SendSessionMessageDelivery",
 	"ControllersDelegateTaskRequest":                      "DelegateTaskRequest",
 	"ControllersDelegateTaskResponse":                     "DelegateTaskResponse",
 	"ControllersPrepareTaskResponse":                      "PrepareTaskResponse",
