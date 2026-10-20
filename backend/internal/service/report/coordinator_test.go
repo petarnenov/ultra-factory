@@ -259,6 +259,7 @@ func TestResolveRemoteRecipientUsesTheLinksDurableOwner(t *testing.T) {
 		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
 		{ID: "coord-a", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", CreatedAt: now},
 	}
+	store.seedLink(&owner)
 	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
 	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
 		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &owner,
@@ -279,6 +280,7 @@ func TestResolveRemoteRecipientRepairsATerminatedOwner(t *testing.T) {
 		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
 		{ID: "coord-gone", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", IsTerminated: true, CreatedAt: now},
 	}
+	store.seedLink(&owner)
 	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
 	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
 		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &owner,
@@ -299,6 +301,7 @@ func TestResolveRemoteRecipientRepairsAnOwnerFromAnotherProject(t *testing.T) {
 		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
 		{ID: "coord-other", ProjectID: "other", Kind: domain.KindCoordinator, CoordinatorScope: "docs", CreatedAt: now},
 	}
+	store.seedLink(&owner)
 	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
 	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
 		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &owner,
@@ -319,6 +322,9 @@ type coordinatorStore struct {
 	interrupts  map[domain.SessionID]time.Time
 	acked       int
 	ownerEvents []coordinatorOwnerEvent
+	links       map[string]domain.RemoteWorkerLink
+	// beforeRemoteClear runs before a remote compare-and-clear reads the link.
+	beforeRemoteClear func()
 	// claims counts batch claims so a regression can bound a spin instead of
 	// hanging: over the limit the store fails the claim.
 	claims     int
@@ -469,27 +475,59 @@ func (s *coordinatorStore) AcquireReportInterrupt(_ context.Context, worker doma
 	return true, at, nil
 }
 
-func (s *coordinatorStore) SetSessionOwner(_ context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, _ time.Time, _ bool) (domain.SessionRecord, bool, error) {
+func sameOwnerPtr(a, b *domain.SessionID) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func (s *coordinatorStore) ClearSessionOwnerIf(_ context.Context, id, expected domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.SessionRecord, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.sessions {
 		if s.sessions[i].ID != id {
 			continue
 		}
-		changed := (s.sessions[i].OwnerSessionID == nil) != (owner == nil) ||
-			(owner != nil && (s.sessions[i].OwnerSessionID == nil || *s.sessions[i].OwnerSessionID != *owner))
-		s.sessions[i].OwnerSessionID = owner
-		if changed {
-			s.ownerEvents = append(s.ownerEvents, coordinatorOwnerEvent{session: id, owner: owner, reason: reason})
+		if !sameOwnerPtr(s.sessions[i].OwnerSessionID, &expected) {
+			return s.sessions[i], false, nil
 		}
-		return s.sessions[i], changed, nil
+		s.sessions[i].OwnerSessionID = nil
+		s.ownerEvents = append(s.ownerEvents, coordinatorOwnerEvent{session: id, reason: reason})
+		return s.sessions[i], true, nil
 	}
 	return domain.SessionRecord{}, false, nil
 }
 
-func (s *coordinatorStore) SetRemoteWorkerOwner(_ context.Context, hostID string, remote domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
-	s.ownerEvents = append(s.ownerEvents, coordinatorOwnerEvent{session: remote, owner: owner, reason: reason})
-	return domain.RemoteWorkerLink{HostID: hostID, RemoteSessionID: remote, OwnerSessionID: owner}, true, nil
+func (s *coordinatorStore) GetRemoteWorkerLink(_ context.Context, hostID string, remote domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	link, ok := s.links[hostID+"/"+string(remote)]
+	return link, ok, nil
+}
+
+func (s *coordinatorStore) ClearRemoteWorkerOwnerIf(_ context.Context, hostID string, remote, expected domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
+	if s.beforeRemoteClear != nil {
+		s.beforeRemoteClear()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := hostID + "/" + string(remote)
+	link := s.links[key]
+	if !sameOwnerPtr(link.OwnerSessionID, &expected) {
+		return link, false, nil
+	}
+	link.OwnerSessionID = nil
+	s.links[key] = link
+	s.ownerEvents = append(s.ownerEvents, coordinatorOwnerEvent{session: remote, reason: reason})
+	return link, true, nil
+}
+
+// seedLink stores a remote link whose durable owner is owner.
+func (s *coordinatorStore) seedLink(owner *domain.SessionID) {
+	s.links = map[string]domain.RemoteWorkerLink{"host/widgets-3": {
+		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: owner,
+	}}
 }
 
 func sortReports(records []domain.ReportRecord) {
@@ -693,5 +731,57 @@ func TestCoordinatorRunDueRetriesWhileADueReportRemains(t *testing.T) {
 	}
 	if delay, err := c.RunDue(context.Background()); err != nil || delay >= 0 {
 		t.Fatalf("second pass delay = %v, err = %v, want idle", delay, err)
+	}
+}
+
+func TestResolveRemoteRecipientUsesTheCurrentOwnerNotTheSnapshot(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 45, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	gone, current := domain.SessionID("coord-gone"), domain.SessionID("coord-new")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
+		{ID: "coord-gone", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "a", IsTerminated: true, CreatedAt: now},
+		{ID: "coord-new", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "b", CreatedAt: now},
+	}
+	store.seedLink(&current)
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
+	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &gone,
+	})
+	if err != nil || !ok || rec.ID != "coord-new" {
+		t.Fatalf("recipient = %+v ok=%v err=%v, want coord-new", rec, ok, err)
+	}
+	if len(store.ownerEvents) != 0 || *store.links["host/widgets-3"].OwnerSessionID != "coord-new" {
+		t.Fatalf("reassignment was disturbed: events=%#v link=%+v", store.ownerEvents, store.links)
+	}
+}
+
+func TestResolveRemoteRecipientKeepsAReassignmentMadeDuringRepair(t *testing.T) {
+	now := time.Date(2026, 9, 14, 13, 50, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	gone, current := domain.SessionID("coord-gone"), domain.SessionID("coord-new")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now},
+		{ID: "coord-gone", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "a", IsTerminated: true, CreatedAt: now},
+		{ID: "coord-new", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "b", CreatedAt: now},
+	}
+	store.seedLink(&gone)
+	store.beforeRemoteClear = func() {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		link := store.links["host/widgets-3"]
+		link.OwnerSessionID = &current
+		store.links["host/widgets-3"] = link
+		store.beforeRemoteClear = nil
+	}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }})
+	rec, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host", RemoteSessionID: "widgets-3", ProjectID: "p", OwnerSessionID: &gone,
+	})
+	if err != nil || !ok || rec.ID != "coord-new" {
+		t.Fatalf("recipient = %+v ok=%v err=%v, want coord-new", rec, ok, err)
+	}
+	if len(store.ownerEvents) != 0 || *store.links["host/widgets-3"].OwnerSessionID != "coord-new" {
+		t.Fatalf("repair undid the reassignment: events=%#v link=%+v", store.ownerEvents, store.links)
 	}
 }

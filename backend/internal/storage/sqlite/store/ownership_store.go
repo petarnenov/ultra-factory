@@ -22,6 +22,30 @@ func (s *Store) SetSessionOwner(
 	at time.Time,
 	skipClaimGuard bool,
 ) (domain.SessionRecord, bool, error) {
+	return s.setSessionOwner(ctx, id, owner, nil, reason, at, skipClaimGuard)
+}
+
+// ClearSessionOwnerIf clears a worker's owner only while the stored owner
+// still equals expected; otherwise it changes nothing and writes no audit.
+func (s *Store) ClearSessionOwnerIf(
+	ctx context.Context,
+	id domain.SessionID,
+	expected domain.SessionID,
+	reason domain.OwnershipEventReason,
+	at time.Time,
+) (domain.SessionRecord, bool, error) {
+	return s.setSessionOwner(ctx, id, nil, &expected, reason, at, true)
+}
+
+func (s *Store) setSessionOwner(
+	ctx context.Context,
+	id domain.SessionID,
+	owner *domain.SessionID,
+	expected *domain.SessionID,
+	reason domain.OwnershipEventReason,
+	at time.Time,
+	skipClaimGuard bool,
+) (domain.SessionRecord, bool, error) {
 	if !reason.Valid() {
 		return domain.SessionRecord{}, false, fmt.Errorf("invalid ownership reason %q", reason)
 	}
@@ -38,6 +62,10 @@ func (s *Store) SetSessionOwner(
 			return err
 		}
 		current := rowToRecord(row)
+		if expected != nil && !sameOwner(current.OwnerSessionID, expected) {
+			record = current
+			return nil
+		}
 		if sameOwner(current.OwnerSessionID, owner) {
 			record = current
 			return nil
@@ -126,6 +154,31 @@ func (s *Store) SetRemoteWorkerOwner(
 	reason domain.OwnershipEventReason,
 	at time.Time,
 ) (domain.RemoteWorkerLink, bool, error) {
+	return s.setRemoteWorkerOwner(ctx, hostID, remoteSessionID, owner, nil, reason, at)
+}
+
+// ClearRemoteWorkerOwnerIf clears a link's owner only while the stored owner
+// still equals expected; otherwise it changes nothing and writes no audit.
+func (s *Store) ClearRemoteWorkerOwnerIf(
+	ctx context.Context,
+	hostID string,
+	remoteSessionID domain.SessionID,
+	expected domain.SessionID,
+	reason domain.OwnershipEventReason,
+	at time.Time,
+) (domain.RemoteWorkerLink, bool, error) {
+	return s.setRemoteWorkerOwner(ctx, hostID, remoteSessionID, nil, &expected, reason, at)
+}
+
+func (s *Store) setRemoteWorkerOwner(
+	ctx context.Context,
+	hostID string,
+	remoteSessionID domain.SessionID,
+	owner *domain.SessionID,
+	expected *domain.SessionID,
+	reason domain.OwnershipEventReason,
+	at time.Time,
+) (domain.RemoteWorkerLink, bool, error) {
 	if !reason.Valid() {
 		return domain.RemoteWorkerLink{}, false, fmt.Errorf("invalid ownership reason %q", reason)
 	}
@@ -144,6 +197,10 @@ func (s *Store) SetRemoteWorkerOwner(
 			return err
 		}
 		current := remoteLinkFromRow(row)
+		if expected != nil && !sameOwner(current.OwnerSessionID, expected) {
+			link = current
+			return nil
+		}
 		if sameOwner(current.OwnerSessionID, owner) {
 			link = current
 			return nil

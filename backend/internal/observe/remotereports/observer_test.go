@@ -1296,3 +1296,97 @@ func TestPollSettlesAnUnconfirmedDeliveryAndDoesNotReplayIt(t *testing.T) {
 		t.Fatalf("acks = %v, want the failed acknowledgement retried", acks)
 	}
 }
+
+// reassigningStore reassigns the link right after the pass reads its snapshot.
+type reassigningStore struct {
+	*memStore
+	durable *sync.Map
+	to      domain.SessionID
+}
+
+func (s *reassigningStore) ListRemoteWorkerLinks(ctx context.Context) ([]domain.RemoteWorkerLink, error) {
+	links, err := s.memStore.ListRemoteWorkerLinks(ctx)
+	owner := s.to
+	s.durable.Store(linkKey("host-build", "widgets-3"), &owner)
+	return links, err
+}
+
+// ownerStore is the durable half the real coordinator reads and repairs.
+type ownerStore struct {
+	reportsvc.DeliveryStore
+	durable  *sync.Map
+	sessions map[domain.SessionID]domain.SessionRecord
+	clears   int
+}
+
+func (s *ownerStore) ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error) {
+	var out []domain.SessionRecord
+	for _, rec := range s.sessions {
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+func (s *ownerStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
+	rec, ok := s.sessions[id]
+	return rec, ok, nil
+}
+
+func (s *ownerStore) GetRemoteWorkerLink(_ context.Context, host string, session domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	l := link(host, string(session))
+	if v, ok := s.durable.Load(linkKey(host, session)); ok {
+		l.OwnerSessionID = v.(*domain.SessionID)
+	}
+	return l, true, nil
+}
+
+func (s *ownerStore) ClearRemoteWorkerOwnerIf(_ context.Context, host string, session, expected domain.SessionID, _ domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
+	l, _, _ := s.GetRemoteWorkerLink(context.Background(), host, session)
+	if l.OwnerSessionID == nil || *l.OwnerSessionID != expected {
+		return l, false, nil
+	}
+	s.clears++
+	s.durable.Store(linkKey(host, session), (*domain.SessionID)(nil))
+	return l, true, nil
+}
+
+type submitRecorder struct{ targets []domain.SessionID }
+
+func (r *submitRecorder) Submit(_ context.Context, target domain.SessionID, _, _ string) error {
+	r.targets = append(r.targets, target)
+	return nil
+}
+func (r *submitRecorder) Interrupt(context.Context, domain.SessionID) error { return nil }
+
+// realDeliverer routes through the real coordinator over ownerStore.
+type realDeliverer struct{ *reportsvc.Coordinator }
+
+func TestPollDeliversToTheOwnerReassignedAfterTheSnapshot(t *testing.T) {
+	now := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-a", now))
+	stale, next := domain.SessionID("coord-gone"), domain.SessionID("coord-new")
+	linked := link("host-build", "widgets-3")
+	linked.OwnerSessionID = &stale
+	durable := &sync.Map{}
+	durable.Store(linkKey("host-build", "widgets-3"), &stale)
+	owners := &ownerStore{durable: durable, sessions: map[domain.SessionID]domain.SessionRecord{
+		"root":      {ID: "root", ProjectID: "ultra-factory", Kind: domain.KindOrchestrator},
+		stale:       {ID: stale, ProjectID: "ultra-factory", Kind: domain.KindCoordinator, IsTerminated: true},
+		"coord-new": {ID: next, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+	}}
+	submits := &submitRecorder{}
+	coord := reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{Store: owners, Delivery: submits, Now: func() time.Time { return now }})
+	store := &reassigningStore{memStore: newMemStore(linked), durable: durable, to: next}
+
+	if err := newTestObserver(store, realDeliverer{coord}, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(submits.targets) != 1 || submits.targets[0] != next {
+		t.Fatalf("report went to %v, want the reassigned owner %s", submits.targets, next)
+	}
+	got, _, _ := owners.GetRemoteWorkerLink(context.Background(), "host-build", "widgets-3")
+	if owners.clears != 0 || got.OwnerSessionID == nil || *got.OwnerSessionID != next {
+		t.Fatalf("reassignment lost: clears=%d owner=%v", owners.clears, got.OwnerSessionID)
+	}
+}
