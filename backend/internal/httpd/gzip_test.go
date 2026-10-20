@@ -30,6 +30,12 @@ func gzipTestServer(t *testing.T) *httptest.Server {
 		_, _ = io.WriteString(w, "data: hi\n\n")
 		w.(http.Flusher).Flush()
 	})
+	mux.HandleFunc("/created", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, big)
+	})
 	srv := httptest.NewServer(gzipJSON(mux))
 	t.Cleanup(srv.Close)
 	return srv
@@ -99,5 +105,13 @@ func TestGzipJSONTransparentToGoClient(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if !resp.Uncompressed || len(body) < 8192 {
 		t.Fatalf("uncompressed=%v len=%d", resp.Uncompressed, len(body))
+	}
+}
+
+func TestGzipJSONKeepsFinalStatusAfterEarlyHints(t *testing.T) {
+	srv := gzipTestServer(t)
+	resp, _ := gzipGet(t, srv.URL+"/created", "gzip")
+	if resp.StatusCode != http.StatusCreated || resp.Header.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("status=%d enc=%q", resp.StatusCode, resp.Header.Get("Content-Encoding"))
 	}
 }

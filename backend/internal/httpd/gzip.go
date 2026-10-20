@@ -57,6 +57,10 @@ func (g *gzipWriter) WriteHeader(status int) {
 	if g.mode != gzipUndecided || g.status != 0 {
 		return
 	}
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		g.ResponseWriter.WriteHeader(status)
+		return
+	}
 	g.status = status
 	if !g.eligible(status) {
 		g.passthrough()
