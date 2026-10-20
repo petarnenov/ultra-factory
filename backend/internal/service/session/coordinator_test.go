@@ -72,7 +72,11 @@ type capCommander struct {
 func (c *capCommander) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.SessionRecord, int, int, error) {
 	now := c.f.inflight.Add(1)
 	defer c.f.inflight.Add(-1)
-	for peak := c.f.peak.Load(); now > peak && !c.f.peak.CompareAndSwap(peak, now); peak = c.f.peak.Load() {
+	for {
+		peak := c.f.peak.Load()
+		if now <= peak || c.f.peak.CompareAndSwap(peak, now) {
+			break
+		}
 	}
 	time.Sleep(c.f.delay)
 	c.f.mu.Lock()
