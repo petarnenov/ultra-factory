@@ -1,11 +1,7 @@
 import { createContext, useContext } from "react";
 import type { ConversationActivity } from "../../types/conversation";
 
-/**
- * Loads one activity whole. A conversation page bounds a file change's detail to a
- * compact diff; the card that is expanded asks for the rest through this. Null where
- * no daemon backs the surface (previews, fixtures), so the bounded copy is all there is.
- */
+/** Loads one activity whole; null where no daemon backs the surface. */
 export type ActivityDetailLoader = (activityId: string) => Promise<ConversationActivity>;
 
 const ActivityDetailContext = createContext<ActivityDetailLoader | null>(null);
