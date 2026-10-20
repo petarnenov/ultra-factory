@@ -61,29 +61,29 @@ func (s AgentSelection) IsInherit() bool {
 	return s.Mode == "" || s.Mode == AgentSelectionInherit
 }
 
-// Candidates resolves the selected profiles in list order. A name that is
-// not in the list is reported as the second result.
-func (s AgentSelection) Candidates(profiles []AgentProfile) (selected []AgentProfile, unknown string) {
+// Candidates resolves the selected profiles in list order. When a name is not
+// in the list (even an empty one) it is returned with ok false.
+func (s AgentSelection) Candidates(profiles []AgentProfile) (selected []AgentProfile, unknown string, ok bool) {
 	byID := make(map[string]AgentProfile, len(profiles))
 	for _, p := range profiles {
 		byID[p.ID] = p
 	}
 	switch s.Mode {
 	case AgentSelectionFixed:
-		p, ok := byID[s.ProfileID]
-		if !ok {
-			return nil, s.ProfileID
+		p, found := byID[s.ProfileID]
+		if !found {
+			return nil, s.ProfileID, false
 		}
-		return []AgentProfile{p}, ""
+		return []AgentProfile{p}, "", true
 	case AgentSelectionRandom:
 		if len(s.ProfileIDs) == 0 {
-			return append([]AgentProfile(nil), profiles...), ""
+			return append([]AgentProfile(nil), profiles...), "", true
 		}
 		seen := map[string]bool{}
 		for _, id := range s.ProfileIDs {
-			p, ok := byID[id]
-			if !ok {
-				return nil, id
+			p, found := byID[id]
+			if !found {
+				return nil, id, false
 			}
 			if !seen[id] {
 				seen[id] = true
@@ -91,7 +91,7 @@ func (s AgentSelection) Candidates(profiles []AgentProfile) (selected []AgentPro
 			}
 		}
 	}
-	return selected, ""
+	return selected, "", true
 }
 
 // AgentProfileError names the config or request field that is malformed. It
@@ -172,7 +172,7 @@ func ValidateAgentSelection(field string, sel AgentSelection, profiles []AgentPr
 	default:
 		return &AgentProfileError{Field: field, Reason: fmt.Sprintf("unknown mode %q", sel.Mode)}
 	}
-	if _, unknown := sel.Candidates(profiles); unknown != "" {
+	if _, unknown, ok := sel.Candidates(profiles); !ok {
 		return &AgentProfileError{Field: field, Reason: fmt.Sprintf("unknown profile %q", unknown), UnknownProfileID: unknown}
 	}
 	return nil

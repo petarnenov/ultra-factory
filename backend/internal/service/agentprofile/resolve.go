@@ -82,8 +82,8 @@ func Resolve(ctx context.Context, req Request) (Result, error) {
 	if req.Scope == ScopeRootWorker && explicit.any() {
 		return Result{RecordID: exactMatch(req.Profiles, explicit)}, nil
 	}
-	selected, unknown := req.Selection.Candidates(req.Profiles)
-	if unknown != "" {
+	selected, unknown, found := req.Selection.Candidates(req.Profiles)
+	if !found {
 		if req.Scope == ScopeCoordinator {
 			return Result{}, apierr.Invalid("COORDINATOR_PROFILE_NOT_ALLOWED",
 				fmt.Sprintf("Profile %q is not in the project's agent profiles", unknown), map[string]any{"profileId": unknown})

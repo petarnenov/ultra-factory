@@ -139,15 +139,28 @@ func TestCoordinatorAgentUnknownProfileIsNotAllowed(t *testing.T) {
 
 func TestAgentSelectionCandidates(t *testing.T) {
 	profiles := []AgentProfile{{ID: "a"}, {ID: "b"}, {ID: "c"}}
-	all, _ := AgentSelection{Mode: AgentSelectionRandom}.Candidates(profiles)
+	all, _, _ := AgentSelection{Mode: AgentSelectionRandom}.Candidates(profiles)
 	if len(all) != 3 {
 		t.Fatalf("an empty random pool means every profile, got %d", len(all))
 	}
-	some, _ := AgentSelection{Mode: AgentSelectionRandom, ProfileIDs: []string{"c", "a", "c"}}.Candidates(profiles)
+	some, _, _ := AgentSelection{Mode: AgentSelectionRandom, ProfileIDs: []string{"c", "a", "c"}}.Candidates(profiles)
 	if len(some) != 2 || some[0].ID != "c" || some[1].ID != "a" {
 		t.Fatalf("pool = %+v, want c then a without duplicates", some)
 	}
-	if _, unknown := (AgentSelection{Mode: AgentSelectionFixed, ProfileID: "x"}).Candidates(profiles); unknown != "x" {
-		t.Fatalf("unknown = %q", unknown)
+	if _, unknown, ok := (AgentSelection{Mode: AgentSelectionFixed, ProfileID: "x"}).Candidates(profiles); ok || unknown != "x" {
+		t.Fatalf("unknown = %q ok = %v", unknown, ok)
+	}
+	for _, sel := range []AgentSelection{
+		{Mode: AgentSelectionRandom, ProfileIDs: []string{""}},
+		{Mode: AgentSelectionRandom, ProfileIDs: []string{"a", ""}},
+	} {
+		if _, _, ok := sel.Candidates(profiles); ok {
+			t.Fatalf("%+v: an empty profile id must not resolve", sel)
+		}
+		cfg := CoordinatorsConfig{AgentProfiles: profiles, WorkerAgent: sel}
+		var perr *AgentProfileError
+		if err := cfg.Validate(); !errors.As(err, &perr) {
+			t.Fatalf("%+v: err = %v, want WORKER_PROFILE_INVALID", sel, err)
+		}
 	}
 }
