@@ -49,7 +49,29 @@ type systemPromptConfig struct {
 	// OwnerCoordinatorSessionID is set for a worker owned by a live
 	// coordinator; it receives escalations instead of the root.
 	OwnerCoordinatorSessionID string
-	AdditionalSections        []string
+	// Coordination carries the project limits, host placement and agent
+	// selections that the root and coordinator prompts state.
+	Coordination       coordinationPromptConfig
+	AdditionalSections []string
+}
+
+// coordinationPromptConfig holds the values the coordinator sections state.
+// Numbers and hosts come from these stored or effective values.
+type coordinationPromptConfig struct {
+	// Enabled is the project's coordinators gate; the root section needs it.
+	Enabled bool
+	// Limits are the project's effective limits.
+	Limits domain.CoordinatorLimits
+	// HostSlots are a coordinator's own per-host worker slots.
+	HostSlots []domain.HostSlot
+	// AllowedHosts bounds coordinator workers to these host IDs when set.
+	AllowedHosts      []string
+	AllowLocalWorkers bool
+	// WorkerAgent is the selection for a coordinator's workers, and
+	// RootWorkerAgent the selection for workers the root spawns directly.
+	WorkerAgent     domain.AgentSelection
+	RootWorkerAgent domain.AgentSelection
+	AgentProfiles   []domain.AgentProfile
 }
 
 type projectRulesConfig struct {
@@ -86,6 +108,14 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 	switch cfg.Role {
 	case sessionPromptRoleOrchestrator:
 		sections = append(sections, orchestratorSystemPrompt(cfg.Project))
+		for _, section := range []string{
+			rootCoordinatorPrompt(cfg.Coordination),
+			rootWorkerProfilePrompt(cfg.Coordination),
+		} {
+			if section != "" {
+				sections = append(sections, section)
+			}
+		}
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
 		}
@@ -94,7 +124,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		if limit <= 0 {
 			limit = domain.DefaultCoordinatorLimits.WorkersPerCoordinator
 		}
-		sections = append(sections, coordinatorSystemPrompt(cfg.Project, cfg.CoordinatorScope, limit))
+		sections = append(sections,
+			coordinatorSystemPrompt(cfg.Project, cfg.CoordinatorScope, limit, coordinatorAgentRule(cfg.Coordination)),
+			coordinatorPlacementPrompt(cfg.Coordination))
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+
 				"These rules are written for the project root. The coordinator restrictions above override any rule below that conflicts with them, including rules about merging, closing issues, or spawning coordinators.\n\n"+rules)
@@ -143,20 +175,117 @@ func publishingScopePrompt() string {
 
 // coordinatorSystemPrompt is a distinct template, not the root's operating
 // prompt. It addresses escalation by role so a root replacement is safe.
-func coordinatorSystemPrompt(project promptProject, scope string, workerLimit int) string {
+func coordinatorSystemPrompt(project promptProject, scope string, workerLimit int, agentRule string) string {
 	return fmt.Sprintf(`## AO Coordinator
 
 You are a helper coordinator for project %s, not the project root. Your scope is: %s
 
 - Work only within that scope and the task list in your assignment. Break it into tasks and delegate each to a worker with `+"`ao spawn`"+` from this session; workers you spawn are assigned to you. Give each worker an explicit branch, the project's integration branch as the PR base, and its acceptance criteria.
 - You may have at most %d active workers at once. When the limit is reached, wait for a worker to finish before spawning another.
-- The project may fix the agent your workers run on. Then `+"`ao spawn`"+` picks it for you; pass `+"`--agent`"+`, `+"`--model`"+` or `+"`--effort`"+` only for a combination the project allows, or the spawn is refused with `+"`WORKER_PROFILE_NOT_ALLOWED`"+`. If it is refused with `+"`WORKER_PROFILE_UNAVAILABLE`"+`, no allowed agent is ready on that machine: report it instead of retrying.
+%s
 - Do not spawn coordinators, reassign worker ownership, merge pull requests, or close issues or other project-wide work. The project root orchestrator is the only integration authority. A worker finishing, or its pull request being green, is not integrated completion: report it as ready for the root to review and merge.
 - Spawn workers with `+"`ao spawn --auto-review`"+` (on by default for workers you spawn). After a worker reports done, wait for the AO review verdict on its current head and for green CI: check `+"`ao review ls --session <id>`"+` (add `+"`--host <H>`"+` for a remote worker) and `+"`gh pr checks <n>`"+`. Run `+"`ao review trigger`"+` (with `+"`--host <H>`"+` for a remote worker) only when no review is running for that head. Findings are injected into the worker automatically; re-check after every new head.
 - Hand a PR to the root only when the AO review approved its current head, required CI is green, and no review thread is unresolved: pass it as `+"`ao coordinator report --ready-pr <number>@<head-sha>`"+`. The daemon rejects a PR that is not yours, a stale head, or a head without an approved review. Never merge it yourself.
 - Report to the root with `+"`ao coordinator report`"+`, never `+"`ao report`"+` (that is for workers). Send a summary when you are assigned, when your state or a worker's state meaningfully changes, when your scope is done, and when you are blocked. Keep each summary short and do not forward raw worker conversation.
 - Escalate with `+"`ao coordinator report --state blocked --escalate <reason>`"+` and stop work on the affected item until the root answers. Reasons: `+"`overlapping_files`"+` (two workers touch the same files), `+"`unclear_acceptance`"+` (acceptance criteria are missing or ambiguous), `+"`worker_failed`"+` (a worker failed or is stuck), `+"`scope_decision`"+` (the decision is outside your scope), or `+"`other`"+` with a note.
-- If the root reassigns one of your workers, stop acting on it. If you are replaced or terminated, your workers return to the root; you do not need to clean them up.`, project.ID, scope, workerLimit)
+- If the root reassigns one of your workers, stop acting on it. If you are replaced or terminated, your workers return to the root; you do not need to clean them up.`, project.ID, scope, workerLimit, agentRule)
+}
+
+// coordinatorAgentRule states how a coordinator's workers pick their agent.
+// Inherit keeps the standing text; fixed or random leaves it to the daemon.
+func coordinatorAgentRule(c coordinationPromptConfig) string {
+	if c.WorkerAgent.IsInherit() {
+		return "- The project may fix the agent your workers run on. Then `ao spawn` picks it for you; pass `--agent`, `--model` or `--effort` only for a combination the project allows, or the spawn is refused with `WORKER_PROFILE_NOT_ALLOWED`. If it is refused with `WORKER_PROFILE_UNAVAILABLE`, no allowed agent is ready on that machine: report it instead of retrying."
+	}
+	return fmt.Sprintf("- The daemon picks the agent for each of your workers from these project profiles: %s. Do not pass `--harness`, `--model` or `--effort` to `ao spawn`. If a spawn is refused with `WORKER_PROFILE_UNAVAILABLE`, no allowed profile is ready on that machine: wait, or escalate `worker_failed` if it persists. Never retry in a loop.", profileLabels(c.WorkerAgent, c.AgentProfiles))
+}
+
+// coordinatorPlacementPrompt says where a coordinator's workers may run and
+// what to do when a placement is refused.
+func coordinatorPlacementPrompt(c coordinationPromptConfig) string {
+	remote := "Start every worker with `ao spawn --host <host>`. Never start a worker without `--host`."
+	if c.AllowLocalWorkers {
+		remote = "Start every remote worker with `ao spawn --host <host>`. A worker started without `--host` runs on the root's machine and uses no host slot."
+	}
+	return "## Host Placement\n\n" + remote + " " + allowedHostsSentence(c) + "\n\n" +
+		"If a spawn is refused with `COORDINATOR_HOST_SLOTS_FULL`, wait for a slot to free up. If it is refused with `COORDINATOR_HOST_NOT_ALLOWED` or `COORDINATOR_LOCAL_WORKER_REFUSED`, never retry on a host outside the list: escalate `scope_decision` instead."
+}
+
+// allowedHostsSentence lists the hosts a coordinator's workers may use.
+func allowedHostsSentence(c coordinationPromptConfig) string {
+	switch {
+	case len(c.HostSlots) > 0:
+		parts := make([]string, 0, len(c.HostSlots))
+		for _, slot := range c.HostSlots {
+			unit := "slots"
+			if slot.Slots == 1 {
+				unit = "slot"
+			}
+			parts = append(parts, fmt.Sprintf("%s (%d %s)", slot.HostID, slot.Slots, unit))
+		}
+		return "Allowed hosts: " + strings.Join(parts, ", ") + "."
+	case len(c.AllowedHosts) > 0:
+		return "Allowed hosts: " + strings.Join(c.AllowedHosts, ", ") + "."
+	default:
+		return "Allowed hosts: any paired remote host."
+	}
+}
+
+// rootCoordinatorPrompt explains coordinators to the root when the project
+// enables them. It is empty otherwise, so disabled projects pay nothing.
+func rootCoordinatorPrompt(c coordinationPromptConfig) string {
+	if !c.Enabled {
+		return ""
+	}
+	limits := c.Limits
+	hard := domain.HardCoordinatorLimits
+	return fmt.Sprintf(`## Coordinators
+
+This project enables helper coordinators. Delegate to one when several independent tasks touch disjoint file areas; keep single tasks with direct workers.
+
+- Spawn a coordinator with `+"`ao spawn --kind coordinator --scope <area> --prompt <brief>`"+`. Add `+"`--max-workers <n>`"+` and `+"`--hosts <host:slots,...>`"+` when they differ from the project limits. Do not pass `+"`--host`"+` for a coordinator; it runs where you run.
+- Project limits: %d live coordinators, %d workers per coordinator and %d workers per project. The hard maximums are %d, %d and %d.
+- Send the brief with the five sections of the assignment: scope, out of scope, task list with acceptance criteria, worker cap and branch rules, and reporting cadence.
+- You stay the only merger. A coordinator reports a ready pull request with its head and approved review; you check the head and CI, then merge.`,
+		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers,
+		hard.Coordinators, hard.WorkersPerCoordinator, hard.Workers)
+}
+
+// rootWorkerProfilePrompt tells the root not to pass agent flags for the
+// workers it spawns directly when the project fixes or randomizes their agent.
+func rootWorkerProfilePrompt(c coordinationPromptConfig) string {
+	if c.RootWorkerAgent.IsInherit() {
+		return ""
+	}
+	return fmt.Sprintf("## Worker Agent Profiles\n\nThe daemon picks the agent for each worker you spawn directly from these project profiles: %s. Do not pass `--harness`, `--model` or `--effort` to `ao spawn` for those workers.", profileLabels(c.RootWorkerAgent, c.AgentProfiles))
+}
+
+// coordinationPromptFor reads the project-level coordinator settings. A
+// coordinator's own slots and worker selection are filled in by the caller.
+func coordinationPromptFor(pc domain.ProjectConfig) coordinationPromptConfig {
+	co := pc.Coordinators
+	return coordinationPromptConfig{
+		Enabled:           co.Enabled,
+		Limits:            co.Limits(),
+		AllowedHosts:      co.AllowedHosts,
+		AllowLocalWorkers: co.AllowLocalWorkers,
+		WorkerAgent:       co.WorkerAgent,
+		RootWorkerAgent:   co.RootWorkerAgent,
+		AgentProfiles:     co.AgentProfiles,
+	}
+}
+
+// profileLabels names the profiles a selection can pick, by label.
+func profileLabels(sel domain.AgentSelection, profiles []domain.AgentProfile) string {
+	selected, _, ok := sel.Candidates(profiles)
+	if !ok || len(selected) == 0 {
+		return "the project's agent profiles"
+	}
+	labels := make([]string, 0, len(selected))
+	for _, p := range selected {
+		labels = append(labels, p.DisplayLabel())
+	}
+	return strings.Join(labels, ", ")
 }
 
 func standaloneWorkerSystemPrompt() string {

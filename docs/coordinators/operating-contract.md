@@ -38,8 +38,17 @@ Task list (work these, nothing else):
    Files likely touched: <paths>
 2. ...
 
-Worker cap: 3 active workers at once, and you may never exceed it. Wait for
+Worker cap: <workerLimit> active workers at once (the value from `--max-workers`,
+or the project's per-coordinator limit), and you may never exceed it. Wait for
 a worker to finish before starting another.
+
+Host placement: <host:slots, ...> (the value from `--hosts`), or the allowed
+hosts the root names. Start every worker with `ao spawn --host <host>` on one
+of these hosts. A refused placement is handled as in the system prompt.
+
+Worker agent: <inherit | the profiles the daemon picks from, by label>. When
+the root fixes or randomizes the agent, do not pass `--harness`, `--model` or
+`--effort` to `ao spawn`.
 
 Branch rules:
 - Integration branch / PR base: <dev>
@@ -63,7 +72,7 @@ approved that head, CI is green, and no review thread is unresolved.
 
 The root checks before sending: scope is non-empty and bounded, every task has
 acceptance criteria, task file sets do not overlap with another coordinator's,
-and the number of tasks that can run at once is at most three.
+and the number of tasks that can run at once is at most the worker cap.
 
 ## Summaries
 
