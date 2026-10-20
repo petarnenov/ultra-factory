@@ -430,6 +430,22 @@ func TestProjectSetConfig_CoordinatorFlags(t *testing.T) {
 	}
 }
 
+func TestProjectSetConfig_ExplicitZeroLimitIsAccepted(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "set-config", "demo", "--max-workers", "0")
+	if err != nil {
+		t.Fatalf("an explicit zero limit is a valid default: %v\nstderr=%s", err, errOut)
+	}
+	if len(capture.body) == 0 {
+		t.Fatal("the config was not sent")
+	}
+}
+
 func TestProjectSetConfig_CoordinatorsConfigJSON(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)

@@ -354,7 +354,9 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			id := strings.TrimSpace(args[0])
 			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
 			opts.githubAccountSet = cmd.Flags().Changed("github-account")
-			opts.coordinatorsSet = cmd.Flags().Changed("coordinators")
+			for _, name := range []string{"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers"} {
+				opts.coordinatorsSet = opts.coordinatorsSet || cmd.Flags().Changed(name)
+			}
 			config, err := buildProjectConfig(opts)
 			if err != nil {
 				return err
