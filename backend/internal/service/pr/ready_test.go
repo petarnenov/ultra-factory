@@ -15,6 +15,7 @@ type readyStoreFake struct {
 	sessions map[domain.SessionID]domain.SessionRecord
 	prs      []domain.PullRequest
 	events   []domain.SessionPRReadyEvent
+	eventErr error
 }
 
 func (f *readyStoreFake) GetPR(context.Context, string) (domain.PullRequest, bool, error) {
@@ -35,6 +36,9 @@ func (f *readyStoreFake) ListPRsBySession(context.Context, domain.SessionID) ([]
 }
 
 func (f *readyStoreFake) RecordSessionPRReadyEvent(_ context.Context, ev domain.SessionPRReadyEvent) error {
+	if f.eventErr != nil {
+		return f.eventErr
+	}
 	f.events = append(f.events, ev)
 	return nil
 }
@@ -171,6 +175,15 @@ func TestSetReady_NoOpenPRFails(t *testing.T) {
 				t.Fatalf("flips = %d, want 0", len(setter.requests))
 			}
 		})
+	}
+}
+
+func TestSetReady_AuditFailureStillReportsTheFlip(t *testing.T) {
+	store, _, setter, svc := readyFixture(true)
+	store.eventErr = errors.New("disk full")
+	res, err := svc.SetReady(context.Background(), ReadyRequest{SessionID: "worker", Ready: true, RequestedBySessionID: "root"})
+	if err != nil || !res.Changed || len(setter.requests) != 1 {
+		t.Fatalf("res = %+v err = %v flips = %d, want success after the flip", res, err, len(setter.requests))
 	}
 }
 

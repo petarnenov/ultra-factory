@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -124,7 +125,8 @@ func (s *ActionService) SetReady(ctx context.Context, request ReadyRequest) (Rea
 		CreatedAt:      time.Now().UTC(),
 	}
 	if err := store.RecordSessionPRReadyEvent(ctx, event); err != nil {
-		return result, err
+		// The flip already happened; failing would make a retry a no-op.
+		slog.Warn("pr ready: audit event not recorded", "session", request.SessionID, "pr", tracked.URL, "error", err)
 	}
 	return result, nil
 }
