@@ -182,7 +182,7 @@ In this project worker PRs are drafts until AO review approves the head. Do not 
 }
 
 // workerCIGatePrompt is the draft-PR flow for a gated session. The project's
-// review opt-in decides where ` + "`ao review trigger`" + ` sits in the order.
+// review opt-in decides where `ao review trigger` sits in the order.
 func workerCIGatePrompt(project promptProject) string {
 	reviewStep := "ask the user or the orchestrator whether to run `ao review trigger`"
 	if project.WorkersRequestReview {
