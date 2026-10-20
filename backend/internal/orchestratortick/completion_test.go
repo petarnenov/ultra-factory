@@ -562,3 +562,26 @@ func TestAOReviewChangeRequestBlocksAnExistingMergeAction(t *testing.T) {
 		t.Fatal("merged after AO requested changes")
 	}
 }
+
+func TestSkippedDraftPhaseChecksBlockMergeUntilNewRunsFinish(t *testing.T) {
+	cfg := DefaultConfig()
+	pr := readyPR(1, "rw/1", head("a"))
+	pr.AOReviewStatus = "up_to_date"
+	for name, tc := range map[string]struct {
+		checks []Check
+		want   string
+	}{
+		"draft-phase skips only": {[]Check{{Result: "SKIPPED"}, {Result: "SKIPPED"}}, "required checks are pending"},
+		"new runs queued":        {[]Check{{Result: "QUEUED"}, {Result: "QUEUED"}}, "required checks are pending"},
+		"new runs finished":      {[]Check{{Result: "SUCCESS"}, {Result: "SUCCESS"}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pr := pr
+			pr.Draft, pr.Checks = false, tc.checks
+			got := strings.Join(MergeBlockers(cfg, pr), ", ")
+			if got != tc.want {
+				t.Fatalf("blockers = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

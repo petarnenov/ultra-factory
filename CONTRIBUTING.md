@@ -65,6 +65,8 @@ Also follow **PR hygiene** in [AGENTS.md](AGENTS.md): branch from `main`, one is
 
 Every pull request must reference its issue with `Closes #NNN`, and that issue must carry one type label and one priority label. [docs/issue-policy.md](docs/issue-policy.md) lists the labels, the two narrow exemptions, and the pull request check that enforces them.
 
+The expensive workflows (Go, Frontend and CLI E2E) skip draft pull requests: open a draft to skip them, and mark it ready for review to run them. Converting a pull request back to draft cancels its in-flight runs. A normal (non-draft) pull request gets full CI as before. The cheap policy checks (comment policy, gitleaks, issue policy) run on every push, drafts included.
+
 ## Code of Conduct
 
 Be respectful, constructive, and assume good intent. Report problems to maintainers via Discord DM.

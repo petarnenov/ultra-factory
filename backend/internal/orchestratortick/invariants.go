@@ -240,21 +240,25 @@ func agentMix(cfg Config, hosts []HostSessions) []Violation {
 }
 
 // CheckSummary condenses a pull request's checks: none, green, red or pending.
+// Checks that are all skipped are pending: they are the draft phase's results
+// and the runs for a ready pull request have not replaced them yet.
 func CheckSummary(checks []Check) string {
 	if len(checks) == 0 {
 		return "none"
 	}
-	green := true
+	green, passed := true, false
 	for _, c := range checks {
 		switch c.Result {
 		case "FAILURE", "CANCELLED", "TIMED_OUT", "ERROR", "ACTION_REQUIRED", "STARTUP_FAILURE":
 			return "red"
-		case "SUCCESS", "SKIPPED", "NEUTRAL":
+		case "SUCCESS", "NEUTRAL":
+			passed = true
+		case "SKIPPED":
 		default:
 			green = false
 		}
 	}
-	if green {
+	if green && passed {
 		return "green"
 	}
 	return "pending"
