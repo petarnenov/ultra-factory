@@ -17504,6 +17504,17 @@ components:
       required:
       - duplicate
       type: object
+    SendSessionMessageDelivery:
+      properties:
+        pendingInputRequestIds:
+          items:
+            type: string
+          type: array
+        queued:
+          type: boolean
+      required:
+      - queued
+      type: object
     SendSessionMessageRequest:
       properties:
         attachment:
@@ -17521,6 +17532,8 @@ components:
       type: object
     SendSessionMessageResponse:
       properties:
+        delivery:
+          $ref: '#/components/schemas/SendSessionMessageDelivery'
         message:
           type: string
         ok:

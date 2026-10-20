@@ -88,6 +88,7 @@ func TestTickDaemonUsesTheDaemonAPI(t *testing.T) {
 		case r.URL.Path == "/api/v1/sessions/uf-orchestrator-7/send":
 			_ = json.NewDecoder(r.Body).Decode(&sent)
 			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		default:
 			http.NotFound(w, r)
 		}
