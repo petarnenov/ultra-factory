@@ -52,7 +52,7 @@ func behindMain(cfg Config, gh *GitHubState) []Violation {
 }
 
 // 2. A green, mergeable pull request does not sit unmerged. Its review state
-// decides whether the remaining work is a merge or a review.
+// decides the remaining work; a hold label keeps it off the merge path.
 func greenPRsLeftOpen(cfg Config, facts Facts, now time.Time) []Violation {
 	var out []Violation
 	if facts.GitHub == nil {
@@ -73,6 +73,9 @@ func greenPRsLeftOpen(cfg Config, facts Facts, now time.Time) []Violation {
 		}
 		age := now.Sub(last)
 		if age < cfg.GreenPRMax {
+			continue
+		}
+		if holdLabeled(cfg, pr) {
 			continue
 		}
 		pr.AOReviewStatus = aoReviewStatus(facts, pr)
@@ -108,6 +111,17 @@ func reviewWaitsOnAuthor(pr PullRequest) bool {
 		return true
 	}
 	return strings.EqualFold(strings.TrimSpace(pr.AOReviewStatus), "changes_requested")
+}
+
+// holdLabeled reports a pull request the configuration keeps out of the merge
+// path, including an operator's pull request awaiting their word.
+func holdLabeled(cfg Config, pr PullRequest) bool {
+	for _, label := range pr.Labels {
+		if holdLabel(cfg, label) {
+			return true
+		}
+	}
+	return false
 }
 
 // aoReviewStatus finds AO's verdict for the exact head, the same fact the
