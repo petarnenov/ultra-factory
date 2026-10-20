@@ -278,8 +278,15 @@ func TestSummarySurvivesCoordinatorTerminationAndRootAbsence(t *testing.T) {
 	if delay, err := f.coord.RunDue(ctx); !errors.Is(err, reportsvc.ErrNoActiveOrchestrator) || delay != time.Second {
 		t.Fatalf("no root: delay=%v err=%v, want retry with ErrNoActiveOrchestrator", delay, err)
 	}
-	if hist := f.history(f.coordA.ID); len(hist) != 1 || hist[0].DeliveryState != domain.ReportPending || hist[0].DeliveryAttempts != 0 {
-		t.Fatalf("history = %+v, want a pending, unclaimed summary", hist)
+	// Termination also wrote the root escalation; both wait for a root.
+	hist := f.history(f.coordA.ID)
+	if len(hist) != 2 || hist[0].EscalationReason != domain.EscalationCoordinatorTerminated {
+		t.Fatalf("history = %+v, want the termination escalation and the submitted summary", hist)
+	}
+	for _, h := range hist {
+		if h.DeliveryState != domain.ReportPending || h.DeliveryAttempts != 0 {
+			t.Fatalf("history = %+v, want pending, unclaimed summaries", hist)
+		}
 	}
 
 	replacement, err := f.store.CreateSession(ctx, domain.SessionRecord{
@@ -290,11 +297,18 @@ func TestSummarySurvivesCoordinatorTerminationAndRootAbsence(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.run()
-	if len(f.delivery.submissions) != 1 || f.delivery.submissions[0].target != replacement.ID {
-		t.Fatalf("submissions = %#v, want delivery to the replacement root", f.delivery.submissions)
+	if len(f.delivery.submissions) == 0 {
+		t.Fatal("no delivery to the replacement root")
 	}
-	if hist := f.history(f.coordA.ID); hist[0].DeliveryState != domain.ReportAcknowledged || hist[0].DeliveryOwnerID != string(replacement.ID) {
-		t.Fatalf("history = %+v, want acknowledged with the root frozen at claim", hist)
+	for _, sub := range f.delivery.submissions {
+		if sub.target != replacement.ID {
+			t.Fatalf("submissions = %#v, want delivery to the replacement root", f.delivery.submissions)
+		}
+	}
+	for _, h := range f.history(f.coordA.ID) {
+		if h.DeliveryState != domain.ReportAcknowledged || h.DeliveryOwnerID != string(replacement.ID) {
+			t.Fatalf("history = %+v, want acknowledged with the root frozen at claim", h)
+		}
 	}
 	if _, _, err := f.svc.Submit(ctx, reportsvc.SummaryInput{CoordinatorSessionID: f.coordA.ID, SubmissionKey: "new", State: domain.SummaryWorking}); apiCode(err) != "SUMMARY_COORDINATOR_TERMINATED" {
 		t.Fatalf("terminated coordinator submit err = %v", err)

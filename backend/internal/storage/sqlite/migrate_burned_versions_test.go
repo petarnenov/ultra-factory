@@ -218,6 +218,7 @@ var shippedMigrations = map[int64]string{
 	213: "0213_coordinator_termination_releases_owners.sql",
 	214: "0214_report_delivery_owner.sql",
 	215: "0215_coordinator_summaries.sql",
+	216: "0216_coordinator_termination_escalates_to_root.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they
