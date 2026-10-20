@@ -221,7 +221,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				RemoteSpawn:        ctx.targetsRemote() && opts.kind != "orchestrator",
 				TerminateOnPRMerge: terminateOnPRMerge,
 			}
-			if ctx.remote != nil && localParentID != "" {
+			if ctx.remote != nil && localParentID != "" && !opts.standalone {
 				if err := ctx.checkRemoteWorkerCapacity(cmd.Context(), localParentID); err != nil {
 					return err
 				}
@@ -246,7 +246,12 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 					claimed = claim.PRs[0].URL
 				}
 			}
-			if ctx.remote != nil && localParentID != "" {
+			if ctx.remote != nil && localParentID != "" && res.Session.ProjectID == "" {
+				// A projectless worker has nothing to link to a local project.
+				if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: reports from %s will not reach this machine's orchestrator: the worker has no project\n", res.Session.ID); werr != nil {
+					return werr
+				}
+			} else if ctx.remote != nil && localParentID != "" {
 				blocked, err := ctx.linkRemoteWorker(cmd.Context(), localParentID, res)
 				if err != nil {
 					return ctx.failRemoteLink(cmd.Context(), res.Session.ID, err)

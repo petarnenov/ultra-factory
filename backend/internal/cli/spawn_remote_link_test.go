@@ -209,6 +209,32 @@ func TestRemoteSpawnKeepsTheWorkerOnANonCapacityLinkFailure(t *testing.T) {
 	}
 }
 
+func TestRemoteStandaloneSpawnSkipsTheLinkAndWarns(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "ao-7")
+	t.Setenv("AO_PROJECT_ID", "local-widgets")
+	local := startLocalDaemon(t, cfg, "host-local", nil)
+	local.rejectCheckWith("COORDINATOR_WORKER_LIMIT_REACHED")
+	remote := newFakeRemoteHost(t, "host-build", "s3cret")
+	remote.handle(http.MethodPost, "/api/v1/sessions", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusCreated, map[string]any{"session": map[string]string{
+			"id": "scratch-3", "status": "spawning", "displayName": "auth refactor",
+		}})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--standalone", "--name", "auth refactor", "--prompt", "do it", "--agent", "claude-code", "--skip-agent-check")
+	if err != nil {
+		t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "spawned session scratch-3") || !strings.Contains(errOut, "the worker has no project") {
+		t.Fatalf("stdout=%q stderr=%q", out, errOut)
+	}
+	if links := local.links(); len(links) != 0 {
+		t.Fatalf("a projectless worker was linked: %v", links)
+	}
+}
+
 func TestRemoteSpawnOutsideSessionDoesNotLink(t *testing.T) {
 	cfg := setConfigEnv(t)
 	t.Setenv("AO_SESSION_ID", "")
