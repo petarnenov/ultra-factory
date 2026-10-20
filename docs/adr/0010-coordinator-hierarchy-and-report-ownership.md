@@ -1510,7 +1510,7 @@ CLI, all thin daemon clients:
 | Command | Change | Task |
 | --- | --- | --- |
 | `ao spawn --kind coordinator` | New flags `--worker-limit <n>`, `--host-slots <host:n,...>`, `--worker-agent <fixed:id|random[:id,...]|inherit>`, `--coordinator-agent <same>` | CO-5.4, CO-5.7 |
-| `ao coordinator set <id>` | New. `--worker-limit`, `--host-slots`, `--worker-agent`; the limit and host slots go to the coordinator-limits route, which sends `origin: cli`. Operator use outside a session sends `operatorInitiated: true` | CO-5.4, CO-5.7 |
+| `ao coordinator set <id>` | New. `--worker-limit`, `--host-slots`; the limit and host slots go to the coordinator-limits route, which sends `origin: cli`. Operator use outside a session sends `operatorInitiated: true` | CO-5.4, CO-5.7 |
 | `ao coordinator ls` | Prints `workerLimit`, host usage, profile, memory warning | CO-5.4 |
 | `ao project set-config` | Accepts the fields in the project config table | CO-5.2, CO-5.3, CO-5.7 |
 | `ao spawn` (worker) | `--harness/--model/--effort` under a coordinator must match a selected profile | CO-5.7 |
