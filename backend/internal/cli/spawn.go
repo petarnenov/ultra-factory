@@ -130,6 +130,10 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if err := validateCoordinatorSpawn(opts, ctx.targetsRemote()); err != nil {
 				return err
 			}
+			workerAgent, coordinatorAgent, selErr := coordinatorAgentSelections(opts)
+			if selErr != nil {
+				return selErr
+			}
 			if opts.output != "" && opts.output != "artifact" {
 				return usageError{fmt.Errorf(`--output must be "artifact"`)}
 			}
@@ -206,10 +210,6 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			parentSessionID := localParentID
 			if ctx.targetsRemote() {
 				parentSessionID = ""
-			}
-			workerAgent, coordinatorAgent, err := coordinatorAgentSelections(opts)
-			if err != nil {
-				return err
 			}
 			var terminateOnPRMerge *bool
 			if cmd.Flags().Changed("terminate-on-pr-merge") {
