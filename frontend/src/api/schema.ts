@@ -13585,7 +13585,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict: see x-error-codes */
+            /** @description Conflict: coordinator codes in x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;

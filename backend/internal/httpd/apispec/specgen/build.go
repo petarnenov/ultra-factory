@@ -2725,7 +2725,7 @@ func sessionOperations() []operation {
 			respNotes: map[int]string{
 				http.StatusBadRequest: "Bad Request: COORDINATOR_SCOPE_REQUIRED,\nCOORDINATOR_SCOPE_TOO_LONG, REMOTE_SPAWN_WORKER_REQUIRED",
 				http.StatusForbidden:  "Forbidden: COORDINATOR_ROOT_REQUIRED",
-				http.StatusConflict:   "Conflict: see x-error-codes",
+				http.StatusConflict:   "Conflict: coordinator codes in x-error-codes",
 			},
 			errorCodes: []string{
 				"COORDINATORS_DISABLED", "COORDINATOR_ROOT_REQUIRED", "COORDINATOR_SCOPE_REQUIRED",
