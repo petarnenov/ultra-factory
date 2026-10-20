@@ -779,6 +779,7 @@ func TestHostFlagRoutesEveryOptedInCommandToTheRemoteHost(t *testing.T) {
 		method, path string
 	}{
 		{args: []string{"session", "get", "widgets-3"}, method: http.MethodGet, path: "/api/v1/sessions/widgets-3"},
+		{args: []string{"session", "top"}, method: http.MethodGet, path: "/api/v1/sessions"},
 		{args: []string{"session", "kill", "widgets-3"}, method: http.MethodPost, path: "/api/v1/sessions/widgets-3/kill"},
 		{args: []string{"session", "rename", "widgets-3", "new name"}, method: http.MethodPatch, path: "/api/v1/sessions/widgets-3"},
 		{args: []string{"session", "exit-agent", "widgets-3"}, method: http.MethodPost, path: "/api/v1/sessions/widgets-3/exit-agent"},
