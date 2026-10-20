@@ -481,6 +481,31 @@ func TestObserve_CIStates(t *testing.T) {
 			wantCI: domain.CIFailing,
 		},
 		{
+			name: "superseded cancelled and skipped runs lose to the rerun",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "CANCELLED", "completedAt": "2026-10-20T15:25:50Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SKIPPED", "completedAt": "2026-10-20T15:26:20Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:40:00Z"},
+			},
+			wantCI: domain.CIPassing,
+		},
+		{
+			name: "newest run of a name still failing",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:25:50Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "FAILURE", "completedAt": "2026-10-20T15:40:00Z"},
+			},
+			wantCI: domain.CIFailing,
+		},
+		{
+			name: "rerun in progress is pending",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "CANCELLED", "completedAt": "2026-10-20T15:25:50Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "IN_PROGRESS"},
+			},
+			wantCI: domain.CIPending,
+		},
+		{
 			name: "legacy statuscontext failure",
 			nodes: []any{
 				map[string]any{"__typename": "StatusContext", "context": "ci/legacy", "state": "FAILURE", "targetUrl": "https://ci"},

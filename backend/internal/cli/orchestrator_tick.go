@@ -501,7 +501,7 @@ const tickGitHubQuery = `query($owner: String!, $name: String!, $base: String!, 
         labels(first: 50) { nodes { name } }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
-          ... on CheckRun { status conclusion completedAt }
+          ... on CheckRun { name status conclusion completedAt }
           ... on StatusContext { state createdAt }
         } } } } } }
         reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 50) { nodes { body author { login __typename } } } } }
@@ -545,6 +545,7 @@ type tickGitHubResponse struct {
 								Contexts struct {
 									Nodes []struct {
 										Typename    string    `json:"__typename"`
+										Name        string    `json:"name"`
 										Status      string    `json:"status"`
 										Conclusion  string    `json:"conclusion"`
 										CompletedAt time.Time `json:"completedAt"`
@@ -666,7 +667,7 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 					if result == "" {
 						result = c.Status
 					}
-					out.Checks = append(out.Checks, orchestratortick.Check{Result: result, CompletedAt: c.CompletedAt})
+					out.Checks = append(out.Checks, orchestratortick.Check{Name: c.Name, Result: result, CompletedAt: c.CompletedAt})
 				case "StatusContext":
 					out.Checks = append(out.Checks, orchestratortick.Check{Result: c.State, CompletedAt: c.CreatedAt})
 				}

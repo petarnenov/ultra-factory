@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -281,7 +282,7 @@ const prObservationQuery = `query($owner:String!,$repo:String!,$number:Int!){
           contexts(first:CONTEXT_LIMIT){
             nodes{
               __typename
-              ... on CheckRun  { name status conclusion detailsUrl url databaseId }
+              ... on CheckRun  { name status conclusion completedAt detailsUrl url databaseId }
               ... on StatusContext { context state targetUrl }
             }
             pageInfo{ hasNextPage }
@@ -350,7 +351,7 @@ func ciSummaryFromGraphQL(pr map[string]any) domain.CIState {
 		return domain.CIUnknown
 	}
 	contexts, _ := roll["contexts"].(map[string]any)
-	rawNodes := nodes(contexts["nodes"])
+	rawNodes := latestCheckRuns(nodes(contexts["nodes"]))
 	if len(rawNodes) == 0 {
 		// GitHub returns a top-level "state" on the rollup even when the
 		// nodes list is empty (e.g. SUCCESS / FAILURE / PENDING). Honor it
@@ -380,6 +381,37 @@ func ciSummaryFromGraphQL(pr map[string]any) domain.CIState {
 	default:
 		return domain.CIUnknown
 	}
+}
+
+// latestCheckRuns keeps one CheckRun per name, the newest: the rollup lists
+// superseded runs too, and a cancelled or skipped one must not outvote a rerun.
+func latestCheckRuns(in []map[string]any) []map[string]any {
+	newest := map[string]time.Time{}
+	pos := map[string]int{}
+	out := make([]map[string]any, 0, len(in))
+	for _, n := range in {
+		name := str(n["name"])
+		if str(n["__typename"]) != "CheckRun" || name == "" {
+			out = append(out, n)
+			continue
+		}
+		at := time.Time{}
+		if s := str(n["completedAt"]); s != "" {
+			at, _ = time.Parse(time.RFC3339, s)
+		}
+		i, seen := pos[name]
+		switch {
+		case !seen:
+			pos[name] = len(out)
+			out = append(out, n)
+		case at.IsZero() || (!newest[name].IsZero() && at.After(newest[name])):
+			out[i] = n
+		default:
+			continue
+		}
+		newest[name] = at
+	}
+	return out
 }
 
 // pageInfoHasMore reports whether the rollup contexts have a next page

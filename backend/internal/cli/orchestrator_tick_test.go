@@ -20,7 +20,7 @@ func TestTickGitHubStateMapsTheGraphQLResponse(t *testing.T) {
 	      "number": 201, "headRefName": "rw/RW-5.4.2", "mergeable": "MERGEABLE",
 	      "readyEvents": {"nodes": [{"createdAt": "2026-10-20T18:50:00Z"}]},
 	      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
-	        {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-17T11:20:00Z"},
+	        {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-17T11:20:00Z"},
 	        {"__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": null, "completedAt": null},
 	        {"__typename": "StatusContext", "state": "SUCCESS", "createdAt": "2026-10-17T11:25:00Z"}
 	      ]}}}}]}
@@ -45,7 +45,7 @@ func TestTickGitHubStateMapsTheGraphQLResponse(t *testing.T) {
 		OpenPRs: []orchestratortick.PullRequest{
 			{Number: 201, Head: "rw/RW-5.4.2", Mergeable: "MERGEABLE",
 				ReadyAt: time.Date(2026, 10, 20, 18, 50, 0, 0, time.UTC), Checks: []orchestratortick.Check{
-					{Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 20, 0, 0, time.UTC)},
+					{Name: "lint", Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 20, 0, 0, time.UTC)},
 					{Result: "IN_PROGRESS"},
 					{Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 25, 0, 0, time.UTC)},
 				}},

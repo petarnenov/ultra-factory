@@ -242,6 +242,7 @@ func agentMix(cfg Config, hosts []HostSessions) []Violation {
 // CheckSummary condenses checks to none, green, red or pending; all-skipped
 // checks are draft-phase leftovers and stay pending.
 func CheckSummary(checks []Check) string {
+	checks = latestChecks(checks)
 	if len(checks) == 0 {
 		return "none"
 	}
@@ -273,13 +274,37 @@ const staleSkipWindow = 10 * time.Minute
 // ready flip may still be replaced by a new run.
 func PRCheckSummary(pr PullRequest, now time.Time) string {
 	summary := CheckSummary(pr.Checks)
+	checks := latestChecks(pr.Checks)
 	if summary != "green" || pr.ReadyAt.IsZero() || !now.Before(pr.ReadyAt.Add(staleSkipWindow)) {
 		return summary
 	}
-	for _, c := range pr.Checks {
+	for _, c := range checks {
 		if c.Result == "SKIPPED" && c.CompletedAt.Before(pr.ReadyAt) {
 			return "pending"
 		}
 	}
 	return summary
+}
+
+// latestChecks keeps the newest run of each named check: the rollup also
+// lists superseded runs, and a cancelled or skipped one must not outvote a
+// rerun. A run without a completion time is still running and counts newest.
+func latestChecks(checks []Check) []Check {
+	pos := map[string]int{}
+	out := make([]Check, 0, len(checks))
+	for _, c := range checks {
+		i, seen := pos[c.Name]
+		if c.Name == "" || !seen {
+			if c.Name != "" {
+				pos[c.Name] = len(out)
+			}
+			out = append(out, c)
+			continue
+		}
+		prev := out[i].CompletedAt
+		if c.CompletedAt.IsZero() || (!prev.IsZero() && c.CompletedAt.After(prev)) {
+			out[i] = c
+		}
+	}
+	return out
 }

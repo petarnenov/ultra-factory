@@ -56,6 +56,8 @@ type HostSessions struct {
 
 // Check is one status check of a pull request's head commit.
 type Check struct {
+	// Name identifies the check; a named check keeps only its newest run.
+	Name string
 	// Result is the check's conclusion, or its status while it runs, in
 	// GitHub's upper-case form (SUCCESS, FAILURE, IN_PROGRESS, ...).
 	Result      string
