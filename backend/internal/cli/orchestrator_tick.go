@@ -729,7 +729,7 @@ func shortSHA(oid string) string {
 }
 
 func (d tickDaemon) NotifyCompletion(ctx context.Context, host, session, actionKey, kind string, prs []orchestratortick.CompletedPR, recipient *orchestratortick.CompletionRecipient) error {
-	hostID := ""
+	var hostID string
 	if recipient != nil {
 		hostID = recipient.HostID
 	} else {
