@@ -310,34 +310,41 @@ type recipientStore interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
 }
 
-// resolveOwnerRecipient applies ADR 0010 section 3: a live same-project
-// coordinator owner wins; otherwise the project's newest live root is used.
-// An owner whose agent exited is not a recipient but keeps its ownership
-// (ownerExited), so the caller routes to root without repairing it.
-func resolveOwnerRecipient(ctx context.Context, store recipientStore, projectID domain.ProjectID, owner *domain.SessionID) (ownerRec domain.SessionRecord, ownerValid, ownerExited bool, root domain.SessionRecord, rootFound bool, err error) {
+// ownerState classifies a worker's durable owner for recipient resolution.
+type ownerState int
+
+const (
+	ownerStale ownerState = iota // absent, terminated or foreign: repair it
+	ownerLive
+	ownerExited // keep the ownership, route to root
+)
+
+// resolveOwnerRecipient applies ADR 0010 section 3: a live coordinator owner
+// wins, else the live root; an exited owner is kept, not repaired.
+func resolveOwnerRecipient(ctx context.Context, store recipientStore, projectID domain.ProjectID, owner *domain.SessionID) (ownerRec domain.SessionRecord, state ownerState, root domain.SessionRecord, rootFound bool, err error) {
 	root, rootFound, err = liveRoot(ctx, store, projectID)
 	if err != nil {
-		return domain.SessionRecord{}, false, false, domain.SessionRecord{}, false, err
+		return domain.SessionRecord{}, ownerStale, domain.SessionRecord{}, false, err
 	}
 	if owner == nil {
-		return domain.SessionRecord{}, false, false, root, rootFound, nil
+		return domain.SessionRecord{}, ownerStale, root, rootFound, nil
 	}
 	ownerRec, found, err := store.GetSession(ctx, *owner)
 	if err != nil {
-		return domain.SessionRecord{}, false, false, root, rootFound, err
+		return domain.SessionRecord{}, ownerStale, root, rootFound, err
 	}
 	if found && coordownership.IsLiveCoordinator(ownerRec, projectID) {
 		if ownerRec.Activity.State == domain.ActivityExited {
-			return ownerRec, false, true, root, rootFound, nil
+			return ownerRec, ownerExited, root, rootFound, nil
 		}
-		return ownerRec, true, false, root, rootFound, nil
+		return ownerRec, ownerLive, root, rootFound, nil
 	}
-	return domain.SessionRecord{}, false, false, root, rootFound, nil
+	return domain.SessionRecord{}, ownerStale, root, rootFound, nil
 }
 
 // escalateExitedOwner tells the root once per exit that a coordinator needs
 // recovery; a coordinator that is running again re-arms the notice.
-func (c *Coordinator) escalateExitedOwner(ctx context.Context, owner domain.SessionRecord, root domain.SessionRecord, rootFound bool) {
+func (c *Coordinator) escalateExitedOwner(ctx context.Context, owner, root domain.SessionRecord, rootFound bool) {
 	if !rootFound || c.delivery == nil || c.escalated[owner.ID] {
 		return
 	}
@@ -362,7 +369,7 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 		} else if found {
 			owner = worker.OwnerSessionID
 		}
-		ownerRec, ownerValid, ownerExited, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
+		ownerRec, state, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
 		if err != nil {
 			return recipientGroup{}, err
 		}
@@ -370,12 +377,12 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 		if rootFound {
 			group.Root = root.ID
 		}
-		if ownerValid {
+		if state == ownerLive {
 			delete(c.escalated, ownerRec.ID)
 			group.Recipient, group.Found = ownerRec.ID, true
 			return group, nil
 		}
-		if ownerExited {
+		if state == ownerExited {
 			c.escalateExitedOwner(ctx, ownerRec, root, rootFound)
 			group.ExitedOwner = ownerRec.ID
 		} else if owner != nil {
@@ -476,15 +483,15 @@ func (c *Coordinator) ResolveRemoteRecipient(ctx context.Context, link domain.Re
 			current = link
 			current.OwnerSessionID = nil
 		}
-		owner, ownerValid, ownerExited, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, current.ProjectID, current.OwnerSessionID)
+		owner, state, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, current.ProjectID, current.OwnerSessionID)
 		if err != nil {
 			return domain.SessionRecord{}, false, err
 		}
-		if ownerValid {
+		if state == ownerLive {
 			delete(c.escalated, owner.ID)
 			return owner, true, nil
 		}
-		if ownerExited {
+		if state == ownerExited {
 			c.escalateExitedOwner(ctx, owner, root, rootFound)
 		} else if current.OwnerSessionID != nil {
 			_, cleared, err := c.store.ClearRemoteWorkerOwnerIf(ctx, current.HostID, current.RemoteSessionID, *current.OwnerSessionID, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC())

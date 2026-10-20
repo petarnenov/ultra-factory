@@ -250,10 +250,8 @@ func (s *Store) ListPendingReportSchedule(ctx context.Context, limit int64) ([]d
 	return s.reportsWithOutputs(ctx, rows)
 }
 
-// ClaimPendingReportBatch atomically claims one recipient group's pending
-// reports: the project plus the resolved coordinator owner or root. At most
-// one exitedOwner adds that coordinator's workers to the group, so the root
-// can take over reports without clearing the exited owner.
+// ClaimPendingReportBatch claims one recipient group's pending reports; an
+// exitedOwner adds that coordinator's workers to a root group.
 func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.ProjectID, recipientID, rootID domain.SessionID, token string, at time.Time, exitedOwner ...domain.SessionID) ([]domain.ReportRecord, error) {
 	if projectID == "" || recipientID == "" || token == "" || at.IsZero() {
 		return nil, domain.ErrInvalidReport
