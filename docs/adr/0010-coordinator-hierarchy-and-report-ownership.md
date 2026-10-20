@@ -813,6 +813,10 @@ Rules:
 ```
 
 Defaults are exactly 2/3/6 and `enabled=false`. Values may be lowered.
+> Amended 2026-10-20: the ceilings are now configurable up to 4/6/12; see
+> "Amendment: configurable coordinators" at the end of this ADR. The
+> sentence below about raising them is superseded.
+
 Values above 2/3/6 are rejected at config validation
 (`COORDINATOR_LIMITS_INVALID`); raising them needs a new decision, not a config
 edit. Disabling the flag blocks new coordinator spawns, while restoring a
@@ -1193,3 +1197,334 @@ Implementation stories must add, at minimum:
   escalation rules, and the merge prohibition are present;
 - the CO-4.1.1 end-to-end run, including restart, duplicate delivery,
   coordinator termination, reassignment, and per-process resource sampling.
+
+## Amendment: configurable coordinators
+
+Date: 2026-10-20
+Status: Accepted. This amendment does not change the status of the ADR. The
+decisions below were approved by the user on 2026-10-20 (issue #408, epic
+#407) and are recorded as decided. A change to any of them goes back to the
+user before merge.
+
+This amendment supersedes the "raising them needs a new decision" rule in
+section 8: the project ceilings become configurable up to a new system hard
+maximum. Everything else in sections 1 to 15 stays as written. The
+implementation tasks are CO-5.2 (limits), CO-5.3 (host placement), CO-5.4
+(CLI), CO-5.5 (prompts), CO-5.7 (agent profiles) and CO-5.6 (UI).
+
+### A1. Context
+
+Section 8 fixes the limits at 2 coordinators, 3 workers per coordinator and 6
+workers per project. In 0.18.0 every coordinator in a project shares one
+`maxWorkersPerCoordinator`, nothing places a coordinator's workers on a paired
+host, and only the live root can start a coordinator, from the CLI. The
+coordinator prompt does not mention `--host`, so a coordinator can start a
+worker on the hub. The hub has no Go toolchain, and its memory peaked at
+23.84 GB of 24 GB (`deploy/railway/README.md`). The per-process baseline
+(#218) and the live pilot (#227) are not measured yet.
+
+### A2. Decisions
+
+#### 1. Hard maximums
+
+The system hard maximum is **4 live coordinators per project, 6 workers per
+coordinator and 12 workers per project**. The defaults stay 2 / 3 / 6.
+
+- A project sets `maxCoordinators`, `maxWorkersPerCoordinator` and
+  `maxWorkers`. `0` or unset means the default. Any value from 1 up to the hard
+  maximum is accepted. A value above the hard maximum, or below zero, is
+  rejected with `COORDINATOR_LIMITS_INVALID` (`field`, `max` now carry the hard
+  maximum of that field).
+- `maxWorkersPerCoordinator` may not exceed `maxWorkers`. This is checked at
+  config validation and reported as `COORDINATOR_LIMITS_INVALID`.
+- The hard maximum is a constant in the backend. A deployment does not change
+  it with an environment variable. The operator lowers the effective limits
+  through the project ceilings, which already work per project. This is the one
+  point the user did not decide explicitly; it is the proposal of this
+  amendment and is called out in the pull request for confirmation.
+- Lowering a project ceiling below the live count follows the section 8
+  grandfather rule: running sessions are not killed, and new spawns, restores
+  and reassignments are refused until the count is under the ceiling.
+
+Rejected: a larger hard maximum (hub memory is unmeasured; see decision 7), and
+an environment override of the hard maximum (a second source of truth that the
+UI cannot show).
+
+#### 2. Per-coordinator worker limit
+
+A coordinator has its own `workerLimit`, stored on the coordinator session.
+
+- It is set at spawn. When the spawn request omits it, the project's
+  `maxWorkersPerCoordinator` applies (decision 5).
+- It may not exceed the project's `maxWorkersPerCoordinator`. A value above it
+  is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`.
+- It can change on a live coordinator, by the live root or by the operator from
+  the UI on behalf of the root (audited like a UI spawn, see decision 6). The
+  new value stays within the project ceiling.
+- Lowering it below the current worker count keeps the running workers and
+  blocks new spawns, restores and reassignments to that coordinator until the
+  count drops (the section 8 grandfather rule, applied per coordinator).
+- The coordinator receives a short system message with its new `workerLimit`
+  and host slots after every change.
+- Coordinators spawned before this change have no stored limit. They use the
+  project's `maxWorkersPerCoordinator`, which is the 0.18.0 behavior.
+
+Rejected: a limit that only the operator may change (the root already owns
+reassignment and needs to rebalance), and killing workers above a lowered limit
+(it would destroy work for a bookkeeping change).
+
+#### 3. Host placement
+
+- **Project allow list.** `coordinators.allowedHosts` is a list of host IDs.
+  When it is empty, any registered remote host is allowed.
+- **Per-coordinator slots.** `hostSlots` is a list of `{hostId, slots}`. The
+  text form is `host:slots` joined by commas, for example
+  `Linux:2,Z600:1`. A host name in the text form may be a host ID or a host
+  label; the daemon resolves it to the host ID and stores only the ID. An
+  unknown or ambiguous name is rejected with `COORDINATOR_HOST_NOT_ALLOWED`.
+- **Total.** The slots must add up to at most the coordinator's `workerLimit`.
+  A larger total is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`. A smaller
+  total is allowed, and leaves the rest of the limit with no host.
+- **No slots.** A coordinator with no slots may use any host in the project's
+  `allowedHosts`, or any registered remote host when that list is empty.
+- **Enforcement.** On every coordinator-owned worker spawn, restore,
+  reassignment and remote-link write, the daemon checks the target host:
+  outside the coordinator's slots (or, with no slots, outside `allowedHosts`)
+  is `COORDINATOR_HOST_NOT_ALLOWED`; a host whose slots are all used by this
+  coordinator's live workers is `COORDINATOR_HOST_SLOTS_FULL`. Slot use is
+  counted from live local workers placed on the host and remote worker links,
+  inside the same admission step as the section 8 counts.
+- **Host goes offline.** There is no automatic move. The workers on it keep
+  their slots until they terminate. The operator or the root reassigns or
+  respawns them. Rejected: automatic failover, because it would start work on
+  a different machine without anyone asking.
+- Slots and `allowedHosts` can be changed live with the same rules as the
+  worker limit. Existing workers are grandfathered.
+
+#### 4. Local workers
+
+A coordinator-owned worker on the root's local daemon (the Railway hub in
+production) is refused with `COORDINATOR_LOCAL_WORKER_REFUSED`, unless the
+project sets `coordinators.allowLocalWorkers: true`. The flag defaults to
+`false`. A desktop setup where the root runs on a developer machine sets it to
+`true`. Root-owned direct workers are not affected. The rule applies to spawn,
+restore and reassignment to a coordinator. Existing local workers owned by a
+coordinator are grandfathered.
+
+This is the one intended behavior change from 0.18.0. Rejected: a default of
+`true` (it keeps the hub exposed to the memory and toolchain problems in A1).
+
+#### 5. Who sets the values, and precedence
+
+The operator (UI or CLI) sets project defaults and ceilings. The root sets
+per-coordinator values in its spawn call. Precedence: an explicit value in the
+spawn request, from the root or from the UI, wins; missing values come from the
+project defaults. Everything is bounded by the project ceilings and the hard
+maximum. The operator controls the outcome through the ceilings.
+
+#### 6. Operator-initiated coordinator spawn from the UI
+
+Option (a). The UI calls the coordinator spawn API on behalf of the project's
+live root, with an explicit operator marker. Option (b), a structured request
+that the root turns into a spawn, is rejected: it depends on a live agent
+turn, can be dropped or reworded, and gives the operator no result.
+
+- **Marker.** The request body carries `operatorInitiated: true` next to
+  `parentSessionId`, which the daemon fills with the live root's session ID
+  (or the UI sends it after reading the roster). The marker is accepted only
+  on the app API, never from a session-token caller; a session caller that
+  sends it gets `OPERATOR_MARKER_NOT_ALLOWED`.
+- **No live root.** The daemon refuses with `COORDINATOR_ROOT_REQUIRED` and the
+  UI shows the reason. The UI never creates a root.
+- **Audit.** Every operator-initiated spawn and every operator-initiated live
+  change writes an append-only row, in the same transaction as the change, in
+  `coordinator_operator_events(session_id, action, operator_origin,
+  root_session_id, scope, limits, hosts, agent_selection, created_at)`.
+  `action` is `spawn`, `set_limits`, `set_hosts` or `set_agent`. `limits`,
+  `hosts` and `agent_selection` are the resolved values after precedence, as
+  JSON. `operator_origin` is a bounded value: `desktop`, `hub_web` or `cli`.
+  The row is tied to the coordinator with cascade on delete.
+- **Root notice.** The root is told about the new coordinator through the
+  summary path of section 6, as a system line in its next turn.
+- All other section 1 rules stay: `remoteSpawn` is rejected, the project must
+  have coordinators enabled, and capacity is checked.
+
+#### 7. Resource guard
+
+Memory pressure is a signal only, for now. The daemon never refuses a spawn
+because of it. The coordinator roster and the UI show the hub's memory
+pressure, and a warning at or above 90% of the hub memory limit. The roster
+reports the value as `null` when the limit is unknown, never as zero. A hard
+guard is decided in a later amendment, after #218 and #227 provide data.
+Rejected: an automatic refusal now, because the thresholds would be guesses.
+
+#### 8. Agent profiles
+
+- **One shared list.** `coordinators.agentProfiles` is a project-level list of
+  `{id, label, harness, model, effort, weight}`. `id` is unique in the list and
+  stable; `label` is for display; `weight` is optional, a positive integer
+  with a default of 1, and only affects `random`. Coordinators and their
+  workers draw from this one list. Coordinator selection and worker selection
+  are separate settings over it.
+- **Selection modes.** `inherit`, `fixed` (one profile ID) and `random` (a
+  subset of profile IDs, or the whole list when the subset is empty). Weighted
+  random uses the weights.
+  - The coordinator's own agent: `coordinators.coordinatorAgent` is the project
+    default, and the spawn request can set it per coordinator. `inherit` keeps
+    today's behavior (the orchestrator role config).
+  - Its workers' agent: `coordinators.workerAgent` is the project default, and
+    a per-coordinator `workerAgent` is set at spawn and can change live. `inherit`
+    keeps today's behavior (`config.worker` and explicit flags).
+- **Explicit flags.** A coordinator may still pass `--harness`, `--model` and
+  `--effort` on a worker spawn only when the combination matches a profile that
+  is in its selection. Anything else is `WORKER_PROFILE_NOT_ALLOWED`. With
+  `inherit` and no profile list, flags work as today.
+- **Host readiness.** The daemon never picks a profile whose harness is not
+  authorized on the target host. With `random`, unready profiles are filtered
+  out before the pick; with `fixed`, an unready profile is
+  `WORKER_PROFILE_UNAVAILABLE`. When no profile is ready,
+  `WORKER_PROFILE_UNAVAILABLE` too. Local placement uses the same filter against
+  the local daemon.
+- **Recording.** The chosen profile ID is recorded on each worker session, and
+  shown in the roster and session views.
+- **Root-owned direct workers.** Profiles do not apply to them by default.
+  `coordinators.rootWorkerAgent` has modes `inherit` (default), `fixed` and
+  `random` over the shared list, with the same host-readiness filter. Nothing
+  changes until it is set.
+- **Validation.** A malformed profile (duplicate or empty `id`, unknown
+  harness, empty model, invalid effort, weight below 1), a selection that names
+  an unknown profile, or an empty `fixed` selection is `WORKER_PROFILE_INVALID`
+  at config or spawn validation. A coordinator selection that names a profile
+  outside the list is `COORDINATOR_PROFILE_NOT_ALLOWED`.
+
+### A3. Defaults and backward compatibility
+
+- With no new field set, the limits are 2 / 3 / 6, `enabled` is `false`,
+  `allowLocalWorkers` is `false`, there is no `allowedHosts` or slot
+  restriction, and every agent selection is `inherit`. Existing project configs
+  validate unchanged and are never rewritten.
+- The only behavior change from 0.18.0 is decision 4: a coordinator-owned
+  worker on the local daemon is refused unless `allowLocalWorkers` is `true`.
+  Existing local coordinator-owned workers keep running (grandfathered).
+- Coordinators spawned before this change have no stored `workerLimit`, host
+  slots, or agent selection. They get the project default limit and no host
+  restriction, except the local-worker rule. Their workers keep their stored
+  agent.
+- The migration is additive: nullable columns on `sessions` for the
+  coordinator's `workerLimit`, host slots, and agent selection, a nullable
+  `agent_profile_id` on worker sessions, and the audit table in decision 6. No
+  backfill. Rollback to 0.18.0 ignores the columns.
+- Existing configs hold `maxCoordinators`, `maxWorkersPerCoordinator` and
+  `maxWorkers` with values at or below 2 / 3 / 6. They stay valid.
+
+### A4. Interaction with open work
+
+- **#390 (remote spawn over capacity).** Host-slot and local-worker checks run
+  before the remote session is created, in the same pre-check as the section 8
+  counts, and registration re-validates them. A rejected check leaves no running
+  worker. CO-5.3 builds on the #390 fix and must not reintroduce the defect.
+- **#393 (atomic admission).** The new checks (worker limit, host slots,
+  local-worker rule, profile pick) are admission checks. They read the project
+  config and the coordinator's stored values inside the project lock or in the
+  same store transaction as the insert, never before it. The error order is:
+  root caller, enabled, scope, then limits, local-worker rule, host, profile.
+  If #393 settles on the in-process lock instead of a store transaction, the
+  new checks use whichever boundary #393 chooses.
+- **Section 3 and section 7.** Recipient resolution and the reassignment
+  transitions are unchanged. Reassignment to a coordinator now also checks that
+  coordinator's `workerLimit`, host slots and local-worker rule, not only the
+  fixed three.
+
+### A5. Error table changes
+
+New codes, all in the existing `apierr` envelope with a request ID:
+
+| Code | Kind / status | When | Details |
+| --- | --- | --- | --- |
+| `COORDINATOR_HOST_NOT_ALLOWED` | Conflict / 409 | Worker host outside the coordinator's slots or the project's `allowedHosts`, or an unknown host name in a slot | `coordinatorId`, `hostId` |
+| `COORDINATOR_HOST_SLOTS_FULL` | Conflict / 409 | All slots of that host are used by this coordinator's workers | `coordinatorId`, `hostId`, `current`, `allowed` |
+| `COORDINATOR_LOCAL_WORKER_REFUSED` | Conflict / 409 | Coordinator-owned worker on the local daemon while `allowLocalWorkers` is false | `coordinatorId`, `projectId` |
+| `COORDINATOR_WORKER_LIMIT_INVALID` | Invalid / 400 | Per-coordinator `workerLimit` above the project's `maxWorkersPerCoordinator`, or slots total above `workerLimit` | `field`, `max` |
+| `WORKER_PROFILE_INVALID` | Invalid / 400 | Malformed profile list or selection | `field` |
+| `WORKER_PROFILE_UNAVAILABLE` | Conflict / 409 | No selected profile is ready on the target host | `coordinatorId`, `hostId` |
+| `WORKER_PROFILE_NOT_ALLOWED` | Conflict / 409 | Explicit `--harness/--model/--effort` does not match a selected profile | `coordinatorId` |
+| `COORDINATOR_PROFILE_NOT_ALLOWED` | Conflict / 409 | Coordinator agent selection names a profile outside the list | `profileId` |
+| `OPERATOR_MARKER_NOT_ALLOWED` | Forbidden / 403 | `operatorInitiated` sent by a session caller | `sessionId` |
+
+Changed codes:
+
+| Code | Change |
+| --- | --- |
+| `COORDINATOR_LIMITS_INVALID` | Details `max` is the hard maximum of the field (4 / 6 / 12). Also returned when `maxWorkersPerCoordinator` exceeds `maxWorkers` |
+| `COORDINATOR_ROOT_REQUIRED` | Also returned to an operator-initiated spawn when the project has no live root |
+| `COORDINATOR_LIMIT_REACHED`, `COORDINATOR_WORKER_LIMIT_REACHED`, `PROJECT_WORKER_LIMIT_REACHED` | `allowed` is the effective limit (project ceiling, or the coordinator's `workerLimit`), not the fixed 2 / 3 / 6 |
+
+### A6. API and CLI contract
+
+Project config (`ProjectConfig.coordinators`), consumed by CO-5.2, CO-5.3 and
+CO-5.7:
+
+| Field | Type | Default | Task |
+| --- | --- | --- | --- |
+| `maxCoordinators`, `maxWorkersPerCoordinator`, `maxWorkers` | int, 0 to hard maximum | 0 (2 / 3 / 6) | CO-5.2 |
+| `allowedHosts` | list of host IDs | empty (any registered host) | CO-5.3 |
+| `allowLocalWorkers` | bool | `false` | CO-5.3 |
+| `agentProfiles` | list of `{id, label, harness, model, effort, weight}` | empty | CO-5.7 |
+| `coordinatorAgent` | `{mode, profileIds}` | `inherit` | CO-5.7 |
+| `workerAgent` | `{mode, profileIds}` | `inherit` | CO-5.7 |
+| `rootWorkerAgent` | `{mode, profileIds}` | `inherit` | CO-5.7 |
+
+Daemon routes. The coordinator spawn route is the existing one; the others are
+new:
+
+| Method and path | Change | Caller rule | Task |
+| --- | --- | --- | --- |
+| `POST /api/v1/sessions` with `kind=coordinator` | New optional fields `workerLimit`, `hostSlots` (`[{hostId, slots}]` or a `host:slots` string), `workerAgent`, `coordinatorAgent`, `operatorInitiated` | Live root, or the app API with `operatorInitiated: true` | CO-5.2, CO-5.3, CO-5.7 |
+| `PATCH /api/v1/sessions/{sessionId}/coordinator` | New. Body `{workerLimit, hostSlots, workerAgent, requestedBySessionId, operatorInitiated}`; changes a live coordinator; sends the system message; audited | Live root, or the app API with `operatorInitiated: true` | CO-5.2, CO-5.3, CO-5.7 |
+| `GET /api/v1/projects/{projectId}/coordinators` | Roster gains `workerLimit`, `hostSlots` with per-host `used`, `agentProfileId`, per-worker `agentProfileId`, and `hubMemoryPressure` (`{usedBytes, limitBytes, percent, warning}` or `null`) | App API caller | CO-5.2, CO-5.3, CO-5.6, CO-5.7 |
+| `POST /api/v1/sessions` (worker) | The session read model gains `agentProfileId`. A worker spawn under a coordinator applies decisions 3, 4 and 8 | Unchanged | CO-5.3, CO-5.7 |
+| `PUT /api/v1/sessions/{id}/owner`, `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` | Target is also checked against `workerLimit`, host slots and the local-worker rule | Live root | CO-5.3 |
+| `POST /api/v1/remote-worker-links` | Host slots and the local-worker rule are checked at registration | Unchanged | CO-5.3 |
+
+CLI, all thin daemon clients:
+
+| Command | Change | Task |
+| --- | --- | --- |
+| `ao spawn --kind coordinator` | New flags `--worker-limit <n>`, `--host-slots <host:n,...>`, `--worker-agent <fixed:id|random[:id,...]|inherit>`, `--coordinator-agent <same>` | CO-5.4, CO-5.7 |
+| `ao coordinator set <id>` | New. Same flags; changes a live coordinator | CO-5.4, CO-5.7 |
+| `ao coordinator ls` | Prints `workerLimit`, host usage, profile, memory warning | CO-5.4 |
+| `ao project set-config` | Accepts the fields in the project config table | CO-5.2, CO-5.3, CO-5.7 |
+| `ao spawn` (worker) | `--harness/--model/--effort` under a coordinator must match a selected profile | CO-5.7 |
+
+A usage error exits 2; a daemon refusal prints the code and message and exits
+1, as in section 8.
+
+### A7. Consequences
+
+- The hub no longer runs coordinator-owned workers by default, which removes
+  the 0.18.0 exposure to the hub toolchain and memory problems, at the cost of
+  needing at least one paired host before a coordinator can place a worker.
+- Raising the ceilings to 4 / 6 / 12 can use more hub memory for the coordinator
+  Chat sessions. Section 13 still applies: the limits can be lowered without a
+  schema change. Decision 7 only warns; the operator is responsible for the
+  ceilings until #218 and #227 measure the baseline.
+- Operator-initiated spawns are audited but are not an authorization boundary,
+  as for the section 1 accident guard: a local app-API caller can set the
+  marker.
+- Profile selection adds a per-spawn ready-host lookup. A host check that
+  cannot answer refuses with `WORKER_PROFILE_UNAVAILABLE` rather than guessing.
+
+### A8. Verification
+
+This amendment was checked against `origin/dev` for conflicts:
+
+- ADR 0010 sections 3, 7 and 8, including the section 8 grandfather rule, the
+  recipient resolution that this amendment does not change, and the
+  reassignment table.
+- `DefaultCoordinatorLimits`, `CoordinatorsConfig.Validate` and
+  `CoordinatorsConfig.Limits` in `backend/internal/domain/coordinators_config.go`.
+- Open issues #390 and #393, which this amendment builds on and does not
+  override (A4).
+
+Implementation tasks must add tests for every code in A5, for the default
+behavior with no new field set, and for the migration up and down.
