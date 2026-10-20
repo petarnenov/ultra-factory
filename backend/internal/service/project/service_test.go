@@ -2504,6 +2504,14 @@ func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheHardMaximum(t *testing
 			t.Fatalf("%s: err = %v, want COORDINATOR_LIMITS_INVALID", field, err)
 		}
 	}
+	_, err = m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{MaxWorkersPerCoordinator: 5, MaxWorkers: 4},
+	}})
+	var pairErr *apierr.Error
+	if !errors.As(err, &pairErr) || pairErr.Code != "COORDINATOR_LIMITS_INVALID" ||
+		pairErr.Details["field"] != "maxWorkersPerCoordinator" || pairErr.Details["max"] != 4 {
+		t.Fatalf("per-coordinator above the total: err = %v", err)
+	}
 	updated, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
 		Coordinators: domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 1},
 	}})

@@ -57,7 +57,8 @@ func (e *CoordinatorLimitsError) Error() string {
 	return fmt.Sprintf("coordinators.%s: must be between 0 and %d", e.Field, e.Max)
 }
 
-// Validate rejects limits above the hard maximum or below zero.
+// Validate rejects limits above the hard maximum or below zero, and a
+// resolved workers-per-coordinator above the resolved project total.
 func (c CoordinatorsConfig) Validate() error {
 	caps := HardCoordinatorLimits
 	for _, f := range []struct {
@@ -71,6 +72,9 @@ func (c CoordinatorsConfig) Validate() error {
 		if f.got < 0 || f.got > f.max {
 			return &CoordinatorLimitsError{Field: f.field, Max: f.max}
 		}
+	}
+	if eff := c.Limits(); eff.WorkersPerCoordinator > eff.Workers {
+		return &CoordinatorLimitsError{Field: "maxWorkersPerCoordinator", Max: eff.Workers}
 	}
 	return nil
 }

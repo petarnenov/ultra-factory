@@ -63,3 +63,28 @@ func TestCoordinatorsConfigAcceptsValuesUpToTheHardMaximum(t *testing.T) {
 		t.Fatalf("the defaults must stay 2/3/6, got %+v", DefaultCoordinatorLimits)
 	}
 }
+
+func TestCoordinatorsConfigRejectsWorkersPerCoordinatorAboveTheProjectTotal(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg CoordinatorsConfig
+		max int
+	}{
+		"both set":            {CoordinatorsConfig{MaxWorkersPerCoordinator: 5, MaxWorkers: 4}, 4},
+		"total only, default": {CoordinatorsConfig{MaxWorkers: 2}, 2},
+	} {
+		var limitsErr *CoordinatorLimitsError
+		err := (ProjectConfig{Coordinators: tc.cfg}).Validate()
+		if !errors.As(err, &limitsErr) || limitsErr.Field != "maxWorkersPerCoordinator" || limitsErr.Max != tc.max {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+	for name, cfg := range map[string]CoordinatorsConfig{
+		"per-coordinator vs default total": {MaxWorkersPerCoordinator: 5},
+		"total vs default per-coordinator": {MaxWorkers: 4},
+		"equal":                            {MaxWorkersPerCoordinator: 4, MaxWorkers: 4},
+	} {
+		if err := (ProjectConfig{Coordinators: cfg}).Validate(); err != nil {
+			t.Fatalf("%s: %+v is valid: %v", name, cfg, err)
+		}
+	}
+}
