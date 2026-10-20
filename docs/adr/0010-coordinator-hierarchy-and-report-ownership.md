@@ -1391,7 +1391,7 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
     default, and the spawn request can set it per coordinator. `inherit` keeps
     today's behavior (the orchestrator role config).
   - Its workers' agent: `coordinators.workerAgent` is the project default, and
-    a per-coordinator `workerAgent` is set at spawn and can change live. `inherit`
+    a per-coordinator `workerAgent` is set at spawn (a live change is out of scope here). `inherit`
     keeps today's behavior (`config.worker` and explicit flags).
 - **Explicit flags.** A coordinator may still pass `--harness`, `--model` and
   `--effort` on a worker spawn only when the combination matches a profile that
