@@ -80,6 +80,16 @@ vi.mock("../lib/api-client", () => ({
 	},
 }));
 
+vi.mock("../lib/host-clients", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../lib/host-clients")>()),
+	clientForHost: () => ({ GET: getMock, PUT: putMock, POST: postMock }),
+}));
+
+vi.mock("../hooks/useHostConnection", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../hooks/useHostConnection")>()),
+	useConnectedHosts: () => ["linux"],
+}));
+
 import { ProjectSettingsForm, type ProjectSettingsSaveState, type ProjectSettingsSection } from "./ProjectSettingsForm";
 import { useProjectIdentity, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import type { WorkspaceSummary } from "../types/workspace";
@@ -92,16 +102,18 @@ async function beginEdit(label: string) {
 function TestProjectSettings({
 	projectId,
 	section,
+	hostId,
 }: {
 	projectId: string;
 	section?: ProjectSettingsSection;
+	hostId?: string;
 }) {
 	const [saveState, setSaveState] = useState<ProjectSettingsSaveState>({
 		phase: "idle",
 	});
 	return (
 		<>
-			<ProjectSettingsForm projectId={projectId} section={section} onSaveState={setSaveState} />
+			<ProjectSettingsForm projectId={projectId} hostId={hostId} section={section} onSaveState={setSaveState} />
 			{saveState.error && <span>{saveState.error}</span>}
 			{saveState.phase === "saved" && <span>{"Saved"}</span>}
 			{saveState.replacementError && <span>{`Orchestrator restart failed: ${saveState.replacementError}`}</span>}
@@ -114,7 +126,7 @@ function AggregateAssociationStatus({ projectId }: { projectId: string }) {
 	return <output>{identity.data?.aggregateProjects.map((project) => `${project.hostId}:${project.projectId}`).join(",") ?? "Loading"}</output>;
 }
 
-function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], section?: ProjectSettingsSection) {
+function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], section?: ProjectSettingsSection, hostId?: string) {
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: { retry: false },
@@ -126,7 +138,7 @@ function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], s
 	}
 	render(
 		<QueryClientProvider client={queryClient}>
-			<TestProjectSettings projectId={projectId} section={section} />
+			<TestProjectSettings projectId={projectId} section={section} hostId={hostId} />
 		</QueryClientProvider>,
 	);
 	return queryClient;
@@ -602,7 +614,7 @@ describe("ProjectSettingsForm", () => {
 		] };
 		function mockUnsetModel() {
 			getMock.mockImplementation(async (path: string) => {
-				if (path === "/api/v1/agents") return agentCatalogResponse;
+				if (path === "/api/v1/agents" || path === "/api/v1/agents/readiness") return agentCatalogResponse;
 				if (path === "/api/v1/agents/{agent}/models") return { data: opusCatalog };
 				return { data: { status: "ok", project: {
 					id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one",
@@ -632,6 +644,20 @@ describe("ProjectSettingsForm", () => {
 			await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
 			expect(putMock.mock.calls[0][1].body.config.reviewers[0].agentConfig.model)
 				.toBe(model === "Opus 5.5" ? "claude-opus-5-5" : "claude-sonnet-5-5");
+		});
+
+		it("persists the reviewer model for a remote-host project", async () => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents", "linux");
+			const picker = await screen.findByRole("button", { name: "Reviewer model" });
+			expect(picker).toHaveTextContent("Default");
+			await userEvent.click(picker);
+			await userEvent.click(screen.getByRole("menuitem", { name: "Opus 5.5" }));
+			submitSettings();
+			await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+			expect(putMock.mock.calls[0][1].body.config.reviewers).toEqual([
+				{ harness: "claude-code", agentConfig: { model: "claude-opus-5-5", effort: "medium" } },
+			]);
 		});
 
 		it("lets a stored model go back to unset", async () => {
