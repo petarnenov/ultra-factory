@@ -18,8 +18,9 @@ func TestTickGitHubStateMapsTheGraphQLResponse(t *testing.T) {
 	  "repository": {
 	    "open": {"nodes": [{
 	      "number": 201, "headRefName": "rw/RW-5.4.2", "mergeable": "MERGEABLE",
+	      "readyEvents": {"nodes": [{"createdAt": "2026-10-20T18:50:00Z"}]},
 	      "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": [
-	        {"__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-17T11:20:00Z"},
+	        {"__typename": "CheckRun", "name": "lint", "checkSuite": {"workflowRun": {"workflow": {"name": "Lint"}}}, "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-17T11:20:00Z"},
 	        {"__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": null, "completedAt": null},
 	        {"__typename": "StatusContext", "state": "SUCCESS", "createdAt": "2026-10-17T11:25:00Z"}
 	      ]}}}}]}
@@ -42,11 +43,12 @@ func TestTickGitHubStateMapsTheGraphQLResponse(t *testing.T) {
 	}
 	want := orchestratortick.GitHubState{
 		OpenPRs: []orchestratortick.PullRequest{
-			{Number: 201, Head: "rw/RW-5.4.2", Mergeable: "MERGEABLE", Checks: []orchestratortick.Check{
-				{Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 20, 0, 0, time.UTC)},
-				{Result: "IN_PROGRESS"},
-				{Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 25, 0, 0, time.UTC)},
-			}},
+			{Number: 201, Head: "rw/RW-5.4.2", Mergeable: "MERGEABLE",
+				ReadyAt: time.Date(2026, 10, 20, 18, 50, 0, 0, time.UTC), Checks: []orchestratortick.Check{
+					{Name: "lint", Workflow: "Lint", Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 20, 0, 0, time.UTC)},
+					{Result: "IN_PROGRESS"},
+					{Result: "SUCCESS", CompletedAt: time.Date(2026, 10, 17, 11, 25, 0, 0, time.UTC)},
+				}},
 			{Number: 202, Head: "rw/x", Mergeable: "UNKNOWN"},
 		},
 		MergedPRs:  []orchestratortick.MergedPR{{Number: 190, Body: "Closes #120"}},
@@ -56,6 +58,9 @@ func TestTickGitHubStateMapsTheGraphQLResponse(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+	if !strings.Contains(tickGitHubQuery, "readyEvents: timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT])") {
+		t.Fatal("query does not alias the ready-for-review event as readyEvents")
 	}
 	if orchestratortick.CheckSummary(got.OpenPRs[0].Checks) != "pending" {
 		t.Fatal("a running check must keep the PR pending")

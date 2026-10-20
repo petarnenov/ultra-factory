@@ -81,8 +81,9 @@ func newOrchestratorTickCommand(ctx *commandContext) *cobra.Command {
 				return err
 			}
 			facts := r.Gather(cmd.Context())
-			violations := orchestratortick.Violations(r.Config, facts, ctx.deps.Now())
-			_, err = io.WriteString(cmd.OutOrStdout(), orchestratortick.Snapshot(r.Config, facts, violations))
+			now := ctx.deps.Now()
+			violations := orchestratortick.Violations(r.Config, facts, now)
+			_, err = io.WriteString(cmd.OutOrStdout(), orchestratortick.Snapshot(r.Config, facts, violations, now))
 			return err
 		},
 	}
@@ -495,12 +496,13 @@ const tickGitHubQuery = `query($owner: String!, $name: String!, $base: String!, 
         headRefName
         headRefOid
         isDraft
+        readyEvents: timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
         mergeable
         reviewDecision
         labels(first: 50) { nodes { name } }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
-          ... on CheckRun { status conclusion completedAt }
+          ... on CheckRun { name status conclusion completedAt checkSuite { workflowRun { workflow { name } } } }
           ... on StatusContext { state createdAt }
         } } } } } }
         reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 50) { nodes { body author { login __typename } } } } }
@@ -521,10 +523,15 @@ type tickGitHubResponse struct {
 	Repository *struct {
 		Open struct {
 			Nodes []struct {
-				Number         int    `json:"number"`
-				HeadRefName    string `json:"headRefName"`
-				HeadRefOID     string `json:"headRefOid"`
-				IsDraft        bool   `json:"isDraft"`
+				Number      int    `json:"number"`
+				HeadRefName string `json:"headRefName"`
+				HeadRefOID  string `json:"headRefOid"`
+				IsDraft     bool   `json:"isDraft"`
+				ReadyEvents struct {
+					Nodes []struct {
+						CreatedAt time.Time `json:"createdAt"`
+					} `json:"nodes"`
+				} `json:"readyEvents"`
 				Mergeable      string `json:"mergeable"`
 				ReviewDecision string `json:"reviewDecision"`
 				Labels         struct {
@@ -538,7 +545,15 @@ type tickGitHubResponse struct {
 							StatusCheckRollup *struct {
 								Contexts struct {
 									Nodes []struct {
-										Typename    string    `json:"__typename"`
+										Typename   string `json:"__typename"`
+										Name       string `json:"name"`
+										CheckSuite struct {
+											WorkflowRun *struct {
+												Workflow struct {
+													Name string `json:"name"`
+												} `json:"workflow"`
+											} `json:"workflowRun"`
+										} `json:"checkSuite"`
 										Status      string    `json:"status"`
 										Conclusion  string    `json:"conclusion"`
 										CompletedAt time.Time `json:"completedAt"`
@@ -632,6 +647,9 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 			Number: pr.Number, Head: pr.HeadRefName, HeadSHA: pr.HeadRefOID,
 			Draft: pr.IsDraft, Mergeable: pr.Mergeable, ReviewDecision: pr.ReviewDecision,
 		}
+		for _, ev := range pr.ReadyEvents.Nodes {
+			out.ReadyAt = ev.CreatedAt
+		}
 		for _, label := range pr.Labels.Nodes {
 			out.Labels = append(out.Labels, label.Name)
 		}
@@ -657,7 +675,11 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 					if result == "" {
 						result = c.Status
 					}
-					out.Checks = append(out.Checks, orchestratortick.Check{Result: result, CompletedAt: c.CompletedAt})
+					check := orchestratortick.Check{Name: c.Name, Result: result, CompletedAt: c.CompletedAt}
+					if c.CheckSuite.WorkflowRun != nil {
+						check.Workflow = c.CheckSuite.WorkflowRun.Workflow.Name
+					}
+					out.Checks = append(out.Checks, check)
 				case "StatusContext":
 					out.Checks = append(out.Checks, orchestratortick.Check{Result: c.State, CompletedAt: c.CreatedAt})
 				}

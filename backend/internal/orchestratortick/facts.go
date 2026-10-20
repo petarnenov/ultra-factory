@@ -56,6 +56,10 @@ type HostSessions struct {
 
 // Check is one status check of a pull request's head commit.
 type Check struct {
+	// Name identifies the check; a named check keeps only its newest run.
+	Name string
+	// Workflow scopes Name; empty for checks that are not Actions runs.
+	Workflow string
 	// Result is the check's conclusion, or its status while it runs, in
 	// GitHub's upper-case form (SUCCESS, FAILURE, IN_PROGRESS, ...).
 	Result      string
@@ -73,13 +77,15 @@ type ReviewThread struct {
 
 // PullRequest is an open pull request to the base branch.
 type PullRequest struct {
-	Number         int
-	Head           string
-	HeadSHA        string
-	Title          string
-	Body           string
-	Labels         []string
-	Draft          bool
+	Number  int
+	Head    string
+	HeadSHA string
+	Title   string
+	Body    string
+	Labels  []string
+	Draft   bool
+	// ReadyAt is the latest ready-for-review flip; zero when never a draft.
+	ReadyAt        time.Time
 	Mergeable      string
 	ReviewDecision string
 	Threads        []ReviewThread

@@ -147,8 +147,8 @@ func (r *Runner) tick(ctx context.Context) Result {
 		return Result{Outcome: OutcomeBusy, Session: session, Reason: fmt.Sprintf("status=%s activity=%s", state.Status, state.Activity), Violations: violations, Completions: completions}
 	}
 
-	snapshot := snapshotWithCompletion(cfg, facts, violations, completions)
-	fingerprint := Fingerprint(cfg, facts, violations)
+	snapshot := snapshotWithCompletion(cfg, facts, violations, completions, now)
+	fingerprint := Fingerprint(cfg, facts, violations, now)
 	if !InFlight(cfg, facts, violations) && len(completions) == 0 {
 		return Result{Outcome: OutcomeNothing, Session: session, Violations: violations, Completions: completions}
 	}
