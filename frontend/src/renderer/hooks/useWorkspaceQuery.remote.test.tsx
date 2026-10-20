@@ -13,7 +13,7 @@ vi.mock("./useCloudOrg", () => ({ useCloudOrg: () => ({ org: undefined, ready: f
 
 import { connectHost, connectedHosts, disconnectHost } from "../lib/host-clients";
 import { useUiStore } from "../stores/ui-store";
-import { remoteWorkspaceQueryKey, useRemoteWorkspaces, useWorkspaceQuery, useWorkspaceSession } from "./useWorkspaceQuery";
+import { REMOTE_REQUEST_TIMEOUT_MS, remoteWorkspaceQueryKey, useRemoteWorkspaces, useWorkspaceQuery, useWorkspaceSession } from "./useWorkspaceQuery";
 
 function wrapper({ children }: { children: ReactNode }) {
 	return <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{children}</QueryClientProvider>;
@@ -62,6 +62,24 @@ it("reports a failed remote query instead of treating the host as empty and heal
 	await waitFor(() => expect(result.current.failedHostIds).toEqual(["box-a"]), { timeout: 3000 });
 	expect(result.current.data).toEqual([]);
 	expect(result.current.loadedProjectHostIds).toEqual([]);
+});
+
+it("marks a connected host failed when its requests never answer", async () => {
+	remoteConnect.mockResolvedValue({ hostId: "box-hung", label: "Hung", url: "http://hung:3001", base: "http://127.0.0.1:4000" });
+	vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => new Promise<Response>((_resolve, reject) => {
+		(input as Request).signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+	})));
+	await connectHost("http://hung:3001");
+	vi.useFakeTimers({ shouldAdvanceTime: true });
+	try {
+		const { result } = renderHook(() => useRemoteWorkspaces(), { wrapper });
+		expect(result.current.failedHostIds).toEqual([]);
+		await act(async () => { await vi.advanceTimersByTimeAsync(REMOTE_REQUEST_TIMEOUT_MS); });
+		await waitFor(() => expect(result.current.failedHostIds).toEqual(["box-hung"]));
+		expect(result.current.loadedProjectHostIds).toEqual([]);
+	} finally {
+		vi.useRealTimers();
+	}
 });
 
 it.each([
