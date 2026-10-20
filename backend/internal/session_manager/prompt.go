@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 type sessionPromptRole string
@@ -14,10 +16,6 @@ const (
 	sessionPromptRoleWorker       sessionPromptRole = "worker"
 	sessionPromptRoleCoordinator  sessionPromptRole = "coordinator"
 )
-
-// coordinatorWorkerLimit mirrors the daemon's per-coordinator worker cap in
-// the prompt text; the daemon enforces the real limit.
-const coordinatorWorkerLimit = 3
 
 type promptProject struct {
 	ID            string
@@ -45,7 +43,13 @@ type systemPromptConfig struct {
 	ProjectRules          string
 	OrchestratorRules     string
 	CoordinatorScope      string
-	AdditionalSections    []string
+	// CoordinatorWorkerLimit is the project's effective per-coordinator worker
+	// cap shown in the coordinator prompt; the daemon enforces the real limit.
+	CoordinatorWorkerLimit int
+	// OwnerCoordinatorSessionID is set for a worker owned by a live
+	// coordinator; it receives escalations instead of the root.
+	OwnerCoordinatorSessionID string
+	AdditionalSections        []string
 }
 
 type projectRulesConfig struct {
@@ -86,9 +90,14 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
 		}
 	case sessionPromptRoleCoordinator:
-		sections = append(sections, coordinatorSystemPrompt(cfg.Project, cfg.CoordinatorScope))
+		limit := cfg.CoordinatorWorkerLimit
+		if limit <= 0 {
+			limit = domain.DefaultCoordinatorLimits.WorkersPerCoordinator
+		}
+		sections = append(sections, coordinatorSystemPrompt(cfg.Project, cfg.CoordinatorScope, limit))
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
-			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
+			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+
+				"These rules are written for the project root. The coordinator restrictions above override any rule below that conflicts with them, including rules about merging, closing issues, or spawning coordinators.\n\n"+rules)
 		}
 	case sessionPromptRoleWorker:
 		if cfg.Standalone {
@@ -97,7 +106,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		}
 		orchestratorID := strings.TrimSpace(cfg.OrchestratorSessionID)
 		sections = append(sections, workerSystemPrompt(cfg.Project, orchestratorID != ""))
-		if orchestratorID != "" {
+		if coordinatorID := strings.TrimSpace(cfg.OwnerCoordinatorSessionID); coordinatorID != "" {
+			sections = append(sections, workerCoordinatorPrompt(coordinatorID))
+		} else if orchestratorID != "" {
 			sections = append(sections, workerOrchestratorPrompt(orchestratorID))
 		}
 		if strings.TrimSpace(cfg.Project.Repo) != "" {
@@ -132,7 +143,7 @@ func publishingScopePrompt() string {
 
 // coordinatorSystemPrompt is a distinct template, not the root's operating
 // prompt. It addresses escalation by role so a root replacement is safe.
-func coordinatorSystemPrompt(project promptProject, scope string) string {
+func coordinatorSystemPrompt(project promptProject, scope string, workerLimit int) string {
 	return fmt.Sprintf(`## AO Coordinator
 
 You are a helper coordinator for project %s, not the project root. Your scope is: %s
@@ -142,7 +153,7 @@ You are a helper coordinator for project %s, not the project root. Your scope is
 - Do not spawn coordinators, reassign worker ownership, merge pull requests, or close issues or other project-wide work. The project root orchestrator is the only integration authority. A worker finishing, or its pull request being green, is not integrated completion: report it as ready for the root to review and merge.
 - Report to the root with `+"`ao coordinator report`"+`, never `+"`ao report`"+` (that is for workers). Send a summary when you are assigned, when your state or a worker's state meaningfully changes, when your scope is done, and when you are blocked. Keep each summary short and do not forward raw worker conversation.
 - Escalate with `+"`ao coordinator report --state blocked --escalate <reason>`"+` and stop work on the affected item until the root answers. Reasons: `+"`overlapping_files`"+` (two workers touch the same files), `+"`unclear_acceptance`"+` (acceptance criteria are missing or ambiguous), `+"`worker_failed`"+` (a worker failed or is stuck), `+"`scope_decision`"+` (the decision is outside your scope), or `+"`other`"+` with a note.
-- If the root reassigns one of your workers, stop acting on it. If you are replaced or terminated, your workers return to the root; you do not need to clean them up.`, project.ID, scope, coordinatorWorkerLimit)
+- If the root reassigns one of your workers, stop acting on it. If you are replaced or terminated, your workers return to the root; you do not need to clean them up.`, project.ID, scope, workerLimit)
 }
 
 func standaloneWorkerSystemPrompt() string {
@@ -417,6 +428,16 @@ An active orchestrator session exists for this project.
 Message it only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
 
 `+"`ao send --session %s --message \"<your message>\"`", orchestratorID)
+}
+
+func workerCoordinatorPrompt(coordinatorID string) string {
+	return fmt.Sprintf(`## Coordinator Coordination
+
+This session is owned by coordinator session %s. Escalate to that coordinator, not to the project root.
+
+Message it only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
+
+`+"`ao send --session %s --message \"<your message>\"`", coordinatorID, coordinatorID)
 }
 
 // workerMultiPRPrompt explains the branch convention AO uses to attribute pull

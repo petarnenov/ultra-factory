@@ -5498,6 +5498,7 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
 	case domain.KindCoordinator:
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
+		cfg.CoordinatorWorkerLimit = project.Config.Coordinators.Limits().WorkersPerCoordinator
 		rec, ok, err := m.store.GetSession(ctx, sessionID)
 		if err != nil {
 			return "", fmt.Errorf("load coordinator %s for prompt: %w", sessionID, err)
@@ -5514,6 +5515,11 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 			if ok {
 				cfg.OrchestratorSessionID = string(orchestratorID)
 			}
+			ownerID, err := m.liveCoordinatorOwner(ctx, sessionID)
+			if err != nil {
+				return "", err
+			}
+			cfg.OwnerCoordinatorSessionID = string(ownerID)
 		}
 		rules, err := buildProjectRules(projectRulesConfig{
 			ProjectPath:    project.Path,
@@ -5602,6 +5608,26 @@ func (m *Manager) workspaceProjectPrompt(ctx context.Context, kind domain.Sessio
 	default:
 		return "", nil
 	}
+}
+
+// liveCoordinatorOwner returns the owner of the worker when that owner is a
+// live coordinator, and "" for root-owned or unknown workers.
+func (m *Manager) liveCoordinatorOwner(ctx context.Context, worker domain.SessionID) (domain.SessionID, error) {
+	rec, ok, err := m.store.GetSession(ctx, worker)
+	if err != nil {
+		return "", fmt.Errorf("load worker %s for prompt: %w", worker, err)
+	}
+	if !ok || rec.OwnerSessionID == nil || *rec.OwnerSessionID == "" {
+		return "", nil
+	}
+	owner, ok, err := m.store.GetSession(ctx, *rec.OwnerSessionID)
+	if err != nil {
+		return "", fmt.Errorf("load owner %s for prompt: %w", *rec.OwnerSessionID, err)
+	}
+	if !ok || owner.Kind != domain.KindCoordinator || owner.IsTerminated || owner.ProjectID != rec.ProjectID {
+		return "", nil
+	}
+	return owner.ID, nil
 }
 
 func (m *Manager) activeOrchestratorSessionID(ctx context.Context, project domain.ProjectID) (domain.SessionID, bool, error) {
