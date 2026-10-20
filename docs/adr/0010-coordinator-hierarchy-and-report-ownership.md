@@ -1361,8 +1361,17 @@ reassignment and needs to rebalance), and killing workers above a lowered limit
   `Linux:2,Z600:1`. A host name in the text form may be a host ID or a host
   label; the daemon resolves it to the host ID and stores only the ID. An
   unknown or ambiguous name is rejected with `COORDINATOR_HOST_NOT_ALLOWED`.
+- **Entry rules.** Each `slots` value is an integer of at least 1; `0` or a
+  negative value is rejected (to give a host no slots, leave it out). Two
+  entries that resolve to the same host ID, whether written as the same ID, as
+  an ID and its label, or as two labels, are rejected rather than merged, so
+  the total and the per-host numbers have one source. Rejection uses
+  `COORDINATOR_WORKER_LIMIT_INVALID` with `field` `hostSlots`. The daemon stores
+  the list normalized: host IDs only, one entry per host, sorted by host ID. An
+  empty list means no slots.
 - **Total.** The slots must add up to at most the coordinator's `workerLimit`.
-  A larger total is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`. A smaller
+  A larger total is rejected with `COORDINATOR_WORKER_LIMIT_INVALID` (`field`
+  `hostSlots`, `max` the coordinator's `workerLimit`). A smaller
   total is allowed. The part of `workerLimit` that no slot covers cannot be
   placed: with slots set, a remote worker may run only on a host that has a slot, so
   the effective placement limit is the slot total. `workerLimit` itself does
@@ -1587,7 +1596,7 @@ New codes, all in the existing `apierr` envelope with a request ID:
 | `COORDINATOR_HOST_NOT_ALLOWED` | Conflict / 409 | Worker host outside the coordinator's slots or the project's `allowedHosts`, or an unknown or ambiguous host name in a slot | `coordinatorId`, `hostId` (the name as given when it cannot be resolved) |
 | `COORDINATOR_HOST_SLOTS_FULL` | Conflict / 409 | All slots of that host are used by this coordinator's workers | `coordinatorId`, `hostId`, `current`, `allowed` |
 | `COORDINATOR_LOCAL_WORKER_REFUSED` | Conflict / 409 | Coordinator-owned worker on the local daemon while `allowLocalWorkers` is false | `coordinatorId`, `projectId` |
-| `COORDINATOR_WORKER_LIMIT_INVALID` | Invalid / 400 | Per-coordinator `workerLimit` above the project's `maxWorkersPerCoordinator`, or slots total above `workerLimit` | `field`, `max` |
+| `COORDINATOR_WORKER_LIMIT_INVALID` | Invalid / 400 | Per-coordinator `workerLimit` above the project's `maxWorkersPerCoordinator`, or slots total above `workerLimit`, or an invalid `hostSlots` entry (`slots` below 1, or two entries for the same host) | `field` (`workerLimit` or `hostSlots`), `max` (the effective project `maxWorkersPerCoordinator` for `workerLimit`; the coordinator's `workerLimit` for a slots total; omitted for an invalid entry) |
 | `WORKER_PROFILE_INVALID` | Invalid / 400 | Malformed profile list or selection | `field` |
 | `WORKER_PROFILE_UNAVAILABLE` | Conflict / 409 | No selected profile is ready on the target host | `coordinatorId`, `hostId` |
 | `WORKER_PROFILE_NOT_ALLOWED` | Conflict / 409 | Explicit `--harness/--model/--effort` does not match a selected profile | `coordinatorId` |
