@@ -182,16 +182,17 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 	stalledClaim := false
 	var firstErr error
 	var unresolved domain.ProjectID
+	lookup := newPassLookup(c.store)
 	for _, report := range pending {
 		due := !report.AvailableAt.After(now)
 		if !due {
-			if !c.terminatedWorker(ctx, report.SessionID) {
+			if !terminatedWorker(ctx, lookup, report.SessionID) {
 				break
 			}
 			// A terminated worker cannot report again, so its queued report
 			// is flushed now instead of trickling in after its deadline.
 		}
-		group, err := c.localGroup(ctx, report)
+		group, err := c.localGroup(ctx, lookup, report)
 		if err != nil {
 			return c.retryDelay, err
 		}
@@ -268,8 +269,8 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 }
 
 // terminatedWorker reports a worker that will never produce another report.
-func (c *Coordinator) terminatedWorker(ctx context.Context, id domain.SessionID) bool {
-	session, found, err := c.store.GetSession(ctx, id)
+func terminatedWorker(ctx context.Context, store recipientStore, id domain.SessionID) bool {
+	session, found, err := store.GetSession(ctx, id)
 	return err == nil && found && session.IsTerminated
 }
 
@@ -309,6 +310,54 @@ type recipientStore interface {
 	ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error)
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
 }
+
+// passLookup memoizes session reads for one report pass: each project is
+// listed once and each session is read once, however many reports share them.
+type passLookup struct {
+	store    recipientStore
+	lists    map[domain.ProjectID][]domain.SessionRecord
+	sessions map[domain.SessionID]sessionLookup
+}
+
+type sessionLookup struct {
+	rec   domain.SessionRecord
+	found bool
+}
+
+func newPassLookup(store recipientStore) *passLookup {
+	return &passLookup{
+		store:    store,
+		lists:    map[domain.ProjectID][]domain.SessionRecord{},
+		sessions: map[domain.SessionID]sessionLookup{},
+	}
+}
+
+func (p *passLookup) ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error) {
+	if recs, ok := p.lists[projectID]; ok {
+		return recs, nil
+	}
+	recs, err := p.store.ListSessions(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	p.lists[projectID] = recs
+	return recs, nil
+}
+
+func (p *passLookup) GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
+	if hit, ok := p.sessions[id]; ok {
+		return hit.rec, hit.found, nil
+	}
+	rec, found, err := p.store.GetSession(ctx, id)
+	if err != nil {
+		return domain.SessionRecord{}, false, err
+	}
+	p.sessions[id] = sessionLookup{rec, found}
+	return rec, found, nil
+}
+
+// forget drops a session whose record this pass just changed.
+func (p *passLookup) forget(id domain.SessionID) { delete(p.sessions, id) }
 
 // ownerState classifies a worker's durable owner for recipient resolution.
 type ownerState int
@@ -372,15 +421,15 @@ const ownerRepairAttempts = 3
 
 // localGroup resolves a local report's recipient from durable ownership and
 // repairs a stale owner to root ownership before falling back.
-func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord) (recipientGroup, error) {
+func (c *Coordinator) localGroup(ctx context.Context, lookup *passLookup, report domain.ReportRecord) (recipientGroup, error) {
 	for attempt := 0; ; attempt++ {
 		var owner *domain.SessionID
-		if worker, found, err := c.store.GetSession(ctx, report.SessionID); err != nil {
+		if worker, found, err := lookup.GetSession(ctx, report.SessionID); err != nil {
 			return recipientGroup{}, err
 		} else if found {
 			owner = worker.OwnerSessionID
 		}
-		ownerRec, state, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
+		ownerRec, state, root, rootFound, err := resolveOwnerRecipient(ctx, lookup, report.ProjectID, owner)
 		if err != nil {
 			return recipientGroup{}, err
 		}
@@ -400,6 +449,8 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 			if err != nil {
 				return recipientGroup{}, err
 			}
+			lookup.forget(report.SessionID)
+			lookup.forget(*owner)
 			// The owner moved after it was read: resolve the new one.
 			if !cleared && attempt < ownerRepairAttempts {
 				continue
