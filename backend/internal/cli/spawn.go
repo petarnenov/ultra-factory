@@ -70,6 +70,7 @@ type spawnRequest struct {
 	RequestedOutput    string `json:"requestedOutput,omitempty"`
 	DisplayName        string `json:"displayName"`
 	RemoteSpawn        bool   `json:"remoteSpawn,omitempty"`
+	AgentProfileID     string `json:"agentProfileId,omitempty"`
 	TerminateOnPRMerge *bool  `json:"terminateOnPrMerge,omitempty"`
 }
 
@@ -240,6 +241,14 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				if err := ctx.checkRemoteWorkerCapacity(cmd.Context(), localParentID); err != nil {
 					return err
 				}
+				agent, err := ctx.checkRemoteWorkerAgent(cmd.Context(), localParentID, &req, explicitHarness != "")
+				if err != nil {
+					return err
+				}
+				if agent != nil {
+					req.Harness, req.Model, req.Effort = agent.Harness, agent.Model, agent.Effort
+					req.HarnessExplicit, req.AgentProfileID = spawnBoolPtr(true), agent.ProfileID
+				}
 			}
 			var res spawnResult
 			if err := ctx.postJSON(cmd.Context(), "sessions", req, &res); err != nil {
@@ -367,6 +376,84 @@ func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID
 		return nil
 	}
 	return err
+}
+
+// remoteWorkerAgent mirrors the daemon's RemoteWorkerAgent body.
+type remoteWorkerAgent struct {
+	ProfileID string `json:"profileId,omitempty"`
+	Harness   string `json:"harness"`
+	Model     string `json:"model"`
+	Effort    string `json:"effort"`
+}
+
+// remoteAgentCheckRequest and remoteAgentCheckResponse mirror the agent half
+// of POST /api/v1/remote-worker-links/check.
+type remoteAgentCheckRequest struct {
+	ParentSessionID      string            `json:"parentSessionId"`
+	HostID               string            `json:"hostId"`
+	Harness              string            `json:"harness,omitempty"`
+	HarnessExplicit      bool              `json:"harnessExplicit,omitempty"`
+	Model                string            `json:"model,omitempty"`
+	Effort               string            `json:"effort,omitempty"`
+	HostReadinessChecked bool              `json:"hostReadinessChecked,omitempty"`
+	UnreadyHarnesses     map[string]string `json:"unreadyHarnesses,omitempty"`
+}
+
+type remoteAgentCheckResponse struct {
+	ReadinessHarnesses []string           `json:"readinessHarnesses,omitempty"`
+	Agent              *remoteWorkerAgent `json:"agent,omitempty"`
+}
+
+// checkRemoteWorkerAgent asks the local daemon for a remote worker's profile
+// agent, reporting the host's readiness. Nil keeps normal resolution.
+func (c *commandContext) checkRemoteWorkerAgent(ctx context.Context, parentID string, req *spawnRequest, harnessExplicit bool) (*remoteWorkerAgent, error) {
+	check := remoteAgentCheckRequest{
+		ParentSessionID: parentID, HostID: c.remote.hostID, Harness: req.Harness,
+		HarnessExplicit: harnessExplicit, Model: req.Model, Effort: req.Effort,
+	}
+	var res remoteAgentCheckResponse
+	for range 2 {
+		res = remoteAgentCheckResponse{}
+		err := c.localContext().postJSON(ctx, "remote-worker-links/check", check, &res)
+		var apiErr apiResponseError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound && apiErr.ErrorBody.Code != "SESSION_NOT_FOUND" {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(res.ReadinessHarnesses) == 0 {
+			return res.Agent, nil
+		}
+		readiness, err := c.ensureAgentReadiness(ctx, res.ReadinessHarnesses, "launch")
+		if err != nil {
+			return nil, fmt.Errorf("check agent readiness on host %q: %w", c.remote.label, err)
+		}
+		check.HostReadinessChecked, check.UnreadyHarnesses = true, unreadyHarnesses(res.ReadinessHarnesses, readiness)
+	}
+	return nil, fmt.Errorf("the daemon kept asking for host readiness while choosing an agent profile")
+}
+
+// unreadyHarnesses names the asked harnesses the host cannot use. An unknown
+// state is not excluded, as for a local launch.
+func unreadyHarnesses(asked []string, readiness agentReadinessResponse) map[string]string {
+	known := map[string]agentReadinessSnapshot{}
+	for _, snapshot := range readiness.Agents {
+		known[snapshot.ID] = snapshot
+	}
+	out := map[string]string{}
+	for _, id := range asked {
+		snapshot, ok := known[id]
+		switch {
+		case !ok:
+			out[id] = "not supported on the host"
+		case snapshot.EffectiveReadiness == "not_ready" && snapshot.Installation.State == "not_installed":
+			out[id] = "not_installed"
+		case snapshot.EffectiveReadiness == "not_ready":
+			out[id] = "unauthorized"
+		}
+	}
+	return out
 }
 
 // failRemoteLink handles a link rejected after the remote spawn: capacity or

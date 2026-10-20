@@ -232,3 +232,30 @@ previous coordinator's conversation is not available to it.
 
 CO-4.1.1 should exercise one successful and one blocked worker handoff against
 this contract.
+
+## Agent profiles
+
+`coordinators.agentProfiles` is a project list of `{id, label, harness, model,
+effort, weight}`. Three selections draw from it, each `inherit` (the default,
+today's behavior), `fixed` (one profile) or `random` (a weighted pick from a
+pool, or from every profile when the pool is empty):
+
+- `coordinatorAgent` picks a new coordinator's own agent. A spawn can override
+  it per coordinator; explicit `--agent`, `--model` and `--effort` must then match
+  an allowed profile, or the spawn is refused with
+  `COORDINATOR_PROFILE_NOT_ALLOWED`.
+- `workerAgent` is the default for the workers a coordinator spawns. A
+  coordinator can have its own selection, set at spawn or changed live by the
+  root (`ao coordinator set --worker-agent`); a change applies to later spawns
+  only and is audited in `coordinator_agent_events`.
+- `rootWorkerAgent` applies to workers the root spawns directly. The root's
+  explicit flags always win there.
+
+A coordinator's explicit `--agent`, `--model` or `--effort` is accepted only
+when it matches a profile in its selection (`WORKER_PROFILE_NOT_ALLOWED`
+otherwise). The daemon never picks a profile whose harness is definitely not
+installed or not authorized on the target machine, and refuses with
+`WORKER_PROFILE_UNAVAILABLE` (nothing is spawned) when none is left. For
+`ao spawn --host`, the CLI reports the host's readiness to the local daemon,
+which makes the pick. The chosen profile is recorded on the session and shown
+in the roster, and a restore keeps it without re-rolling.

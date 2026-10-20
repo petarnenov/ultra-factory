@@ -150,11 +150,35 @@ type CreateRemoteWorkerLinkRequest struct {
 // session could be linked now, before the remote worker is created.
 type CheckRemoteWorkerCapacityRequest struct {
 	ParentSessionID string `json:"parentSessionId"`
+	// HostID, Harness, Model and Effort apply the parent's agent selection to
+	// a worker on that host; Harness needs HarnessExplicit.
+	HostID          string `json:"hostId,omitempty"`
+	Harness         string `json:"harness,omitempty"`
+	HarnessExplicit bool   `json:"harnessExplicit,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Effort          string `json:"effort,omitempty"`
+	// HostReadinessChecked says UnreadyHarnesses is the host's answer for the
+	// harnesses a previous response listed in readinessHarnesses.
+	HostReadinessChecked bool              `json:"hostReadinessChecked,omitempty"`
+	UnreadyHarnesses     map[string]string `json:"unreadyHarnesses,omitempty" description:"Harness to reason, for harnesses not usable on the host."`
 }
 
 // CheckRemoteWorkerCapacityResponse is the body of a passing capacity check.
 type CheckRemoteWorkerCapacityResponse struct {
 	OK bool `json:"ok"`
+	// ReadinessHarnesses asks the caller to report the host's readiness for
+	// these harnesses and check again.
+	ReadinessHarnesses []string `json:"readinessHarnesses,omitempty"`
+	// Agent is the profile the daemon picked; the worker must spawn with it.
+	Agent *RemoteWorkerAgent `json:"agent,omitempty"`
+}
+
+// RemoteWorkerAgent is the agent a profile pick fixed for a remote worker.
+type RemoteWorkerAgent struct {
+	ProfileID string `json:"profileId,omitempty"`
+	Harness   string `json:"harness"`
+	Model     string `json:"model"`
+	Effort    string `json:"effort"`
 }
 
 // RemoteWorkerLinkResponse is a stored remote worker link.
@@ -544,8 +568,8 @@ type SessionView struct {
 	// WorkerAgent is a coordinator's own worker agent selection. Null: the
 	// project default applies.
 	WorkerAgent       *domain.AgentSelection `json:"workerAgent,omitempty"`
-	ArtifactFiles     []SessionArtifactView `json:"artifactFiles,omitempty"`
-	ActiveAgentSwitch *AgentSwitchView      `json:"activeAgentSwitch,omitempty"`
+	ArtifactFiles     []SessionArtifactView  `json:"artifactFiles,omitempty"`
+	ActiveAgentSwitch *AgentSwitchView       `json:"activeAgentSwitch,omitempty"`
 }
 
 // SessionArtifactView is one inferred file artifact for a session.
@@ -596,7 +620,7 @@ type SpawnSessionRequest struct {
 	// CoordinatorAgent overrides the project's coordinatorAgent for this
 	// coordinator.
 	CoordinatorAgent *domain.AgentSelection `json:"coordinatorAgent,omitempty"`
-	Harness     domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
+	Harness          domain.AgentHarness    `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`
@@ -640,6 +664,9 @@ type SpawnSessionRequest struct {
 	// and runs its orchestrator. While such a worker is active this daemon
 	// refuses to start an orchestrator. Workers only.
 	RemoteSpawn bool `json:"remoteSpawn,omitempty"`
+	// AgentProfileID records the profile the parent's daemon picked for a
+	// remote spawn. It is honored only with remoteSpawn.
+	AgentProfileID string `json:"agentProfileId,omitempty" maxLength:"128"`
 }
 
 // AttachmentInput is one file attached to a spawn, delegate, stage, or send
@@ -710,9 +737,8 @@ type SessionOwnershipResponse struct {
 	WorkerLimit          *int `json:"workerLimit"`
 	EffectiveWorkerLimit *int `json:"effectiveWorkerLimit,omitempty"`
 	ActiveWorkerCount    *int `json:"activeWorkerCount,omitempty"`
-	// AgentProfileID is the profile that picked this session's agent; for a
-	// coordinator, WorkerAgent is its stored worker selection (null: the
-	// project default).
+	// AgentProfileID picked this session's agent. A coordinator's WorkerAgent
+	// is its stored selection (null: the project default).
 	AgentProfileID *string                `json:"agentProfileId"`
 	WorkerAgent    *domain.AgentSelection `json:"workerAgent,omitempty"`
 }
@@ -739,9 +765,8 @@ type CoordinatorRosterEntry struct {
 	// Workers lists each live local worker with the profile that picked its
 	// agent.
 	Workers []CoordinatorRosterWorker `json:"workers"`
-	// AgentProfileID is the profile that picked the coordinator's own agent
-	// (null: none did). WorkerAgent is its stored worker selection (null: the
-	// project default applies).
+	// AgentProfileID picked the coordinator's own agent (null: none did).
+	// WorkerAgent is its stored selection (null: the project default).
 	AgentProfileID *string                `json:"agentProfileId"`
 	WorkerAgent    *domain.AgentSelection `json:"workerAgent,omitempty"`
 	// WorkerLimit is stored (null: project value); the effective one is

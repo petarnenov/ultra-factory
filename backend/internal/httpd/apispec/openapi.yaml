@@ -12782,15 +12782,38 @@ components:
       type: object
     CheckRemoteWorkerCapacityRequest:
       properties:
+        effort:
+          type: string
+        harness:
+          type: string
+        harnessExplicit:
+          type: boolean
+        hostId:
+          type: string
+        hostReadinessChecked:
+          type: boolean
+        model:
+          type: string
         parentSessionId:
           type: string
+        unreadyHarnesses:
+          additionalProperties:
+            type: string
+          description: Harness to reason, for harnesses not usable on the host.
+          type: object
       required:
       - parentSessionId
       type: object
     CheckRemoteWorkerCapacityResponse:
       properties:
+        agent:
+          $ref: '#/components/schemas/ControllersRemoteWorkerAgent'
         ok:
           type: boolean
+        readinessHarnesses:
+          items:
+            type: string
+          type: array
       required:
       - ok
       type: object
@@ -14005,6 +14028,21 @@ components:
       required:
       - hostId
       - token
+      type: object
+    ControllersRemoteWorkerAgent:
+      properties:
+        effort:
+          type: string
+        harness:
+          type: string
+        model:
+          type: string
+        profileId:
+          type: string
+      required:
+      - harness
+      - model
+      - effort
       type: object
     ControllersRequestRereviewRequest:
       properties:
@@ -19530,6 +19568,9 @@ components:
       type: object
     SpawnSessionRequest:
       properties:
+        agentProfileId:
+          maxLength: 128
+          type: string
         approvalMode:
           enum:
           - default

@@ -108,9 +108,8 @@ func (e *AgentProfileError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Field, e.Reason)
 }
 
-// CoordinatorProfileNotAllowedError reports a coordinator agent selection
-// that names a profile outside the list. It maps to
-// COORDINATOR_PROFILE_NOT_ALLOWED at the API.
+// CoordinatorProfileNotAllowedError is a coordinator agent selection naming a
+// profile outside the list (COORDINATOR_PROFILE_NOT_ALLOWED).
 type CoordinatorProfileNotAllowedError struct {
 	ProfileID string
 }

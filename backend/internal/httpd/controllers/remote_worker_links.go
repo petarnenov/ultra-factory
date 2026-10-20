@@ -11,6 +11,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentprofile"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/remoteworker"
 )
 
@@ -22,6 +23,12 @@ type RemoteWorkerLinkService interface {
 // RemoteWorkerCapacityService is the optional pre-spawn capacity check.
 type RemoteWorkerCapacityService interface {
 	CheckCapacity(context.Context, domain.SessionID) error
+}
+
+// RemoteWorkerAgentService is the optional agent selection check for a remote
+// worker.
+type RemoteWorkerAgentService interface {
+	CheckAgent(context.Context, remoteworker.AgentCheck) (remoteworker.AgentCheckResult, error)
 }
 
 // RemoteWorkerOwnershipService is the link ownership read and write surface.
@@ -92,7 +99,31 @@ func (c *RemoteWorkerLinksController) check(w http.ResponseWriter, r *http.Reque
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, CheckRemoteWorkerCapacityResponse{OK: true})
+	resp := CheckRemoteWorkerCapacityResponse{OK: true}
+	if agents, ok := c.Svc.(RemoteWorkerAgentService); ok && req.HostID != "" {
+		check := remoteworker.AgentCheck{
+			ParentSessionID: domain.SessionID(req.ParentSessionID), HostID: req.HostID,
+			Explicit:         agentprofile.Explicit{Model: req.Model, Effort: req.Effort},
+			ReadinessChecked: req.HostReadinessChecked, Unready: req.UnreadyHarnesses,
+		}
+		if req.HarnessExplicit {
+			check.Explicit.Harness = domain.AgentHarness(req.Harness)
+		}
+		picked, err := agents.CheckAgent(r.Context(), check)
+		if err != nil {
+			envelope.WriteError(w, r, err)
+			return
+		}
+		for _, h := range picked.NeedReadiness {
+			resp.ReadinessHarnesses = append(resp.ReadinessHarnesses, string(h))
+		}
+		if p := picked.Profile; p != nil {
+			resp.Agent = &RemoteWorkerAgent{ProfileID: p.ID, Harness: string(p.Harness), Model: p.Model, Effort: p.Effort}
+		} else if picked.RecordID != "" {
+			resp.Agent = &RemoteWorkerAgent{ProfileID: picked.RecordID, Harness: req.Harness, Model: req.Model, Effort: req.Effort}
+		}
+	}
+	envelope.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (c *RemoteWorkerLinksController) list(w http.ResponseWriter, r *http.Request) {

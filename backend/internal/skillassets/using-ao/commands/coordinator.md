@@ -90,3 +90,15 @@ ao coordinator report --state working --worker mercury-4 --result "auth tests gr
 ```bash
 ao coordinator report --state blocked --escalate scope_decision --note "needs a schema owner"
 ```
+
+## Change a live coordinator's worker agent
+
+```bash
+ao coordinator set <coordinator-session-id> --worker-agent random:fast,deep
+```
+
+`--worker-agent` takes `inherit`, `fixed:<profile-id>` or `random[:<id>,...]` over
+the project's agent profiles. It applies only to workers the coordinator spawns
+afterwards; running workers keep their agent. The project's live root
+(`AO_SESSION_ID`) or the operator may run it. Unknown profiles are refused with
+`WORKER_PROFILE_INVALID`.

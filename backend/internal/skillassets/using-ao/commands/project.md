@@ -163,13 +163,20 @@ ao project set-config <id> [flags]
 | `--max-workers-per-coordinator int` | Live workers per coordinator, 1-6 (0 keeps the default) | 3 |
 | `--max-workers int` | Live workers per project once a coordinator exists, 1-12 (0 keeps the default) | 6 |
 | `--worker-agent string` | Harness override for worker sessions | - |
+| `--agent-profile stringArray` | Agent profile `id=<id>,harness=<h>,model=<m>,effort=<e>[,label=<text>][,weight=<n>]` (repeatable; replaces the whole list; use `--config-json` for values with a comma) | - |
+| `--coordinator-agent string` | Agent selection for new coordinators: `inherit`, `fixed:<profile-id>` or `random[:<id>,...]` | `inherit` |
+| `--coordinator-worker-agent string` | Default selection for the workers of a coordinator, same grammar | `inherit` |
+| `--root-worker-agent string` | Selection for workers the root spawns directly, same grammar | `inherit` |
 
 Use `--config-json` for fields without a dedicated flag, including
 `trackerIntake.provider`, `autoReview`, `containerReap.disabled`,
 `agentConfig.mode`, `worker.agentConfig.mode`, and
 `orchestrator.agentConfig.mode`. The full-config replacement warning above
 still applies. Limits above the hard maximum (4 / 6 / 12), and a workers-per-coordinator
-above the project total, are refused with `COORDINATOR_LIMITS_INVALID`.
+above the project total, are refused with `COORDINATOR_LIMITS_INVALID`. A malformed
+agent profile or a selection naming an unknown profile is refused with
+`WORKER_PROFILE_INVALID`; an unknown profile in `--coordinator-agent` is refused with
+`COORDINATOR_PROFILE_NOT_ALLOWED`.
 
 **Examples:**
 

@@ -2522,3 +2522,53 @@ func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheHardMaximum(t *testing
 		t.Fatalf("stored config = %#v", updated.Config)
 	}
 }
+
+func TestSetConfigReportsAgentProfileViolationsWithTheirCodes(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlitetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	m := project.NewWithDeps(project.Deps{Store: store})
+	created, err := m.Add(ctx, project.AddInput{Path: gitRepo(t)})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	profile := domain.AgentProfile{ID: "a", Harness: domain.HarnessClaudeCode, Model: "sonnet", Effort: "medium"}
+	cases := map[string]struct {
+		cfg     domain.CoordinatorsConfig
+		code    string
+		details map[string]any
+	}{
+		"duplicate id": {
+			domain.CoordinatorsConfig{AgentProfiles: []domain.AgentProfile{profile, profile}},
+			"WORKER_PROFILE_INVALID", map[string]any{"field": "coordinators.agentProfiles[1].id"},
+		},
+		"unknown worker profile": {
+			domain.CoordinatorsConfig{AgentProfiles: []domain.AgentProfile{profile}, WorkerAgent: domain.AgentSelection{Mode: domain.AgentSelectionFixed, ProfileID: "zz"}},
+			"WORKER_PROFILE_INVALID", map[string]any{"field": "coordinators.workerAgent"},
+		},
+		"unknown coordinator profile": {
+			domain.CoordinatorsConfig{AgentProfiles: []domain.AgentProfile{profile}, CoordinatorAgent: domain.AgentSelection{Mode: domain.AgentSelectionFixed, ProfileID: "zz"}},
+			"COORDINATOR_PROFILE_NOT_ALLOWED", map[string]any{"profileId": "zz"},
+		},
+	}
+	for name, tc := range cases {
+		_, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{Coordinators: tc.cfg}})
+		var apiErr *apierr.Error
+		if !errors.As(err, &apiErr) || apiErr.Code != tc.code {
+			t.Fatalf("%s: err = %v, want %s", name, err, tc.code)
+		}
+		for k, want := range tc.details {
+			if apiErr.Details[k] != want {
+				t.Fatalf("%s: details[%s] = %v, want %v", name, k, apiErr.Details[k], want)
+			}
+		}
+	}
+	valid := domain.CoordinatorsConfig{AgentProfiles: []domain.AgentProfile{profile}, WorkerAgent: domain.AgentSelection{Mode: domain.AgentSelectionFixed, ProfileID: "a"}}
+	updated, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{Coordinators: valid}})
+	if err != nil || updated.Config == nil || len(updated.Config.Coordinators.AgentProfiles) != 1 || updated.Config.Coordinators.WorkerAgent.ProfileID != "a" {
+		t.Fatalf("valid profiles: err=%v config=%#v", err, updated.Config)
+	}
+}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
 // ReadyFunc reports whether a harness can launch on the target host. A false
@@ -185,4 +186,22 @@ func unavailable(req Request, excluded []map[string]any) error {
 		delete(d, "coordinatorId")
 	}
 	return apierr.Conflict("WORKER_PROFILE_UNAVAILABLE", "No selected agent profile is ready on the target host", d)
+}
+
+// ForWorkerSpawn derives the scope and selection of a worker spawned by
+// parent; false when the parent is neither a live coordinator nor the root.
+func ForWorkerSpawn(parent domain.SessionRecord, project domain.ProjectID, gate domain.CoordinatorsConfig) (Request, bool) {
+	req := Request{ProjectID: project, Profiles: gate.AgentProfiles}
+	switch {
+	case coordownership.IsLiveCoordinator(parent, project):
+		req.Scope, req.Coordinator, req.Selection = ScopeCoordinatorWorker, parent.ID, gate.WorkerAgent
+		if parent.CoordinatorWorkerAgent != nil {
+			req.Selection = *parent.CoordinatorWorkerAgent
+		}
+	case coordownership.IsLiveRoot(parent, project):
+		req.Scope, req.Selection = ScopeRootWorker, gate.RootWorkerAgent
+	default:
+		return Request{}, false
+	}
+	return req, true
 }

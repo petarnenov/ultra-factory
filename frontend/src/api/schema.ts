@@ -4241,10 +4241,22 @@ export interface components {
             sessionId: string;
         };
         CheckRemoteWorkerCapacityRequest: {
+            effort?: string;
+            harness?: string;
+            harnessExplicit?: boolean;
+            hostId?: string;
+            hostReadinessChecked?: boolean;
+            model?: string;
             parentSessionId: string;
+            /** @description Harness to reason, for harnesses not usable on the host. */
+            unreadyHarnesses?: {
+                [key: string]: string;
+            };
         };
         CheckRemoteWorkerCapacityResponse: {
+            agent?: components["schemas"]["ControllersRemoteWorkerAgent"];
             ok: boolean;
+            readinessHarnesses?: string[];
         };
         ClaimPRRequest: {
             allowTakeover?: null | boolean;
@@ -4673,6 +4685,12 @@ export interface components {
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
             token: string;
+        };
+        ControllersRemoteWorkerAgent: {
+            effort: string;
+            harness: string;
+            model: string;
+            profileId?: string;
         };
         ControllersRequestRereviewRequest: {
             /** @description Tracked pull request URL. Required when the session has multiple PRs. */
@@ -6783,6 +6801,7 @@ export interface components {
             orchestrator: components["schemas"]["OrchestratorResponse"];
         };
         SpawnSessionRequest: {
+            agentProfileId?: string;
             /** @enum {string} */
             approvalMode?: "default" | "accept-edits" | "auto" | "bypass-permissions";
             attachments?: components["schemas"]["AttachmentInput"][];

@@ -23,9 +23,8 @@ type agentProfile struct {
 	Weight  int    `json:"weight,omitempty"`
 }
 
-// parseAgentSelection reads the selection grammar shared by the spawn,
-// set-config and coordinator flags: inherit, fixed:<profile-id> or
-// random[:<profile-id>,...]. The daemon checks the IDs against the project.
+// parseAgentSelection reads inherit, fixed:<id> or random[:<id>,...]; the
+// daemon checks the IDs against the project.
 func parseAgentSelection(flag, value string) (*agentSelection, error) {
 	value = strings.TrimSpace(value)
 	mode, rest, hasRest := strings.Cut(value, ":")
@@ -57,8 +56,8 @@ func parseAgentSelection(flag, value string) (*agentSelection, error) {
 	return nil, usageError{fmt.Errorf("%s: want inherit, fixed:<profile-id> or random[:<profile-id>,...], got %q", flag, value)}
 }
 
-// parseAgentProfile reads one --agent-profile value:
-// id=<id>,harness=<harness>,model=<model>,effort=<effort>[,label=<text>][,weight=<n>].
+// parseAgentProfile reads one --agent-profile value of comma-separated
+// key=value pairs (id, harness, model, effort, label, weight).
 func parseAgentProfile(value string) (agentProfile, error) {
 	var p agentProfile
 	for _, pair := range strings.Split(value, ",") {

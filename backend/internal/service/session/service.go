@@ -434,7 +434,7 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 			return domain.Session{}, 0, 0, err
 		}
 		defer release()
-		if cfg, err = s.resolveWorkerAgent(ctx, cfg, owner); err != nil {
+		if cfg, err = s.resolveWorkerAgent(ctx, cfg); err != nil {
 			return domain.Session{}, 0, 0, err
 		}
 	}
@@ -612,6 +612,9 @@ func (s *Service) emitSpawned(ctx context.Context, rec domain.SessionRecord, dur
 	}
 	if actor, ok := s.githubActor(ctx); ok {
 		payload["github_actor"] = actor
+	}
+	if rec.AgentProfileID != "" {
+		payload["agent_profile_id"] = rec.AgentProfileID
 	}
 	s.telemetry.Emit(context.Background(), ports.TelemetryEvent{
 		Name:       "ao.session.spawned",

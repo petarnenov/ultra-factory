@@ -35,9 +35,8 @@ type CoordinatorsConfig struct {
 	// AgentProfiles is the shared list of agent choices (ADR 0010,
 	// amendment 1, decision 8).
 	AgentProfiles []AgentProfile `json:"agentProfiles,omitempty"`
-	// CoordinatorAgent is the project default for a new coordinator's own
-	// agent; WorkerAgent is the default for the workers of a coordinator
-	// that sets none; RootWorkerAgent applies to root-owned direct workers.
+	// CoordinatorAgent, WorkerAgent and RootWorkerAgent pick the agent of new
+	// coordinators, of coordinator workers, and of root-owned workers.
 	CoordinatorAgent AgentSelection `json:"coordinatorAgent,omitempty"`
 	WorkerAgent      AgentSelection `json:"workerAgent,omitempty"`
 	RootWorkerAgent  AgentSelection `json:"rootWorkerAgent,omitempty"`
@@ -91,9 +90,8 @@ func (c CoordinatorsConfig) Validate() error {
 	return c.validateAgents()
 }
 
-// validateAgents checks the profile list and the three selections. An
-// unknown profile in coordinatorAgent is COORDINATOR_PROFILE_NOT_ALLOWED;
-// every other violation is WORKER_PROFILE_INVALID.
+// validateAgents checks the profile list and the three selections. Only an
+// unknown coordinatorAgent profile is COORDINATOR_PROFILE_NOT_ALLOWED.
 func (c CoordinatorsConfig) validateAgents() error {
 	if err := ValidateAgentProfiles(c.AgentProfiles); err != nil {
 		return err

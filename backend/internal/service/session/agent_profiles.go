@@ -20,9 +20,8 @@ type agentSelectionStore interface {
 	SetCoordinatorWorkerAgent(ctx context.Context, id domain.SessionID, selection domain.AgentSelection, event domain.CoordinatorAgentEvent, at time.Time) (*domain.AgentSelection, error)
 }
 
-// localHarnessReady is the readiness filter for placement on this daemon. Only
-// a definite negative excludes a harness; unknown readiness does not block a
-// launch.
+// localHarnessReady filters profiles for this daemon. Only a definite negative
+// excludes a harness, as unknown readiness does not block a launch.
 func (s *Service) localHarnessReady(ctx context.Context, harness domain.AgentHarness) (bool, string) {
 	if s.agentReadiness == nil {
 		return true, ""
@@ -69,9 +68,8 @@ func applyProfile(cfg ports.SpawnConfig, res agentprofile.Result) ports.SpawnCon
 }
 
 // resolveWorkerAgent applies the coordinator's or the root's agent selection
-// to a worker spawn. The caller holds the project lock so the selection read
-// here is the one in force when the worker is counted.
-func (s *Service) resolveWorkerAgent(ctx context.Context, cfg ports.SpawnConfig, owner *domain.SessionID) (ports.SpawnConfig, error) {
+// to a worker spawn. The caller holds the project lock.
+func (s *Service) resolveWorkerAgent(ctx context.Context, cfg ports.SpawnConfig) (ports.SpawnConfig, error) {
 	if cfg.ParentSessionID == "" || s.store == nil {
 		return cfg, nil
 	}
@@ -86,24 +84,11 @@ func (s *Service) resolveWorkerAgent(ctx context.Context, cfg ports.SpawnConfig,
 	if err != nil {
 		return cfg, err
 	}
-	req := agentprofile.Request{
-		ProjectID: cfg.ProjectID,
-		Profiles:  gate.AgentProfiles,
-		Explicit:  explicitAgent(cfg),
-		Ready:     s.localHarnessReady,
-		Intn:      s.profileIntn,
-	}
-	switch {
-	case owner != nil:
-		req.Scope, req.Coordinator, req.Selection = agentprofile.ScopeCoordinatorWorker, *owner, gate.WorkerAgent
-		if parent.CoordinatorWorkerAgent != nil {
-			req.Selection = *parent.CoordinatorWorkerAgent
-		}
-	case coordownership.IsLiveRoot(parent, cfg.ProjectID):
-		req.Scope, req.Selection = agentprofile.ScopeRootWorker, gate.RootWorkerAgent
-	default:
+	req, applies := agentprofile.ForWorkerSpawn(parent, cfg.ProjectID, gate)
+	if !applies {
 		return cfg, nil
 	}
+	req.Explicit, req.Ready, req.Intn = explicitAgent(cfg), s.localHarnessReady, s.profileIntn
 	res, err := agentprofile.Resolve(ctx, req)
 	if err != nil {
 		return cfg, err
@@ -111,9 +96,8 @@ func (s *Service) resolveWorkerAgent(ctx context.Context, cfg ports.SpawnConfig,
 	return applyProfile(cfg, res), nil
 }
 
-// resolveCoordinatorAgent validates the per-coordinator agent settings of a
-// coordinator spawn and picks its own profile. The caller holds the project
-// lock and passes the project's coordinator config.
+// resolveCoordinatorAgent validates a coordinator spawn's agent settings and
+// picks its own profile. The caller holds the project lock.
 func (s *Service) resolveCoordinatorAgent(ctx context.Context, cfg ports.SpawnConfig, gate domain.CoordinatorsConfig) (ports.SpawnConfig, error) {
 	if sel := cfg.CoordinatorWorkerAgent; sel != nil {
 		normalized := normalizeSelection(*sel)
@@ -164,9 +148,8 @@ func selectionError(err error) error {
 	return err
 }
 
-// coordinatorSelectionError maps an unknown profile in a coordinator agent
-// selection to COORDINATOR_PROFILE_NOT_ALLOWED, everything else to
-// WORKER_PROFILE_INVALID.
+// coordinatorSelectionError maps an unknown profile to
+// COORDINATOR_PROFILE_NOT_ALLOWED and anything else to WORKER_PROFILE_INVALID.
 func coordinatorSelectionError(err error) error {
 	if perr, ok := err.(*domain.AgentProfileError); ok && perr.UnknownProfileID != "" {
 		return apierr.Invalid("COORDINATOR_PROFILE_NOT_ALLOWED", perr.Error(), map[string]any{"profileId": perr.UnknownProfileID})
@@ -178,9 +161,8 @@ func coordinatorSelectionError(err error) error {
 // rules are those of a live limit change.
 type CoordinatorAgentCaller = CoordinatorLimitsCaller
 
-// SetCoordinatorWorkerAgent changes a live coordinator's worker agent
-// selection for workers spawned after the change. An unchanged selection is a
-// no-op: no audit row and no message.
+// SetCoordinatorWorkerAgent changes a live coordinator's worker agent for later
+// spawns. An unchanged selection writes no audit row and sends no message.
 func (s *Service) SetCoordinatorWorkerAgent(
 	ctx context.Context,
 	coordinatorID domain.SessionID,
