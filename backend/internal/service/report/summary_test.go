@@ -438,8 +438,8 @@ func TestEscalationReachesRootIndependentlyOfSummaryCadence(t *testing.T) {
 	if got.target != f.root.ID || !strings.Contains(got.message, "[escalation: scope_decision]") || !strings.Contains(got.message, "note: note esc-1") {
 		t.Fatalf("escalation turn:\n%s", got.message)
 	}
-	if !strings.Contains(got.message, "result status") {
-		t.Fatalf("escalation dropped coordinator A's earlier pending summary:\n%s", got.message)
+	if strings.Contains(got.message, "result status") {
+		t.Fatalf("escalation pulled a summary before its batch window:\n%s", got.message)
 	}
 	if strings.Contains(got.message, "quiet-status") {
 		t.Fatalf("escalation pulled another coordinator's group:\n%s", got.message)
@@ -499,5 +499,22 @@ func TestBlockedSummaryWithoutReasonIsNotAnEscalation(t *testing.T) {
 	f.run()
 	if len(f.delivery.interrupts) != 0 || len(f.delivery.submissions) != 1 {
 		t.Fatalf("interrupts=%v submissions=%d", f.delivery.interrupts, len(f.delivery.submissions))
+	}
+}
+
+func TestOlderDueSummaryDoesNotPullANewerOneBeforeItsWindow(t *testing.T) {
+	f := newSummaryFixture(t)
+	f.submit(f.coordA.ID, "old", domain.SummaryWorking)
+	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow - time.Second)
+	f.submit(f.coordA.ID, "new", domain.SummaryWorking)
+	f.clock = f.clock.Add(time.Second)
+	f.run()
+	if len(f.delivery.submissions) != 1 || strings.Contains(f.delivery.submissions[0].message, "result new") {
+		t.Fatalf("submissions = %#v, want only the due summary", f.delivery.submissions)
+	}
+	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow)
+	f.run()
+	if len(f.delivery.submissions) != 2 || !strings.Contains(f.delivery.submissions[1].message, "result new") {
+		t.Fatalf("submissions = %#v, want the newer one after its own window", f.delivery.submissions)
 	}
 }

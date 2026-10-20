@@ -111,6 +111,7 @@ SET delivery_state = 'claimed', claim_token = ?1,
 WHERE project_id = ?4
   AND coordinator_session_id = ?5
   AND delivery_state = 'pending'
+  AND available_at <= ?2
   AND delivery_batch_id = ?6
 RETURNING id, coordinator_session_id, project_id, submission_key, scope, state, result, escalation_reason, escalation_note, created_at, available_at, delivery_batch_id, delivery_owner_id, delivery_state, claim_token, claimed_at, delivery_attempts, acknowledged_at, last_error
 `

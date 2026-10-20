@@ -60,6 +60,7 @@ SET delivery_state = 'claimed', claim_token = sqlc.arg(claim_token),
 WHERE project_id = sqlc.arg(project_id)
   AND coordinator_session_id = sqlc.arg(coordinator_session_id)
   AND delivery_state = 'pending'
+  AND available_at <= sqlc.arg(claimed_at)
   AND delivery_batch_id = sqlc.arg(delivery_batch_id)
 RETURNING *;
 

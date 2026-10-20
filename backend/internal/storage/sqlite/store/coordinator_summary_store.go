@@ -109,8 +109,8 @@ func (s *Store) ListPendingCoordinatorSummarySchedule(ctx context.Context, limit
 	return s.summariesWithWorkers(ctx, rows)
 }
 
-// ClaimPendingCoordinatorSummaryBatch claims one coordinator's pending
-// summaries for the root. A retry reuses the first claim's batch identity.
+// ClaimPendingCoordinatorSummaryBatch claims one coordinator's due summaries
+// for the root. A retry reuses the first claim's batch identity.
 func (s *Store) ClaimPendingCoordinatorSummaryBatch(ctx context.Context, projectID domain.ProjectID, coordinator, root domain.SessionID, token string, at time.Time) ([]domain.CoordinatorSummary, error) {
 	if projectID == "" || coordinator == "" || root == "" || token == "" || at.IsZero() {
 		return nil, domain.ErrInvalidCoordinatorSummary
@@ -119,11 +119,20 @@ func (s *Store) ClaimPendingCoordinatorSummaryBatch(ctx context.Context, project
 	defer s.writeMu.Unlock()
 	var rows []gen.CoordinatorSummary
 	err := s.inTx(ctx, "claim coordinator summary batch", func(q *gen.Queries) error {
-		pending, err := q.ListPendingCoordinatorSummariesByGroup(ctx, gen.ListPendingCoordinatorSummariesByGroupParams{
+		all, err := q.ListPendingCoordinatorSummariesByGroup(ctx, gen.ListPendingCoordinatorSummariesByGroupParams{
 			ProjectID: string(projectID), CoordinatorSessionID: string(coordinator),
 		})
-		if err != nil || len(pending) == 0 {
+		if err != nil {
 			return err
+		}
+		pending := all[:0:0]
+		for _, row := range all {
+			if !row.AvailableAt.After(at) {
+				pending = append(pending, row)
+			}
+		}
+		if len(pending) == 0 {
+			return nil
 		}
 		batchID := pending[0].DeliveryBatchID
 		if batchID == "" {
