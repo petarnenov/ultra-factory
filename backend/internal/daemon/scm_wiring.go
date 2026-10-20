@@ -120,6 +120,16 @@ func newMultiSCMMerger(gitlabCfg config.GitLabConfig, dataDir string, logger *sl
 	return scmmulti.NewMerger(named...)
 }
 
+// newMultiSCMDraftSetter builds the draft-state router. Only GitHub can flip
+// the draft flag; it returns nil when GitHub has no usable credentials.
+func newMultiSCMDraftSetter(dataDir string, logger *slog.Logger) *scmmulti.DraftSetter {
+	gh, err := newGitHubSCMProvider(logger, dataDir)
+	if err != nil {
+		return nil
+	}
+	return scmmulti.NewDraftSetter(scmmulti.NamedDraftSetter{Key: "github", Setter: gh})
+}
+
 func closedDone() <-chan struct{} {
 	done := make(chan struct{})
 	close(done)

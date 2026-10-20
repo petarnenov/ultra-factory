@@ -23,7 +23,7 @@ INSERT INTO sessions (
     requested_output,
     created_at, updated_at, is_pinned, pinned_at, auto_inject_review, auto_inject_ci,
     provision_state, provision_error, is_task_preparation, automation_run_id, automation_launch_completed,
-    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
+    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots, ci_gate_active,
     agent_profile_id, coordinator_worker_agent
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -32,7 +32,7 @@ INSERT INTO sessions (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 );
 
 -- name: GetClientRequestSession :one
@@ -226,7 +226,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -247,7 +247,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -268,7 +268,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -289,7 +289,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -319,6 +319,7 @@ UPDATE sessions SET
     coordinator_host_slots = sqlc.narg(coordinator_host_slots),
     harness = sqlc.arg(harness),
     auto_review_enabled = sqlc.arg(auto_review_enabled),
+    ci_gate_active = sqlc.arg(ci_gate_active),
     terminate_on_pr_merge = sqlc.arg(terminate_on_pr_merge),
     display_name = sqlc.arg(display_name),
     activity_state = sqlc.arg(activity_state),
