@@ -4917,3 +4917,79 @@ describe("SessionInspector branch summary", () => {
     expect(screen.getByRole("button", { name: "Commit & create PR" })).toBeEnabled();
   });
 });
+
+describe("SessionInspector ownership section", () => {
+  const rosterPath = "/api/v1/projects/{id}/coordinators";
+
+  function mockOwnershipGets(coordinators?: { enabled?: boolean }) {
+    getMock.mockImplementation(async (path: string) => {
+      if (path === "/api/v1/projects/{id}") {
+        return {
+          data: {
+            status: "ok",
+            project: {
+              id: "ws-1",
+              kind: "single_repo",
+              name: "my-app",
+              path: "/repo",
+              repo: "my-app",
+              defaultBranch: "main",
+              config: coordinators ? { coordinators } : {},
+            },
+          },
+        };
+      }
+      if (path === rosterPath) {
+        return {
+          data: {
+            projectId: "ws-1",
+            rootSessionId: "root-1",
+            coordinators: [],
+            rootWorkerSessionIds: [],
+          },
+        };
+      }
+      return { data: undefined };
+    });
+  }
+
+  const rosterCalls = () => getMock.mock.calls.filter(([path]) => path === rosterPath);
+
+  beforeEach(() => {
+    getMock.mockReset();
+  });
+
+  it("hides ownership and skips the roster for a root-owned worker when coordinators are off", async () => {
+    mockOwnershipGets();
+    renderWithQuery(<SessionInspector session={session([], { ownerSessionId: null })} />);
+
+    await waitFor(() =>
+      expect(getMock.mock.calls.some(([path]) => path === "/api/v1/projects/{id}")).toBe(true),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByTestId("session-ownership")).not.toBeInTheDocument();
+    expect(rosterCalls()).toHaveLength(0);
+  });
+
+  it("shows ownership for a root-owned worker when coordinators are enabled", async () => {
+    mockOwnershipGets({ enabled: true });
+    renderWithQuery(<SessionInspector session={session([], { ownerSessionId: null })} />);
+
+    expect(await screen.findByTestId("session-owner")).toHaveTextContent("Root-owned");
+    expect(rosterCalls().length).toBeGreaterThan(0);
+  });
+
+  it("shows ownership for a coordinator-owned worker without enabling coordinators", async () => {
+    mockOwnershipGets();
+    renderWithQuery(<SessionInspector session={session([], { ownerSessionId: "ao-c1" })} />);
+
+    expect(await screen.findByTestId("session-owner")).toHaveTextContent("Coordinator ao-c1");
+  });
+
+  it("shows ownership for a coordinator session", async () => {
+    mockOwnershipGets();
+    renderWithQuery(<SessionInspector session={session([], { coordinatorScope: "auth" })} />);
+
+    expect(await screen.findByTestId("session-ownership")).toBeInTheDocument();
+  });
+});
