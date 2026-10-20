@@ -257,6 +257,95 @@ func TestReportStoreClaimsOnlyTheRecipientsOwnerGroup(t *testing.T) {
 	}
 }
 
+func TestReportStoreRootClaimsAnExitedOwnersWorkersWithoutClearingOwnership(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "ao")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	coordinator := sampleRecord("ao")
+	coordinator.Kind = domain.KindCoordinator
+	coordinator.CoordinatorScope = "auth"
+	coordinator, err := s.CreateSession(ctx, coordinator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := sampleRecord("ao")
+	owned.OwnerSessionID = &coordinator.ID
+	owned, err = s.CreateSession(ctx, owned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateReport(ctx, domain.ReportRecord{ID: "rpt_owned", SessionID: owned.ID, ProjectID: "ao", Message: "owned", CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: now, RepeatCount: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	none, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "plain-token", now)
+	if err != nil || len(none) != 0 {
+		t.Fatalf("plain root claim = %+v, err = %v", none, err)
+	}
+	batch, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "exited-token", now, coordinator.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch) != 1 || batch[0].ID != "rpt_owned" || batch[0].DeliveryOwnerID != "root-session" {
+		t.Fatalf("batch = %+v", batch)
+	}
+	got, _, err := s.GetSession(ctx, owned.ID)
+	if err != nil || got.OwnerSessionID == nil || *got.OwnerSessionID != coordinator.ID {
+		t.Fatalf("ownership changed: %+v err = %v", got.OwnerSessionID, err)
+	}
+}
+
+func TestReportStoreKeepsAnExitedOwnerBatchApartFromRootReports(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "ao")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	coordinator := sampleRecord("ao")
+	coordinator.Kind = domain.KindCoordinator
+	coordinator.CoordinatorScope = "auth"
+	coordinator, err := s.CreateSession(ctx, coordinator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := sampleRecord("ao")
+	owned.OwnerSessionID = &coordinator.ID
+	owned, err = s.CreateSession(ctx, owned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootOwned, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The root report is older but settles later, so it is still unbatched
+	// when the exited owner's group runs first.
+	for _, rec := range []domain.ReportRecord{
+		{ID: "rpt_root", SessionID: rootOwned.ID, ProjectID: "ao", Message: "root", CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: now.Add(time.Minute), RepeatCount: 1},
+		{ID: "rpt_exited", SessionID: owned.ID, ProjectID: "ao", Message: "stuck", CreatedAt: now.Add(time.Second), DeliveryState: domain.ReportPending, AvailableAt: now, RepeatCount: 1},
+	} {
+		if _, err := s.CreateReport(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exited, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "exited-token", now, coordinator.ID)
+	if err != nil || len(exited) != 1 || exited[0].ID != "rpt_exited" {
+		t.Fatalf("exited group = %+v, err = %v", exited, err)
+	}
+	if _, err := s.DeferReportBatch(ctx, "ao", "exited-token", now.Add(time.Minute), "stuck"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "root-token", now.Add(time.Minute))
+	if err != nil || len(root) != 1 || root[0].ID != "rpt_root" {
+		t.Fatalf("root group = %+v, err = %v", root, err)
+	}
+	if root[0].DeliveryBatchID == exited[0].DeliveryBatchID {
+		t.Fatalf("root and exited-owner reports share batch %s", root[0].DeliveryBatchID)
+	}
+}
+
 func TestReportStoreInterruptLimitSurvivesRestart(t *testing.T) {
 
 	ctx := context.Background()
