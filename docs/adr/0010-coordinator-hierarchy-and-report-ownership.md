@@ -932,6 +932,13 @@ coordinator. No coordinator is required for the existing workflow.
   established by CO-1.1.1. That baseline is an input to the resource
   comparison, not a gate for this ownership decision; if it is still blocked
   when the pilot runs, the gap is recorded rather than assumed.
+
+  > Amended 2026-10-20: the sentence that the daemon does not refuse a local
+  > worker spawn on the hub is superseded for coordinator-owned workers by
+  > decision 4 of "Amendment: configurable coordinators":
+  > `COORDINATOR_LOCAL_WORKER_REFUSED` unless the project sets
+  > `coordinators.allowLocalWorkers`. Root-owned direct workers are unchanged.
+
 - **A machine with any live orchestrator-role session refuses remote
   workers.** `refuseRemoteWorkerForLocalOrchestrators` must count
   `kind IN ('orchestrator','coordinator')`, and coordinator spawn must call
@@ -1240,7 +1247,9 @@ user before merge.
 
 This amendment supersedes the "raising them needs a new decision" rule in
 section 8: the project ceilings become configurable up to a new system hard
-maximum. Everything else in sections 1 to 15 stays as written. The
+maximum. It also supersedes the section 9 statement that the daemon does not
+refuse a local worker spawn on the hub, for coordinator-owned workers
+(decision 4). Everything else in sections 1 to 15 stays as written. The
 implementation tasks are CO-5.2 (limits), CO-5.3 (host placement), CO-5.4
 (CLI), CO-5.5 (prompts), CO-5.7 (agent profiles) and CO-5.6 (UI).
 
