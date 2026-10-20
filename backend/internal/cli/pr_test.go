@@ -325,3 +325,166 @@ func TestPRResolveCommentsRequiresPRNumber(t *testing.T) {
 		t.Fatalf("exit code = %d, want 2; err=%v", got, err)
 	}
 }
+
+// readyDaemon fakes POST /sessions/{id}/pr/ready and records the body.
+type readyDaemon struct {
+	status int
+	reply  string
+	path   string
+	body   string
+}
+
+func (d *readyDaemon) handler(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	d.path, d.body = r.URL.Path, string(raw)
+	w.Header().Set("Content-Type", "application/json")
+	if d.status != 0 {
+		w.WriteHeader(d.status)
+	}
+	_, _ = io.WriteString(w, d.reply)
+}
+
+func (d *readyDaemon) start(t *testing.T, cfg testConfig) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(d.handler))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+}
+
+func TestPRReadyMarksTheNamedSessionReady(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "root-1")
+	d := &readyDaemon{reply: `{"ok":true,"prUrl":"u","prNumber":42,"headSha":"abc","ready":true,"changed":true}`}
+	d.start(t, cfg)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "pr", "ready", "demo-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if d.path != "/api/v1/sessions/demo-1/pr/ready" {
+		t.Fatalf("path = %q", d.path)
+	}
+	var body setPRReadyRequest
+	if err := json.Unmarshal([]byte(d.body), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Ready || body.RequestedBySessionID != "root-1" {
+		t.Fatalf("body = %+v, want ready from root-1", body)
+	}
+	if !strings.Contains(out, "PR #42 is now ready for review") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
+func TestPRReadyUndoAndNoOp(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "root-1")
+	d := &readyDaemon{reply: `{"ok":true,"prUrl":"u","prNumber":42,"headSha":"abc","ready":false,"changed":false}`}
+	d.start(t, cfg)
+
+	out, _, err := executeCLI(t, aliveDeps(), "pr", "ready", "--undo", "demo-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body setPRReadyRequest
+	if err := json.Unmarshal([]byte(d.body), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ready {
+		t.Fatalf("body = %+v, want ready=false", body)
+	}
+	if !strings.Contains(out, "PR #42 is already a draft") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
+func TestPRReadyDefaultsToTheCurrentSession(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "worker-1")
+	d := &readyDaemon{reply: `{"ok":true,"prUrl":"u","prNumber":1,"headSha":"abc","ready":true,"changed":true}`}
+	d.start(t, cfg)
+
+	if _, _, err := executeCLI(t, aliveDeps(), "pr", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	if d.path != "/api/v1/sessions/worker-1/pr/ready" {
+		t.Fatalf("path = %q", d.path)
+	}
+}
+
+func TestPRReadyWithoutSessionIsUsageError(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "")
+	(&readyDaemon{}).start(t, cfg)
+
+	_, _, err := executeCLI(t, aliveDeps(), "pr", "ready")
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("err = %v exit = %d, want usage exit 2", err, ExitCode(err))
+	}
+}
+
+func TestPRReadySurfacesCIGateForbiddenForAWorker(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "worker-1")
+	d := &readyDaemon{
+		status: http.StatusForbidden,
+		reply:  `{"error":"forbidden","code":"CI_GATE_FORBIDDEN","message":"Only the project root or the owning coordinator may change a pull request's draft state","requestId":"req-9"}`,
+	}
+	d.start(t, cfg)
+
+	_, _, err := executeCLI(t, aliveDeps(), "pr", "ready", "worker-1")
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("err = %v exit = %d, want exit 1", err, ExitCode(err))
+	}
+	for _, want := range []string{"CI_GATE_FORBIDDEN", "request req-9"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+}
+
+func TestPRReadySurfacesNoOpenPR(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "root-1")
+	d := &readyDaemon{
+		status: http.StatusConflict,
+		reply:  `{"error":"conflict","code":"NO_OPEN_PR","message":"The session has no open pull request"}`,
+	}
+	d.start(t, cfg)
+
+	_, _, err := executeCLI(t, aliveDeps(), "pr", "ready", "demo-1")
+	if err == nil || !strings.Contains(err.Error(), "NO_OPEN_PR") {
+		t.Fatalf("err = %v, want NO_OPEN_PR", err)
+	}
+}
+
+func TestPRReadyWithHostSendsNoRequester(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/pr/ready",
+		func(w http.ResponseWriter, _ *http.Request) {
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"ok": true, "prUrl": "u", "prNumber": 7, "headSha": "abc", "ready": true, "changed": true,
+			})
+		})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "pr", "ready", "widgets-3", "--host", "build-box")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var body string
+	for _, req := range remote.recorded() {
+		if req.path == "/api/v1/sessions/widgets-3/pr/ready" {
+			body = req.body
+		}
+	}
+	if strings.Contains(body, "requestedBySessionId") || !strings.Contains(body, `"ready":true`) {
+		t.Fatalf("remote body = %q", body)
+	}
+	if !strings.Contains(out, "PR #7 is now ready for review") {
+		t.Fatalf("stdout = %q", out)
+	}
+}

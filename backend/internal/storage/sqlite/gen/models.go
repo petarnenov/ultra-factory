@@ -813,6 +813,7 @@ type Session struct {
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorWorkerLimit           sql.NullInt64
 	CoordinatorHostSlots             sql.NullString
+	CIGateActive                     bool
 }
 
 type SessionArtifactVersion struct {
@@ -824,6 +825,16 @@ type SessionArtifactVersion struct {
 	ContentType string
 	Mtime       int64
 	CreatedAt   time.Time
+}
+
+type SessionCIGateEvent struct {
+	ID        int64
+	SessionID string
+	PRURL     string
+	HeadSha   string
+	Kind      string
+	Reason    string
+	CreatedAt time.Time
 }
 
 type SessionCleanupFact struct {
@@ -882,6 +893,16 @@ type SessionOwnerEvent struct {
 	NewOwnerSessionID      *domain.SessionID
 	Reason                 domain.OwnershipEventReason
 	CreatedAt              time.Time
+}
+
+type SessionPRReadyEvent struct {
+	ID             int64
+	SessionID      domain.SessionID
+	ActorSessionID domain.SessionID
+	PRURL          string
+	HeadSha        string
+	Ready          bool
+	CreatedAt      time.Time
 }
 
 type SessionProgress struct {

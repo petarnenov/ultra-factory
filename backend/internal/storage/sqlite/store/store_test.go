@@ -1241,6 +1241,91 @@ func TestSessionAutoInjectReviewPolicyRoundTripAndCDC(t *testing.T) {
 	}
 }
 
+func TestSessionCIGateActiveRoundTripAndImmutable(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "gate")
+	rec := sampleRecord("gate")
+	rec.CIGateActive = true
+	created, err := s.CreateSession(ctx, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.GetSession(ctx, created.ID)
+	if err != nil || !ok || !got.CIGateActive {
+		t.Fatalf("created session: ok=%v err=%v ciGateActive=%v", ok, err, got.CIGateActive)
+	}
+	got.CIGateActive = false
+	if err := s.UpdateSession(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	again, _, err := s.GetSession(ctx, created.ID)
+	if err != nil || !again.CIGateActive {
+		t.Fatalf("a generic update must not change ciGateActive: err=%v got=%v", err, again.CIGateActive)
+	}
+}
+
+func TestSessionPRReadyEventsAreAppendOnlyAuditRows(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "gate")
+	r, _ := s.CreateSession(ctx, sampleRecord("gate"))
+	at := time.Date(2026, time.October, 20, 10, 0, 0, 0, time.UTC)
+	for i, ready := range []bool{true, false} {
+		if err := s.RecordSessionPRReadyEvent(ctx, domain.SessionPRReadyEvent{
+			SessionID: r.ID, ActorSessionID: "root", PRURL: "https://github.com/a/b/pull/1",
+			HeadSHA: "abc", Ready: ready, CreatedAt: at.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := s.ListSessionPRReadyEvents(ctx, r.ID)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("events = %+v err = %v", events, err)
+	}
+	if !events[0].Ready || events[1].Ready || events[0].ActorSessionID != "root" || events[0].HeadSHA != "abc" {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestSessionCIGateEventsRoundTripInOrderAndRejectUnknownKind(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "gate")
+	r, _ := s.CreateSession(ctx, sampleRecord("gate"))
+	at := time.Date(2026, time.October, 20, 10, 0, 0, 0, time.UTC)
+	const prURL = "https://github.com/a/b/pull/1"
+	for i, kind := range []string{"ci_gate_ready", "ci_gate_draft"} {
+		if err := s.RecordSessionCIGateEvent(ctx, domain.SessionCIGateEvent{
+			SessionID: r.ID, PRURL: prURL, HeadSHA: "abc", Kind: kind,
+			Reason: "verdict_" + kind, CreatedAt: at.Add(time.Duration(i) * time.Minute),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := s.ListSessionCIGateEvents(ctx, r.ID)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("events = %+v err = %v", events, err)
+	}
+	if events[0].Kind != "ci_gate_ready" || events[1].Kind != "ci_gate_draft" {
+		t.Fatalf("order = %q, %q; want ready then draft", events[0].Kind, events[1].Kind)
+	}
+	if events[0].ID >= events[1].ID {
+		t.Fatalf("ids not ascending: %d, %d", events[0].ID, events[1].ID)
+	}
+	for _, ev := range events {
+		if ev.SessionID != r.ID || ev.PRURL != prURL || ev.HeadSHA != "abc" || ev.Reason == "" || ev.CreatedAt.IsZero() {
+			t.Fatalf("event fields = %+v", ev)
+		}
+	}
+	if err := s.RecordSessionCIGateEvent(ctx, domain.SessionCIGateEvent{
+		SessionID: r.ID, PRURL: prURL, HeadSHA: "abc", Kind: "ci_gate_merged",
+		Reason: "bogus", CreatedAt: at,
+	}); err == nil {
+		t.Fatal("unknown kind was accepted; the CHECK constraint must reject it")
+	}
+}
+
 func TestSessionAutoReviewPolicyRoundTripAndCDC(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

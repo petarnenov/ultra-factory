@@ -62,3 +62,16 @@ type SCMReviewResolveRequest struct {
 type SCMReviewResolver interface {
 	ResolveReviewThread(ctx context.Context, request SCMReviewResolveRequest) error
 }
+
+// SCMDraftRequest asks the provider to set a pull request's draft flag.
+// Draft=false marks it ready for review; Draft=true converts it to a draft.
+type SCMDraftRequest struct {
+	PR    SCMPRRef
+	Draft bool
+}
+
+// SCMDraftSetter flips a pull request between draft and ready for review.
+// Setting the state a PR already has succeeds without a change.
+type SCMDraftSetter interface {
+	SetPullRequestDraft(ctx context.Context, request SCMDraftRequest) error
+}

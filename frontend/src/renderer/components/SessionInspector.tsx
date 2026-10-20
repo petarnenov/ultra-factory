@@ -2589,6 +2589,10 @@ function ReviewPanel({
 						tooltipClassName="max-w-64"
 					/>
 					<div className="flex min-h-8 min-w-0 items-center justify-between gap-3 py-1">
+						<span className="text-sm text-settings-label">{t("inspector.ciGate")}</span>
+						<span className="text-sm text-settings-muted">{session.ciGateActive ? t("inspector.ciGateActive") : t("inspector.ciGateInactive")}</span>
+					</div>
+					<div className="flex min-h-8 min-w-0 items-center justify-between gap-3 py-1">
 						<span className="text-sm text-settings-label">{t("inspector.review.session")}</span>
 						<div className="flex min-w-0 items-center justify-end gap-1.5">
 							<Button

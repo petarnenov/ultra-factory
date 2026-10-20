@@ -10,6 +10,27 @@ import (
 type ActionManager interface {
 	Merge(ctx context.Context, request MergeRequest) (MergeResult, error)
 	ResolveComments(ctx context.Context, prID string, commentIDs []string) (ResolveResult, error)
+	SetReady(ctx context.Context, request ReadyRequest) (ReadyResult, error)
+}
+
+// ReadyRequest marks a session's open PR ready for review, or back to draft.
+type ReadyRequest struct {
+	SessionID domain.SessionID
+	// Ready is true to mark ready for review, false to convert to draft.
+	Ready bool
+	// RequestedBySessionID names the calling session. Empty is an anonymous
+	// caller (a person or a remote host) and skips the role check.
+	RequestedBySessionID domain.SessionID
+}
+
+// ReadyResult reports the PR a ready request acted on.
+type ReadyResult struct {
+	PRURL    string
+	PRNumber int
+	HeadSHA  string
+	Ready    bool
+	// Changed is false when the PR already had the requested state.
+	Changed bool
 }
 
 // MergeRequest identifies the tracked PR and pins the mutation to the exact

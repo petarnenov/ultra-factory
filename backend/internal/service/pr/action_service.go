@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -48,6 +49,8 @@ type ActionDeps struct {
 	Reader       actionReader
 	Resolver     ports.SCMReviewResolver
 	Writer       ports.SCMWriter
+	// Draft flips a PR between draft and ready; nil disables SetReady.
+	Draft ports.SCMDraftSetter
 	// ThreadWriter updates one resolved thread and its comments without
 	// replacing a potentially newer SCM observation.
 	ThreadWriter interface {
@@ -62,6 +65,8 @@ type ActionService struct {
 	merger       ports.SCMMerger
 	reader       actionReader
 	resolver     ports.SCMReviewResolver
+	draft        ports.SCMDraftSetter
+	ciGateMu     sync.Mutex
 	threadWriter interface {
 		MarkPRReviewThreadResolved(context.Context, string, string) error
 	}
@@ -126,6 +131,7 @@ func NewActionService(deps ActionDeps) *ActionService {
 		merger:       deps.Merger,
 		reader:       deps.Reader,
 		resolver:     deps.Resolver,
+		draft:        deps.Draft,
 		threadWriter: threadWriter,
 	}
 }
