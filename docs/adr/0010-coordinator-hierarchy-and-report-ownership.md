@@ -1332,6 +1332,15 @@ A coordinator has its own `workerLimit`, stored on the coordinator session.
   count drops (the section 8 grandfather rule, applied per coordinator).
 - The coordinator receives a short system message with its new `workerLimit`
   and host slots after every change.
+- **Partial updates.** On the live-change route both `workerLimit` and
+  `hostSlots` are optional, and an omitted field keeps its stored value; it is
+  never reset to the project default. `hostSlots: []` (or `--host-slots ""` in
+  the CLI) clears the slots, and an omitted `--worker-limit` or `--host-slots`
+  flag omits the field. The resulting pair is validated as a whole (next
+  bullet). A request that omits both fields, or whose resulting normalized pair
+  equals the stored pair, is a no-op: 200 with the current values, no audit row,
+  no system message. The no-op comparison uses stored values, not the clamped
+  effective ones.
 - **Invariants on a live change.** The route validates the resulting pair
   (`workerLimit`, `hostSlots`) as a whole, so one request can lower the limit
   and shrink the slots together. A change that would leave the slot total above
