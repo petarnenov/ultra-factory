@@ -91,14 +91,34 @@ export type CoordinatorsFormErrorKey =
 	| "coordinators.errors.workersPerCoordinatorAboveWorkers"
 	| "coordinators.errors.profileIdRequired"
 	| "coordinators.errors.profileIdDuplicate"
-	| "coordinators.errors.profileHarnessRequired";
+	| "coordinators.errors.profileHarnessRequired"
+	| "coordinators.errors.selectionProfileRequired"
+	| "coordinators.errors.selectionProfileUnknown";
+
+/** The three agent selections of the Coordinators section. */
+export type SelectionName = "coordinatorAgent" | "workerAgent" | "rootWorkerAgent";
 
 export type CoordinatorsFormErrors = {
 	maxCoordinators?: CoordinatorsFormErrorKey;
 	maxWorkersPerCoordinator?: CoordinatorsFormErrorKey;
 	maxWorkers?: CoordinatorsFormErrorKey;
 	profiles?: CoordinatorsFormErrorKey;
+	selections?: Partial<Record<SelectionName, CoordinatorsFormErrorKey>>;
 };
+
+/** A fixed or random selection must name profiles that still exist. */
+function selectionError(sel: SelectionForm, known: Set<string>): CoordinatorsFormErrorKey | undefined {
+	if (sel.mode === "fixed") {
+		const id = sel.profileId.trim();
+		if (id === "") return "coordinators.errors.selectionProfileRequired";
+		return known.has(id) ? undefined : "coordinators.errors.selectionProfileUnknown";
+	}
+	if (sel.mode === "random") {
+		if (sel.profileIds.length === 0) return "coordinators.errors.selectionProfileRequired";
+		return sel.profileIds.every((id) => known.has(id.trim())) ? undefined : "coordinators.errors.selectionProfileUnknown";
+	}
+	return undefined;
+}
 
 /** Parses a limit field: blank is the default, otherwise 0..hard maximum. */
 export function parseLimit(value: string, hard: number): number | null | "invalid" {
@@ -136,6 +156,13 @@ export function validateCoordinatorsForm(form: CoordinatorsForm): CoordinatorsFo
 		else if (profile.harness.trim() === "") errors.profiles = "coordinators.errors.profileHarnessRequired";
 		seen.add(id);
 	}
+	const known = new Set(form.agentProfiles.map((profile) => profile.id.trim()).filter((id) => id !== ""));
+	const selections: NonNullable<CoordinatorsFormErrors["selections"]> = {};
+	for (const name of ["coordinatorAgent", "workerAgent", "rootWorkerAgent"] as const) {
+		const error = selectionError(form[name], known);
+		if (error) selections[name] = error;
+	}
+	if (Object.keys(selections).length > 0) errors.selections = selections;
 	return errors;
 }
 

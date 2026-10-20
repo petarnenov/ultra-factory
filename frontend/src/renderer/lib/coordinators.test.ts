@@ -109,6 +109,37 @@ describe("validateCoordinatorsForm", () => {
 	});
 });
 
+describe("validateCoordinatorsForm selections", () => {
+	const profile = { id: "fast", label: "", harness: "codex", model: "", effort: "", weight: "" };
+	const sel = (mode: "inherit" | "fixed" | "random", profileId = "", profileIds: string[] = []) => ({ mode, profileId, profileIds });
+
+	test("a fixed selection needs a profile that exists", () => {
+		const form = baseForm({ agentProfiles: [profile], coordinatorAgent: sel("fixed") });
+		expect(validateCoordinatorsForm(form).selections?.coordinatorAgent).toBe("coordinators.errors.selectionProfileRequired");
+		const gone = baseForm({ agentProfiles: [profile], workerAgent: sel("fixed", "removed") });
+		expect(validateCoordinatorsForm(gone).selections?.workerAgent).toBe("coordinators.errors.selectionProfileUnknown");
+		const ok = baseForm({ agentProfiles: [profile], rootWorkerAgent: sel("fixed", "fast") });
+		expect(validateCoordinatorsForm(ok).selections).toBeUndefined();
+	});
+
+	test("a random selection needs at least one profile, all of which exist", () => {
+		expect(validateCoordinatorsForm(baseForm({ agentProfiles: [profile], workerAgent: sel("random") })).selections?.workerAgent).toBe(
+			"coordinators.errors.selectionProfileRequired",
+		);
+		expect(
+			validateCoordinatorsForm(baseForm({ agentProfiles: [profile], workerAgent: sel("random", "", ["fast", "old"]) })).selections
+				?.workerAgent,
+		).toBe("coordinators.errors.selectionProfileUnknown");
+		expect(
+			validateCoordinatorsForm(baseForm({ agentProfiles: [profile], workerAgent: sel("random", "", ["fast"]) })).selections,
+		).toBeUndefined();
+	});
+
+	test("inherit needs no profile", () => {
+		expect(validateCoordinatorsForm(baseForm()).selections).toBeUndefined();
+	});
+});
+
 describe("validateSpawnCoordinator", () => {
 	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[] };
 

@@ -3410,5 +3410,8 @@
   "coordinators.start.errors.hostSlotDuplicate": "각 호스트는 한 번만 나타날 수 있습니다.",
   "coordinators.start.errors.hostNotAllowed": "해당 호스트는 프로젝트의 허용된 호스트 목록에 없습니다.",
   "coordinators.start.errors.briefRequired": "브리프를 입력하세요.",
-  "coordinators.start.errors.customAgentRequired": "사용자 지정 코디네이터 에이전트의 하네스를 입력하세요."
+  "coordinators.start.errors.customAgentRequired": "사용자 지정 코디네이터 에이전트의 하네스를 입력하세요.",
+  "coordinators.errors.selectionProfileRequired": "이 선택에 쓸 프로필을 고르세요.",
+  "coordinators.errors.selectionProfileUnknown": "이 선택은 더 이상 없는 프로필을 사용합니다. 다른 프로필을 고르세요.",
+  "coordinators.errors.fixBeforeSave": "저장하기 전에 표시된 항목을 수정하세요."
 }

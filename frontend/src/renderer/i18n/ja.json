@@ -3410,5 +3410,8 @@
   "coordinators.start.errors.hostSlotDuplicate": "同じホストは 1 回だけ指定できます。",
   "coordinators.start.errors.hostNotAllowed": "そのホストはプロジェクトの許可済みホストにありません。",
   "coordinators.start.errors.briefRequired": "ブリーフは必須です。",
-  "coordinators.start.errors.customAgentRequired": "カスタムのコーディネーターエージェントにはハーネスを入力してください。"
+  "coordinators.start.errors.customAgentRequired": "カスタムのコーディネーターエージェントにはハーネスを入力してください。",
+  "coordinators.errors.selectionProfileRequired": "この選択に使うプロファイルを選んでください。",
+  "coordinators.errors.selectionProfileUnknown": "この選択は存在しないプロファイルを使っています。別のものを選んでください。",
+  "coordinators.errors.fixBeforeSave": "保存する前に、強調表示された項目を修正してください。"
 }

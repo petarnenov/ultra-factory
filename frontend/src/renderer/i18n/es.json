@@ -3455,5 +3455,8 @@
   "coordinators.start.errors.hostSlotDuplicate": "Cada host puede aparecer una sola vez.",
   "coordinators.start.errors.hostNotAllowed": "Ese host no está en los hosts permitidos del proyecto.",
   "coordinators.start.errors.briefRequired": "Las instrucciones son obligatorias.",
-  "coordinators.start.errors.customAgentRequired": "Escribe un harness para el agente de coordinador personalizado."
+  "coordinators.start.errors.customAgentRequired": "Escribe un harness para el agente de coordinador personalizado.",
+  "coordinators.errors.selectionProfileRequired": "Elige un perfil para esta selección.",
+  "coordinators.errors.selectionProfileUnknown": "Esta selección usa un perfil que ya no existe. Elige otro.",
+  "coordinators.errors.fixBeforeSave": "Corrige los campos marcados antes de guardar."
 }

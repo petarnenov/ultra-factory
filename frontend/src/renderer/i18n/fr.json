@@ -3455,5 +3455,8 @@
   "coordinators.start.errors.hostSlotDuplicate": "Chaque hôte ne peut apparaître qu'une fois.",
   "coordinators.start.errors.hostNotAllowed": "Cet hôte ne fait pas partie des hôtes autorisés du projet.",
   "coordinators.start.errors.briefRequired": "La consigne est requise.",
-  "coordinators.start.errors.customAgentRequired": "Saisissez un harness pour l'agent de coordinateur personnalisé."
+  "coordinators.start.errors.customAgentRequired": "Saisissez un harness pour l'agent de coordinateur personnalisé.",
+  "coordinators.errors.selectionProfileRequired": "Choisissez un profil pour cette sélection.",
+  "coordinators.errors.selectionProfileUnknown": "Cette sélection utilise un profil qui n'existe plus. Choisissez-en un autre.",
+  "coordinators.errors.fixBeforeSave": "Corrigez les champs signalés avant d'enregistrer."
 }

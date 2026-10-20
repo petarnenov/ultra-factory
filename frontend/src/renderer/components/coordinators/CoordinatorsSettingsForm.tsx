@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRemoteHosts } from "../../hooks/useRemoteHosts";
 import { apiClient, apiErrorMessage } from "../../lib/api-client";
@@ -41,38 +41,45 @@ export function CoordinatorsSettingsForm({
 }) {
 	const { t } = useTranslation();
 	const hosts = useRemoteHosts().hosts;
-	const [initial] = useState(() => coordinatorsFormFrom(config.coordinators));
-	const [form, setForm] = useState<CoordinatorsForm>(initial);
+	// The last saved form. A successful save moves it forward, so only edits
+	// made after that count as unsaved.
+	const [baseline, setBaseline] = useState(() => coordinatorsFormFrom(config.coordinators));
+	const [form, setForm] = useState<CoordinatorsForm>(baseline);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
 	const errors = validateCoordinatorsForm(form);
 	const hasErrors = Object.keys(errors).length > 0;
-	const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-	// Reports dirty and save state, so closing asks before losing edits.
+	const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
+	const blocked = dirty && hasErrors;
+	// The dialog submits this form before it switches section or closes. A
+	// draft that cannot be saved reports "failed", so the switch or close is
+	// held and the reason stays on screen instead of dropping the edits.
 	useEffect(() => {
 		onSaveState?.({
-			phase: saving ? "saving" : saveError ? "failed" : saved ? "saved" : "idle",
+			phase: saving ? "saving" : saveError || blocked ? "failed" : saved && !dirty ? "saved" : "idle",
 			dirty,
-			error: saveError ?? undefined,
+			error: saveError ?? (blocked ? t("coordinators.errors.fixBeforeSave") : undefined),
 		});
-	}, [dirty, saveError, saved, saving, onSaveState]);
+	}, [dirty, blocked, saveError, saved, saving, onSaveState, t]);
 	const update = (patch: Partial<CoordinatorsForm>) => {
 		setSaved(false);
 		setForm((current) => ({ ...current, ...patch }));
 	};
 
 	const save = async () => {
+		const snapshot = form;
 		setSaving(true);
 		setSaveError(null);
 		setSaved(false);
 		try {
-			const next = withCoordinatorsConfig(config, coordinatorsConfigFrom(form));
+			const next = withCoordinatorsConfig(config, coordinatorsConfigFrom(snapshot));
 			const { error } = await (hostId ? clientForHost(hostId) : apiClient).PUT("/api/v1/projects/{id}", {
 				params: { path: { id: projectId } },
 				body: { displayName: projectName, config: next },
 			});
 			if (error) throw new Error(apiErrorMessage(error));
+			setBaseline(snapshot);
 			setSaved(true);
 			onSaved();
 		} catch (error) {
@@ -86,8 +93,18 @@ export function CoordinatorsSettingsForm({
 	const toggleHost = (id: string, on: boolean) =>
 		update({ allowedHosts: on ? [...form.allowedHosts, id] : form.allowedHosts.filter((candidate) => candidate !== id) });
 
+	const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (hasErrors) {
+			setSaved(false);
+			return;
+		}
+		if (dirty) void save();
+	};
+
 	return (
 		<div className="flex flex-col gap-6" data-testid="coordinators-settings">
+		<form className="flex flex-col gap-6" id="project-settings-form" onSubmit={onSubmit}>
 			<div className="flex items-center justify-between gap-4">
 				<Label htmlFor="coordinators-enabled">{t("coordinators.enable")}</Label>
 				<Switch checked={form.enabled} id="coordinators-enabled" onCheckedChange={(enabled) => update({ enabled })} />
@@ -161,6 +178,7 @@ export function CoordinatorsSettingsForm({
 					onChange={(coordinatorAgent) => update({ coordinatorAgent })}
 					profiles={form.agentProfiles}
 					value={form.coordinatorAgent}
+					error={errors.selections?.coordinatorAgent}
 				/>
 				<AgentSelectionField
 					id="coordinators-worker"
@@ -168,6 +186,7 @@ export function CoordinatorsSettingsForm({
 					onChange={(workerAgent) => update({ workerAgent })}
 					profiles={form.agentProfiles}
 					value={form.workerAgent}
+					error={errors.selections?.workerAgent}
 				/>
 				<AgentSelectionField
 					id="coordinators-root-worker"
@@ -175,6 +194,7 @@ export function CoordinatorsSettingsForm({
 					onChange={(rootWorkerAgent) => update({ rootWorkerAgent })}
 					profiles={form.agentProfiles}
 					value={form.rootWorkerAgent}
+					error={errors.selections?.rootWorkerAgent}
 				/>
 			</section>
 
@@ -188,13 +208,15 @@ export function CoordinatorsSettingsForm({
 			</section>
 
 			<div className="flex items-center gap-3">
-				<Button disabled={!dirty || hasErrors || saving} onClick={() => void save()} type="button">
+				<Button disabled={!dirty || hasErrors || saving} type="submit">
 					{t("coordinators.save")}
 				</Button>
 				<span className="text-sm" role="status">
 					{saveError ? <span className="text-error">{saveError}</span> : saved ? t("coordinators.saved") : null}
 				</span>
 			</div>
+
+		</form>
 
 			<CoordinatorRoster config={config} hostId={hostId} projectId={projectId} />
 		</div>

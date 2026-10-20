@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import type { ProfileForm, SelectionForm, SelectionMode } from "../../lib/coordinators";
+import type { CoordinatorsFormErrorKey, ProfileForm, SelectionForm, SelectionMode } from "../../lib/coordinators";
 import { Checkbox } from "../ui/checkbox";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -20,6 +20,7 @@ export function AgentSelectionField({
 	profiles,
 	modes = ["inherit", "fixed", "random"],
 	disabled,
+	error,
 	onChange,
 }: {
 	id: string;
@@ -28,6 +29,7 @@ export function AgentSelectionField({
 	profiles: ProfileForm[];
 	modes?: SelectionMode[];
 	disabled?: boolean;
+	error?: CoordinatorsFormErrorKey;
 	onChange: (next: SelectionForm) => void;
 }) {
 	const { t } = useTranslation();
@@ -94,6 +96,7 @@ export function AgentSelectionField({
 					})}
 				</fieldset>
 			) : null}
+			{error ? <p className="text-sm text-error" role="alert">{t(error)}</p> : null}
 		</div>
 	);
 }
