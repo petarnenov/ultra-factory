@@ -58,7 +58,11 @@ func render(cfg Config, facts Facts, violations []Violation, show func(Violation
 	fmt.Fprintf(&b, "[open PRs -> %s]\n", cfg.Base)
 	if facts.GitHub != nil {
 		for _, pr := range facts.GitHub.OpenPRs {
-			fmt.Fprintf(&b, "  #%d %s mergeable=%s checks=%s\n", pr.Number, pr.Head, pr.Mergeable, CheckSummary(pr.Checks))
+			mergeable := pr.Mergeable
+			if pr.Draft {
+				mergeable = "NO(draft)"
+			}
+			fmt.Fprintf(&b, "  #%d %s mergeable=%s checks=%s\n", pr.Number, pr.Head, mergeable, CheckSummary(pr.Checks))
 		}
 	}
 	b.WriteString("[invariants]\n")

@@ -41,6 +41,26 @@ func TestGreenPRThresholdAndChecks(t *testing.T) {
 	}
 }
 
+func TestDraftWithSkippedExpensiveChecksIsNotAGreenPR(t *testing.T) {
+	cfg := DefaultConfig()
+	old := now.Add(-2 * cfg.GreenPRMax)
+	draft := PullRequest{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE", Draft: true, Checks: []Check{
+		{Result: "SUCCESS", CompletedAt: old}, {Result: "SKIPPED", CompletedAt: old}, {Result: "SKIPPED", CompletedAt: old},
+	}}
+	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{draft}}}
+	if got := greenPRsLeftOpen(cfg, facts, now); len(got) != 0 {
+		t.Fatalf("draft produced a green-PR violation: %v", got)
+	}
+	if out := Snapshot(cfg, facts, nil); !strings.Contains(out, "mergeable=NO(draft)") {
+		t.Fatalf("snapshot does not mark the draft not mergeable:\n%s", out)
+	}
+	draft.Draft = false
+	facts.GitHub.OpenPRs[0] = draft
+	if got := greenPRsLeftOpen(cfg, facts, now); len(got) != 1 {
+		t.Fatalf("the same PR once ready must be a violation, got %v", got)
+	}
+}
+
 func TestGreenPRViolationMatchesReviewState(t *testing.T) {
 	cfg := DefaultConfig()
 	greenFacts := func(mutate func(*PullRequest, *Worker)) Facts {

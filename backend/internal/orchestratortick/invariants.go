@@ -59,7 +59,7 @@ func greenPRsLeftOpen(cfg Config, facts Facts, now time.Time) []Violation {
 		return nil
 	}
 	for _, pr := range facts.GitHub.OpenPRs {
-		if pr.Mergeable != "MERGEABLE" || PRCheckSummary(pr, now) != "green" {
+		if pr.Draft || pr.Mergeable != "MERGEABLE" || PRCheckSummary(pr, now) != "green" {
 			continue
 		}
 		var last time.Time
