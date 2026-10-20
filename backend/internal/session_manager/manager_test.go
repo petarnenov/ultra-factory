@@ -6387,6 +6387,36 @@ func TestSystemPrompt_AppendsArtifactGuidance(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_WorkerReadsStoredCIGateActive(t *testing.T) {
+	for _, gated := range []bool{true, false} {
+		t.Run(fmt.Sprintf("gated=%v", gated), func(t *testing.T) {
+			st := newFakeStore()
+			st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: t.TempDir(), RepoOriginURL: "https://github.com/acme/mercury", Config: testRoleAgents()}
+			st.sessions["mer-7"] = domain.SessionRecord{ID: "mer-7", ProjectID: "mer", Kind: domain.KindWorker, CIGateActive: gated}
+			m := New(Deps{
+				Runtime:   &fakeRuntime{},
+				Agents:    singleAgent{agent: &recordingAgent{}},
+				Workspace: &fakeWorkspace{},
+				Store:     st,
+				Messenger: &fakeMessenger{},
+				Lifecycle: &fakeLCM{store: st},
+				DataDir:   t.TempDir(),
+				LookPath:  func(string) (string, error) { return "/bin/true", nil },
+			})
+			sp, err := m.buildSystemPrompt(ctx, domain.KindWorker, "mer", "mer-7", "", false)
+			if err != nil {
+				t.Fatalf("buildSystemPrompt: %v", err)
+			}
+			if got := strings.Contains(sp, "## CI Gate"); got != gated {
+				t.Fatalf("CI Gate section present = %v, want %v", got, gated)
+			}
+			if got := strings.Contains(sp, "`gh pr create --draft ...`"); got != gated {
+				t.Fatalf("draft instruction present = %v, want %v", got, gated)
+			}
+		})
+	}
+}
+
 func TestSystemPrompt_ArtifactRequestedOutput(t *testing.T) {
 	st := newFakeStore()
 	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: t.TempDir(), Config: testRoleAgents()}
