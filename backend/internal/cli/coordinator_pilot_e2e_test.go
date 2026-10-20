@@ -348,7 +348,9 @@ func TestE2E_CoordinatorPilot(t *testing.T) {
 	})
 
 	t.Run("recovery: a replacement coordinator takes the returned workers", func(t *testing.T) {
-		// The replacement goes through the real spawn admission, not a seeded row.
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("a real spawn needs tmux on PATH")
+		}
 		out, code := spawnCoordinator(w.root.ID, "auth area, replacement")
 		if code != 0 {
 			t.Fatalf("spawn replacement coordinator: exit %d: %s", code, out)
@@ -384,6 +386,9 @@ func TestE2E_CoordinatorPilot(t *testing.T) {
 	})
 
 	t.Run("a daemon restart with a claimed, unacknowledged batch loses and duplicates nothing", func(t *testing.T) {
+		if w.coordC.ID == "" {
+			t.Skip("the replacement coordinator was not spawned")
+		}
 		e.stopDaemon(t)
 		store, err := sqlite.Open(e.dataDir)
 		if err != nil {
