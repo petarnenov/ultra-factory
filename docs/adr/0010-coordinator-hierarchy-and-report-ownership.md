@@ -1322,6 +1322,19 @@ A coordinator has its own `workerLimit`, stored on the coordinator session.
   count drops (the section 8 grandfather rule, applied per coordinator).
 - The coordinator receives a short system message with its new `workerLimit`
   and host slots after every change.
+- **Invariants on a live change.** The route validates the resulting pair
+  (`workerLimit`, `hostSlots`) as a whole, so one request can lower the limit
+  and shrink the slots together. A change that would leave the slot total above
+  `workerLimit` is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`; the
+  daemon never shrinks slots on its own. This differs from the live worker
+  count, which is grandfathered.
+- **Project ceiling lowered under a stored limit.** Lowering the project's
+  `maxWorkersPerCoordinator` is accepted and rewrites no coordinator. A stored
+  `workerLimit` above the new ceiling is clamped when it is read: admission
+  uses the smaller of the two, and the roster shows both the stored and the
+  effective value. Raising the ceiling again restores the stored value. The
+  same clamp applies to the slot total (the effective placement limit is
+  never above the clamped limit).
 - Coordinators spawned before this change have no stored limit. They use the
   project's `maxWorkersPerCoordinator`, which is the 0.18.0 behavior.
 
