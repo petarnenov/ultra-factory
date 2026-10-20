@@ -1583,8 +1583,14 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
   config and the coordinator's stored values under the per-project
   `ownership.Guard` lock, which is the capacity boundary after #393 (section 8,
   single-writer assumption), never before it. A check made before the lock is
-  only an early refusal and is repeated inside. The error order is: root
-  caller, scope, enabled, then limits, local-worker rule, host, profile.
+  only an early refusal and is repeated inside. The error order is: operator
+  marker shape (`OPERATOR_MARKER_NOT_ALLOWED`), root caller or root resolution
+  (`COORDINATOR_ROOT_REQUIRED`), scope, enabled, then limits, local-worker rule,
+  host, profile. The marker check is a request-shape check and runs first: a
+  request with `operatorInitiated: true` and a `parentSessionId` that is not the
+  live root gets `OPERATOR_MARKER_NOT_ALLOWED`, not `COORDINATOR_ROOT_REQUIRED`.
+  `COORDINATOR_ROOT_REQUIRED` stays for a caller without the marker that is not
+  the live root, and for a marked request when the project has no live root.
 - **Section 3 and section 7.** Recipient resolution and the reassignment
   transitions are unchanged by this amendment (they were last amended for
   #387). Reassignment to a coordinator now also checks that
