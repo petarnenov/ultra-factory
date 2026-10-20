@@ -105,6 +105,7 @@ commit and records which tree the verdict read. See
 | `ao automation create/list/get/update/delete/runs` | `POST/GET/PATCH/DELETE /api/v1/automations` |
 | `ao cue create/list`                | `POST/GET /api/v1/projects/{id}/cues`         |
 | `ao spawn`                          | Targeted launch ensure, then `POST /api/v1/sessions` |
+| `ao spawn --kind coordinator --scope <text>` | `POST /api/v1/sessions` with `kind=coordinator`, `scope`, and the calling root as `parentSessionId` |
 | `ao session ls`                     | `GET /api/v1/sessions` plus per-session PR summaries; shows branch, PR, CI, review, unresolved threads, activity, and age. |
 | `ao session get <id>`               | `GET /api/v1/sessions/{id}`                    |
 | `ao session owner <id>`             | `GET /api/v1/sessions/{id}/ownership`         |

@@ -19,6 +19,8 @@ import (
 // daemon's spawn handler so a direct API call is held to the same limit.
 const maxDisplayNameLen = 100
 
+const maxCoordinatorScopeLen = 200
+
 type spawnOptions struct {
 	project            string
 	standalone         bool
@@ -37,6 +39,7 @@ type spawnOptions struct {
 	skipAgentCheck     bool
 	trackerProvider    string
 	terminateOnPRMerge bool
+	scope              string
 }
 
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
@@ -47,6 +50,7 @@ type spawnRequest struct {
 	ParentSessionID string `json:"parentSessionId,omitempty"`
 	TrackerProvider string `json:"trackerProvider,omitempty"`
 	Kind            string `json:"kind,omitempty"`
+	Scope           string `json:"scope,omitempty"`
 	Mode            string `json:"mode,omitempty"`
 	Harness         string `json:"harness,omitempty"`
 	// HarnessExplicit distinguishes a caller-named harness from one resolved
@@ -112,17 +116,20 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if opts.mode != "" && opts.mode != "chat" && opts.mode != "tui" {
 				return usageError{fmt.Errorf(`--mode must be "chat" or "tui"`)}
 			}
-			if opts.kind != "" && opts.kind != "worker" && opts.kind != "orchestrator" {
-				return usageError{fmt.Errorf(`--kind must be "worker" or "orchestrator"`)}
+			if opts.kind != "" && opts.kind != "worker" && opts.kind != "orchestrator" && opts.kind != "coordinator" {
+				return usageError{fmt.Errorf(`--kind must be "worker", "orchestrator", or "coordinator"`)}
+			}
+			if err := validateCoordinatorSpawn(opts, ctx.targetsRemote()); err != nil {
+				return err
 			}
 			if opts.output != "" && opts.output != "artifact" {
 				return usageError{fmt.Errorf(`--output must be "artifact"`)}
 			}
-			if opts.output != "" && opts.kind == "orchestrator" {
+			if opts.output != "" && opts.kind != "" && opts.kind != "worker" {
 				return usageError{fmt.Errorf("--output is supported for worker sessions only")}
 			}
 			if opts.standalone {
-				if opts.kind == "orchestrator" {
+				if opts.kind == "orchestrator" || opts.kind == "coordinator" {
 					return usageError{fmt.Errorf("standalone sessions must be workers")}
 				}
 				if strings.TrimSpace(opts.branch) != "" || strings.TrimSpace(opts.issue) != "" || strings.TrimSpace(opts.claimPR) != "" {
@@ -200,6 +207,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				ParentSessionID:    parentSessionID,
 				TrackerProvider:    opts.trackerProvider,
 				Kind:               opts.kind,
+				Scope:              opts.scope,
 				Harness:            opts.harness,
 				HarnessExplicit:    spawnBoolPtr(explicitHarness != ""),
 				Mode:               opts.mode,
@@ -281,7 +289,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.project, "project", "", "Project id to spawn the session in (default: AO_PROJECT_ID or the current registered repo)")
 	f.BoolVar(&opts.standalone, "standalone", false, "Spawn a projectless worker in an AO-managed plain directory (requires --agent)")
 	f.StringVar(&opts.harness, "harness", "", "Agent harness / --agent: claude-code, codex, aider, opencode, opencode-v2, grok, droid, amp, agy, crush, cursor, qwen, gemini, copilot, goose, auggie, continue, devin, cline, kimi, muse, kiro, kilocode, vibe, pi, kimchi, prime-agent, autohand, omp, fx, unreal-agent, mimo-code, deepseek-harness, openhands, command-code (default: project worker.agent; orchestrator spawns default to project orchestrator.agent; required if the project has none)")
-	f.StringVar(&opts.kind, "kind", "", "Session role: worker or orchestrator (default: worker)")
+	f.StringVar(&opts.kind, "kind", "", "Session role: worker, orchestrator, or coordinator (default: worker). A coordinator is spawned by the live root and needs --scope")
+	f.StringVar(&opts.scope, "scope", "", "Bounded area of work for --kind coordinator (required, max 200 characters)")
 	f.StringVar(&opts.mode, "mode", "", "Initial session interface: chat (structured agent connection) or tui (the agent's native terminal). Omitted uses the daemon default; compatible sessions can switch later.")
 	f.StringVar(&opts.branch, "branch", "", "Branch for git project sessions (default: ao/<session-id>/root; unsupported for standalone or Scratch sessions)")
 	f.StringVar(&opts.prompt, "prompt", "", "Initial prompt for the agent")
@@ -515,6 +524,31 @@ func pathContains(root, child string) bool {
 	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// validateCoordinatorSpawn rejects misuse of --scope and --kind coordinator
+// before any daemon call, so it exits 2 as a usage error.
+func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
+	scope := strings.TrimSpace(opts.scope)
+	if opts.kind != "coordinator" {
+		if scope != "" {
+			return usageError{fmt.Errorf("--scope is supported with --kind coordinator only")}
+		}
+		return nil
+	}
+	if scope == "" {
+		return usageError{fmt.Errorf("--scope is required with --kind coordinator")}
+	}
+	if utf8.RuneCountInString(scope) > maxCoordinatorScopeLen {
+		return usageError{fmt.Errorf("--scope must be %d characters or fewer", maxCoordinatorScopeLen)}
+	}
+	if remote {
+		return usageError{fmt.Errorf("--host is not supported with --kind coordinator; coordinators run where the root runs")}
+	}
+	if strings.TrimSpace(opts.claimPR) != "" {
+		return usageError{fmt.Errorf("--claim-pr is supported for worker sessions only")}
+	}
+	return nil
+}
+
 func spawnBoolPtr(value bool) *bool { return &value }
 
 func resolveSpawnHarness(explicit, kind string, project projectDetails) (string, error) {
@@ -522,7 +556,7 @@ func resolveSpawnHarness(explicit, kind string, project projectDetails) (string,
 		return harness, nil
 	}
 	if project.Config != nil {
-		if kind == "orchestrator" {
+		if kind == "orchestrator" || kind == "coordinator" {
 			if harness := strings.TrimSpace(project.Config.Orchestrator.Agent); harness != "" {
 				return harness, nil
 			}
@@ -537,7 +571,7 @@ func resolveSpawnHarness(explicit, kind string, project projectDetails) (string,
 	if harness := strings.TrimSpace(project.Agent); harness != "" {
 		return harness, nil
 	}
-	if kind == "orchestrator" {
+	if kind == "orchestrator" || kind == "coordinator" {
 		return "", usageError{fmt.Errorf("agent could not be resolved; pass --agent or configure `ao project set-config %s --orchestrator-agent <agent>`", project.ID)}
 	}
 	return "", usageError{fmt.Errorf("agent could not be resolved; pass --agent or configure `ao project set-config %s --worker-agent <agent>`", project.ID)}

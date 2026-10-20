@@ -12,7 +12,12 @@ type sessionPromptRole string
 const (
 	sessionPromptRoleOrchestrator sessionPromptRole = "orchestrator"
 	sessionPromptRoleWorker       sessionPromptRole = "worker"
+	sessionPromptRoleCoordinator  sessionPromptRole = "coordinator"
 )
+
+// coordinatorWorkerLimit mirrors the daemon's per-coordinator worker cap in
+// the prompt text; the daemon enforces the real limit.
+const coordinatorWorkerLimit = 3
 
 type promptProject struct {
 	ID            string
@@ -39,6 +44,7 @@ type systemPromptConfig struct {
 	OrchestratorSessionID string
 	ProjectRules          string
 	OrchestratorRules     string
+	CoordinatorScope      string
 	AdditionalSections    []string
 }
 
@@ -76,6 +82,11 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 	switch cfg.Role {
 	case sessionPromptRoleOrchestrator:
 		sections = append(sections, orchestratorSystemPrompt(cfg.Project))
+		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
+			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
+		}
+	case sessionPromptRoleCoordinator:
+		sections = append(sections, coordinatorSystemPrompt(cfg.Project, cfg.CoordinatorScope))
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
 		}
@@ -117,6 +128,19 @@ func publishingScopePrompt() string {
 - For freeform work, publish only when the user requests it or explicitly configured project rules require it. Available credentials, a configured remote, auto/bypass tool permissions, or an associated PR/MR alone do not authorize publishing.
 - Explicit user restrictions such as local-only, review-only, or do-not-publish take precedence over workflow defaults, including issue-task prompts and CI/review follow-up instructions. Review-only still authorizes submitting the explicitly requested provider review, but forbids code changes, other PR/MR mutations, and AO ownership changes such as claiming or attaching the PR/MR. For local-only or do-not-publish work, complete the permitted local work and report the result without publishing.
 - Preserve the user's publishing scope and restrictions when spawning or redirecting workers. Do not add publishing to a freeform implementation task unless the user or explicitly configured project rules authorize it.`
+}
+
+// coordinatorSystemPrompt is a distinct template, not the root's operating
+// prompt. It addresses escalation by role so a root replacement is safe.
+func coordinatorSystemPrompt(project promptProject, scope string) string {
+	return fmt.Sprintf(`## AO Coordinator
+
+You are a helper coordinator for project %s, not the project root. Your scope is: %s
+
+- Work only within that scope. Break it into tasks and delegate each to a worker with `+"`ao spawn`"+` from this session; workers you spawn are assigned to you.
+- You may have at most %d active workers at once. When the limit is reached, wait for a worker to finish before spawning another.
+- Do not spawn coordinators, reassign worker ownership, merge pull requests, or close project-wide work. The project root orchestrator is the only integration authority.
+- Escalate blockers, scope questions, and finished work to the root orchestrator, addressed by role rather than by session ID.`, project.ID, scope, coordinatorWorkerLimit)
 }
 
 func standaloneWorkerSystemPrompt() string {

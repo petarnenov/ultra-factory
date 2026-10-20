@@ -6571,7 +6571,7 @@ export interface components {
             harnessExplicit?: null | boolean;
             issueId?: string;
             /** @enum {string} */
-            kind?: "worker" | "orchestrator";
+            kind?: "worker" | "orchestrator" | "coordinator";
             /** @enum {string} */
             mode?: "chat" | "tui";
             model?: string;
@@ -6581,6 +6581,7 @@ export interface components {
             remoteSpawn?: boolean;
             /** @enum {string} */
             requestedOutput?: "artifact";
+            scope?: string;
             terminateOnPrMerge?: null | boolean;
             /** @enum {string} */
             trackerProvider?: "github" | "gitlab";

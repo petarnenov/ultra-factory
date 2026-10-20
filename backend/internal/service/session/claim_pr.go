@@ -70,7 +70,7 @@ func (s *Service) ClaimPR(ctx context.Context, id domain.SessionID, ref string, 
 	if rec.IsTerminated {
 		return ClaimPRResult{}, sessionmanagerAPIError("SESSION_TERMINATED", "Session is terminated")
 	}
-	if rec.Kind == domain.KindOrchestrator {
+	if rec.Kind != domain.KindWorker {
 		return ClaimPRResult{}, ErrSessionNotClaimable
 	}
 	if strings.TrimSpace(rec.Metadata.WorkspacePath) == "" {
