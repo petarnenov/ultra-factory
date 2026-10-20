@@ -145,6 +145,7 @@ func newCoordinatorCommand(ctx *commandContext) *cobra.Command {
 		Short: "Inspect a project's coordinator hierarchy",
 	}
 	cmd.AddCommand(newCoordinatorListCommand(ctx))
+	cmd.AddCommand(newCoordinatorReportCommand(ctx))
 	return cmd
 }
 

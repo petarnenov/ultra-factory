@@ -238,6 +238,9 @@ func Run() error {
 	if _, err := store.RequeueClaimedReports(context.Background()); err != nil {
 		return fmt.Errorf("recover report delivery claims: %w", err)
 	}
+	if _, err := store.RequeueClaimedCoordinatorSummaries(context.Background()); err != nil {
+		return fmt.Errorf("recover coordinator summary delivery claims: %w", err)
+	}
 	if err := store.ConfigureAgentSwitchFailureEventEncoder(context.Background(), sentryobs.AgentSwitchEventEncoder{}); err != nil {
 		return fmt.Errorf("configure agent switch failure event encoder: %w", err)
 	}
@@ -704,9 +707,13 @@ func Run() error {
 		}
 	}})
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
-		Store:    store,
-		Delivery: reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
+		Store:     store,
+		Delivery:  reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
+		Summaries: store,
 	})
+	summarySvc := reportsvc.NewSummaryService(reportsvc.SummaryDeps{Store: store, OnCreated: func(domain.CoordinatorSummary) {
+		reportCoordinator.Wake()
+	}})
 	chatSvc.SetReportCoordinator(reportCoordinator)
 	reportDeliveryDone := reportCoordinator.Start(ctx)
 	defer func() {
@@ -1052,6 +1059,7 @@ func Run() error {
 		Reviews:            reviewSvc,
 		Notifications:      notifier,
 		Reports:            reportSvc,
+		Summaries:          summarySvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
 		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),
 		NotificationStream: notificationHub,

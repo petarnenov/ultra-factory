@@ -705,6 +705,7 @@ func operations() []operation {
 	ops = append(ops, reviewOperations()...)
 	ops = append(ops, notificationOperations()...)
 	ops = append(ops, reportOperations()...)
+	ops = append(ops, coordinatorSummaryOperations()...)
 	ops = append(ops, completedTaskOperations()...)
 	ops = append(ops, usageOperations()...)
 	ops = append(ops, pushOperations()...)
@@ -872,6 +873,36 @@ func reportOperations() []operation {
 			{http.StatusBadRequest, envelope.APIError{}},
 			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}}
+}
+
+// coordinatorSummaryOperations declares the coordinator-to-root summary routes.
+func coordinatorSummaryOperations() []operation {
+	return []operation{{
+		method: http.MethodPost, path: "/api/v1/coordinator-summaries", id: "submitCoordinatorSummary", tag: "reports",
+		summary: "Submit a coordinator summary or escalation to the project root",
+		reqBody: controllers.CoordinatorSummaryRequest{},
+		resps: []respUnit{
+			{http.StatusCreated, controllers.CoordinatorSummaryResponse{}},
+			{http.StatusOK, controllers.CoordinatorSummaryResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusForbidden, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodGet, path: "/api/v1/sessions/{sessionId}/summaries", id: "listCoordinatorSummaries", tag: "reports",
+		summary:    "List a coordinator's summaries newest first with delivery state",
+		pathParams: []any{controllers.SessionIDParam{}, controllers.CoordinatorSummaryHistoryQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.CoordinatorSummaryHistoryResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusInternalServerError, envelope.APIError{}},
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},
