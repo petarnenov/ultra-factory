@@ -614,3 +614,20 @@ func TestDraftPhaseSkipsHoldMergeForTenMinutesAfterReady(t *testing.T) {
 		})
 	}
 }
+
+func TestSameCheckNameInAnotherWorkflowDoesNotHideAFailure(t *testing.T) {
+	pr := readyPR(1, "rw/1", head("a"))
+	pr.AOReviewStatus = "up_to_date"
+	pr.Checks = []Check{
+		{Name: "check", Workflow: "Code comment policy", Result: "FAILURE", CompletedAt: now.Add(-time.Hour)},
+		{Name: "check", Workflow: "Mobile", Result: "SUCCESS", CompletedAt: now.Add(-time.Minute)},
+	}
+	if got := strings.Join(MergeBlockers(DefaultConfig(), pr, now), ", "); got != "required checks are red" {
+		t.Fatalf("blockers = %q", got)
+	}
+	pr.Checks[0].Result = "CANCELLED"
+	pr.Checks = append(pr.Checks, Check{Name: "check", Workflow: "Code comment policy", Result: "SUCCESS", CompletedAt: now})
+	if got := MergeBlockers(DefaultConfig(), pr, now); len(got) != 0 {
+		t.Fatalf("rerun in the same workflow must supersede: %v", got)
+	}
+}

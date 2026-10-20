@@ -286,16 +286,17 @@ func PRCheckSummary(pr PullRequest, now time.Time) string {
 	return summary
 }
 
-// latestChecks keeps the newest run per named check; a run without a
-// completion time is still running and counts as newest.
+// latestChecks keeps the newest run per workflow and check name; a run
+// without a completion time is still running and counts as newest.
 func latestChecks(checks []Check) []Check {
 	pos := map[string]int{}
 	out := make([]Check, 0, len(checks))
 	for _, c := range checks {
-		i, seen := pos[c.Name]
+		key := c.Workflow + "\x00" + c.Name
+		i, seen := pos[key]
 		if c.Name == "" || !seen {
 			if c.Name != "" {
-				pos[c.Name] = len(out)
+				pos[key] = len(out)
 			}
 			out = append(out, c)
 			continue

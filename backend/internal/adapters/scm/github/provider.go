@@ -282,7 +282,7 @@ const prObservationQuery = `query($owner:String!,$repo:String!,$number:Int!){
           contexts(first:CONTEXT_LIMIT){
             nodes{
               __typename
-              ... on CheckRun  { name status conclusion completedAt detailsUrl url databaseId }
+              ... on CheckRun  { name status conclusion completedAt detailsUrl url databaseId checkSuite{ workflowRun{ workflow{ name } } } }
               ... on StatusContext { context state targetUrl }
             }
             pageInfo{ hasNextPage }
@@ -383,8 +383,8 @@ func ciSummaryFromGraphQL(pr map[string]any) domain.CIState {
 	}
 }
 
-// latestCheckRuns keeps one CheckRun per name, the newest: the rollup lists
-// superseded runs too, and a cancelled or skipped one must not outvote a rerun.
+// latestCheckRuns keeps the newest CheckRun per workflow and name: the rollup
+// lists superseded runs too, and one must not outvote a rerun.
 func latestCheckRuns(in []map[string]any) []map[string]any {
 	newest := map[string]time.Time{}
 	pos := map[string]int{}
@@ -395,6 +395,7 @@ func latestCheckRuns(in []map[string]any) []map[string]any {
 			out = append(out, n)
 			continue
 		}
+		name = checkWorkflowName(n) + "\x00" + name
 		at := time.Time{}
 		if s := str(n["completedAt"]); s != "" {
 			at, _ = time.Parse(time.RFC3339, s)
@@ -412,6 +413,13 @@ func latestCheckRuns(in []map[string]any) []map[string]any {
 		newest[name] = at
 	}
 	return out
+}
+
+func checkWorkflowName(n map[string]any) string {
+	suite, _ := n["checkSuite"].(map[string]any)
+	run, _ := suite["workflowRun"].(map[string]any)
+	wf, _ := run["workflow"].(map[string]any)
+	return str(wf["name"])
 }
 
 // pageInfoHasMore reports whether the rollup contexts have a next page

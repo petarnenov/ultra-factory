@@ -501,7 +501,7 @@ const tickGitHubQuery = `query($owner: String!, $name: String!, $base: String!, 
         labels(first: 50) { nodes { name } }
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
           __typename
-          ... on CheckRun { name status conclusion completedAt }
+          ... on CheckRun { name status conclusion completedAt checkSuite { workflowRun { workflow { name } } } }
           ... on StatusContext { state createdAt }
         } } } } } }
         reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 50) { nodes { body author { login __typename } } } } }
@@ -544,8 +544,15 @@ type tickGitHubResponse struct {
 							StatusCheckRollup *struct {
 								Contexts struct {
 									Nodes []struct {
-										Typename    string    `json:"__typename"`
-										Name        string    `json:"name"`
+										Typename   string `json:"__typename"`
+										Name       string `json:"name"`
+										CheckSuite struct {
+											WorkflowRun *struct {
+												Workflow struct {
+													Name string `json:"name"`
+												} `json:"workflow"`
+											} `json:"workflowRun"`
+										} `json:"checkSuite"`
 										Status      string    `json:"status"`
 										Conclusion  string    `json:"conclusion"`
 										CompletedAt time.Time `json:"completedAt"`
@@ -667,7 +674,11 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 					if result == "" {
 						result = c.Status
 					}
-					out.Checks = append(out.Checks, orchestratortick.Check{Name: c.Name, Result: result, CompletedAt: c.CompletedAt})
+					check := orchestratortick.Check{Name: c.Name, Result: result, CompletedAt: c.CompletedAt}
+					if c.CheckSuite.WorkflowRun != nil {
+						check.Workflow = c.CheckSuite.WorkflowRun.Workflow.Name
+					}
+					out.Checks = append(out.Checks, check)
 				case "StatusContext":
 					out.Checks = append(out.Checks, orchestratortick.Check{Result: c.State, CompletedAt: c.CreatedAt})
 				}

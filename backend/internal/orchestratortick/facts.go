@@ -58,6 +58,8 @@ type HostSessions struct {
 type Check struct {
 	// Name identifies the check; a named check keeps only its newest run.
 	Name string
+	// Workflow scopes Name; empty for checks that are not Actions runs.
+	Workflow string
 	// Result is the check's conclusion, or its status while it runs, in
 	// GitHub's upper-case form (SUCCESS, FAILURE, IN_PROGRESS, ...).
 	Result      string

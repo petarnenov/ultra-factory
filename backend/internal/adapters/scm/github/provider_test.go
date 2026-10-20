@@ -490,6 +490,16 @@ func TestObserve_CIStates(t *testing.T) {
 			wantCI: domain.CIPassing,
 		},
 		{
+			name: "same name in another workflow does not hide a failure",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "check", "status": "COMPLETED", "conclusion": "FAILURE", "completedAt": "2026-10-20T15:25:50Z",
+					"checkSuite": map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": "Code comment policy"}}}},
+				map[string]any{"__typename": "CheckRun", "name": "check", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:40:00Z",
+					"checkSuite": map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": "Mobile"}}}},
+			},
+			wantCI: domain.CIFailing,
+		},
+		{
 			name: "newest run of a name still failing",
 			nodes: []any{
 				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:25:50Z"},
