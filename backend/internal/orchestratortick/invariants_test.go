@@ -104,6 +104,59 @@ func TestGreenPRViolationMatchesReviewState(t *testing.T) {
 	}
 }
 
+func TestGreenPRHoldLabelIsNotAMergeViolation(t *testing.T) {
+	cfg := DefaultConfig()
+	facts := func(labels []string, reviewDecision string, reviews []WorkerReview) Facts {
+		pr := PullRequest{
+			Number: 354, Head: "fix/daemon-tunnel-comment-policy", HeadSHA: head("354"),
+			Mergeable: "MERGEABLE", Labels: labels, ReviewDecision: reviewDecision,
+			Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-30 * time.Minute)}},
+		}
+		return Facts{
+			GitHub: &GitHubState{OpenPRs: []PullRequest{pr}},
+			Hosts: []HostSessions{{Host: "Linux", Sessions: []Worker{
+				{ID: "uf-1", Branch: "fix/daemon-tunnel-comment-policy", Reviews: reviews},
+			}}},
+		}
+	}
+	const base = `#354 (fix/daemon-tunnel-comment-policy) has been green and mergeable for 30 min → review it per "Review and merge"`
+	currentHead := []WorkerReview{{PRNumber: 354, TargetSHA: head("354"), Status: "up_to_date"}}
+	cases := map[string]struct {
+		labels         []string
+		reviewDecision string
+		reviews        []WorkerReview
+		want           []string
+	}{
+		"no AO review with needs-human": {labels: []string{"needs-human"}, want: []string{}},
+		"approved with needs-human": {
+			labels: []string{"needs-human"}, reviewDecision: "APPROVED", reviews: currentHead,
+			want: []string{},
+		},
+		"status:blocked is also a hold": {labels: []string{"status:blocked"}, want: []string{}},
+		"do-not-merge is also a hold":   {labels: []string{"do-not-merge"}, want: []string{}},
+		"hold label match ignores case": {labels: []string{"NEEDS-HUMAN"}, want: []string{}},
+		"no hold label keeps the review wording": {
+			want: []string{base + "; no current-head AO native approval"},
+		},
+		"running review is the review wording": {
+			reviews: []WorkerReview{{PRNumber: 354, TargetSHA: head("354"), Status: "running"}},
+			want:    []string{base + "; AO review is running"},
+		},
+		"approved without a hold label instructs the merge": {
+			reviewDecision: "APPROVED", reviews: currentHead,
+			want: []string{base + " and merge it"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := texts(greenPRsLeftOpen(cfg, facts(tc.labels, tc.reviewDecision, tc.reviews), now))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestMergedPRWithOpenIssue(t *testing.T) {
 	gh := &GitHubState{
 		MergedPRs:  []MergedPR{{Number: 190, Body: "Closes #120, fixes #5 and resolves #120"}, {Number: 191, Body: "Refs #120"}},
