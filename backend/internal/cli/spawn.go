@@ -695,10 +695,8 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 	return nil
 }
 
-// profileLikelyPicked reports whether the daemon will replace the CLI default
-// agent with a profile, so the default's preflight would check the wrong one.
-// A worker spawn depends on the parent's kind and stored selection, read from
-// its ownership view; any doubt keeps the preflight.
+// profileLikelyPicked reports whether the daemon will swap the CLI default
+// agent for a profile. A worker spawn reads its parent's ownership view.
 func (c *commandContext) profileLikelyPicked(ctx context.Context, opts spawnOptions, project projectDetails) bool {
 	if project.Config == nil || len(project.Config.Coordinators.AgentProfiles) == 0 {
 		return false
