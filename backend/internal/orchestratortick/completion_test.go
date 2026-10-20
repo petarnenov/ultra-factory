@@ -369,7 +369,7 @@ func TestMergeBlockersAreExact(t *testing.T) {
 			pr.Labels = nil
 			pr.Threads = nil
 			tc.mutate(&pr)
-			got := strings.Join(MergeBlockers(cfg, pr), ", ")
+			got := strings.Join(MergeBlockers(cfg, pr, now), ", ")
 			if tc.want == "" {
 				if got != "" {
 					t.Fatalf("blockers = %q, want none", got)
@@ -391,7 +391,7 @@ func TestApplyWorkerReviewRequiresTheExactHead(t *testing.T) {
 	if got.AOReviewStatus != "" {
 		t.Fatalf("stale AO verdict applied to a new head: %q", got.AOReviewStatus)
 	}
-	if blockers := strings.Join(MergeBlockers(DefaultConfig(), got), ", "); !strings.Contains(blockers, "no current-head AO native approval") {
+	if blockers := strings.Join(MergeBlockers(DefaultConfig(), got, now), ", "); !strings.Contains(blockers, "no current-head AO native approval") {
 		t.Fatalf("blockers = %q", blockers)
 	}
 }
@@ -444,7 +444,7 @@ func TestAOCurrentHeadApprovalAuthorizesMerge(t *testing.T) {
 	worker := r.Daemon.(*fakeDaemon).workers["Linux"][0]
 	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: head("1"), Status: "up_to_date"}}
 	r.Daemon.(*fakeDaemon).workers["Linux"] = []Worker{worker}
-	blk := MergeBlockers(r.Config, applyWorkerReview(worker, gh.state.OpenPRs[0]))
+	blk := MergeBlockers(r.Config, applyWorkerReview(worker, gh.state.OpenPRs[0]), now)
 	tick(t, r)
 	state, _, _ := r.Store.Completion()
 	if fm.calls() != 1 {
@@ -578,7 +578,7 @@ func TestSkippedDraftPhaseChecksBlockMergeUntilNewRunsFinish(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			pr := pr
 			pr.Draft, pr.Checks = false, tc.checks
-			got := strings.Join(MergeBlockers(cfg, pr), ", ")
+			got := strings.Join(MergeBlockers(cfg, pr, now), ", ")
 			if got != tc.want {
 				t.Fatalf("blockers = %q, want %q", got, tc.want)
 			}
@@ -586,30 +586,29 @@ func TestSkippedDraftPhaseChecksBlockMergeUntilNewRunsFinish(t *testing.T) {
 	}
 }
 
-func TestCheapSuccessWithDraftPhaseSkipsBlocksMergeAfterReady(t *testing.T) {
+func TestDraftPhaseSkipsHoldMergeForTenMinutesAfterReady(t *testing.T) {
 	cfg := DefaultConfig()
 	flip := now.Add(-time.Minute)
 	pr := readyPR(1, "rw/1", head("a"))
 	pr.AOReviewStatus, pr.ReadyAt = "up_to_date", flip
-	before, after := flip.Add(-time.Minute), flip.Add(time.Minute)
+	before, after := flip.Add(-time.Minute), flip.Add(time.Second)
+	cheapOnly := []Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "SKIPPED", CompletedAt: before}}
 	for name, tc := range map[string]struct {
 		checks []Check
+		at     time.Time
 		want   string
 	}{
-		"cheap success, expensive skipped before flip": {
-			[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "SKIPPED", CompletedAt: before}},
-			"required checks are pending"},
-		"new run registered": {
-			[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "QUEUED"}}, "required checks are pending"},
-		"new runs finished": {
-			[]Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "SKIPPED", CompletedAt: before}}, ""},
-		"skip after flip is genuine": {
-			[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "SKIPPED", CompletedAt: after}}, ""},
+		"cheap success after flip, expensive unregistered": {cheapOnly, now, "required checks are pending"},
+		"same state after the window":                      {cheapOnly, flip.Add(staleSkipWindow), ""},
+		"just inside the window":                           {cheapOnly, flip.Add(staleSkipWindow - time.Second), "required checks are pending"},
+		"new run registered":                               {[]Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "QUEUED"}}, now, "required checks are pending"},
+		"new runs finished":                                {[]Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "SUCCESS", CompletedAt: after}}, now, ""},
+		"skip after flip is genuine":                       {[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "SKIPPED", CompletedAt: after}}, now, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			pr := pr
 			pr.Checks = tc.checks
-			if got := strings.Join(MergeBlockers(cfg, pr), ", "); got != tc.want {
+			if got := strings.Join(MergeBlockers(cfg, pr, tc.at), ", "); got != tc.want {
 				t.Fatalf("blockers = %q, want %q", got, tc.want)
 			}
 		})
