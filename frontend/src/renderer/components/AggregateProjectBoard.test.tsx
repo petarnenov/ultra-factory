@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
+import { useUiStore } from "../stores/ui-store";
 import { AggregateProjectBoard } from "./AggregateProjectBoard";
 
 const mocks = vi.hoisted(() => ({
@@ -38,6 +39,7 @@ function session(id: string, title: string, workspaceId: string) {
 }
 
 beforeEach(() => {
+	useUiStore.setState({ developerMode: true, remoteHosts: true });
 	mocks.navigate.mockReset();
 	mocks.local = [{ id: "local-project", name: "Project", sessions: [session("same-id", "Local worker", "local-project")] }];
 	mocks.remote = [{ hostId: "host-a", id: "remote-project", name: "Different display name", sessions: [session("same-id", "Remote worker", "remote-project")] }];
@@ -67,6 +69,17 @@ it("marks a configured offline project partial and keeps local workers visible",
 	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
 });
 
+it.each([
+	["offline", [], "the host is not connected"],
+	["connected", ["host-a"], "the project was not found on the host"],
+] as const)("names the reason for a %s host", (status, loaded, reason) => {
+	mocks.hosts = [{ hostId: "host-a", label: "Linux", status }];
+	mocks.loaded = [...loaded];
+	mocks.remote = [];
+	render(<AggregateProjectBoard projectId="local-project" />);
+	expect(screen.getByRole("status")).toHaveTextContent(reason);
+});
+
 it("does not show a complete-empty message when all remote results are unavailable", () => {
 	mocks.local = [{ id: "local-project", name: "Project", sessions: [] }];
 	mocks.hosts = [{ hostId: "host-a", label: "Linux", status: "offline" }];
@@ -88,10 +101,12 @@ it("shows local cards and a partial banner once a connected host has failed", ()
 	render(<AggregateProjectBoard projectId="local-project" />);
 	expect(screen.queryByText("Loading project boards…")).not.toBeInTheDocument();
 	expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
+	expect(screen.getByRole("status")).toHaveTextContent("the host failed or timed out");
 	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
 });
 
 it("renders partial, not loading, when the remote layer is gated off but links exist", () => {
+	useUiStore.setState({ developerMode: false, remoteHosts: false });
 	mocks.hosts = [];
 	mocks.loaded = [];
 	mocks.remote = [];
@@ -99,5 +114,6 @@ it("renders partial, not loading, when the remote layer is gated off but links e
 	expect(screen.queryByText("Loading project boards…")).not.toBeInTheDocument();
 	expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
 	expect(screen.getByText(/remote-project/)).toBeInTheDocument();
+	expect(screen.getByRole("status")).toHaveTextContent("remote hosts are turned off in this app");
 	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
 });
