@@ -1,9 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useQueries } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { SessionsBoardGridView } from "@aoagents/product-ui";
 import { LayoutDashboard } from "lucide-react";
-import { remoteWorkspacesQueryOptions, useWorkspaceQuery, useProjectIdentity } from "../hooks/useWorkspaceQuery";
+import { useRemoteWorkspaces, useWorkspaceQuery, useProjectIdentity } from "../hooks/useWorkspaceQuery";
 import { useRemoteHosts } from "../hooks/useRemoteHosts";
 import { labelForHost } from "../lib/host-clients";
 import { LOCAL_HOST, refKey, sessionUiKey } from "../lib/hosts";
@@ -20,18 +19,16 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 	const localProject = localQuery.data?.find((workspace) => workspace.id === projectId);
 	const localIdentity = useProjectIdentity(undefined, projectId);
 	const associations = localIdentity.data?.aggregateProjects ?? [];
-	const associatedHosts = [...new Set(associations.map((ref) => ref.hostId))];
-	const remoteHosts = useQueries({ queries: associatedHosts.map(remoteWorkspacesQueryOptions) });
-	const remoteHostQueries = new Map(associatedHosts.map((hostId, index) => [hostId, remoteHosts[index]] as const));
+	// Same projects/sessions queries as the sidebar, so one fetch per host serves both.
+	const remote = useRemoteWorkspaces();
 	const associated = associations.map((ref) => {
-		const remoteHostQuery = remoteHostQueries.get(ref.hostId);
 		return {
 			hostId: ref.hostId,
 			projectId: ref.projectId,
-			project: remoteHostQuery?.data?.find((workspace) => workspace.id === ref.projectId),
+			project: remote.data.find((workspace) => workspace.hostId === ref.hostId && workspace.id === ref.projectId),
 			host: hosts.find((host) => host.hostId === ref.hostId),
-			loaded: remoteHostQuery?.isSuccess ?? false,
-			failed: remoteHostQuery?.isError ?? false,
+			loaded: remote.loadedProjectHostIds.includes(ref.hostId) && remote.loadedSessionHostIds.includes(ref.hostId),
+			failed: remote.failedHostIds.includes(ref.hostId),
 		};
 	});
 	const sessions: WorkspaceSession[] = [
