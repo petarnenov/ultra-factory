@@ -4561,7 +4561,7 @@ export interface components {
             coordinatorSessionId: string;
             escalationNote?: string;
             /** @enum {string} */
-            escalationReason?: "overlapping_files" | "unclear_acceptance" | "worker_failed" | "scope_decision" | "coordinator_terminated" | "other";
+            escalationReason?: "overlapping_files" | "unclear_acceptance" | "worker_failed" | "scope_decision" | "other";
             result?: string;
             scope?: string;
             /** @enum {string} */

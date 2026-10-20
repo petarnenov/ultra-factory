@@ -47,6 +47,12 @@ const CoordinatorSummaryBatchWindow = 30 * time.Second
 // ErrInvalidCoordinatorSummary reports a payload outside the bounds.
 var ErrInvalidCoordinatorSummary = errors.New("invalid coordinator summary")
 
+// SummaryRemoteWorker names a remote worker link a summary covers.
+type SummaryRemoteWorker struct {
+	HostID          string
+	RemoteSessionID string
+}
+
 // CoordinatorSummary is a durable coordinator-to-root assertion. It is a
 // distinct record from a worker report and never replaces one.
 type CoordinatorSummary struct {
@@ -57,19 +63,21 @@ type CoordinatorSummary struct {
 	Scope                string
 	State                CoordinatorSummaryState
 	WorkerSessionIDs     []SessionID
-	Result               string
-	EscalationReason     EscalationReason
-	EscalationNote       string
-	CreatedAt            time.Time
-	AvailableAt          time.Time
-	DeliveryBatchID      string
-	DeliveryOwnerID      string
-	DeliveryState        ReportDeliveryState
-	ClaimToken           string
-	ClaimedAt            time.Time
-	DeliveryAttempts     int64
-	AcknowledgedAt       time.Time
-	LastError            string
+	// RemoteWorkers is set only by the termination escalation trigger.
+	RemoteWorkers    []SummaryRemoteWorker
+	Result           string
+	EscalationReason EscalationReason
+	EscalationNote   string
+	CreatedAt        time.Time
+	AvailableAt      time.Time
+	DeliveryBatchID  string
+	DeliveryOwnerID  string
+	DeliveryState    ReportDeliveryState
+	ClaimToken       string
+	ClaimedAt        time.Time
+	DeliveryAttempts int64
+	AcknowledgedAt   time.Time
+	LastError        string
 	// CoordinatorDisplayName is resolved at delivery time for presentation.
 	CoordinatorDisplayName string
 }

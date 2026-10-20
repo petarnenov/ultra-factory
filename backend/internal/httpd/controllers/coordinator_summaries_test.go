@@ -98,3 +98,13 @@ func TestCoordinatorSummaryRoutesSubmitReplayAndInspect(t *testing.T) {
 		}
 	}
 }
+
+func TestCoordinatorSummaryRouteRejectsClientTerminatedEscalation(t *testing.T) {
+	_, coordinator, _, _, deps := summaryRouteFixture(t)
+	srv := newRouterServer(t, *deps)
+	body := `{"coordinatorSessionId":"` + string(coordinator.ID) + `","submissionKey":"k1","state":"blocked","escalationReason":"coordinator_terminated"}`
+	resp, status, _ := doRequest(t, srv, "POST", "/api/v1/coordinator-summaries", body)
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400", status, resp)
+	}
+}

@@ -100,6 +100,9 @@ func (s *SummaryService) Submit(ctx context.Context, in SummaryInput) (domain.Co
 	if !coordownership.IsLiveCoordinator(coordinator, coordinator.ProjectID) {
 		return domain.CoordinatorSummary{}, false, apierr.Conflict("SUMMARY_COORDINATOR_TERMINATED", "The coordinator is terminated", nil)
 	}
+	if in.EscalationReason == domain.EscalationCoordinatorTerminated {
+		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "The coordinator_terminated reason is reserved for the daemon", nil)
+	}
 	scope := strings.TrimSpace(in.Scope)
 	if scope == "" {
 		scope = coordinator.CoordinatorScope

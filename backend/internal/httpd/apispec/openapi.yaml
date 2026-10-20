@@ -13663,7 +13663,6 @@ components:
           - unclear_acceptance
           - worker_failed
           - scope_decision
-          - coordinator_terminated
           - other
           type: string
         result:

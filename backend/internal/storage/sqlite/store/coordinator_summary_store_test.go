@@ -128,3 +128,69 @@ func TestCoordinatorSummaryHistoryIsRetainedWhenWorkersAreReassigned(t *testing.
 		t.Fatal("an escalation reason on a non-blocked summary was stored")
 	}
 }
+
+func TestCoordinatorTerminationEscalationListsLocalAndRemoteWorkers(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	coordinator, err := s.CreateSession(ctx, coordinatorRecord("ao", "area"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := sampleRecord("ao")
+	rec.OwnerSessionID = &coordinator.ID
+	worker, err := s.CreateSession(ctx, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	link := domain.RemoteWorkerLink{
+		HostID: "host-build", RemoteSessionID: "widgets-3", RemoteProjectID: "widgets",
+		ProjectID: "ao", DisplayName: "remote", OwnerSessionID: &coordinator.ID, CreatedAt: now,
+	}
+	if err := s.UpsertRemoteWorkerLink(ctx, link); err != nil {
+		t.Fatal(err)
+	}
+
+	coordinator.IsTerminated = true
+	coordinator.UpdatedAt = now.Add(time.Minute)
+	if err := s.UpdateSession(ctx, coordinator); err != nil {
+		t.Fatal(err)
+	}
+	hist, err := s.ListCoordinatorSummaries(ctx, coordinator.ID, 10)
+	if err != nil || len(hist) != 1 {
+		t.Fatalf("history = %+v err=%v, want one escalation", hist, err)
+	}
+	got := hist[0]
+	if got.EscalationReason != domain.EscalationCoordinatorTerminated ||
+		len(got.WorkerSessionIDs) != 1 || got.WorkerSessionIDs[0] != worker.ID ||
+		len(got.RemoteWorkers) != 1 || got.RemoteWorkers[0] != (domain.SummaryRemoteWorker{HostID: "host-build", RemoteSessionID: "widgets-3"}) {
+		t.Fatalf("escalation = %+v, want the local and the remote worker", got)
+	}
+}
+
+func TestCoordinatorTerminatedTwiceWithFixedClockWritesTwoEscalations(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	coordinator, err := s.CreateSession(ctx, coordinatorRecord("ao", "area"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < 2; i++ {
+		coordinator.IsTerminated = true
+		coordinator.UpdatedAt = at
+		if err := s.UpdateSession(ctx, coordinator); err != nil {
+			t.Fatal(err)
+		}
+		coordinator.IsTerminated = false
+		if err := s.UpdateSession(ctx, coordinator); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hist, err := s.ListCoordinatorSummaries(ctx, coordinator.ID, 10)
+	if err != nil || len(hist) != 2 || hist[0].SubmissionKey == hist[1].SubmissionKey {
+		t.Fatalf("history = %+v err=%v, want two distinct escalations", hist, err)
+	}
+}
