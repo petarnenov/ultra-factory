@@ -38,6 +38,9 @@ const (
 	maxSummarySubmissionKeyCharacters                  = 200
 	// MaxSummaryWorkers bounds the workers one summary links to.
 	MaxSummaryWorkers = 3
+	// MaxSummaryReadyPRs bounds the ready PRs one summary hands to the root.
+	MaxSummaryReadyPRs          = 10
+	maxReadyPRHeadSHACharacters = 64
 )
 
 // DaemonSubmissionKeyPrefix is reserved for keys the daemon writes itself.
@@ -56,6 +59,14 @@ type SummaryRemoteWorker struct {
 	RemoteSessionID string
 }
 
+// ReadyPR is a pull request a coordinator hands to the root as ready to
+// merge: HeadSHA is the head an AO review run approved.
+type ReadyPR struct {
+	Number      int
+	HeadSHA     string
+	ReviewRunID string
+}
+
 // CoordinatorSummary is a durable coordinator-to-root assertion. It is a
 // distinct record from a worker report and never replaces one.
 type CoordinatorSummary struct {
@@ -68,6 +79,7 @@ type CoordinatorSummary struct {
 	WorkerSessionIDs     []SessionID
 	// RemoteWorkers is set only by the termination escalation trigger.
 	RemoteWorkers    []SummaryRemoteWorker
+	ReadyPRs         []ReadyPR
 	Result           string
 	EscalationReason EscalationReason
 	EscalationNote   string
@@ -113,6 +125,17 @@ func ValidateCoordinatorSummary(s CoordinatorSummary) error {
 			return ErrInvalidCoordinatorSummary
 		}
 		seen[id] = true
+	}
+	if len(s.ReadyPRs) > MaxSummaryReadyPRs {
+		return ErrInvalidCoordinatorSummary
+	}
+	readyNumbers := map[int]bool{}
+	for _, pr := range s.ReadyPRs {
+		if pr.Number <= 0 || readyNumbers[pr.Number] || strings.TrimSpace(pr.ReviewRunID) == "" ||
+			strings.TrimSpace(pr.HeadSHA) == "" || utf8.RuneCountInString(pr.HeadSHA) > maxReadyPRHeadSHACharacters {
+			return ErrInvalidCoordinatorSummary
+		}
+		readyNumbers[pr.Number] = true
 	}
 	if utf8.RuneCountInString(s.Result) > maxSummaryResultCharacters {
 		return ErrInvalidCoordinatorSummary

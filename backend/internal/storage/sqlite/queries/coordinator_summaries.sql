@@ -97,3 +97,12 @@ WHERE delivery_state = 'claimed';
 SELECT host_id, remote_session_id FROM coordinator_summary_remote_workers
 WHERE summary_id = ?
 ORDER BY position;
+
+-- name: InsertCoordinatorSummaryReadyPR :exec
+INSERT INTO coordinator_summary_ready_prs (summary_id, pr_number, head_sha, review_run_id, position)
+VALUES (?, ?, ?, ?, ?);
+
+-- name: ListCoordinatorSummaryReadyPRs :many
+SELECT pr_number, head_sha, review_run_id FROM coordinator_summary_ready_prs
+WHERE summary_id = ?
+ORDER BY position;

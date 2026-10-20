@@ -1260,3 +1260,51 @@ func TestSpawnEffortFlagWiring(t *testing.T) {
 		t.Fatalf("spawn request effort = %q, want high", req.Effort)
 	}
 }
+
+// TestSpawnAutoReviewFlagWiring asserts the local spawn flag override sends
+// explicit true/false and preserves omission.
+func TestSpawnAutoReviewFlagWiring(t *testing.T) {
+	for _, tc := range []struct {
+		flag string
+		want *bool
+	}{
+		{flag: "--auto-review", want: boolPtr(true)},
+		{flag: "--auto-review=false", want: boolPtr(false)},
+		{flag: "", want: nil},
+	} {
+		t.Run(tc.flag, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			t.Setenv("AO_SESSION_ID", "")
+			var req spawnRequest
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
+					_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo"}}`)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agents/readiness/ensure":
+					_, _ = io.WriteString(w, authorizedAgentsJSON("codex"))
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Fatal(err)
+					}
+					_, _ = io.WriteString(w, `{"session":{"id":"demo-20","status":"idle"}}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			writeRunFileFor(t, cfg, srv)
+
+			args := []string{"spawn", "--project", "demo", "--agent", "codex", "--name", "worker"}
+			if tc.flag != "" {
+				args = append(args, tc.flag)
+			}
+			if _, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, args...); err != nil {
+				t.Fatalf("spawn failed: %v stderr=%s", err, errOut)
+			}
+			if (req.AutoReview == nil) != (tc.want == nil) || (tc.want != nil && *req.AutoReview != *tc.want) {
+				t.Fatalf("spawn request autoReview = %v, want %v", req.AutoReview, tc.want)
+			}
+		})
+	}
+}
