@@ -12219,11 +12219,12 @@ func TestSystemPrompt_WorkerEscalatesToLiveCoordinatorOwner(t *testing.T) {
 	st.sessions["mer-1"] = domain.SessionRecord{ID: "mer-1", ProjectID: "mer", Kind: domain.KindOrchestrator}
 	st.sessions["mer-2"] = domain.SessionRecord{ID: "mer-2", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
 	st.sessions["mer-8"] = domain.SessionRecord{ID: "mer-8", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "old", IsTerminated: true}
-	coord, root, dead := domain.SessionID("mer-2"), domain.SessionID("mer-1"), domain.SessionID("mer-8")
-	for id, owner := range map[domain.SessionID]*domain.SessionID{"mer-3": &coord, "mer-4": &root, "mer-5": nil, "mer-6": &dead} {
+	st.sessions["oth-2"] = domain.SessionRecord{ID: "oth-2", ProjectID: "oth", Kind: domain.KindCoordinator, CoordinatorScope: "x"}
+	coord, root, dead, other := domain.SessionID("mer-2"), domain.SessionID("mer-1"), domain.SessionID("mer-8"), domain.SessionID("oth-2")
+	for id, owner := range map[domain.SessionID]*domain.SessionID{"mer-3": &coord, "mer-4": &root, "mer-5": nil, "mer-6": &dead, "mer-9": &other} {
 		st.sessions[id] = domain.SessionRecord{ID: id, ProjectID: "mer", Kind: domain.KindWorker, OwnerSessionID: owner}
 	}
-	for id, wantTarget := range map[domain.SessionID]string{"mer-3": "mer-2", "mer-4": "mer-1", "mer-5": "mer-1", "mer-6": "mer-1"} {
+	for id, wantTarget := range map[domain.SessionID]string{"mer-3": "mer-2", "mer-4": "mer-1", "mer-5": "mer-1", "mer-6": "mer-1", "mer-9": "mer-1"} {
 		sp, err := m.buildSystemPrompt(ctx, domain.KindWorker, "mer", id, "", false)
 		if err != nil {
 			t.Fatalf("buildSystemPrompt(%s): %v", id, err)

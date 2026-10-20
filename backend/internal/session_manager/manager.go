@@ -5624,7 +5624,7 @@ func (m *Manager) liveCoordinatorOwner(ctx context.Context, worker domain.Sessio
 	if err != nil {
 		return "", fmt.Errorf("load owner %s for prompt: %w", *rec.OwnerSessionID, err)
 	}
-	if !ok || owner.Kind != domain.KindCoordinator || owner.IsTerminated {
+	if !ok || owner.Kind != domain.KindCoordinator || owner.IsTerminated || owner.ProjectID != rec.ProjectID {
 		return "", nil
 	}
 	return owner.ID, nil
