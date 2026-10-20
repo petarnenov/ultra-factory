@@ -279,8 +279,15 @@ func TestSummarySurvivesCoordinatorTerminationAndRootAbsence(t *testing.T) {
 		t.Fatalf("no root: delay=%v err=%v, want retry with ErrNoActiveOrchestrator", delay, err)
 	}
 	// Termination also wrote the root escalation; both wait for a root.
+	// Both rows can share created_at, so the order between them is not fixed.
 	hist := f.history(f.coordA.ID)
-	if len(hist) != 2 || hist[0].EscalationReason != domain.EscalationCoordinatorTerminated {
+	escalations := 0
+	for _, h := range hist {
+		if h.EscalationReason == domain.EscalationCoordinatorTerminated {
+			escalations++
+		}
+	}
+	if len(hist) != 2 || escalations != 1 {
 		t.Fatalf("history = %+v, want the termination escalation and the submitted summary", hist)
 	}
 	for _, h := range hist {
