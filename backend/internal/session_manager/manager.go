@@ -5226,19 +5226,20 @@ func normalizeWorkspacePath(p string) string {
 
 func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now time.Time) domain.SessionRecord {
 	return domain.SessionRecord{
-		ProjectID:         cfg.ProjectID,
-		IssueID:           cfg.IssueID,
-		AutomationRunID:   cfg.AutomationRunID,
-		ClientRequestID:   cfg.ClientRequestID,
-		ClientRequestHash: cfg.ClientRequestHash,
-		Kind:              cfg.Kind,
-		OwnerSessionID:    cfg.OwnerSessionID,
-		CoordinatorScope:  domain.NormalizeCoordinatorScope(cfg.CoordinatorScope),
-		CreatedAt:         now,
-		UpdatedAt:         now,
-		Harness:           cfg.Harness,
-		DisplayName:       cfg.DisplayName,
-		Activity:          domain.Activity{State: domain.ActivityIdle, LastActivityAt: now},
+		ProjectID:              cfg.ProjectID,
+		IssueID:                cfg.IssueID,
+		AutomationRunID:        cfg.AutomationRunID,
+		ClientRequestID:        cfg.ClientRequestID,
+		ClientRequestHash:      cfg.ClientRequestHash,
+		Kind:                   cfg.Kind,
+		OwnerSessionID:         cfg.OwnerSessionID,
+		CoordinatorScope:       domain.NormalizeCoordinatorScope(cfg.CoordinatorScope),
+		CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit,
+		CreatedAt:              now,
+		UpdatedAt:              now,
+		Harness:                cfg.Harness,
+		DisplayName:            cfg.DisplayName,
+		Activity:               domain.Activity{State: domain.ActivityIdle, LastActivityAt: now},
 		// Resolved before this point and persisted here. There is no UPDATE
 		// statement that can change it afterwards.
 		Mode: domain.NormalizeSessionMode(cfg.RequestedMode),
@@ -5506,6 +5507,9 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 		}
 		if ok {
 			cfg.CoordinatorScope = rec.CoordinatorScope
+			if own := rec.CoordinatorWorkerLimit; own != nil && *own < cfg.CoordinatorWorkerLimit {
+				cfg.CoordinatorWorkerLimit = *own
+			}
 		}
 	case domain.KindWorker:
 		if projectID != "" {

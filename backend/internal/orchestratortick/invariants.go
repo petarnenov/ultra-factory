@@ -59,7 +59,7 @@ func greenPRsLeftOpen(cfg Config, facts Facts, now time.Time) []Violation {
 		return nil
 	}
 	for _, pr := range facts.GitHub.OpenPRs {
-		if pr.Mergeable != "MERGEABLE" || CheckSummary(pr.Checks) != "green" {
+		if pr.Draft || pr.Mergeable != "MERGEABLE" || PRCheckSummary(pr, now) != "green" {
 			continue
 		}
 		var last time.Time
@@ -239,25 +239,72 @@ func agentMix(cfg Config, hosts []HostSessions) []Violation {
 	return out
 }
 
-// CheckSummary condenses a pull request's checks: none, green, red or pending.
+// CheckSummary condenses checks to none, green, red or pending; all-skipped
+// checks are draft-phase leftovers and stay pending.
 func CheckSummary(checks []Check) string {
+	checks = latestChecks(checks)
 	if len(checks) == 0 {
 		return "none"
 	}
-	green := true
+	green, passed := true, false
 	for _, c := range checks {
 		switch c.Result {
 		case "FAILURE", "CANCELLED", "TIMED_OUT", "ERROR", "ACTION_REQUIRED", "STARTUP_FAILURE":
 			return "red"
-		case "SUCCESS", "SKIPPED", "NEUTRAL":
+		case "SUCCESS", "NEUTRAL":
+			passed = true
+		case "SKIPPED":
 		default:
 			green = false
 		}
 	}
-	if green {
+	if green && passed {
 		return "green"
 	}
 	return "pending"
 }
 
 func minutes(d time.Duration) int { return int(d / time.Minute) }
+
+// staleSkipWindow is how long after a ready flip a draft-phase skip is
+// treated as a result the new runs have not replaced yet.
+const staleSkipWindow = 10 * time.Minute
+
+// PRCheckSummary is CheckSummary, held pending while a skip predating the
+// ready flip may still be replaced by a new run.
+func PRCheckSummary(pr PullRequest, now time.Time) string {
+	summary := CheckSummary(pr.Checks)
+	checks := latestChecks(pr.Checks)
+	if summary != "green" || pr.ReadyAt.IsZero() || !now.Before(pr.ReadyAt.Add(staleSkipWindow)) {
+		return summary
+	}
+	for _, c := range checks {
+		if c.Result == "SKIPPED" && c.CompletedAt.Before(pr.ReadyAt) {
+			return "pending"
+		}
+	}
+	return summary
+}
+
+// latestChecks keeps the newest run per workflow and check name; a run
+// without a completion time is still running and counts as newest.
+func latestChecks(checks []Check) []Check {
+	pos := map[string]int{}
+	out := make([]Check, 0, len(checks))
+	for _, c := range checks {
+		key := c.Workflow + "\x00" + c.Name
+		i, seen := pos[key]
+		if c.Name == "" || !seen {
+			if c.Name != "" {
+				pos[key] = len(out)
+			}
+			out = append(out, c)
+			continue
+		}
+		prev := out[i].CompletedAt
+		if c.CompletedAt.IsZero() || (!prev.IsZero() && c.CompletedAt.After(prev)) {
+			out[i] = c
+		}
+	}
+	return out
+}

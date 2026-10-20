@@ -302,6 +302,9 @@ type SessionRecord struct {
 	// CoordinatorScope bounds a coordinator's work. Required for KindCoordinator,
 	// empty otherwise, and immutable once written.
 	CoordinatorScope string `json:"-"`
+	// CoordinatorWorkerLimit is a coordinator's own worker limit. Nil means
+	// the project's maxWorkersPerCoordinator applies.
+	CoordinatorWorkerLimit *int `json:"-"`
 	// ReviewerHarness is this session's preferred reviewer. Empty delegates to
 	// the project configuration.
 	ReviewerHarness   ReviewerHarness `json:"reviewerHarness,omitempty" enum:"claude-code,codex,copilot,cursor,kilocode,opencode,opencode-v2,kiro,pi,agy,devin,droid,kimi,kimchi,muse,amp,aider,grok,crush,auggie,cline,autohand"`

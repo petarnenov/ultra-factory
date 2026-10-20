@@ -1,6 +1,6 @@
 # CO-2.2.1 · Task: Route local and remote reports to worker owner
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#328](https://github.com/petarnenov/ultra-factory/pull/328); issue [#222](https://github.com/petarnenov/ultra-factory/issues/222) is closed.
 
 **Type:** backend. **Estimate:** 1–2 pd. **Story:** CO-2.2.
 

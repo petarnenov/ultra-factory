@@ -2664,6 +2664,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/coordinator-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change a live coordinator's worker limit */
+        put: operations["setCoordinatorLimits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{sessionId}/exit-agent": {
         parameters: {
             query?: never;
@@ -5050,16 +5067,36 @@ export interface components {
             /** Format: int64 */
             totalTokens: number;
         };
+        CoordinatorCapacity: {
+            activeCoordinators: number;
+            activeWorkers: number;
+            maxCoordinators: number;
+            maxWorkers: number;
+            maxWorkersPerCoordinator: number;
+        };
+        CoordinatorLimitsRequest: {
+            /** @description Operator acts for the live root; needs origin. */
+            operatorInitiated?: boolean;
+            /** @enum {string} */
+            origin?: "ui" | "cli" | "api";
+            requestedBySessionId?: string;
+            /** @description Omitted keeps the stored value. */
+            workerLimit?: null | number;
+        };
         CoordinatorRosterEntry: {
+            activeWorkerCount: number;
             coordinatorScope: string;
             coordinatorSessionId: string;
+            effectiveWorkerLimit: number;
             isTerminated: boolean;
             latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
             needsRecovery: boolean;
             workerCount: number;
+            workerLimit: null | number;
             workerSessionIds: string[];
         };
         CoordinatorRosterResponse: {
+            capacity: components["schemas"]["CoordinatorCapacity"];
             coordinators: components["schemas"]["CoordinatorRosterEntry"][];
             projectId: string;
             rootSessionId: null | string;
@@ -6212,7 +6249,10 @@ export interface components {
             requestedBySessionId: string;
         };
         SessionOwnershipResponse: {
+            activeWorkerCount?: null | number;
+            capacity: components["schemas"]["CoordinatorCapacity"];
             coordinatorScope?: string;
+            effectiveWorkerLimit?: null | number;
             /** @enum {string} */
             kind: "worker" | "orchestrator" | "coordinator";
             /** @enum {string} */
@@ -6222,6 +6262,7 @@ export interface components {
             projectId?: string;
             rootSessionId: null | string;
             sessionId: string;
+            workerLimit: null | number;
         };
         SessionPRCISummary: {
             autoInjectCI: boolean;
@@ -6752,6 +6793,7 @@ export interface components {
             terminateOnPrMerge?: null | boolean;
             /** @enum {string} */
             trackerProvider?: "github" | "gitlab";
+            workerLimit?: null | number;
         };
         SpawnSessionResponse: {
             promptBytes: number;
@@ -11215,7 +11257,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11310,7 +11352,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11414,7 +11456,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11880,7 +11922,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11971,7 +12013,7 @@ export interface operations {
                     "application/json": components["schemas"]["ClonePreparationResult"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12085,7 +12127,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: MERGE_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12497,7 +12539,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12515,7 +12557,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13594,8 +13636,17 @@ export interface operations {
                     "application/json": components["schemas"]["SpawnSessionResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: coordinator codes in x-error-codes */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden: COORDINATOR_ROOT_REQUIRED */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13605,6 +13656,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict: coordinator codes in x-error-codes */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16915,6 +16975,87 @@ export interface operations {
             };
         };
     };
+    setCoordinatorLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CoordinatorLimitsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOwnershipResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     exitAgent: {
         parameters: {
             query?: never;
@@ -17376,7 +17517,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17394,7 +17535,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -73,6 +73,12 @@ func CoordinatorLimitError(project domain.ProjectID, current, allowed int) error
 		map[string]any{"projectId": string(project), "current": current, "allowed": allowed})
 }
 
+// WorkerLimitInvalidError rejects a per-coordinator limit outside 1..max.
+func WorkerLimitInvalidError(got, limit int) error {
+	return apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "workerLimit must be between 1 and the project's maxWorkersPerCoordinator",
+		map[string]any{"field": "workerLimit", "value": got, "max": limit})
+}
+
 // CoordinatorWorkerLimitError reports one coordinator's worker cap.
 func CoordinatorWorkerLimitError(coordinator domain.SessionID, current, allowed int) error {
 	return apierr.Conflict("COORDINATOR_WORKER_LIMIT_REACHED", "The coordinator already has the maximum number of active workers",
@@ -123,16 +129,22 @@ type Counts struct {
 	Coordinators int
 	Workers      int
 	ByOwner      map[domain.SessionID]int
+	// OwnerLimits holds the stored worker limit of every coordinator that has
+	// one, terminated or not, so a restore keeps it.
+	OwnerLimits map[domain.SessionID]int
 }
 
 // Count reads the census. links may be nil when the store has no links.
 func Count(ctx context.Context, sessions SessionLister, links LinkLister, project domain.ProjectID) (Counts, error) {
-	counts := Counts{ByOwner: map[domain.SessionID]int{}}
+	counts := Counts{ByOwner: map[domain.SessionID]int{}, OwnerLimits: map[domain.SessionID]int{}}
 	recs, err := sessions.ListSessions(ctx, project)
 	if err != nil {
 		return counts, fmt.Errorf("count capacity for %s: %w", project, err)
 	}
 	for _, rec := range recs {
+		if rec.Kind == domain.KindCoordinator && rec.CoordinatorWorkerLimit != nil {
+			counts.OwnerLimits[rec.ID] = *rec.CoordinatorWorkerLimit
+		}
 		if rec.IsTerminated || rec.IsTaskPreparation {
 			continue
 		}
@@ -173,10 +185,24 @@ func (c Counts) CheckCoordinator(project domain.ProjectID, limits domain.Coordin
 	return nil
 }
 
-// CheckOwner rejects a worker beyond the coordinator's configured cap.
+// OwnerLimit is the coordinator's effective worker limit: its own when set,
+// otherwise the project's, and never above the project's.
+func (c Counts) OwnerLimit(owner domain.SessionID, limits domain.CoordinatorLimits) int {
+	own, ok := c.OwnerLimits[owner]
+	if !ok || own > limits.WorkersPerCoordinator {
+		return limits.WorkersPerCoordinator
+	}
+	return own
+}
+
+// CheckOwner rejects a worker beyond the coordinator's effective cap.
 func (c Counts) CheckOwner(owner *domain.SessionID, limits domain.CoordinatorLimits) error {
-	if owner != nil && c.ByOwner[*owner] >= limits.WorkersPerCoordinator {
-		return CoordinatorWorkerLimitError(*owner, c.ByOwner[*owner], limits.WorkersPerCoordinator)
+	if owner == nil {
+		return nil
+	}
+	allowed := c.OwnerLimit(*owner, limits)
+	if c.ByOwner[*owner] >= allowed {
+		return CoordinatorWorkerLimitError(*owner, c.ByOwner[*owner], allowed)
 	}
 	return nil
 }

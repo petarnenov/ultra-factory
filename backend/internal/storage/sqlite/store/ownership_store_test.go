@@ -597,3 +597,81 @@ func TestClearOwnerIfIsACompareAndSetWithoutAuditOnMismatch(t *testing.T) {
 		t.Fatalf("repeat clear: cleared=%v err=%v", cleared, err)
 	}
 }
+
+func TestCoordinatorWorkerLimitIsStoredUpdatedAndAudited(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProject(t, s, "ao")
+	two := 2
+	rec := coordinatorRecord("ao", "auth area")
+	rec.CoordinatorWorkerLimit = &two
+	limited, err := s.CreateSession(ctx, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := s.CreateSession(ctx, coordinatorRecord("ao", "docs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limited.CoordinatorWorkerLimit == nil || *limited.CoordinatorWorkerLimit != 2 || plain.CoordinatorWorkerLimit != nil {
+		t.Fatalf("created limits = %v / %v, want 2 / nil", limited.CoordinatorWorkerLimit, plain.CoordinatorWorkerLimit)
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	previous, err := s.SetCoordinatorWorkerLimit(ctx, limited.ID, 1, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "ui"}, now)
+	if err != nil || previous == nil || *previous != 2 {
+		t.Fatalf("previous = %v err=%v, want 2", previous, err)
+	}
+	if previous, err = s.SetCoordinatorWorkerLimit(ctx, plain.ID, 3, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "root"}, now); err != nil || previous != nil {
+		t.Fatalf("previous = %v err=%v, want nil", previous, err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	got, ok, err := reopened.GetSession(ctx, limited.ID)
+	if err != nil || !ok || got.CoordinatorWorkerLimit == nil || *got.CoordinatorWorkerLimit != 1 {
+		t.Fatalf("limit after restart = %v ok=%v err=%v, want 1", got.CoordinatorWorkerLimit, ok, err)
+	}
+	events, err := reopened.ListCoordinatorLimitEvents(ctx, limited.ID)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events = %+v err=%v", events, err)
+	}
+	if e := events[0]; e.NewLimit != 1 || e.PreviousLimit == nil || *e.PreviousLimit != 2 || e.ActorSessionID != "ao-root" || e.Origin != "ui" {
+		t.Fatalf("audit row = %+v", e)
+	}
+}
+
+func TestSetCoordinatorWorkerLimitRefusesNonCoordinatorsAndTerminatedOnes(t *testing.T) {
+	ctx := context.Background()
+	s, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	seedProject(t, s, "ao")
+	worker, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	event := domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "root"}
+	if _, err := s.SetCoordinatorWorkerLimit(ctx, worker.ID, 1, event, now); err == nil {
+		t.Fatal("a worker has no coordinator limit")
+	}
+	if _, err := s.SetCoordinatorWorkerLimit(ctx, "ao-ghost", 1, event, now); !errors.Is(err, ports.ErrSessionNotFound) {
+		t.Fatalf("unknown session err = %v", err)
+	}
+	if events, _ := s.ListCoordinatorLimitEvents(ctx, worker.ID); len(events) != 0 {
+		t.Fatalf("a refused write left audit rows: %+v", events)
+	}
+}

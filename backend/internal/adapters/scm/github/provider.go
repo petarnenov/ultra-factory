@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -281,7 +282,7 @@ const prObservationQuery = `query($owner:String!,$repo:String!,$number:Int!){
           contexts(first:CONTEXT_LIMIT){
             nodes{
               __typename
-              ... on CheckRun  { name status conclusion detailsUrl url databaseId }
+              ... on CheckRun  { name status conclusion completedAt detailsUrl url databaseId checkSuite{ workflowRun{ workflow{ name } } } }
               ... on StatusContext { context state targetUrl }
             }
             pageInfo{ hasNextPage }
@@ -350,7 +351,7 @@ func ciSummaryFromGraphQL(pr map[string]any) domain.CIState {
 		return domain.CIUnknown
 	}
 	contexts, _ := roll["contexts"].(map[string]any)
-	rawNodes := nodes(contexts["nodes"])
+	rawNodes := latestCheckRuns(nodes(contexts["nodes"]))
 	if len(rawNodes) == 0 {
 		// GitHub returns a top-level "state" on the rollup even when the
 		// nodes list is empty (e.g. SUCCESS / FAILURE / PENDING). Honor it
@@ -380,6 +381,45 @@ func ciSummaryFromGraphQL(pr map[string]any) domain.CIState {
 	default:
 		return domain.CIUnknown
 	}
+}
+
+// latestCheckRuns keeps the newest CheckRun per workflow and name: the rollup
+// lists superseded runs too, and one must not outvote a rerun.
+func latestCheckRuns(in []map[string]any) []map[string]any {
+	newest := map[string]time.Time{}
+	pos := map[string]int{}
+	out := make([]map[string]any, 0, len(in))
+	for _, n := range in {
+		name := str(n["name"])
+		if str(n["__typename"]) != "CheckRun" || name == "" {
+			out = append(out, n)
+			continue
+		}
+		name = checkWorkflowName(n) + "\x00" + name
+		at := time.Time{}
+		if s := str(n["completedAt"]); s != "" {
+			at, _ = time.Parse(time.RFC3339, s)
+		}
+		i, seen := pos[name]
+		switch {
+		case !seen:
+			pos[name] = len(out)
+			out = append(out, n)
+		case at.IsZero() || (!newest[name].IsZero() && at.After(newest[name])):
+			out[i] = n
+		default:
+			continue
+		}
+		newest[name] = at
+	}
+	return out
+}
+
+func checkWorkflowName(n map[string]any) string {
+	suite, _ := n["checkSuite"].(map[string]any)
+	run, _ := suite["workflowRun"].(map[string]any)
+	wf, _ := run["workflow"].(map[string]any)
+	return str(wf["name"])
 }
 
 // pageInfoHasMore reports whether the rollup contexts have a next page
@@ -489,7 +529,7 @@ func mergeabilityFromGraphQL(pr map[string]any, rest restPull, ci domain.CIState
 func checksFromGraphQL(pr map[string]any, headSHA string) []ports.PRCheckObservation {
 	roll := statusRollup(pr)
 	contexts, _ := roll["contexts"].(map[string]any)
-	rawNodes := nodes(contexts["nodes"])
+	rawNodes := latestCheckRuns(nodes(contexts["nodes"]))
 	if len(rawNodes) == 0 {
 		return nil
 	}
@@ -578,7 +618,7 @@ func isBotAuthor(author map[string]any) bool {
 func jobIDForCheck(pr map[string]any, name string) int64 {
 	roll := statusRollup(pr)
 	contexts, _ := roll["contexts"].(map[string]any)
-	for _, n := range nodes(contexts["nodes"]) {
+	for _, n := range latestCheckRuns(nodes(contexts["nodes"])) {
 		if str(n["__typename"]) != "CheckRun" {
 			continue
 		}

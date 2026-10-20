@@ -12254,3 +12254,44 @@ func TestSystemPrompt_WorkerEscalatesToLiveCoordinatorOwner(t *testing.T) {
 		}
 	}
 }
+
+func TestSpawnCoordinatorPersistsItsOwnWorkerLimitAndPromptShowsTheEffectiveOne(t *testing.T) {
+	two, five := 2, 5
+	for _, tc := range []struct {
+		name       string
+		own        *int
+		wantStored *int
+		wantPrompt string
+	}{
+		{"below the project value", &two, &two, "at most 2 active workers"},
+		{"above the project value is clamped in the prompt", &five, &five, "at most 3 active workers"},
+		{"unset uses the project value", nil, nil, "at most 3 active workers"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			cfg := testRoleAgents()
+			cfg.Coordinators = domain.CoordinatorsConfig{Enabled: true}
+			st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: t.TempDir(), Config: cfg}
+			agent := &recordingAgent{}
+			m := New(Deps{
+				Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{},
+				Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+				DataDir: t.TempDir(), LookPath: func(string) (string, error) { return "/bin/true", nil },
+			})
+			sess, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+				ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "auth",
+				CoordinatorWorkerLimit: tc.own,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := st.sessions[sess.ID].CoordinatorWorkerLimit
+			if (got == nil) != (tc.wantStored == nil) || (got != nil && *got != *tc.wantStored) {
+				t.Fatalf("persisted limit = %v, want %v", got, tc.wantStored)
+			}
+			if !strings.Contains(agent.lastLaunch.SystemPrompt, tc.wantPrompt) {
+				t.Fatalf("prompt missing %q:\n%s", tc.wantPrompt, agent.lastLaunch.SystemPrompt)
+			}
+		})
+	}
+}

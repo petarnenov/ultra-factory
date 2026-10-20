@@ -385,6 +385,16 @@ type ConversationTurn struct {
 	HandledByReviewID    sql.NullString
 }
 
+type CoordinatorLimitEvent struct {
+	ID             int64
+	SessionID      string
+	PreviousLimit  sql.NullInt64
+	NewLimit       int64
+	ActorSessionID string
+	Origin         string
+	CreatedAt      time.Time
+}
+
 type CoordinatorSummary struct {
 	ID                   string
 	CoordinatorSessionID string
@@ -791,6 +801,7 @@ type Session struct {
 	RequestedOutput                  string
 	CoordinatorScope                 string
 	OwnerSessionID                   *domain.SessionID
+	CoordinatorWorkerLimit           sql.NullInt64
 	CIGateActive                     bool
 }
 

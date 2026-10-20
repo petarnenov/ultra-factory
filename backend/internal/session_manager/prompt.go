@@ -43,8 +43,8 @@ type systemPromptConfig struct {
 	ProjectRules          string
 	OrchestratorRules     string
 	CoordinatorScope      string
-	// CoordinatorWorkerLimit is the project's effective per-coordinator worker
-	// cap shown in the coordinator prompt; the daemon enforces the real limit.
+	// CoordinatorWorkerLimit is the coordinator's effective cap shown in its
+	// prompt: its own limit, clamped to the project's.
 	CoordinatorWorkerLimit int
 	// OwnerCoordinatorSessionID is set for a worker owned by a live
 	// coordinator; it receives escalations instead of the root.

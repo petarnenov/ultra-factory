@@ -66,6 +66,7 @@ type fakeStore struct {
 	cleanupFacts        map[domain.SessionID]domain.SessionCleanupRecord
 	sessions            map[domain.SessionID]domain.SessionRecord
 	ownerEvents         []domain.SessionOwnerEvent
+	limitEvents         []domain.CoordinatorLimitEvent
 	claimedReports      map[domain.SessionID]bool
 	getSessionErr       error
 	activeSwitches      map[domain.SessionID]domain.AgentSwitch
@@ -305,6 +306,20 @@ func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owne
 	rec.UpdatedAt = at
 	f.sessions[id] = rec
 	return rec, true, nil
+}
+
+func (f *fakeStore) SetCoordinatorWorkerLimit(_ context.Context, id domain.SessionID, limit int, event domain.CoordinatorLimitEvent, at time.Time) (*int, error) {
+	rec, ok := f.sessions[id]
+	if !ok || rec.Kind != domain.KindCoordinator || rec.IsTerminated {
+		return nil, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	previous := rec.CoordinatorWorkerLimit
+	rec.CoordinatorWorkerLimit = &limit
+	rec.UpdatedAt = at
+	f.sessions[id] = rec
+	event.SessionID, event.PreviousLimit, event.NewLimit, event.CreatedAt = id, previous, limit, at
+	f.limitEvents = append(f.limitEvents, event)
+	return previous, nil
 }
 
 func sameSessionOwner(a, b *domain.SessionID) bool {

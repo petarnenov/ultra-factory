@@ -422,3 +422,75 @@ func TestCoordinatorRosterCarriesLatestSummaryAndRecoveryFlag(t *testing.T) {
 		t.Fatalf("coordinator without summary must carry an explicit null: %s", body)
 	}
 }
+
+func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
+	f := newOwnershipFixture(t)
+	srv := f.server(t)
+	path := "/api/v1/sessions/" + string(f.coordinator.ID) + "/coordinator-limits"
+	put := func(payload string) (string, int) {
+		t.Helper()
+		body, status, _ := doRequest(t, srv, http.MethodPut, path, payload)
+		return string(body), status
+	}
+
+	body, status := put(`{"workerLimit":2,"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"workerLimit":2`, `"activeWorkerCount":0`, `"maxWorkersPerCoordinator":3`) {
+		t.Fatalf("root update status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":1,"operatorInitiated":true,"origin":"ui"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"workerLimit":1`) {
+		t.Fatalf("operator update status=%d body=%s", status, body)
+	}
+	events, err := f.store.ListCoordinatorLimitEvents(context.Background(), f.coordinator.ID)
+	if err != nil || len(events) != 2 || events[1].Origin != "ui" || events[1].ActorSessionID != f.root.ID || events[0].Origin != "api" {
+		t.Fatalf("audit = %+v err=%v", events, err)
+	}
+
+	body, status = put(`{"workerLimit":1,"requestedBySessionId":"` + string(f.otherCoord.ID) + `"}`)
+	if status != http.StatusForbidden || !reportContainsAll(body, "COORDINATOR_ROOT_REQUIRED", "requestId") {
+		t.Fatalf("non-root status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":9,"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "COORDINATOR_WORKER_LIMIT_INVALID", `"max":3`) {
+		t.Fatalf("above the project value status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":1,"operatorInitiated":true,"requestedBySessionId":"` + string(f.root.ID) + `","origin":"ui"}`)
+	if status != http.StatusForbidden || !reportContainsAll(body, "OPERATOR_MARKER_NOT_ALLOWED", `"sessionId":"`+string(f.root.ID)+`"`) {
+		t.Fatalf("marker with a named caller status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":0,"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "COORDINATOR_WORKER_LIMIT_INVALID") {
+		t.Fatalf("explicit 0 status=%d body=%s", status, body)
+	}
+	body, status = put(`{"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"workerLimit":1`) {
+		t.Fatalf("omitted workerLimit keeps the stored value: status=%d body=%s", status, body)
+	}
+	for _, bad := range []string{
+		`{"workerLimit":1,"operatorInitiated":true}`,
+		`{"workerLimit":1,"operatorInitiated":true,"origin":"web"}`,
+		`{"workerLimit":1,"origin":"ui","requestedBySessionId":"` + string(f.root.ID) + `"}`,
+	} {
+		body, status = put(bad)
+		if status != http.StatusBadRequest || !reportContainsAll(body, "COORDINATOR_LIMITS_ORIGIN_INVALID") {
+			t.Fatalf("%s: status=%d body=%s", bad, status, body)
+		}
+	}
+	body, status = put(`{"requestedBySessionId":"` + string(f.otherCoord.ID) + `"}`)
+	if status != http.StatusForbidden || !reportContainsAll(body, "COORDINATOR_ROOT_REQUIRED") {
+		t.Fatalf("omitted workerLimit with a non-root caller status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":1,"unknown":true}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "INVALID_JSON") {
+		t.Fatalf("unknown field status=%d body=%s", status, body)
+	}
+
+	roster, _, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/ao/coordinators", "")
+	if !reportContainsAll(string(roster), `"capacity":{`, `"maxWorkers":6`, `"workerLimit":1`, `"effectiveWorkerLimit":1`, `"workerLimit":null`, `"effectiveWorkerLimit":3`, `"activeWorkerCount":0`) {
+		t.Fatalf("roster = %s", roster)
+	}
+	view, _, _ := doRequest(t, srv, http.MethodGet, path[:len(path)-len("coordinator-limits")]+"ownership", "")
+	if !reportContainsAll(string(view), `"workerLimit":1`, `"effectiveWorkerLimit":1`, `"maxCoordinators":2`) {
+		t.Fatalf("ownership = %s", view)
+	}
+}

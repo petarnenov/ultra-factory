@@ -101,6 +101,46 @@ type Ownership struct {
 	Session       domain.Session
 	Owner         *domain.Session
 	RootSessionID *domain.SessionID
+	// Capacity is the project's effective limits and live census. For a
+	// coordinator, WorkerLimit and ActiveWorkers are its own.
+	Capacity CapacityView
+}
+
+// CapacityView is a project's effective limits and its live census, read
+// with the same counting the spawn paths enforce.
+type CapacityView struct {
+	Limits             domain.CoordinatorLimits
+	ActiveCoordinators int
+	ActiveWorkers      int
+	// WorkerLimit and CoordinatorWorkers are set for a coordinator only.
+	WorkerLimit        int
+	CoordinatorWorkers int
+}
+
+// capacityView reads the project's limits and census. A coordinator also gets
+// its effective worker limit and live count.
+func (s *Service) capacityView(ctx context.Context, project domain.ProjectID, coordinator *domain.SessionID) (CapacityView, error) {
+	if project == "" || s.store == nil {
+		return CapacityView{}, nil
+	}
+	gate, err := coordownership.LoadConfig(ctx, s.store, project)
+	if err != nil {
+		return CapacityView{}, err
+	}
+	counts, err := s.countCapacity(ctx, project)
+	if err != nil {
+		return CapacityView{}, err
+	}
+	return capacityFrom(counts, gate.Limits(), coordinator), nil
+}
+
+func capacityFrom(counts coordownership.Counts, limits domain.CoordinatorLimits, coordinator *domain.SessionID) CapacityView {
+	view := CapacityView{Limits: limits, ActiveCoordinators: counts.Coordinators, ActiveWorkers: counts.Workers}
+	if coordinator != nil {
+		view.WorkerLimit = counts.OwnerLimit(*coordinator, limits)
+		view.CoordinatorWorkers = counts.ByOwner[*coordinator]
+	}
+	return view
 }
 
 // CoordinatorRosterEntry is one coordinator and the local workers it owns.
@@ -110,6 +150,10 @@ type CoordinatorRosterEntry struct {
 	// NeedsRecovery is derived: the coordinator is terminated while a live
 	// worker still names it as owner.
 	NeedsRecovery bool
+	// WorkerLimit is the effective limit and ActiveWorkers the count the
+	// spawn paths enforce, including remote workers.
+	WorkerLimit   int
+	ActiveWorkers int
 }
 
 // CoordinatorRoster is a project's local ownership hierarchy. Remote worker
@@ -117,8 +161,11 @@ type CoordinatorRosterEntry struct {
 type CoordinatorRoster struct {
 	ProjectID     domain.ProjectID
 	RootSessionID *domain.SessionID
-	Coordinators  []CoordinatorRosterEntry
-	RootWorkers   []domain.Session
+	// Limits are the project's effective limits; Capacity is its live census.
+	Limits       domain.CoordinatorLimits
+	Capacity     CapacityView
+	Coordinators []CoordinatorRosterEntry
+	RootWorkers  []domain.Session
 }
 
 // Ownership reads one session's owner, coordinator scope, and live root.
@@ -138,6 +185,13 @@ func (s *Service) Ownership(ctx context.Context, id domain.SessionID) (Ownership
 			return Ownership{}, err
 		}
 		out.Owner = &owner
+	}
+	var coordinator *domain.SessionID
+	if sess.Kind == domain.KindCoordinator {
+		coordinator = &sess.ID
+	}
+	if out.Capacity, err = s.capacityView(ctx, sess.ProjectID, coordinator); err != nil {
+		return Ownership{}, err
 	}
 	return out, nil
 }
@@ -178,6 +232,18 @@ func (s *Service) CoordinatorRoster(
 			byOwner[*sess.OwnerSessionID] = append(byOwner[*sess.OwnerSessionID], sess)
 		}
 	}
+	var counts coordownership.Counts
+	if s.store != nil {
+		if counts, err = s.countCapacity(ctx, project); err != nil {
+			return CoordinatorRoster{}, err
+		}
+	}
+	gate, err := coordownership.LoadConfig(ctx, s.store, project)
+	if err != nil {
+		return CoordinatorRoster{}, err
+	}
+	out.Limits = gate.Limits()
+	out.Capacity = capacityFrom(counts, out.Limits, nil)
 	for _, coordinator := range coordinators {
 		workers := byOwner[coordinator.ID]
 		recovery := coordinator.IsTerminated && hasLiveWorker(workers)
@@ -186,6 +252,8 @@ func (s *Service) CoordinatorRoster(
 		}
 		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
 			Coordinator: coordinator, Workers: workers, NeedsRecovery: recovery,
+			WorkerLimit:   counts.OwnerLimit(coordinator.ID, out.Limits),
+			ActiveWorkers: counts.ByOwner[coordinator.ID],
 		})
 	}
 	sort.Slice(out.Coordinators, func(i, j int) bool {
@@ -225,4 +293,177 @@ func hasLiveWorker(workers []domain.Session) bool {
 		}
 	}
 	return false
+}
+
+// CoordinatorLimitsCaller names who changes a limit: the operator for the
+// live root (Origin ui, cli, api), or the root itself (Origin cli, api).
+type CoordinatorLimitsCaller struct {
+	RequestedBy       domain.SessionID
+	OperatorInitiated bool
+	Origin            string
+}
+
+// SetCoordinatorWorkerLimit changes a live coordinator's limit under the
+// spawn lock; nil or an unchanged value is a no-op.
+func (s *Service) SetCoordinatorWorkerLimit(
+	ctx context.Context,
+	coordinatorID domain.SessionID,
+	limit *int,
+	caller CoordinatorLimitsCaller,
+) (domain.SessionRecord, error) {
+	if s.store == nil {
+		return domain.SessionRecord{}, fmt.Errorf("set coordinator limit %s: store is required", coordinatorID)
+	}
+	origin, err := limitOrigin(caller)
+	if err != nil {
+		return domain.SessionRecord{}, err
+	}
+	updated, changed, err := s.applyCoordinatorWorkerLimit(ctx, coordinatorID, limit, caller, origin)
+	if err != nil || !changed {
+		return updated, err
+	}
+	msg := fmt.Sprintf("Your worker limit is now %d. Running workers keep running; new workers are admitted only below the limit.", *limit)
+	if s.manager == nil {
+		return updated, nil
+	}
+	if sendErr := s.manager.Send(ctx, coordinatorID, msg, nil); sendErr != nil && s.logger != nil {
+		s.logger.Warn("coordinator limit message not delivered", "session", coordinatorID, "error", sendErr)
+	}
+	return updated, nil
+}
+
+func (s *Service) applyCoordinatorWorkerLimit(
+	ctx context.Context,
+	coordinatorID domain.SessionID,
+	limit *int,
+	caller CoordinatorLimitsCaller,
+	origin string,
+) (domain.SessionRecord, bool, error) {
+	// The project is fixed per session; state is checked under the lock,
+	// after the caller is authorized.
+	project, err := s.limitProject(ctx, coordinatorID, caller)
+	if err != nil {
+		return domain.SessionRecord{}, false, err
+	}
+	unlock := s.lockOrchestratorProject(project)
+	defer unlock()
+	actor, err := s.limitActor(ctx, project, caller)
+	if err != nil {
+		return domain.SessionRecord{}, false, err
+	}
+	coordinator, err := s.loadLiveCoordinator(ctx, coordinatorID)
+	if err != nil {
+		return domain.SessionRecord{}, false, err
+	}
+	if limit == nil {
+		return coordinator, false, nil
+	}
+	gate, err := coordownership.LoadConfig(ctx, s.store, coordinator.ProjectID)
+	if err != nil {
+		return domain.SessionRecord{}, false, err
+	}
+	if ceiling := gate.Limits().WorkersPerCoordinator; *limit < 1 || *limit > ceiling {
+		return domain.SessionRecord{}, false, coordownership.WorkerLimitInvalidError(*limit, ceiling)
+	}
+	if stored := coordinator.CoordinatorWorkerLimit; stored != nil && *stored == *limit {
+		return coordinator, false, nil
+	}
+	event := domain.CoordinatorLimitEvent{ActorSessionID: actor, Origin: origin}
+	if _, err := s.store.SetCoordinatorWorkerLimit(ctx, coordinator.ID, *limit, event, s.now()); err != nil {
+		return domain.SessionRecord{}, false, err
+	}
+	updated, _, err := s.store.GetSession(ctx, coordinator.ID)
+	return updated, true, err
+}
+
+// limitOrigin validates the marker and origin before any lookup.
+func limitOrigin(caller CoordinatorLimitsCaller) (string, error) {
+	if caller.OperatorInitiated {
+		if caller.RequestedBy != "" {
+			return "", apierr.New(apierr.KindForbidden, "OPERATOR_MARKER_NOT_ALLOWED",
+				"operatorInitiated cannot be combined with requestedBySessionId",
+				map[string]any{"sessionId": string(caller.RequestedBy)})
+		}
+		switch caller.Origin {
+		case "ui", "cli", "api":
+			return caller.Origin, nil
+		}
+		return "", apierr.Invalid("COORDINATOR_LIMITS_ORIGIN_INVALID", "origin must be ui, cli or api when operatorInitiated is true", nil)
+	}
+	switch caller.Origin {
+	case "":
+		return "api", nil
+	case "cli", "api":
+		return caller.Origin, nil
+	}
+	return "", apierr.Invalid("COORDINATOR_LIMITS_ORIGIN_INVALID", "origin must be cli or api for a root change", nil)
+}
+
+// limitActor resolves who changes a limit: the live root itself, or the
+// operator on behalf of the project's live root.
+func (s *Service) limitActor(ctx context.Context, project domain.ProjectID, caller CoordinatorLimitsCaller) (domain.SessionID, error) {
+	refuse := func(details map[string]any) error {
+		return apierr.New(apierr.KindForbidden, "COORDINATOR_ROOT_REQUIRED",
+			"Only the project root, or the operator on its behalf, may change coordinator limits", details)
+	}
+	if caller.OperatorInitiated {
+		root, err := s.liveRootID(ctx, project)
+		if err != nil {
+			return "", err
+		}
+		if root == nil {
+			return "", refuse(map[string]any{"projectId": string(project)})
+		}
+		return *root, nil
+	}
+	rec, found, err := s.store.GetSession(ctx, caller.RequestedBy)
+	if err != nil {
+		return "", fmt.Errorf("load limit caller %s: %w", caller.RequestedBy, err)
+	}
+	if !found || !coordownership.IsLiveRoot(rec, project) {
+		return "", refuse(map[string]any{"sessionId": string(caller.RequestedBy)})
+	}
+	return rec.ID, nil
+}
+
+// loadLiveCoordinator reads a session and requires a live coordinator.
+func (s *Service) loadLiveCoordinator(ctx context.Context, id domain.SessionID) (domain.SessionRecord, error) {
+	rec, ok, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return domain.SessionRecord{}, fmt.Errorf("load coordinator %s: %w", id, err)
+	}
+	if !ok {
+		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	if rec.Kind != domain.KindCoordinator {
+		return domain.SessionRecord{}, apierr.Conflict("OWNER_NOT_COORDINATOR", "The session is not a coordinator", map[string]any{"sessionId": string(rec.ID)})
+	}
+	if rec.IsTerminated {
+		return domain.SessionRecord{}, apierr.Conflict("OWNER_TERMINATED", "The coordinator is terminated", map[string]any{"sessionId": string(rec.ID)})
+	}
+	return rec, nil
+}
+
+// limitProject finds the target's project. An unknown target is a 404 only
+// for a live root; any other caller is refused first.
+func (s *Service) limitProject(ctx context.Context, id domain.SessionID, caller CoordinatorLimitsCaller) (domain.ProjectID, error) {
+	rec, found, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("load coordinator %s: %w", id, err)
+	}
+	if found {
+		return rec.ProjectID, nil
+	}
+	if !caller.OperatorInitiated {
+		root, ok, err := s.store.GetSession(ctx, caller.RequestedBy)
+		if err != nil {
+			return "", fmt.Errorf("load limit caller %s: %w", caller.RequestedBy, err)
+		}
+		if !ok || !coordownership.IsLiveRoot(root, root.ProjectID) {
+			return "", apierr.New(apierr.KindForbidden, "COORDINATOR_ROOT_REQUIRED",
+				"Only the project root, or the operator on its behalf, may change coordinator limits",
+				map[string]any{"sessionId": string(caller.RequestedBy)})
+		}
+	}
+	return "", apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 }

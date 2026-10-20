@@ -440,7 +440,7 @@ the same token, run `gh auth setup-git` once in a hub terminal as uid
 `10001`; it writes only a credential-helper reference to
 `/data/home/.gitconfig`, not the token.
 
-**Live check (operator, pending, #134).** In a hub terminal, `ao agent ls`
+**Live check (operator, passed 2026-10-17, #134).** In a hub terminal, `ao agent ls`
 lists the chosen harness as `authorized`; an orchestrator session started in
 the hub answers a prompt and runs
 `gh issue view 119 --repo petarnenov/ultra-factory`. Record only the result
@@ -1008,7 +1008,9 @@ runbook is not approval.
 | `MERGE_ROOT_ONLY` merge authority | pull request #333 |
 | End-to-end pilot (CLI and service level) | #227, pull request #339: [`coordinator_pilot_e2e_test.go`](../../backend/internal/cli/coordinator_pilot_e2e_test.go), [`pilot_test.go`](../../backend/internal/service/coordinatorpilot/pilot_test.go) |
 | Live multi-machine run and baseline comparison | **Pending operator run** on #227 and #218; capture protocol in [resource-baseline.md](resource-baseline.md) |
-| Known defect: no root escalation summary on coordinator termination | [#340](https://github.com/petarnenov/ultra-factory/issues/340) (open) |
+| Root escalation summary on coordinator termination | [#340](https://github.com/petarnenov/ultra-factory/issues/340) (closed): migration `0216` writes the `coordinator_terminated` summary |
+
+**Merge authority.** The daemon refuses `ao pr merge` from every live worker and coordinator with `403 MERGE_ROOT_ONLY`, in every project and whether or not coordinators are enabled (introduced in 0.18.0, pull request #333). Integration belongs to the project root, so a worker reports a green PR to its owner and does not merge it.
 
 ### Prerequisites
 
@@ -1090,11 +1092,10 @@ project's `coordinators` config:
 - Restoring a terminated worker re-checks both caps; restoring a terminated
   coordinator re-checks the two-coordinator cap and **does not** reattach its
   former workers.
-- The defaults are also the ceiling. A project may lower
+- The defaults are 2/3/6; the hard maximum is 4/6/12. A project may set
   `maxCoordinators`, `maxWorkersPerCoordinator` and `maxWorkers` in its
-  `coordinators` config block; raising a value needs a new decision, never a
-  config edit, and anything above 2/3/6 is refused with
-  `COORDINATOR_LIMITS_INVALID`. The effective limits are read from the project
+  `coordinators` config block up to the hard maximum, and anything above it is
+  refused with `COORDINATOR_LIMITS_INVALID`. The effective limits are read from the project
   config on every spawn, restore, reassignment, and remote-link write.
 
 ### Enable one pilot project
@@ -1115,8 +1116,8 @@ feature, implemented as `domain.CoordinatorsConfig`:
   with `409 COORDINATORS_DISABLED` (`projectId` in the details), after the
   root-caller and scope checks and under the project lock.
 - `maxCoordinators`, `maxWorkersPerCoordinator` and `maxWorkers` default to
-  2/3/6, which are also the ceiling. `0` means "keep the default". Lowering is
-  allowed; a value above the ceiling or below zero is rejected with
+  2/3/6. `0` means "keep the default". A value up to the hard maximum 4/6/12
+  is allowed; a value above it or below zero is rejected with
   `COORDINATOR_LIMITS_INVALID` (400, `field`, `max`) when the config is set.
 - Disabling blocks new coordinator spawns while restoring a terminated
   coordinator stays allowed for recovery, and existing ownership keeps routing
@@ -1135,7 +1136,7 @@ ao project get <project> --json
 # A project with no other config: the flag form is enough.
 ao project set-config <project> --coordinators
 
-# Optional: lower a limit for the pilot. 2/3/6 is the ceiling, not a floor.
+# Optional: lower a limit for the pilot. 2/3/6 are the defaults; 4/6/12 is the maximum.
 ao project set-config <project> --coordinators \
   --max-workers-per-coordinator 2
 ```
@@ -1393,13 +1394,11 @@ Only then terminate the coordinator:
 ao session kill <coordinator-id>
 ```
 
-Termination returns any worker or link it still owns to the root atomically and
-audits the change. It does **not** delete the coordinator, its workers, or their
-reports. Because of open defect
-[#340](https://github.com/petarnenov/ultra-factory/issues/340), it does not
-write the `coordinator_terminated` escalation summary to the root either, so
-confirm the handback yourself with the commands above instead of waiting for a
-notification.
+Termination returns any worker or link it still owns to the root atomically,
+audits the change and writes the `coordinator_terminated` escalation summary to
+the root (migration `0216`, [#340](https://github.com/petarnenov/ultra-factory/issues/340)).
+It does **not** delete the coordinator, its workers, or their reports. Still
+confirm the handback with the commands above.
 
 Do not run `ao session cleanup` during this sequence: it reclaims workspaces of
 terminated sessions (skipping dirty worktrees). **(guidance)** Keep worktrees
@@ -1464,8 +1463,8 @@ summary delivered, and **no** coordinator, worker, report, or summary deleted.
    `ao remote-worker ls`. Every worker must resolve to the live root.
 6. **Terminate each coordinator.** `ao session kill <coordinator-id>`. Keep the
    rows; termination is not deletion. If you skipped step 4, the termination
-   trigger still returns the workers to the root, but #340 means the root gets no
-   escalation summary, so verify manually.
+   trigger still returns the workers to the root and writes the escalation summary;
+   verify both manually.
 7. **Verify pending reports and summaries reach the root.** Check the summary
    history (`deliveryState`, `lastError`) and the report-table query above; the
    root's conversation must show the handback. A live-but-exited coordinator
@@ -1617,7 +1616,8 @@ were not verified and must not be reported as passed.
 | Persistence and restart | Pass, limited | The host registry, GitHub and Claude sign-ins under `/data`, and the agent CLIs in `/data/home/.npm-global` were kept across several image updates. Database contents were not compared. |
 | Image update and rollback | Update: pass; rollback pending | Updates are published and deployed by `hub-image.yml` (see [Automated image publish and deploy](#automated-image-publish-and-deploy)), with a 60 s post-`SUCCESS` re-check added after a crash loop (#128). A rollback was not exercised. |
 | Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
-| Orchestrator credentials (RW-5.4.1) | Pending human validation | `ao agent ls` shows the chosen harness `authorized`; a hub orchestrator answers a prompt and runs `gh issue view` against this repository. No credential output. |
+| Orchestrator credentials (RW-5.4.1) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | In the hub, `ao agent ls` listed `claude-code` and `codex` as `authorized`; the hub orchestrator session answered prompts and ran `gh issue view 119 --repo petarnenov/ultra-factory`. With `AO_HUB_ORCHESTRATOR_TICK=1` the hub tick loop delivered TICKs to it (for example for PR #155) with nothing running on the Mac. No credential output recorded. |
+| Orchestrator wake-up loop (RW-5.4.2) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | With `AO_HUB_ORCHESTRATOR_TICK=1` on the hub, the tick loop delivered TICKs to the hub orchestrator (for example for PR #155) with nothing running on the Mac. Recorded from the operator's live check; no dry-run output. |
 
 The spike in [`packages/hub-bff/docs/railway-api-notes.md`](../../packages/hub-bff/docs/railway-api-notes.md)
 confirmed only selected Railway GraphQL create/configuration operations with a
@@ -1666,11 +1666,9 @@ recorded above.
 | --- | --- | --- |
 | Board load time, SSE delivery latency, terminal typing latency | Login asset TTFB only; streams open; terminal output works | [#141](https://github.com/petarnenov/ultra-factory/issues/141) |
 | PR status in the browser, full sweep of desktop-only features on the web, image CSP (`img-src`) decision, `make check` green on the branch head | #127 hid Codex accounts and enabled remote hosts; no full sweep | [#142](https://github.com/petarnenov/ultra-factory/issues/142) |
-| Hub orchestrator credentials (`ao agent ls` authorized, `gh issue view` from a hub orchestrator) | Documentation only | [#134](https://github.com/petarnenov/ultra-factory/issues/134) |
 | Hub backup export and restore, worker drain, worker redeploy with its volume, resume after restart, hub rollback, `volume_size_limit`, idle warning | Local tests only | [#145](https://github.com/petarnenov/ultra-factory/issues/145) |
 | Railway token deletion permissions (service and volume) for worker removal | RW-3.1.1 token was denied deletion | Operator decision before setting `RAILWAY_API_TOKEN` |
 | Worker provisioning through the Railway API on a live hub, including `AO_HUB_WORKER_URL_MODE=private` | Fake provider in the local e2e only | Needs the token above |
-| Orchestrator wake-up loop in the hub | Offline dry-run test only | Operator, with the Mac tick stopped |
 | Desktop pairing and host-scoped clone/session/terminal/message/PR/preview on a Railway worker (RW-1.4.2) | Not run from the desktop app; the web UI path to `worker-1` works | [#17](https://github.com/petarnenov/ultra-factory/issues/17) |
 | CLI spawn/list/get/send against a Railway worker | Not tested | [#17](https://github.com/petarnenov/ultra-factory/issues/17) |
 | Worker database preservation across a deliberate redeploy | Host ID matched across deployments; no DB comparison | #145 |

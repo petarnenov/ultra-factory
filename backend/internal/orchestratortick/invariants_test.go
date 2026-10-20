@@ -41,6 +41,50 @@ func TestGreenPRThresholdAndChecks(t *testing.T) {
 	}
 }
 
+func TestDraftWithSkippedExpensiveChecksIsNotAGreenPR(t *testing.T) {
+	cfg := DefaultConfig()
+	old := now.Add(-2 * cfg.GreenPRMax)
+	draft := PullRequest{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE", Draft: true, Checks: []Check{
+		{Result: "SUCCESS", CompletedAt: old}, {Result: "SKIPPED", CompletedAt: old}, {Result: "SKIPPED", CompletedAt: old},
+	}}
+	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{draft}}}
+	if got := greenPRsLeftOpen(cfg, facts, now); len(got) != 0 {
+		t.Fatalf("draft produced a green-PR violation: %v", got)
+	}
+	if out := Snapshot(cfg, facts, nil, now); !strings.Contains(out, "mergeable=NO(draft)") {
+		t.Fatalf("snapshot does not mark the draft not mergeable:\n%s", out)
+	}
+	draft.Draft = false
+	facts.GitHub.OpenPRs[0] = draft
+	if got := greenPRsLeftOpen(cfg, facts, now); len(got) != 1 {
+		t.Fatalf("the same PR once ready must be a violation, got %v", got)
+	}
+}
+
+func TestSupersededCancelledRunsDoNotOutvoteTheRerun(t *testing.T) {
+	t0 := now.Add(-time.Hour)
+	run := func(name, wf, result string, at time.Time) Check {
+		return Check{Name: name, Workflow: wf, Result: result, CompletedAt: at}
+	}
+	for name, tc := range map[string]struct {
+		checks []Check
+		want   string
+	}{
+		"cancelled then success":   {[]Check{run("go", "Go", "CANCELLED", t0), run("go", "Go", "SUCCESS", t0.Add(time.Minute))}, "green"},
+		"order does not matter":    {[]Check{run("go", "Go", "SUCCESS", t0.Add(time.Minute)), run("go", "Go", "CANCELLED", t0)}, "green"},
+		"success then failure":     {[]Check{run("go", "Go", "SUCCESS", t0), run("go", "Go", "FAILURE", t0.Add(time.Minute))}, "red"},
+		"success then running":     {[]Check{run("go", "Go", "SUCCESS", t0), run("go", "Go", "IN_PROGRESS", time.Time{})}, "pending"},
+		"running then cancelled":   {[]Check{run("go", "Go", "IN_PROGRESS", time.Time{}), run("go", "Go", "CANCELLED", t0)}, "pending"},
+		"other workflow same name": {[]Check{run("check", "Policy", "FAILURE", t0), run("check", "Mobile", "SUCCESS", t0.Add(time.Minute))}, "red"},
+		"no workflow falls back":   {[]Check{run("lint", "", "CANCELLED", t0), run("lint", "", "SUCCESS", t0.Add(time.Minute))}, "green"},
+		"unnamed checks all count": {[]Check{run("", "", "CANCELLED", t0), run("", "", "SUCCESS", t0.Add(time.Minute))}, "red"},
+	} {
+		if got := CheckSummary(tc.checks); got != tc.want {
+			t.Errorf("%s: CheckSummary = %s, want %s", name, got, tc.want)
+		}
+	}
+}
+
 func TestGreenPRViolationMatchesReviewState(t *testing.T) {
 	cfg := DefaultConfig()
 	greenFacts := func(mutate func(*PullRequest, *Worker)) Facts {
@@ -274,10 +318,26 @@ func TestFingerprintIgnoresGrowingDurations(t *testing.T) {
 	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE",
 		Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-time.Hour)}}}}}}
 	early, late := Violations(cfg, facts, now), Violations(cfg, facts, now.Add(5*time.Minute))
-	if Snapshot(cfg, facts, early) == Snapshot(cfg, facts, late) {
+	if Snapshot(cfg, facts, early, now) == Snapshot(cfg, facts, late, now) {
 		t.Fatal("the shown durations should differ")
 	}
-	if Fingerprint(cfg, facts, early) != Fingerprint(cfg, facts, late) {
+	if Fingerprint(cfg, facts, early, now) != Fingerprint(cfg, facts, late, now) {
 		t.Fatal("the fingerprint changed although only the duration grew")
+	}
+}
+
+func TestSnapshotShowsTheHeldCheckSummary(t *testing.T) {
+	cfg := DefaultConfig()
+	flip := now.Add(-time.Minute)
+	pr := PullRequest{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE", ReadyAt: flip, Checks: []Check{
+		{Name: "policy", Result: "SUCCESS", CompletedAt: flip.Add(time.Second)},
+		{Name: "go", Result: "SKIPPED", CompletedAt: flip.Add(-time.Minute)},
+	}}
+	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{pr}}}
+	if out := Snapshot(cfg, facts, nil, now); !strings.Contains(out, "checks=pending") {
+		t.Fatalf("held PR must not read green:\n%s", out)
+	}
+	if out := Snapshot(cfg, facts, nil, flip.Add(staleSkipWindow)); !strings.Contains(out, "checks=green") {
+		t.Fatalf("after the window the skip is genuine:\n%s", out)
 	}
 }

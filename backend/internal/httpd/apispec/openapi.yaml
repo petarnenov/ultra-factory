@@ -3038,7 +3038,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3153,7 +3153,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3198,7 +3198,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3586,7 +3586,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3650,7 +3650,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3738,7 +3738,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: MERGE_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4052,7 +4052,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4064,7 +4064,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -4080,6 +4080,12 @@ paths:
       summary: Assign or clear a linked remote worker's local owner
       tags:
       - reports
+      x-error-codes:
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -4956,13 +4962,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: coordinator codes in x-error-codes'
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: COORDINATOR_ROOT_REQUIRED'
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Conflict: coordinator codes in x-error-codes'
         "500":
           content:
             application/json:
@@ -4972,6 +4990,18 @@ paths:
       summary: Spawn a new agent session
       tags:
       - sessions
+      x-error-codes:
+        "400":
+        - COORDINATOR_SCOPE_REQUIRED
+        - COORDINATOR_SCOPE_TOO_LONG
+        - REMOTE_SPAWN_WORKER_REQUIRED
+        "403":
+        - COORDINATOR_ROOT_REQUIRED
+        "409":
+        - COORDINATORS_DISABLED
+        - COORDINATOR_LIMIT_REACHED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - PROJECT_WORKER_LIMIT_REACHED
   /api/v1/sessions/{sessionId}:
     get:
       operationId: getSession
@@ -7804,6 +7834,69 @@ paths:
       summary: Promote a queued message into the in-flight turn
       tags:
       - conversations
+  /api/v1/sessions/{sessionId}/coordinator-limits:
+    put:
+      operationId: setCoordinatorLimits
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoordinatorLimitsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionOwnershipResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Change a live coordinator's worker limit
+      tags:
+      - sessions
   /api/v1/sessions/{sessionId}/exit-agent:
     post:
       operationId: exitAgent
@@ -8176,7 +8269,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -8188,7 +8281,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -8204,6 +8297,13 @@ paths:
       summary: Assign or clear a worker's coordinator owner (live root only)
       tags:
       - sessions
+      x-error-codes:
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - OWNER_REASSIGNMENT_IN_FLIGHT
   /api/v1/sessions/{sessionId}/ownership:
     get:
       operationId: getSessionOwnership
@@ -15015,12 +15115,55 @@ components:
       - cachedTokens
       - totalTokens
       type: object
+    CoordinatorCapacity:
+      properties:
+        activeCoordinators:
+          type: integer
+        activeWorkers:
+          type: integer
+        maxCoordinators:
+          type: integer
+        maxWorkers:
+          type: integer
+        maxWorkersPerCoordinator:
+          type: integer
+      required:
+      - maxCoordinators
+      - maxWorkersPerCoordinator
+      - maxWorkers
+      - activeCoordinators
+      - activeWorkers
+      type: object
+    CoordinatorLimitsRequest:
+      properties:
+        operatorInitiated:
+          description: Operator acts for the live root; needs origin.
+          type: boolean
+        origin:
+          enum:
+          - ui
+          - cli
+          - api
+          type: string
+        requestedBySessionId:
+          type: string
+        workerLimit:
+          description: Omitted keeps the stored value.
+          minimum: 1
+          type:
+          - "null"
+          - integer
+      type: object
     CoordinatorRosterEntry:
       properties:
+        activeWorkerCount:
+          type: integer
         coordinatorScope:
           type: string
         coordinatorSessionId:
           type: string
+        effectiveWorkerLimit:
+          type: integer
         isTerminated:
           type: boolean
         latestSummary:
@@ -15032,6 +15175,10 @@ components:
           type: boolean
         workerCount:
           type: integer
+        workerLimit:
+          type:
+          - "null"
+          - integer
         workerSessionIds:
           items:
             type: string
@@ -15042,11 +15189,16 @@ components:
       - isTerminated
       - workerSessionIds
       - workerCount
+      - workerLimit
+      - effectiveWorkerLimit
+      - activeWorkerCount
       - needsRecovery
       - latestSummary
       type: object
     CoordinatorRosterResponse:
       properties:
+        capacity:
+          $ref: '#/components/schemas/CoordinatorCapacity'
         coordinators:
           items:
             $ref: '#/components/schemas/CoordinatorRosterEntry'
@@ -15064,6 +15216,7 @@ components:
       required:
       - projectId
       - rootSessionId
+      - capacity
       - coordinators
       - rootWorkerSessionIds
       type: object
@@ -18056,8 +18209,18 @@ components:
       type: object
     SessionOwnershipResponse:
       properties:
+        activeWorkerCount:
+          type:
+          - "null"
+          - integer
+        capacity:
+          $ref: '#/components/schemas/CoordinatorCapacity'
         coordinatorScope:
           type: string
+        effectiveWorkerLimit:
+          type:
+          - "null"
+          - integer
         kind:
           enum:
           - worker
@@ -18084,11 +18247,17 @@ components:
           - string
         sessionId:
           type: string
+        workerLimit:
+          type:
+          - "null"
+          - integer
       required:
       - sessionId
       - kind
       - ownerSessionId
       - rootSessionId
+      - capacity
+      - workerLimit
       type: object
     SessionPRCISummary:
       properties:
@@ -19450,6 +19619,11 @@ components:
           - github
           - gitlab
           type: string
+        workerLimit:
+          minimum: 1
+          type:
+          - "null"
+          - integer
       type: object
     SpawnSessionResponse:
       properties:

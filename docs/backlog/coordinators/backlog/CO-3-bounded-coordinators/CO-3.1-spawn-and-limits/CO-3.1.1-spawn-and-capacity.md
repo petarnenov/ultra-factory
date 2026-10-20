@@ -1,6 +1,6 @@
 # CO-3.1.1 · Task: Add coordinator spawn and capacity rules
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#330](https://github.com/petarnenov/ultra-factory/pull/330); issue [#224](https://github.com/petarnenov/ultra-factory/issues/224) is closed.
 
 **Type:** backend and CLI. **Estimate:** 1–2 pd. **Story:** CO-3.1.
 

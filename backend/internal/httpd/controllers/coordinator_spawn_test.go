@@ -61,3 +61,22 @@ func TestSessionsAPI_SpawnCoordinatorErrorsKeepTheEnvelopeAndRequestID(t *testin
 		})
 	}
 }
+
+func TestSessionsAPI_SpawnCoordinatorForwardsWorkerLimit(t *testing.T) {
+	svc := newFakeSessionService()
+	srv := newSessionTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions",
+		`{"projectId":"ao","kind":"coordinator","scope":"auth","parentSessionId":"ao-1","displayName":"Auth","workerLimit":2}`)
+	if status != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", status, body)
+	}
+	if got := svc.lastSpawn.CoordinatorWorkerLimit; got == nil || *got != 2 {
+		t.Fatalf("forwarded workerLimit = %v, want 2", got)
+	}
+	doRequest(t, srv, "POST", "/api/v1/sessions",
+		`{"projectId":"ao","kind":"coordinator","scope":"auth","parentSessionId":"ao-1","displayName":"Auth"}`)
+	if got := svc.lastSpawn.CoordinatorWorkerLimit; got != nil {
+		t.Fatalf("an omitted workerLimit must stay nil, got %d", *got)
+	}
+}

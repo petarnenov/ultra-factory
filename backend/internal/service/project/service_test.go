@@ -2472,7 +2472,7 @@ func TestProjectGitHubAccountIsPerMachine(t *testing.T) {
 	}
 }
 
-func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheRolloutCap(t *testing.T) {
+func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheHardMaximum(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlitetest.Open(t.TempDir())
 	if err != nil {
@@ -2484,13 +2484,33 @@ func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheRolloutCap(t *testing.
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
+	if _, err = m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 4, MaxWorkersPerCoordinator: 6, MaxWorkers: 12},
+	}}); err != nil {
+		t.Fatalf("values at the hard maximum are valid: %v", err)
+	}
+	for field, tc := range map[string]struct {
+		cfg domain.CoordinatorsConfig
+		max int
+	}{
+		"maxCoordinators":          {domain.CoordinatorsConfig{MaxCoordinators: 5}, 4},
+		"maxWorkersPerCoordinator": {domain.CoordinatorsConfig{MaxWorkersPerCoordinator: 7}, 6},
+		"maxWorkers":               {domain.CoordinatorsConfig{MaxWorkers: -1}, 12},
+	} {
+		_, err = m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{Coordinators: tc.cfg}})
+		var apiErr *apierr.Error
+		if !errors.As(err, &apiErr) || apiErr.Code != "COORDINATOR_LIMITS_INVALID" ||
+			apiErr.Details["field"] != field || apiErr.Details["max"] != tc.max {
+			t.Fatalf("%s: err = %v, want COORDINATOR_LIMITS_INVALID", field, err)
+		}
+	}
 	_, err = m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
-		Coordinators: domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 3},
+		Coordinators: domain.CoordinatorsConfig{MaxWorkersPerCoordinator: 5, MaxWorkers: 4},
 	}})
-	var apiErr *apierr.Error
-	if !errors.As(err, &apiErr) || apiErr.Code != "COORDINATOR_LIMITS_INVALID" ||
-		apiErr.Details["field"] != "maxCoordinators" || apiErr.Details["max"] != 2 {
-		t.Fatalf("err = %v, want COORDINATOR_LIMITS_INVALID for maxCoordinators", err)
+	var pairErr *apierr.Error
+	if !errors.As(err, &pairErr) || pairErr.Code != "COORDINATOR_LIMITS_INVALID" ||
+		pairErr.Details["field"] != "maxWorkersPerCoordinator" || pairErr.Details["max"] != 4 {
+		t.Fatalf("per-coordinator above the total: err = %v", err)
 	}
 	updated, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
 		Coordinators: domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 1},

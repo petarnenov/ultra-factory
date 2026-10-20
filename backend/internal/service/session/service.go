@@ -51,6 +51,9 @@ type Store interface {
 	// SetSessionOwner writes owner + audit atomically. skipClaimGuard=false
 	// enforces the claimed-report guard; only automatic repair may pass true.
 	SetSessionOwner(ctx context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, skipClaimGuard bool) (domain.SessionRecord, bool, error)
+	// SetCoordinatorWorkerLimit writes a live coordinator's limit + audit
+	// atomically and returns the previous limit.
+	SetCoordinatorWorkerLimit(ctx context.Context, id domain.SessionID, limit int, event domain.CoordinatorLimitEvent, at time.Time) (*int, error)
 	GetDisplayPRFactsForSession(ctx context.Context, id domain.SessionID) (domain.PRFacts, bool, error)
 	ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error)
 	ListPRFactsForSessions(ctx context.Context, ids []domain.SessionID) (map[domain.SessionID][]domain.PRFacts, error)
@@ -409,6 +412,9 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	}
 	if cfg.RemoteSpawned && cfg.Kind != domain.KindWorker {
 		return domain.Session{}, 0, 0, apierr.Invalid("REMOTE_SPAWN_WORKER_REQUIRED", "remoteSpawn is supported for worker sessions only", nil)
+	}
+	if cfg.CoordinatorWorkerLimit != nil && cfg.Kind != domain.KindCoordinator {
+		return domain.Session{}, 0, 0, apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "workerLimit is supported for coordinator sessions only", map[string]any{"field": "workerLimit"})
 	}
 	if cfg.Kind == domain.KindCoordinator {
 		return s.spawnCoordinator(ctx, cfg)
