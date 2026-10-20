@@ -52,9 +52,8 @@ export function CoordinatorsSettingsForm({
 	const hasErrors = Object.keys(errors).length > 0;
 	const dirty = JSON.stringify(form) !== JSON.stringify(baseline);
 	const blocked = dirty && hasErrors;
-	// The dialog submits this form before it switches section or closes. A
-	// draft that cannot be saved reports "failed", so the switch or close is
-	// held and the reason stays on screen instead of dropping the edits.
+	// The dialog submits this form before a section switch or close. An
+	// invalid draft reports "failed", which holds it instead of dropping it.
 	useEffect(() => {
 		onSaveState?.({
 			phase: saving ? "saving" : saveError || blocked ? "failed" : saved && !dirty ? "saved" : "idle",
