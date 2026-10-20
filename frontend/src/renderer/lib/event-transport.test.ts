@@ -178,6 +178,28 @@ describe("createEventTransport", () => {
 		} finally { vi.useRealTimers(); }
 	});
 
+	it("polls only while a remote stream is down: reconnects with backoff and stops polling once verified", async () => {
+		vi.useFakeTimers();
+		try {
+			connectedHostsMock.mockReturnValue(["box-a"]);
+			baseUrlForHostMock.mockImplementation((hostId) => `http://127.0.0.1:4000/${hostId}`);
+			const client = fakeQueryClient();
+			const disconnect = createEventTransport(client).connect();
+			const remoteSources = () => EventSourceStub.instances.filter((source) => source.url.includes("/box-a/"));
+			remoteSources()[0].emit("cursor", "0");
+			remoteSources()[0].onerror?.();
+			vi.mocked(client.invalidateQueries).mockClear();
+			await vi.advanceTimersByTimeAsync(2_000);
+			expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["remote-workspaces", "box-a"] }, { cancelRefetch: false });
+			expect(remoteSources()).toHaveLength(2);
+			remoteSources()[1].emit("cursor", "0");
+			vi.mocked(client.invalidateQueries).mockClear();
+			await vi.advanceTimersByTimeAsync(2_000);
+			expect(client.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["reviewer-conversation", "box-a"] }, { cancelRefetch: false });
+			disconnect();
+		} finally { vi.useRealTimers(); }
+	});
+
 	it("streams each connected remote host and refreshes only its live conversation page", async () => {
 		const client = fakeQueryClient();
 		connectedHostsMock.mockReturnValue(["box-a", "box-b"]);
