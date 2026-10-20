@@ -4072,6 +4072,14 @@ export interface components {
             /** @enum {string} */
             warningCode?: "auth_required" | "auth_expired";
         };
+        AgentProfile: {
+            effort: string;
+            harness: string;
+            id: string;
+            label?: string;
+            model: string;
+            weight?: number;
+        };
         AgentReadinessResponse: {
             agents: components["schemas"]["AgentReadinessSnapshot"][];
         };
@@ -4087,6 +4095,11 @@ export interface components {
             /** @description Session interfaces this harness can receive a durable context handoff in. */
             switchModes?: string[];
             usageCount: number;
+        };
+        AgentSelection: {
+            mode?: string;
+            profileId?: string;
+            profileIds?: string[];
         };
         AgentSwitch: {
             /** @enum {string} */
@@ -4253,7 +4266,7 @@ export interface components {
             };
         };
         CheckRemoteWorkerCapacityResponse: {
-            agent?: components["schemas"]["ControllersRemoteWorkerAgent"];
+            agent?: components["schemas"]["RemoteWorkerAgent"];
             ok: boolean;
             readinessHarnesses?: string[];
         };
@@ -4622,10 +4635,6 @@ export interface components {
         ContainerReapConfig: {
             disabled?: boolean;
         };
-        ControllersCoordinatorRosterWorker: {
-            agentProfileId: null | string;
-            sessionId: string;
-        };
         ControllersCoordinatorSummaryHistoryResponse: {
             summaries: components["schemas"]["ControllersCoordinatorSummaryResponse"][];
         };
@@ -4664,14 +4673,6 @@ export interface components {
             submissionKey: string;
             workerSessionIds: string[];
         };
-        ControllersCoordinatorWorkerAgentRequest: {
-            /** @description Operator acts for the live root; needs origin. */
-            operatorInitiated?: boolean;
-            /** @enum {string} */
-            origin?: "ui" | "cli" | "api";
-            requestedBySessionId?: string;
-            workerAgent: components["schemas"]["DomainAgentSelection"];
-        };
         ControllersKeepAwakeStatus: {
             active: boolean;
             enabled: boolean;
@@ -4684,12 +4685,6 @@ export interface components {
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
             token: string;
-        };
-        ControllersRemoteWorkerAgent: {
-            effort: string;
-            harness: string;
-            model: string;
-            profileId?: string;
         };
         ControllersRequestRereviewRequest: {
             /** @description Tracked pull request URL. Required when the session has multiple PRs. */
@@ -4799,7 +4794,7 @@ export interface components {
             terminateOnPrMerge: boolean;
             /** Format: date-time */
             updatedAt: string;
-            workerAgent?: components["schemas"]["DomainAgentSelection"];
+            workerAgent?: components["schemas"]["AgentSelection"];
             /** @enum {string} */
             workspaceCleanup?: "pending" | "removed" | "preserved_dirty" | "failed" | "not_applicable";
         };
@@ -5116,11 +5111,11 @@ export interface components {
             isTerminated: boolean;
             latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
             needsRecovery: boolean;
-            workerAgent?: components["schemas"]["DomainAgentSelection"];
+            workerAgent?: components["schemas"]["AgentSelection"];
             workerCount: number;
             workerLimit: null | number;
             workerSessionIds: string[];
-            workers: components["schemas"]["ControllersCoordinatorRosterWorker"][];
+            workers: components["schemas"]["CoordinatorRosterWorker"][];
         };
         CoordinatorRosterResponse: {
             capacity: components["schemas"]["CoordinatorCapacity"];
@@ -5128,6 +5123,18 @@ export interface components {
             projectId: string;
             rootSessionId: null | string;
             rootWorkerSessionIds: string[];
+        };
+        CoordinatorRosterWorker: {
+            agentProfileId: null | string;
+            sessionId: string;
+        };
+        CoordinatorWorkerAgentRequest: {
+            /** @description Operator acts for the live root; needs origin. */
+            operatorInitiated?: boolean;
+            /** @enum {string} */
+            origin?: "ui" | "cli" | "api";
+            requestedBySessionId?: string;
+            workerAgent: components["schemas"]["AgentSelection"];
         };
         CreateAutomationRequest: {
             cron?: string;
@@ -5257,28 +5264,15 @@ export interface components {
             lastActivityAt: string;
             state: string;
         };
-        DomainAgentProfile: {
-            effort: string;
-            harness: string;
-            id: string;
-            label?: string;
-            model: string;
-            weight?: number;
-        };
-        DomainAgentSelection: {
-            mode?: string;
-            profileId?: string;
-            profileIds?: string[];
-        };
         DomainCoordinatorsConfig: {
-            agentProfiles?: components["schemas"]["DomainAgentProfile"][];
-            coordinatorAgent?: components["schemas"]["DomainAgentSelection"];
+            agentProfiles?: components["schemas"]["AgentProfile"][];
+            coordinatorAgent?: components["schemas"]["AgentSelection"];
             enabled?: boolean;
             maxCoordinators?: number;
             maxWorkers?: number;
             maxWorkersPerCoordinator?: number;
-            rootWorkerAgent?: components["schemas"]["DomainAgentSelection"];
-            workerAgent?: components["schemas"]["DomainAgentSelection"];
+            rootWorkerAgent?: components["schemas"]["AgentSelection"];
+            workerAgent?: components["schemas"]["AgentSelection"];
         };
         DomainGitHubSCMConfig: {
             account?: string;
@@ -5958,6 +5952,12 @@ export interface components {
         ReloadConversationMCPServersResponse: {
             servers: components["schemas"]["ConversationMCPServerPayload"][];
         };
+        RemoteWorkerAgent: {
+            effort: string;
+            harness: string;
+            model: string;
+            profileId?: string;
+        };
         RemoteWorkerLinkResponse: {
             /** Format: date-time */
             createdAt: string;
@@ -6306,7 +6306,7 @@ export interface components {
             projectId?: string;
             rootSessionId: null | string;
             sessionId: string;
-            workerAgent?: components["schemas"]["DomainAgentSelection"];
+            workerAgent?: components["schemas"]["AgentSelection"];
             workerLimit: null | number;
         };
         SessionPRCISummary: {
@@ -6806,7 +6806,7 @@ export interface components {
             attachments?: components["schemas"]["AttachmentInput"][];
             branch?: string;
             clientRequestId?: string;
-            coordinatorAgent?: components["schemas"]["DomainAgentSelection"];
+            coordinatorAgent?: components["schemas"]["AgentSelection"];
             displayName?: string;
             effort?: string;
             /** @enum {string} */
@@ -6828,7 +6828,7 @@ export interface components {
             terminateOnPrMerge?: null | boolean;
             /** @enum {string} */
             trackerProvider?: "github" | "gitlab";
-            workerAgent?: components["schemas"]["DomainAgentSelection"];
+            workerAgent?: components["schemas"]["AgentSelection"];
             workerLimit?: null | number;
         };
         SpawnSessionResponse: {
@@ -17086,7 +17086,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ControllersCoordinatorWorkerAgentRequest"];
+                "application/json": components["schemas"]["CoordinatorWorkerAgentRequest"];
             };
         };
         responses: {

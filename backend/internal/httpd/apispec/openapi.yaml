@@ -7882,7 +7882,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ControllersCoordinatorWorkerAgentRequest'
+              $ref: '#/components/schemas/CoordinatorWorkerAgentRequest'
         required: true
       responses:
         "200":
@@ -12326,6 +12326,26 @@ components:
       - fetchedAt
       - stale
       type: object
+    AgentProfile:
+      properties:
+        effort:
+          type: string
+        harness:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+        model:
+          type: string
+        weight:
+          type: integer
+      required:
+      - id
+      - harness
+      - model
+      - effort
+      type: object
     AgentReadinessResponse:
       properties:
         agents:
@@ -12371,6 +12391,17 @@ components:
       - authentication
       - effectiveReadiness
       - usageCount
+      type: object
+    AgentSelection:
+      properties:
+        mode:
+          type: string
+        profileId:
+          type: string
+        profileIds:
+          items:
+            type: string
+          type: array
       type: object
     AgentSwitch:
       properties:
@@ -12806,7 +12837,7 @@ components:
     CheckRemoteWorkerCapacityResponse:
       properties:
         agent:
-          $ref: '#/components/schemas/ControllersRemoteWorkerAgent'
+          $ref: '#/components/schemas/RemoteWorkerAgent'
         ok:
           type: boolean
         readinessHarnesses:
@@ -13852,18 +13883,6 @@ components:
         disabled:
           type: boolean
       type: object
-    ControllersCoordinatorRosterWorker:
-      properties:
-        agentProfileId:
-          type:
-          - "null"
-          - string
-        sessionId:
-          type: string
-      required:
-      - sessionId
-      - agentProfileId
-      type: object
     ControllersCoordinatorSummaryHistoryResponse:
       properties:
         summaries:
@@ -13979,24 +13998,6 @@ components:
       - deliveryState
       - deliveryAttempts
       type: object
-    ControllersCoordinatorWorkerAgentRequest:
-      properties:
-        operatorInitiated:
-          description: Operator acts for the live root; needs origin.
-          type: boolean
-        origin:
-          enum:
-          - ui
-          - cli
-          - api
-          type: string
-        requestedBySessionId:
-          type: string
-        workerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
-      required:
-      - workerAgent
-      type: object
     ControllersKeepAwakeStatus:
       properties:
         active:
@@ -14027,21 +14028,6 @@ components:
       required:
       - hostId
       - token
-      type: object
-    ControllersRemoteWorkerAgent:
-      properties:
-        effort:
-          type: string
-        harness:
-          type: string
-        model:
-          type: string
-        profileId:
-          type: string
-      required:
-      - harness
-      - model
-      - effort
       type: object
     ControllersRequestRereviewRequest:
       properties:
@@ -14364,7 +14350,7 @@ components:
           format: date-time
           type: string
         workerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         workspaceCleanup:
           enum:
           - pending
@@ -15205,7 +15191,7 @@ components:
         needsRecovery:
           type: boolean
         workerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         workerCount:
           type: integer
         workerLimit:
@@ -15218,7 +15204,7 @@ components:
           type: array
         workers:
           items:
-            $ref: '#/components/schemas/ControllersCoordinatorRosterWorker'
+            $ref: '#/components/schemas/CoordinatorRosterWorker'
           type: array
       required:
       - coordinatorSessionId
@@ -15258,6 +15244,36 @@ components:
       - capacity
       - coordinators
       - rootWorkerSessionIds
+      type: object
+    CoordinatorRosterWorker:
+      properties:
+        agentProfileId:
+          type:
+          - "null"
+          - string
+        sessionId:
+          type: string
+      required:
+      - sessionId
+      - agentProfileId
+      type: object
+    CoordinatorWorkerAgentRequest:
+      properties:
+        operatorInitiated:
+          description: Operator acts for the live root; needs origin.
+          type: boolean
+        origin:
+          enum:
+          - ui
+          - cli
+          - api
+          type: string
+        requestedBySessionId:
+          type: string
+        workerAgent:
+          $ref: '#/components/schemas/AgentSelection'
+      required:
+      - workerAgent
       type: object
     CreateAutomationRequest:
       properties:
@@ -15629,45 +15645,14 @@ components:
       - state
       - lastActivityAt
       type: object
-    DomainAgentProfile:
-      properties:
-        effort:
-          type: string
-        harness:
-          type: string
-        id:
-          type: string
-        label:
-          type: string
-        model:
-          type: string
-        weight:
-          type: integer
-      required:
-      - id
-      - harness
-      - model
-      - effort
-      type: object
-    DomainAgentSelection:
-      properties:
-        mode:
-          type: string
-        profileId:
-          type: string
-        profileIds:
-          items:
-            type: string
-          type: array
-      type: object
     DomainCoordinatorsConfig:
       properties:
         agentProfiles:
           items:
-            $ref: '#/components/schemas/DomainAgentProfile'
+            $ref: '#/components/schemas/AgentProfile'
           type: array
         coordinatorAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         enabled:
           type: boolean
         maxCoordinators:
@@ -15677,9 +15662,9 @@ components:
         maxWorkersPerCoordinator:
           type: integer
         rootWorkerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         workerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
       type: object
     DomainGitHubSCMConfig:
       properties:
@@ -17434,6 +17419,21 @@ components:
       required:
       - servers
       type: object
+    RemoteWorkerAgent:
+      properties:
+        effort:
+          type: string
+        harness:
+          type: string
+        model:
+          type: string
+        profileId:
+          type: string
+      required:
+      - harness
+      - model
+      - effort
+      type: object
     RemoteWorkerLinkResponse:
       properties:
         createdAt:
@@ -18330,7 +18330,7 @@ components:
         sessionId:
           type: string
         workerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         workerLimit:
           type:
           - "null"
@@ -19587,7 +19587,7 @@ components:
           maxLength: 128
           type: string
         coordinatorAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         displayName:
           maxLength: 100
           type: string
@@ -19679,7 +19679,7 @@ components:
           - gitlab
           type: string
         workerAgent:
-          $ref: '#/components/schemas/DomainAgentSelection'
+          $ref: '#/components/schemas/AgentSelection'
         workerLimit:
           minimum: 1
           type:
