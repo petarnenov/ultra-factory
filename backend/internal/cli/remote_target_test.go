@@ -145,6 +145,9 @@ type localDaemon struct {
 	// request that names a host; checkBodies records every check request.
 	checkAgent  string
 	checkBodies []string
+	// checkNeed makes a host-aware check without host readiness ask for these
+	// harnesses first, as the daemon does when a profile selection applies.
+	checkNeed []string
 }
 
 func (d *localDaemon) answerLinks(status int) {
@@ -181,9 +184,13 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links/check" {
 			checkBody, _ := io.ReadAll(r.Body)
 			d.mu.Lock()
-			code, forced := d.checkCode, d.checkAgent
+			code, forced, need := d.checkCode, d.checkAgent, d.checkNeed
 			d.checkBodies = append(d.checkBodies, string(checkBody))
 			d.mu.Unlock()
+			if len(need) > 0 && strings.Contains(string(checkBody), `"hostId"`) && !strings.Contains(string(checkBody), `"hostReadinessChecked":true`) {
+				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "readinessHarnesses": need})
+				return
+			}
 			if forced != "" && strings.Contains(string(checkBody), `"hostId"`) {
 				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "agent": map[string]string{
 					"profileId": "p", "harness": forced, "model": "m", "effort": "e"}})
