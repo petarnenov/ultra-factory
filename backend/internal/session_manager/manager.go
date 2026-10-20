@@ -5373,6 +5373,7 @@ func promptProjectContext(projectID domain.ProjectID, project domain.ProjectReco
 		Path:          project.Path,
 
 		WorkersRequestReview: cfg.WorkersRequestReview,
+		CIGateReview:         cfg.CIGate.Mode == domain.CIGateReview,
 	}
 }
 
@@ -5535,6 +5536,13 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 			return "", err
 		}
 		cfg.ProjectRules = rules
+		if projectID != "" {
+			rec, ok, err := m.store.GetSession(ctx, sessionID)
+			if err != nil {
+				return "", fmt.Errorf("load worker %s for prompt: %w", sessionID, err)
+			}
+			cfg.CIGateActive = ok && rec.CIGateActive
+		}
 	default:
 		return "", nil
 	}

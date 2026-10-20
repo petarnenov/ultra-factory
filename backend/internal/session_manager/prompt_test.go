@@ -474,3 +474,70 @@ func TestBuildSystemPrompt_RootHandlesReadyPRsFromSummaries(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildSystemPrompt_CIGateWorkerOpensDraftAndWaitsForReview(t *testing.T) {
+	project := promptProject{ID: "mer", Name: "Mercury", Repo: "https://github.com/acme/mercury"}
+	gated := buildSystemPromptText(systemPromptConfig{
+		Role:         sessionPromptRoleWorker,
+		Project:      project,
+		CIGateActive: true,
+	})
+	for _, want := range []string{
+		"## CI Gate",
+		"`gh pr create --draft ...`",
+		"`gh pr ready --undo`",
+		"Do not run `gh pr ready` or `ao pr ready`",
+		"comment policy, gitleaks, and issue policy",
+		"Run the project's local checks before pushing",
+		"ask the user or the orchestrator whether to run `ao review trigger`",
+	} {
+		if !strings.Contains(gated, want) {
+			t.Fatalf("gated worker prompt missing %q", want)
+		}
+	}
+
+	ungated := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleWorker,
+		Project: project,
+	})
+	if strings.Contains(ungated, "## CI Gate") || strings.Contains(ungated, "--draft") {
+		t.Fatalf("ungated worker prompt mentions the CI gate")
+	}
+}
+
+func TestBuildSystemPrompt_CIGateWorkerOrderFollowsReviewRequest(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role: sessionPromptRoleWorker,
+		Project: promptProject{
+			ID:                   "mer",
+			Name:                 "Mercury",
+			Repo:                 "https://github.com/acme/mercury",
+			WorkersRequestReview: true,
+		},
+		CIGateActive: true,
+	})
+	want := "The order is: draft PR, then local checks, then run `ao review trigger`, then wait for AO."
+	if !strings.Contains(got, want) {
+		t.Fatalf("worker order missing %q", want)
+	}
+}
+
+func TestBuildSystemPrompt_CIGateCoordinationOnlyInGatedProjects(t *testing.T) {
+	const mention = "worker PRs are drafts until AO review approves the head"
+	for _, role := range []sessionPromptRole{sessionPromptRoleOrchestrator, sessionPromptRoleCoordinator} {
+		gated := buildSystemPromptText(systemPromptConfig{
+			Role:    role,
+			Project: promptProject{ID: "mer", Name: "Mercury", CIGateReview: true},
+		})
+		if !strings.Contains(gated, mention) || !strings.Contains(gated, "`withoutAutoReview=manual`") {
+			t.Fatalf("%s prompt in gated project missing CI gate paragraph", role)
+		}
+		ungated := buildSystemPromptText(systemPromptConfig{
+			Role:    role,
+			Project: promptProject{ID: "mer", Name: "Mercury"},
+		})
+		if strings.Contains(ungated, mention) {
+			t.Fatalf("%s prompt in ungated project mentions the CI gate", role)
+		}
+	}
+}
