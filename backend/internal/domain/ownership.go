@@ -85,3 +85,15 @@ func (r OwnershipEventReason) Valid() bool {
 	}
 	return false
 }
+
+// SessionPRReadyEvent is one append-only audit row for a manual draft/ready
+// flip of a session's pull request through `ao pr ready`.
+type SessionPRReadyEvent struct {
+	ID             int64
+	SessionID      SessionID
+	ActorSessionID SessionID
+	PRURL          string
+	HeadSHA        string
+	Ready          bool
+	CreatedAt      time.Time
+}

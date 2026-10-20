@@ -2939,6 +2939,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/pr/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark a session's pull request ready for review or back to draft */
+        post: operations["setSessionPRReady"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{sessionId}/preview": {
         parameters: {
             query?: never;
@@ -4262,6 +4279,12 @@ export interface components {
             sessionId: string;
             transport: string;
         };
+        CIGateConfig: {
+            /** @enum {string} */
+            mode?: "off" | "review";
+            /** @enum {string} */
+            withoutAutoReview?: "ready" | "manual";
+        };
         CancelReviewResponse: {
             reviewerHandleId: string;
             reviews: components["schemas"]["PRReviewState"][];
@@ -4790,6 +4813,7 @@ export interface components {
             branch?: string;
             branchState?: components["schemas"]["SessionBranchState"];
             chatProviderPreserved: boolean;
+            ciGateActive: boolean;
             coordinatorScope?: string;
             /** Format: date-time */
             createdAt: string;
@@ -5915,6 +5939,7 @@ export interface components {
             aggregateProjects?: components["schemas"]["AggregateProjectRef"][];
             autoReview?: boolean;
             canonicalRepoURL?: string;
+            ciGate?: components["schemas"]["CIGateConfig"];
             containerReap?: components["schemas"]["ContainerReapConfig"];
             coordinators?: components["schemas"]["DomainCoordinatorsConfig"];
             defaultBranch?: string;
@@ -6592,6 +6617,18 @@ export interface components {
         };
         SetConversationTitleResponse: {
             title: string;
+        };
+        SetPRReadyRequest: {
+            ready: boolean;
+            requestedBySessionId?: string;
+        };
+        SetPRReadyResponse: {
+            changed: boolean;
+            headSha: string;
+            ok: boolean;
+            prNumber: number;
+            prUrl: string;
+            ready: boolean;
         };
         SetProjectConfigInput: {
             config: components["schemas"]["ProjectConfig"];
@@ -18253,6 +18290,87 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    setSessionPRReady: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPRReadyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetPRReadyResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

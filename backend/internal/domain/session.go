@@ -319,7 +319,10 @@ type SessionRecord struct {
 	ReviewerHarness   ReviewerHarness `json:"reviewerHarness,omitempty" enum:"claude-code,codex,copilot,cursor,kilocode,opencode,opencode-v2,kiro,pi,agy,devin,droid,kimi,kimchi,muse,amp,aider,grok,crush,auggie,cline,autohand"`
 	ReviewerConfig    AgentConfig     `json:"reviewerConfig,omitempty"`
 	AutoReviewEnabled bool            `json:"autoReviewEnabled"`
-	DisplayName       string          `json:"displayName,omitempty"`
+	// CIGateActive is resolved from the project's ciGate at spawn and is
+	// read-only afterwards.
+	CIGateActive bool   `json:"ciGateActive"`
+	DisplayName  string `json:"displayName,omitempty"`
 	// Mode is the session's currently committed conversation controller. Every
 	// send, restore, kill, and reaper decision dispatches from it. Only the
 	// durable interface-transition coordinator may change it; the daemon default

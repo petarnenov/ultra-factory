@@ -5256,6 +5256,7 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		RequestedOutput:    cfg.RequestedOutput,
 		OutputType:         domain.SessionOutputNone,
 		AutoReviewEnabled:  resolveSpawnBool(cfg.AutoReview, projectConfig.AutoReview),
+		CIGateActive:       projectConfig.CIGate.Active(resolveSpawnBool(cfg.AutoReview, projectConfig.AutoReview)),
 		TerminateOnPRMerge: resolveSpawnBool(cfg.TerminateOnPRMerge, projectConfig.TerminateOnPRMerge),
 		AutoInjectReview:   true,
 		AutoInjectCI:       true,
