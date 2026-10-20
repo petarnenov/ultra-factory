@@ -1523,10 +1523,11 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
 
 ### A4. Interaction with open work
 
-- **#390 (remote spawn over capacity).** Host-slot and local-worker checks run
-  before the remote session is created, in the same pre-check as the section 8
+- **#390 (remote spawn over capacity).** The host checks (`allowedHosts`, host slots,
+  the worker limit) run before the remote session is created, in the same pre-check as the section 8
   counts, and registration re-validates them. A rejected check leaves no running
-  worker. CO-5.3 builds on the #390 fix and must not reintroduce the defect.
+  worker. The local-worker rule does not apply to a remote spawn; it is checked
+  on the local spawn path only. CO-5.3 builds on the #390 fix and must not reintroduce the defect.
 - **#393 (atomic admission).** The new checks (worker limit, host slots,
   local-worker rule, profile pick) are admission checks. They read the project
   config and the coordinator's stored values under the per-project
