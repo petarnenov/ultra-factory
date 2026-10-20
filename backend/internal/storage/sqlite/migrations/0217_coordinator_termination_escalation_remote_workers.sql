@@ -1,5 +1,5 @@
 -- ADR 0010 section 7 step 4: the termination escalation also lists released
--- remote links, and its key is unique per termination transition.
+-- remote links, and its key is random under the reserved daemon: prefix.
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE coordinator_summary_remote_workers (
@@ -21,11 +21,7 @@ BEGIN
     )
     SELECT
         'csum_' || lower(hex(randomblob(16))), NEW.id, NEW.project_id,
-        'coordinator_terminated:' || (
-            SELECT count(*) + 1 FROM coordinator_summaries p
-            WHERE p.coordinator_session_id = NEW.id
-              AND p.escalation_reason = 'coordinator_terminated'
-        ),
+        'daemon:coordinator_terminated:' || lower(hex(randomblob(8))),
         NEW.coordinator_scope, 'blocked',
         'The coordinator terminated; its workers were returned to the root.',
         'coordinator_terminated', '', NEW.updated_at, NEW.updated_at
@@ -37,10 +33,11 @@ BEGIN
     FROM sessions w
     JOIN coordinator_summaries cs
       ON cs.coordinator_session_id = NEW.id
-     AND cs.submission_key = 'coordinator_terminated:' || (
-            SELECT count(*) FROM coordinator_summaries p
+     AND cs.id = (
+            SELECT p.id FROM coordinator_summaries p
             WHERE p.coordinator_session_id = NEW.id
-              AND p.escalation_reason = 'coordinator_terminated')
+              AND p.escalation_reason = 'coordinator_terminated'
+            ORDER BY p.rowid DESC LIMIT 1)
     WHERE w.owner_session_id = NEW.id;
 
     INSERT INTO coordinator_summary_remote_workers (summary_id, host_id, remote_session_id, position)
@@ -52,10 +49,11 @@ BEGIN
     FROM remote_worker_links l
     JOIN coordinator_summaries cs
       ON cs.coordinator_session_id = NEW.id
-     AND cs.submission_key = 'coordinator_terminated:' || (
-            SELECT count(*) FROM coordinator_summaries p
+     AND cs.id = (
+            SELECT p.id FROM coordinator_summaries p
             WHERE p.coordinator_session_id = NEW.id
-              AND p.escalation_reason = 'coordinator_terminated')
+              AND p.escalation_reason = 'coordinator_terminated'
+            ORDER BY p.rowid DESC LIMIT 1)
     WHERE l.owner_session_id = NEW.id;
 
     INSERT INTO session_owner_events (

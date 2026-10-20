@@ -40,6 +40,9 @@ const (
 	MaxSummaryWorkers = 3
 )
 
+// DaemonSubmissionKeyPrefix is reserved for keys the daemon writes itself.
+const DaemonSubmissionKeyPrefix = "daemon:"
+
 // CoordinatorSummaryBatchWindow is how long a non-escalation summary waits so
 // a chatty coordinator's updates reach the root as one turn.
 const CoordinatorSummaryBatchWindow = 30 * time.Second

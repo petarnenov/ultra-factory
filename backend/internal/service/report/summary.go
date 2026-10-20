@@ -90,6 +90,9 @@ func (s *SummaryService) Submit(ctx context.Context, in SummaryInput) (domain.Co
 	if key == "" {
 		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "A submission key is required", nil)
 	}
+	if strings.HasPrefix(key, domain.DaemonSubmissionKeyPrefix) {
+		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "The daemon: submission key prefix is reserved", nil)
+	}
 	// Replay first: a retry after the coordinator was terminated or a worker
 	// was reassigned still resolves to the original summary.
 	if existing, ok, err := s.store.GetCoordinatorSummaryByKey(ctx, coordinator.ID, key); err != nil {
