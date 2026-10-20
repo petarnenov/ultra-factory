@@ -23,7 +23,7 @@ DAEMON_REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's|^.*gith
 	build build-backend build-daemon daemon-dist daemon-channel package dist \
 	daemon-update-install daemon-update \
 	test test-backend test-race test-frontend test-e2e test-e2e-renderer test-daemon-update \
-	lint vet typecheck check check-all \
+	lint vet typecheck check check-all ci-check \
 	sqlc api api-spec api-ts \
 	cloud-check product-ui-check hub-bff-check shared-check \
 	cloud-local cloud-local-down cloud-local-reset cloud-local-smoke \
@@ -137,17 +137,21 @@ typecheck: ## Typecheck the frontend
 	npm run frontend:typecheck
 
 check: ## Run the main local checks before a PR
+	@node scripts/ci-check.mjs --only comment,issue
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory vet
 	@$(MAKE) --no-print-directory typecheck
 	@$(MAKE) --no-print-directory test-frontend
 
+# Resolves the same comment base, Go toolchain, and environment CI uses.
+ci-check: ## Run the CI policy checks locally; ARGS="--only comment,lint"
+	@node scripts/ci-check.mjs $(ARGS)
+
 # check-all mirrors the CI job set that runs locally, without the backend race
 # suite (run `make test-race` for that) and without Docker or OS-specific runners.
 check-all: ## Run every CI check that runs locally (no Docker or OS-specific runner)
-	@echo "==> comment policy"
-	@npm run comment:check
-	@npm run comment:test
+	@echo "==> comment and issue policy"
+	@node scripts/ci-check.mjs --only comment,issue
 	@echo "==> backend format, build, vet, tests, lint"
 	@unformatted="$$(cd backend && gofmt -l .)"; \
 		if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
@@ -168,6 +172,7 @@ check-all: ## Run every CI check that runs locally (no Docker or OS-specific run
 	@npm --prefix frontend run typecheck:e2e
 	@AO_VITEST_MAX_FORKS=$(AO_VITEST_MAX_FORKS) npm --prefix frontend run test
 	@echo "==> scripts and their tests"
+	@npm run ci:test
 	@npm run version:test
 	@npm run resource-baseline:test
 	@bash scripts/ao-self-update.test.sh all

@@ -17,11 +17,26 @@ a fork branch carrying one of those names is not exempt:
 - promotion of `dev` into `main`: the batch record, not a single change;
 - the automated agent-pin refresh on `chore/agent-cli-pins`.
 
-Run the tests and the check locally:
+Run the tests and the check locally with the inputs CI uses:
+
+```bash
+make ci-check ARGS="--only issue"            # current branch's pull request
+make ci-check ARGS="--only issue --pr 412"   # a specific pull request
+```
+
+The wrapper sets the variables the workflow sets: `GH_TOKEN`,
+`GITHUB_REPOSITORY`, and `PR_NUMBER`. It resolves the repository from `origin`,
+the pull request from the current branch (or `--pr`), and the token from
+`GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth token`. The check reads the live title,
+body, and issue labels through the GitHub API, so it needs an open pull request
+and network access. Before the pull request exists there is nothing to check;
+run it again after opening the PR.
+
+The equivalent manual invocation is:
 
 ```bash
 npm run issue:test
-GH_TOKEN=$(gh auth token) GITHUB_REPOSITORY=owner/repo npm run issue:check -- --pr 412
+GH_TOKEN=$(gh auth token) GITHUB_REPOSITORY=owner/repo node scripts/issue-policy/check.mjs --pr 412
 ```
 
 The GitHub Actions workflow is
