@@ -624,6 +624,23 @@ describe("Sidebar", () => {
 		});
 	});
 
+	it("badges a coordinator and an owned worker but not a root-owned worker", () => {
+		renderSidebar({
+			workspaces: [{
+				...workspace,
+				sessions: [
+					{ ...session, id: "proj-1-c", title: "Auth helper", coordinatorScope: "auth", ownerSessionId: null },
+					{ ...session, id: "proj-1-w", title: "Owned task", kind: "worker", ownerSessionId: "proj-1-c" },
+					{ ...session, id: "proj-1-r", title: "Direct task", kind: "worker", ownerSessionId: null },
+				],
+			}],
+		});
+
+		expect(screen.getByText("Coordinator")).toBeInTheDocument();
+		expect(screen.getByText("Owner: proj-1-c")).toBeInTheDocument();
+		expect(screen.getAllByText(/^Owner:/)).toHaveLength(1);
+	});
+
 	it("shows the cloud sign-in entry point while signed out", () => {
 		cloudSessionState.configured = true;
 		renderSidebar();

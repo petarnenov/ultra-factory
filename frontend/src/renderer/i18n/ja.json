@@ -3258,5 +3258,18 @@
   "chat.killOrchestrator.killing": "強制終了中…",
   "archive.killOrchestratorTitle": "このオーケストレーターを強制終了しますか？",
   "archive.killOrchestratorBody": "オーケストレーターのセッションを終了します。動作は `ao session kill <id>` と同じです。後で `ao session restore <id>` で復元できます。代替セッションは自動的に起動しません。",
-  "archive.killOrchestratorConfirmAria": "確認、オーケストレーターを強制終了"
+  "archive.killOrchestratorConfirmAria": "確認、オーケストレーターを強制終了",
+  "ownership.section": "所有関係",
+  "ownership.coordinatorBadge": "コーディネーター",
+  "ownership.ownedBy": "所有者: {{owner}}",
+  "ownership.owner": "所有者",
+  "ownership.coordinatorOwner": "コーディネーター {{id}}（{{scope}}）",
+  "ownership.rootOwned": "ルート所有（ルート {{root}}）",
+  "ownership.unassigned": "未割り当て（稼働中のルートなし）",
+  "ownership.scope": "スコープ",
+  "ownership.needsRecovery": "要復旧: このコーディネーターは終了していますが、稼働中のワーカーを所有しています。",
+  "ownership.ownerNeedsRecovery": "要復旧: 所有するコーディネーターが終了しています。",
+  "ownership.latestSummary": "最新のサマリー",
+  "ownership.escalation": "エスカレーション: {{reason}}",
+  "ownership.noWorkers": "所有するワーカーはありません。"
 }

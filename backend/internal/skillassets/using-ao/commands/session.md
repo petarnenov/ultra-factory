@@ -66,12 +66,22 @@ ao session ls [flags]
 | `--include-terminated` | Include terminated sessions | - |
 | `--json` | Output as JSON | - |
 | `-p, --project string` | Filter by project ID | - |
+| `--tree` | Show the ownership tree: root, coordinators with scope and latest summary, and their workers | - |
+
+`--tree` flags a terminated coordinator that still owns live workers with
+`NEEDS RECOVERY`, and labels root-owned workers `unassigned` when the project
+has no live root. With `--json` it prints `{"data": [<roster>, ...]}`.
 
 **Examples:**
 
 ```bash
 # List all active worker sessions
 ao session ls
+```
+
+```bash
+# Show who owns which worker
+ao session ls --tree -p agent-orchestrator
 ```
 
 ```bash
@@ -83,7 +93,9 @@ ao session ls --include-terminated -p agent-orchestrator
 
 ### ao session get
 
-Fetch one session.
+Fetch one session. For a coordinator it also prints its workers, a
+`needs recovery` line when it is terminated but still owns live workers, and
+its latest summary; `--json` adds a `coordinator` object with the same facts.
 
 **Syntax:**
 ```

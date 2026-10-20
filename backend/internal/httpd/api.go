@@ -188,6 +188,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 			PreviewServer:            deps.PreviewServer,
 			Capabilities:             deps.SessionCapabilities,
 			ShellPreviewCapabilities: deps.ShellPreviewCapabilities,
+			Summaries:                deps.Summaries,
 		},
 		automations:   &controllers.AutomationsController{Svc: deps.Automations},
 		desktop:       &controllers.DesktopWorkspaceController{Svc: deps.DesktopWorkspaces},

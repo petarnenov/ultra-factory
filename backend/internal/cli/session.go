@@ -27,6 +27,7 @@ type sessionListOptions struct {
 	sessionOptions
 	all               bool
 	includeTerminated bool
+	tree              bool
 }
 
 type sessionCleanupOptions struct {
@@ -267,6 +268,7 @@ func newSessionListCommand(ctx *commandContext) *cobra.Command {
 	addSessionProjectFlag(f, &opts.project, "Filter by project ID")
 	f.BoolVarP(&opts.all, "all", "a", false, "Include orchestrator sessions")
 	f.BoolVar(&opts.includeTerminated, "include-terminated", false, "Include terminated sessions")
+	f.BoolVar(&opts.tree, "tree", false, "Show the ownership tree: root, coordinators and their workers")
 	f.BoolVar(&opts.json, "json", false, "Output as JSON")
 	addHostFlag(cmd, ctx)
 	return cmd
@@ -560,6 +562,9 @@ func (c *commandContext) listSessions(ctx context.Context, cmd *cobra.Command, o
 			}
 		}
 	}
+	if opts.tree {
+		return c.listSessionTree(ctx, cmd, res.Sessions, opts)
+	}
 	sessions := filterAndSortSessions(res.Sessions, opts.all)
 	hiddenTerminatedCount := 0
 	if !opts.includeTerminated {
@@ -650,10 +655,25 @@ func (c *commandContext) getSession(ctx context.Context, cmd *cobra.Command, id 
 	if err != nil {
 		return err
 	}
-	if opts.json {
-		return writeJSON(cmd.OutOrStdout(), sessionResponse{Session: sess})
+	var entry *coordinatorRosterItem
+	if sess.Kind == string(domain.KindCoordinator) && sess.ProjectID != "" {
+		roster, err := c.fetchCoordinatorRoster(ctx, sess.ProjectID, true)
+		if err != nil {
+			return err
+		}
+		for i := range roster.Coordinators {
+			if roster.Coordinators[i].CoordinatorSessionID == sess.ID {
+				entry = &roster.Coordinators[i]
+			}
+		}
 	}
-	return writeSessionDetails(cmd, sess)
+	if opts.json {
+		return writeJSON(cmd.OutOrStdout(), sessionDetailOutput{Session: sess, Coordinator: entry})
+	}
+	if err := writeSessionDetails(cmd, sess); err != nil {
+		return err
+	}
+	return writeCoordinatorDetails(cmd.OutOrStdout(), entry)
 }
 
 func (c *commandContext) killSession(ctx context.Context, cmd *cobra.Command, id string, opts sessionOptions) error {

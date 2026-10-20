@@ -158,6 +158,10 @@ export type WorkspaceSession = {
 	/** Whether the daemon may automatically review this session after it becomes idle. */
 	autoReviewEnabled?: boolean;
 	kind?: SessionKind;
+	/** Worker owner: null is root-owned, undefined is not reported. */
+	ownerSessionId?: string | null;
+	/** Set only for a coordinator session: the scope the root assigned it. */
+	coordinatorScope?: string;
 	/**
 	 * Which controller is currently committed for this session. The session
 	 * surface renders from THIS value, never from the current creation default.
@@ -346,6 +350,10 @@ export function primaryPR(session: WorkspaceSession): PullRequestFacts | undefin
 export function sessionArtifacts(session: WorkspaceSession): SessionArtifact[] {
 	if (session.outputType !== "artifact" && session.outputType !== "pr_artifact") return [];
 	return session.artifactFiles ?? [];
+}
+
+export function isCoordinatorSession(session: Pick<WorkspaceSession, "coordinatorScope">): boolean {
+	return Boolean(session.coordinatorScope);
 }
 
 export function isOrchestratorSession(session: Pick<WorkspaceSession, "id" | "kind">): boolean {

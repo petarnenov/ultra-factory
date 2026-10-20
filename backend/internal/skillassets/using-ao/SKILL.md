@@ -49,6 +49,7 @@ service instead.
   reads the full relation (owner kind, coordinator scope, live root).
   `ao session assign <worker> --owner <coordinator-id|root>` writes ownership
   and only the project's live root may do so. `--owner root` clears the owner.
+  `ao session ls --tree` shows root, coordinators, and their workers.
 - Session and project ids are shown by `ao session ls` and `ao project ls`.
 - To refer to a session in AO Chat or the AO terminal, use the canonical in-app
   link `ao://sessions/{project-id}/{session-id}`. Read

@@ -339,3 +339,86 @@ func TestRemoteWorkerOwnerRoutesExposeAndWriteOwnership(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionListExposesOwnerAndScopeWithExplicitNullForRootOwned(t *testing.T) {
+	f := newOwnershipFixture(t)
+	srv := f.server(t)
+	if _, _, err := f.store.SetSessionOwner(context.Background(), f.worker.ID, &f.coordinator.ID, domain.OwnershipExplicitAssignment, f.now, false); err != nil {
+		t.Fatal(err)
+	}
+
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/sessions?project=ao", "")
+	var list struct {
+		Sessions []map[string]json.RawMessage `json:"sessions"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil || status != http.StatusOK {
+		t.Fatalf("status=%d body=%s err=%v", status, body, err)
+	}
+	byID := map[string]map[string]json.RawMessage{}
+	for _, sess := range list.Sessions {
+		var id string
+		_ = json.Unmarshal(sess["id"], &id)
+		byID[id] = sess
+	}
+	owned := byID[string(f.worker.ID)]
+	if string(owned["ownerSessionId"]) != `"`+string(f.coordinator.ID)+`"` {
+		t.Fatalf("owned worker ownerSessionId = %s", owned["ownerSessionId"])
+	}
+	rootOwned, present := byID[string(f.rootWorker.ID)]["ownerSessionId"]
+	if !present || string(rootOwned) != "null" {
+		t.Fatalf("root-owned worker must carry an explicit null, got %q present=%v", rootOwned, present)
+	}
+	if string(byID[string(f.coordinator.ID)]["coordinatorScope"]) != `"auth"` {
+		t.Fatalf("coordinator scope = %s", byID[string(f.coordinator.ID)]["coordinatorScope"])
+	}
+}
+
+func TestCoordinatorRosterCarriesLatestSummaryAndRecoveryFlag(t *testing.T) {
+	f := newOwnershipFixture(t)
+	ctx := context.Background()
+	summaries := reportsvc.NewSummaryService(reportsvc.SummaryDeps{Store: f.store})
+	srv := newRouterServer(t, httpd.APIDeps{
+		Sessions:  sessionsvc.NewWithDeps(sessionsvc.Deps{Store: f.store}),
+		Summaries: summaries,
+	})
+	if _, _, err := f.store.SetSessionOwner(ctx, f.worker.ID, &f.coordinator.ID, domain.OwnershipExplicitAssignment, f.now, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := summaries.Submit(ctx, reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordinator.ID, SubmissionKey: "s1", State: domain.SummaryWorking,
+		WorkerSessionIDs: []domain.SessionID{f.worker.ID}, Result: "auth half done",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	type rosterBody struct {
+		Coordinators []struct {
+			CoordinatorSessionID string `json:"coordinatorSessionId"`
+			NeedsRecovery        bool   `json:"needsRecovery"`
+			LatestSummary        *struct {
+				State  string `json:"state"`
+				Result string `json:"result"`
+			} `json:"latestSummary"`
+		} `json:"coordinators"`
+	}
+	read := func() (rosterBody, []byte) {
+		body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/ao/coordinators", "")
+		var got rosterBody
+		if err := json.Unmarshal(body, &got); err != nil || status != http.StatusOK {
+			t.Fatalf("status=%d body=%s err=%v", status, body, err)
+		}
+		return got, body
+	}
+	got, body := read()
+	if len(got.Coordinators) != 2 {
+		t.Fatalf("roster = %s", body)
+	}
+	with, without := got.Coordinators[0], got.Coordinators[1]
+	if with.CoordinatorSessionID != string(f.coordinator.ID) || with.LatestSummary == nil ||
+		with.LatestSummary.State != "working" || with.LatestSummary.Result != "auth half done" || with.NeedsRecovery {
+		t.Fatalf("coordinator with summary = %+v", with)
+	}
+	if without.LatestSummary != nil || !reportContainsAll(string(body), `"latestSummary":null`, `"needsRecovery":false`) {
+		t.Fatalf("coordinator without summary must carry an explicit null: %s", body)
+	}
+}

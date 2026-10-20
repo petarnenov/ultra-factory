@@ -102,7 +102,21 @@ func (c *SessionsController) listCoordinators(w http.ResponseWriter, r *http.Req
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, coordinatorRosterResponse(roster))
+	out := coordinatorRosterResponse(roster)
+	if c.Summaries != nil {
+		for i, entry := range roster.Coordinators {
+			recs, err := c.Summaries.List(r.Context(), entry.Coordinator.ID, 1)
+			if err != nil {
+				envelope.WriteError(w, r, err)
+				return
+			}
+			if len(recs) > 0 {
+				latest := coordinatorSummaryResponse(recs[0])
+				out.Coordinators[i].LatestSummary = &latest
+			}
+		}
+	}
+	envelope.WriteJSON(w, http.StatusOK, out)
 }
 
 func sessionOwnershipResponse(view sessionsvc.Ownership) SessionOwnershipResponse {
@@ -139,6 +153,7 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 			IsTerminated:         entry.Coordinator.IsTerminated,
 			WorkerSessionIDs:     workers,
 			WorkerCount:          len(workers),
+			NeedsRecovery:        entry.NeedsRecovery,
 		})
 	}
 	for _, worker := range roster.RootWorkers {

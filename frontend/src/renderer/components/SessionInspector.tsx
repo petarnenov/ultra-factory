@@ -51,6 +51,7 @@ import { formatTimeCompact } from "../lib/format-time";
 import { AgentAvatar } from "./AgentAvatar";
 import { SessionArtifactsView, type ArtifactOpenRequest } from "./SessionArtifactsView";
 import { OrchestratorChildrenSection } from "./OrchestratorChildrenSection";
+import { SessionOwnershipSection } from "./SessionOwnershipSection";
 import { ProductExternalLink } from "./ProductExternalLink";
 import { CopyButton } from "./chat/CopyButton";
 import { ResumeAgentControl } from "./ResumeAgentControl";
@@ -68,6 +69,7 @@ import { clearTerminateSessionState, useTerminateSession } from "../hooks/useTer
 import { prBrowserUrl, prCanMerge, prCardPresentation, prNounKeys, sessionPRDisplaySummaries } from "../lib/pr-display";
 import type { SessionArtifact, WorkspaceSession, WorkspaceSummary } from "../types/workspace";
 import {
+	isCoordinatorSession,
 	isOrchestratorSession,
 	openPRs,
 	resolveNextNavigationAfterSessionKill,
@@ -447,6 +449,12 @@ const SummaryView = memo(function SummaryView({
 	// have no parent/child model and every other session has no children.
 	const showWorkers =
 		session.kind === "orchestrator" && (session.cloud !== undefined || usePreviewData);
+	// Local coordinators and workers show daemon-reported ownership; cloud
+	// sessions and standalone workers report none.
+	const showOwnership =
+		!session.cloud &&
+		session.workspaceId !== STANDALONE_WORKSPACE_ID &&
+		(isCoordinatorSession(session) || (session.kind === "worker" && session.ownerSessionId !== undefined));
 	return (
 		<SessionInspectorSummaryView
 			activity={
@@ -500,7 +508,13 @@ const SummaryView = memo(function SummaryView({
 				/>
 			}
 			completion={showSessionControls ? <SessionControls hostId={hostId} session={session} /> : undefined}
-			workers={showWorkers ? <OrchestratorChildrenSection session={session} /> : undefined}
+			workers={
+				showWorkers ? (
+					<OrchestratorChildrenSection session={session} />
+				) : showOwnership ? (
+					<SessionOwnershipSection hostId={hostId} session={session} />
+				) : undefined
+			}
 		/>
 	);
 });

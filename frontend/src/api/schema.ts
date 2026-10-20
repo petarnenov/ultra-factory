@@ -4987,6 +4987,8 @@ export interface components {
             coordinatorScope: string;
             coordinatorSessionId: string;
             isTerminated: boolean;
+            latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
+            needsRecovery: boolean;
             workerCount: number;
             workerSessionIds: string[];
         };

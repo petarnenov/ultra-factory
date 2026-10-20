@@ -3303,5 +3303,18 @@
   "chat.killOrchestrator.killing": "Encerrando…",
   "archive.killOrchestratorTitle": "Encerrar este orquestrador?",
   "archive.killOrchestratorBody": "Isso encerra a sessão do orquestrador, exatamente como `ao session kill <id>`. Você pode restaurá-la depois com `ao session restore <id>`; nenhum substituto é iniciado automaticamente.",
-  "archive.killOrchestratorConfirmAria": "Confirmar, encerrar orquestrador"
+  "archive.killOrchestratorConfirmAria": "Confirmar, encerrar orquestrador",
+  "ownership.section": "Propriedade",
+  "ownership.coordinatorBadge": "Coordenador",
+  "ownership.ownedBy": "Proprietário: {{owner}}",
+  "ownership.owner": "Proprietário",
+  "ownership.coordinatorOwner": "Coordenador {{id}} ({{scope}})",
+  "ownership.rootOwned": "Do root (root {{root}})",
+  "ownership.unassigned": "Não atribuído (sem root ativo)",
+  "ownership.scope": "Escopo",
+  "ownership.needsRecovery": "Requer recuperação: este coordenador foi encerrado, mas ainda possui workers ativos.",
+  "ownership.ownerNeedsRecovery": "Requer recuperação: o coordenador proprietário foi encerrado.",
+  "ownership.latestSummary": "Último resumo",
+  "ownership.escalation": "Escalonamento: {{reason}}",
+  "ownership.noWorkers": "Nenhum worker sob sua propriedade."
 }

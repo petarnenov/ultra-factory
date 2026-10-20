@@ -16,7 +16,9 @@ ao coordinator <subcommand> [args] [flags]
 
 List a project's coordinators and the local workers they own, plus the root and
 its directly owned workers. Terminated coordinators and workers are hidden
-unless `--include-terminated` is passed.
+unless `--include-terminated` is passed. A terminated coordinator that still
+owns a live worker is always listed and marked `NEEDS RECOVERY`; each
+coordinator shows its latest summary or escalation when it has sent one.
 
 Linked remote workers are listed by `ao remote-worker ls`; their owner is the
 same local coordinator ID.

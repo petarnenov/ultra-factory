@@ -297,3 +297,31 @@ func TestCoordinatorRosterRejectsAnUnknownProject(t *testing.T) {
 		t.Fatalf("err = %v, want PROJECT_NOT_FOUND", err)
 	}
 }
+
+func TestCoordinatorRosterFlagsATerminatedCoordinatorWithLiveWorkers(t *testing.T) {
+	st := newFakeStore()
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+	st.sessions["ao-1"] = domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}
+	st.sessions["ao-2"] = domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "stranded", IsTerminated: true}
+	st.sessions["ao-3"] = domain.SessionRecord{ID: "ao-3", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-2")}
+	st.sessions["ao-4"] = domain.SessionRecord{ID: "ao-4", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "done", IsTerminated: true}
+	st.sessions["ao-5"] = domain.SessionRecord{ID: "ao-5", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-4"), IsTerminated: true}
+	svc := &Service{store: st}
+
+	roster, err := svc.CoordinatorRoster(context.Background(), "ao", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roster.Coordinators) != 1 || roster.Coordinators[0].Coordinator.ID != "ao-2" ||
+		!roster.Coordinators[0].NeedsRecovery || len(roster.Coordinators[0].Workers) != 1 {
+		t.Fatalf("default roster must list only the stranded coordinator: %+v", roster.Coordinators)
+	}
+
+	all, err := svc.CoordinatorRoster(context.Background(), "ao", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Coordinators) != 2 || !all.Coordinators[0].NeedsRecovery || all.Coordinators[1].NeedsRecovery {
+		t.Fatalf("a terminated coordinator with only terminated workers needs no recovery: %+v", all.Coordinators)
+	}
+}

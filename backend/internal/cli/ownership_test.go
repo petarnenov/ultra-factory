@@ -360,3 +360,116 @@ func TestCoordinatorReportRequiresStateAndCaller(t *testing.T) {
 		t.Fatalf("missing state err = %v", err)
 	}
 }
+
+const treeRosterBody = `{"projectId":"demo","rootSessionId":"demo-root","coordinators":[
+	{"coordinatorSessionId":"demo-c1","coordinatorScope":"auth","isTerminated":false,"workerSessionIds":["demo-1"],"workerCount":1,"needsRecovery":false,
+	 "latestSummary":{"id":"s1","state":"blocked","result":"waiting on schema","escalation":true,"escalationReason":"scope_decision","deliveryState":"pending"}},
+	{"coordinatorSessionId":"demo-c2","coordinatorScope":"docs","isTerminated":true,"workerSessionIds":["demo-3"],"workerCount":1,"needsRecovery":true,"latestSummary":null}],
+	"rootWorkerSessionIds":["demo-2"]}`
+
+func treeServer(t *testing.T, roster string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/sessions":
+			_, _ = io.WriteString(w, `{"sessions":[
+				{"id":"demo-root","projectId":"demo","kind":"orchestrator","ownerSessionId":null,"activity":{"state":"idle"},"isTerminated":false,"status":"idle","prs":[]},
+				{"id":"demo-1","projectId":"demo","kind":"worker","ownerSessionId":"demo-c1","activity":{"state":"working"},"isTerminated":false,"status":"working","prs":[]},
+				{"id":"demo-2","projectId":"demo","kind":"worker","ownerSessionId":null,"activity":{"state":"working"},"isTerminated":false,"status":"needs_input","prs":[]}]}`)
+		case "/api/v1/projects/demo/coordinators":
+			_, _ = io.WriteString(w, roster)
+		case "/api/v1/sessions/demo-c2":
+			_, _ = io.WriteString(w, `{"session":{"id":"demo-c2","projectId":"demo","kind":"coordinator","coordinatorScope":"docs","ownerSessionId":null,"activity":{"state":"exited"},"isTerminated":true,"status":"terminated","prs":[]}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestSessionListTreeShowsCoordinatorsWorkersAndRecoveryFlag(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := treeServer(t, treeRosterBody)
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "ls", "--tree", "--project", "demo")
+	if err != nil {
+		t.Fatalf("session ls --tree failed: %v\nstderr=%s", err, errOut)
+	}
+	for _, want := range []string{
+		"root: demo-root",
+		"coordinator demo-c1 (scope: auth)  workers: 1",
+		"latest summary: blocked, escalation: scope_decision - waiting on schema",
+		"demo-1  (working)",
+		"coordinator demo-c2 terminated NEEDS RECOVERY (scope: docs)",
+		"root-owned workers: 1",
+		"demo-2  (needs_input)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output %q missing %q", out, want)
+		}
+	}
+}
+
+func TestSessionListTreeLabelsRootOwnedWorkersAsUnassignedWithoutALiveRoot(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := treeServer(t, `{"projectId":"demo","rootSessionId":null,"coordinators":[],"rootWorkerSessionIds":["demo-2"]}`)
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "ls", "--tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "unassigned workers (no live root): 1") {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+func TestSessionListTreeJSONCarriesTheRosters(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := treeServer(t, treeRosterBody)
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "ls", "--tree", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got sessionTreeOutput
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("output is not decodable: %v\n%s", err, out)
+	}
+	if len(got.Data) != 1 || len(got.Data[0].Coordinators) != 2 || !got.Data[0].Coordinators[1].NeedsRecovery ||
+		got.Data[0].Coordinators[0].LatestSummary == nil || got.Data[0].Coordinators[0].LatestSummary.State != "blocked" {
+		t.Fatalf("tree = %+v", got)
+	}
+}
+
+func TestSessionGetCoordinatorShowsItsWorkersSummaryAndRecovery(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := treeServer(t, treeRosterBody)
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "get", "demo-c2")
+	if err != nil {
+		t.Fatalf("session get failed: %v\nstderr=%s", err, errOut)
+	}
+	for _, want := range []string{"role: coordinator", "coordinator scope: docs", "needs recovery:", "workers: demo-3"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output %q missing %q", out, want)
+		}
+	}
+
+	jsonOut, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "session", "get", "demo-c2", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got sessionDetailOutput
+	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil || got.Coordinator == nil ||
+		got.Coordinator.WorkerCount != 1 || !got.Coordinator.NeedsRecovery {
+		t.Fatalf("detail = %+v err=%v\n%s", got, err, jsonOut)
+	}
+}

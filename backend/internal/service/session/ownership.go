@@ -80,6 +80,9 @@ type Ownership struct {
 type CoordinatorRosterEntry struct {
 	Coordinator domain.Session
 	Workers     []domain.Session
+	// NeedsRecovery is derived: the coordinator is terminated while a live
+	// worker still names it as owner.
+	NeedsRecovery bool
 }
 
 // CoordinatorRoster is a project's local ownership hierarchy. Remote worker
@@ -112,8 +115,8 @@ func (s *Service) Ownership(ctx context.Context, id domain.SessionID) (Ownership
 	return out, nil
 }
 
-// CoordinatorRoster groups local workers by durable owner. includeTerminated
-// also lists terminated coordinators and workers.
+// CoordinatorRoster groups local workers by durable owner. A terminated
+// coordinator with a live worker is listed even without includeTerminated.
 func (s *Service) CoordinatorRoster(
 	ctx context.Context,
 	project domain.ProjectID,
@@ -132,14 +135,15 @@ func (s *Service) CoordinatorRoster(
 		return CoordinatorRoster{}, err
 	}
 	byOwner := make(map[domain.SessionID][]domain.Session)
+	var coordinators []domain.Session
 	for _, sess := range sessions {
-		if !includeTerminated && sess.IsTerminated {
-			continue
-		}
 		switch sess.Kind {
 		case domain.KindCoordinator:
-			out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{Coordinator: sess})
+			coordinators = append(coordinators, sess)
 		case domain.KindWorker:
+			if !includeTerminated && sess.IsTerminated {
+				continue
+			}
 			if sess.OwnerSessionID == nil {
 				out.RootWorkers = append(out.RootWorkers, sess)
 				continue
@@ -147,8 +151,15 @@ func (s *Service) CoordinatorRoster(
 			byOwner[*sess.OwnerSessionID] = append(byOwner[*sess.OwnerSessionID], sess)
 		}
 	}
-	for i := range out.Coordinators {
-		out.Coordinators[i].Workers = byOwner[out.Coordinators[i].Coordinator.ID]
+	for _, coordinator := range coordinators {
+		workers := byOwner[coordinator.ID]
+		recovery := coordinator.IsTerminated && hasLiveWorker(workers)
+		if coordinator.IsTerminated && !includeTerminated && !recovery {
+			continue
+		}
+		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
+			Coordinator: coordinator, Workers: workers, NeedsRecovery: recovery,
+		})
 	}
 	sort.Slice(out.Coordinators, func(i, j int) bool {
 		return out.Coordinators[i].Coordinator.ID < out.Coordinators[j].Coordinator.ID
@@ -178,4 +189,13 @@ func (s *Service) liveRootID(ctx context.Context, project domain.ProjectID) (*do
 	}
 	id := newestSession(roots).ID
 	return &id, nil
+}
+
+func hasLiveWorker(workers []domain.Session) bool {
+	for _, worker := range workers {
+		if !worker.IsTerminated {
+			return true
+		}
+	}
+	return false
 }

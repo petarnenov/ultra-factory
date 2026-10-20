@@ -3258,5 +3258,18 @@
   "chat.killOrchestrator.killing": "강제 종료 중…",
   "archive.killOrchestratorTitle": "이 오케스트레이터를 강제 종료하시겠습니까?",
   "archive.killOrchestratorBody": "오케스트레이터 세션을 종료합니다. `ao session kill <id>`와 동일하게 동작합니다. 나중에 `ao session restore <id>`로 복원할 수 있으며, 대체 세션은 자동으로 시작되지 않습니다.",
-  "archive.killOrchestratorConfirmAria": "확인, 오케스트레이터 강제 종료"
+  "archive.killOrchestratorConfirmAria": "확인, 오케스트레이터 강제 종료",
+  "ownership.section": "소유 관계",
+  "ownership.coordinatorBadge": "코디네이터",
+  "ownership.ownedBy": "소유자: {{owner}}",
+  "ownership.owner": "소유자",
+  "ownership.coordinatorOwner": "코디네이터 {{id}} ({{scope}})",
+  "ownership.rootOwned": "루트 소유 (루트 {{root}})",
+  "ownership.unassigned": "미할당 (활성 루트 없음)",
+  "ownership.scope": "범위",
+  "ownership.needsRecovery": "복구 필요: 이 코디네이터는 종료되었지만 활성 워커를 계속 소유하고 있습니다.",
+  "ownership.ownerNeedsRecovery": "복구 필요: 소유 코디네이터가 종료되었습니다.",
+  "ownership.latestSummary": "최근 요약",
+  "ownership.escalation": "에스컬레이션: {{reason}}",
+  "ownership.noWorkers": "소유한 워커가 없습니다."
 }
