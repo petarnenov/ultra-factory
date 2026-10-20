@@ -5,11 +5,7 @@ import { useCoordinatorRoster } from "../hooks/useCoordinatorRoster";
 import type { CoordinatorRosterEntry } from "../lib/coordinators";
 import { isCoordinatorSession, type WorkspaceSession } from "../types/workspace";
 
-/**
- * Ownership facts from the daemon roster for a local coordinator or worker:
- * who owns a worker, and a coordinator's scope, workers, and latest summary.
- * Every value is read from the daemon; nothing is decided here.
- */
+// Daemon-reported ownership for a local worker or coordinator; read-only.
 export function SessionOwnershipSection({ session, hostId }: { session: WorkspaceSession; hostId?: string }) {
 	const { t } = useTranslation();
 	const query = useCoordinatorRoster(session.workspaceId, hostId);
