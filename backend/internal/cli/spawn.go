@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -220,6 +221,11 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				RemoteSpawn:        ctx.targetsRemote() && opts.kind != "orchestrator",
 				TerminateOnPRMerge: terminateOnPRMerge,
 			}
+			if ctx.remote != nil && localParentID != "" && !opts.standalone {
+				if err := ctx.checkRemoteWorkerCapacity(cmd.Context(), localParentID); err != nil {
+					return err
+				}
+			}
 			var res spawnResult
 			if err := ctx.postJSON(cmd.Context(), "sessions", req, &res); err != nil {
 				return err
@@ -240,13 +246,18 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 					claimed = claim.PRs[0].URL
 				}
 			}
-			if ctx.remote != nil && localParentID != "" {
-				blocked, err := ctx.linkRemoteWorker(cmd.Context(), localParentID, res)
-				if err == nil && blocked != "" {
-					err = errors.New(blocked)
+			if ctx.remote != nil && localParentID != "" && res.Session.ProjectID == "" {
+				// A projectless worker has nothing to link to a local project.
+				if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: reports from %s will not reach this machine's orchestrator: the worker has no project\n", res.Session.ID); werr != nil {
+					return werr
 				}
+			} else if ctx.remote != nil && localParentID != "" {
+				blocked, err := ctx.linkRemoteWorker(cmd.Context(), localParentID, res)
 				if err != nil {
-					if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: reports from %s will not reach this machine's orchestrator: %v\n", res.Session.ID, err); werr != nil {
+					return ctx.failRemoteLink(cmd.Context(), res.Session.ID, err)
+				}
+				if blocked != "" {
+					if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: reports from %s will not reach this machine's orchestrator: %s\n", res.Session.ID, blocked); werr != nil {
 						return werr
 					}
 				}
@@ -325,6 +336,34 @@ func (c *commandContext) linkRemoteWorker(ctx context.Context, parentID string, 
 		return "", err
 	}
 	return link.PullBlocked, nil
+}
+
+// checkRemoteWorkerCapacity asks the local daemon if a link would pass its
+// capacity gates; a daemon without the route is skipped.
+func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID string) error {
+	var ok struct{}
+	err := c.localContext().postJSON(ctx, "remote-worker-links/check", struct {
+		ParentSessionID string `json:"parentSessionId"`
+	}{parentID}, &ok)
+	var apiErr apiResponseError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound && apiErr.ErrorBody.Code != "SESSION_NOT_FOUND" {
+		return nil
+	}
+	return err
+}
+
+// failRemoteLink handles a link rejected after the remote spawn: capacity or
+// ownership terminates the remote session, other failures keep it.
+func (c *commandContext) failRemoteLink(ctx context.Context, remoteID string, err error) error {
+	var apiErr apiResponseError
+	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT") || strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER"))
+	if !rejected {
+		return fmt.Errorf("remote worker %s is still running but was not linked, so its reports will not reach this machine's orchestrator: %w", remoteID, err)
+	}
+	if killErr := c.rollbackSpawnedSession(ctx, remoteID); killErr != nil {
+		return fmt.Errorf("remote worker %s was not linked: %w; terminating it failed, clean it up manually: %w", remoteID, err, killErr)
+	}
+	return fmt.Errorf("remote worker %s was not linked and was terminated: %w", remoteID, err)
 }
 
 func (c *commandContext) fetchAgentInventory(ctx context.Context, refresh bool) (agentInventory, error) {

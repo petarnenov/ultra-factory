@@ -12174,3 +12174,66 @@ func TestSpawnBlocksInvalidModelAndEffort(t *testing.T) {
 		})
 	}
 }
+
+func newPromptHierarchyManager(t *testing.T, cfg domain.ProjectConfig) (*Manager, *fakeStore) {
+	t.Helper()
+	st := newFakeStore()
+	cfg.Worker = testRoleAgents().Worker
+	cfg.Orchestrator = testRoleAgents().Orchestrator
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: t.TempDir(), Config: cfg}
+	m := New(Deps{
+		Runtime:   &fakeRuntime{},
+		Agents:    singleAgent{agent: &recordingAgent{}},
+		Workspace: &fakeWorkspace{},
+		Store:     st,
+		Messenger: &fakeMessenger{},
+		Lifecycle: &fakeLCM{store: st},
+		DataDir:   t.TempDir(),
+		LookPath:  func(string) (string, error) { return "/bin/true", nil },
+	})
+	return m, st
+}
+
+func TestSystemPrompt_CoordinatorShowsConfiguredWorkerLimit(t *testing.T) {
+	m, st := newPromptHierarchyManager(t, domain.ProjectConfig{
+		OrchestratorRules: "Merge when green.",
+		Coordinators:      domain.CoordinatorsConfig{Enabled: true, MaxWorkersPerCoordinator: 2},
+	})
+	st.sessions["mer-2"] = domain.SessionRecord{ID: "mer-2", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
+	sp, err := m.buildSystemPrompt(ctx, domain.KindCoordinator, "mer", "mer-2", "", false)
+	if err != nil {
+		t.Fatalf("buildSystemPrompt: %v", err)
+	}
+	if !strings.Contains(sp, "at most 2 active workers") || strings.Contains(sp, "at most 3 active workers") {
+		t.Fatalf("coordinator prompt must show the configured limit 2:\n%s", sp)
+	}
+	precedence := strings.Index(sp, "coordinator restrictions above override any rule below")
+	rules := strings.Index(sp, "Merge when green.")
+	if precedence < 0 || rules < 0 || precedence > rules {
+		t.Fatalf("project rules must follow the precedence line (precedence=%d rules=%d):\n%s", precedence, rules, sp)
+	}
+}
+
+func TestSystemPrompt_WorkerEscalatesToLiveCoordinatorOwner(t *testing.T) {
+	m, st := newPromptHierarchyManager(t, domain.ProjectConfig{})
+	st.sessions["mer-1"] = domain.SessionRecord{ID: "mer-1", ProjectID: "mer", Kind: domain.KindOrchestrator}
+	st.sessions["mer-2"] = domain.SessionRecord{ID: "mer-2", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
+	st.sessions["mer-8"] = domain.SessionRecord{ID: "mer-8", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "old", IsTerminated: true}
+	st.sessions["oth-2"] = domain.SessionRecord{ID: "oth-2", ProjectID: "oth", Kind: domain.KindCoordinator, CoordinatorScope: "x"}
+	coord, root, dead, other := domain.SessionID("mer-2"), domain.SessionID("mer-1"), domain.SessionID("mer-8"), domain.SessionID("oth-2")
+	for id, owner := range map[domain.SessionID]*domain.SessionID{"mer-3": &coord, "mer-4": &root, "mer-5": nil, "mer-6": &dead, "mer-9": &other} {
+		st.sessions[id] = domain.SessionRecord{ID: id, ProjectID: "mer", Kind: domain.KindWorker, OwnerSessionID: owner}
+	}
+	for id, wantTarget := range map[domain.SessionID]string{"mer-3": "mer-2", "mer-4": "mer-1", "mer-5": "mer-1", "mer-6": "mer-1", "mer-9": "mer-1"} {
+		sp, err := m.buildSystemPrompt(ctx, domain.KindWorker, "mer", id, "", false)
+		if err != nil {
+			t.Fatalf("buildSystemPrompt(%s): %v", id, err)
+		}
+		if !strings.Contains(sp, "ao send --session "+wantTarget+" ") {
+			t.Fatalf("worker %s must message %s:\n%s", id, wantTarget, sp)
+		}
+		if wantTarget == "mer-2" && (strings.Contains(sp, "mer-1") || !strings.Contains(sp, "Escalate to that coordinator")) {
+			t.Fatalf("coordinator-owned worker must not be pointed at the root:\n%s", sp)
+		}
+	}
+}

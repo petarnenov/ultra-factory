@@ -109,6 +109,17 @@ API). The feature is off by default: the daemon refuses a spawn with
 `COORDINATORS_DISABLED`. `maxCoordinators`, `maxWorkersPerCoordinator` and
 `maxWorkers` may lower the limits and cannot raise them.
 
+## What a coordinator's prompt contains
+
+- The worker cap shown to the coordinator is the project's effective
+  `maxWorkersPerCoordinator`, read from the project config at spawn and restore.
+  The daemon still enforces the real limit.
+- A worker owned by a live coordinator is told to escalate to that coordinator's
+  session id. A root-owned worker is told to message the root.
+- The project's `orchestratorRules` are appended to the coordinator prompt after
+  a precedence line: the coordinator restrictions override any rule below that
+  conflicts with them.
+
 ## What a coordinator must not do
 
 - Merge a pull request, or ask a worker to. The root alone merges.

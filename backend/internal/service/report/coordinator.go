@@ -35,8 +35,9 @@ type DeliveryStore interface {
 	ReleaseReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error)
 	DeferReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error)
 	AcquireReportInterrupt(context.Context, domain.SessionID, time.Time, time.Duration) (bool, time.Time, error)
-	SetSessionOwner(context.Context, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time, bool) (domain.SessionRecord, bool, error)
-	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
+	ClearSessionOwnerIf(context.Context, domain.SessionID, domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.SessionRecord, bool, error)
+	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
+	ClearRemoteWorkerOwnerIf(context.Context, string, domain.SessionID, domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
 }
 
 // Delivery submits accepted semantic context and interrupts active work.
@@ -235,14 +236,19 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 		return c.retryDelay, nil
 	}
 	schedule := pending
-	if stalledClaim {
-		// A claim that acknowledged nothing may have moved its batch later, for
-		// example a coalesced stuck report, so read the deadlines back.
+	if stalledClaim || delivered > 0 {
+		// A claim that acknowledged nothing may have moved its batch later, and
+		// a claim covers one batch only, so read the leftovers back.
 		fresh, err := c.store.ListPendingReportSchedule(ctx, reportScheduleScanLimit)
 		if err != nil {
 			return c.retryDelay, nil //nolint:nilerr // retry; the pass itself succeeded
 		}
 		schedule = fresh
+	}
+	if delivered > 0 && anyDue(schedule, now) {
+		// A due report outside the claimed batch would otherwise wait for the
+		// next wake-up or the idle timer.
+		return c.retryDelay, nil
 	}
 	if next, ok := nextPendingDelay(schedule, now); ok {
 		return next, nil
@@ -263,6 +269,16 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 func (c *Coordinator) terminatedWorker(ctx context.Context, id domain.SessionID) bool {
 	session, found, err := c.store.GetSession(ctx, id)
 	return err == nil && found && session.IsTerminated
+}
+
+// anyDue reports whether schedule holds a report already due at now.
+func anyDue(schedule []domain.ReportRecord, now time.Time) bool {
+	for _, report := range schedule {
+		if !report.AvailableAt.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 // nextPendingDelay returns the earliest future deadline in schedule order.
@@ -310,36 +326,49 @@ func resolveOwnerRecipient(ctx context.Context, store recipientStore, projectID 
 	return domain.SessionRecord{}, false, root, rootFound, nil
 }
 
+// ownerRepairAttempts bounds the re-resolve loop after a lost compare-and-set.
+const ownerRepairAttempts = 3
+
 // localGroup resolves a local report's recipient from durable ownership and
 // repairs a stale owner to root ownership before falling back.
 func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord) (recipientGroup, error) {
-	var owner *domain.SessionID
-	if worker, found, err := c.store.GetSession(ctx, report.SessionID); err != nil {
-		return recipientGroup{}, err
-	} else if found {
-		owner = worker.OwnerSessionID
-	}
-	ownerRec, ownerValid, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
-	if err != nil {
-		return recipientGroup{}, err
-	}
-	group := recipientGroup{}
-	if rootFound {
-		group.Root = root.ID
-	}
-	if ownerValid {
-		group.Recipient, group.Found = ownerRec.ID, true
-		return group, nil
-	}
-	if owner != nil {
-		if _, _, err := c.store.SetSessionOwner(ctx, report.SessionID, nil, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC(), true); err != nil {
+	for attempt := 0; ; attempt++ {
+		var owner *domain.SessionID
+		if worker, found, err := c.store.GetSession(ctx, report.SessionID); err != nil {
+			return recipientGroup{}, err
+		} else if found {
+			owner = worker.OwnerSessionID
+		}
+		ownerRec, ownerValid, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
+		if err != nil {
 			return recipientGroup{}, err
 		}
+		group := recipientGroup{}
+		if rootFound {
+			group.Root = root.ID
+		}
+		if ownerValid {
+			group.Recipient, group.Found = ownerRec.ID, true
+			return group, nil
+		}
+		if owner != nil {
+			_, cleared, err := c.store.ClearSessionOwnerIf(ctx, report.SessionID, *owner, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC())
+			if err != nil {
+				return recipientGroup{}, err
+			}
+			// The owner moved after it was read: resolve the new one.
+			if !cleared && attempt < ownerRepairAttempts {
+				continue
+			}
+			if !cleared {
+				return recipientGroup{}, fmt.Errorf("%w: owner of %s keeps changing", ErrRecipientUnavailable, report.SessionID)
+			}
+		}
+		if rootFound {
+			group.Recipient, group.Root, group.Found = root.ID, root.ID, true
+		}
+		return group, nil
 	}
-	if rootFound {
-		group.Recipient, group.Root, group.Found = root.ID, root.ID, true
-	}
-	return group, nil
 }
 
 // deliverGroup reports whether it claimed a batch and whether it acknowledged
@@ -403,27 +432,45 @@ var ErrNoActiveOrchestrator = errors.New("project has no active orchestrator")
 // eligible; the report stays pending and the next pass re-resolves it.
 var ErrRecipientUnavailable = errors.New("report recipient is unavailable")
 
-// ResolveRemoteRecipient applies the ownership rule to a remote link and
-// repairs a stale owner. The remote host never supplies this decision.
+// ResolveRemoteRecipient applies the ownership rule to a remote link, using
+// the owner re-read under the delivery lock, and repairs a stale one.
 func (c *Coordinator) ResolveRemoteRecipient(ctx context.Context, link domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
 	if c == nil || c.store == nil {
 		return domain.SessionRecord{}, false, errors.New("report coordinator dependencies are required")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	owner, ownerValid, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, link.ProjectID, link.OwnerSessionID)
-	if err != nil {
-		return domain.SessionRecord{}, false, err
-	}
-	if ownerValid {
-		return owner, true, nil
-	}
-	if link.OwnerSessionID != nil {
-		if _, _, err := c.store.SetRemoteWorkerOwner(ctx, link.HostID, link.RemoteSessionID, nil, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC()); err != nil {
+	for attempt := 0; ; attempt++ {
+		current, found, err := c.store.GetRemoteWorkerLink(ctx, link.HostID, link.RemoteSessionID)
+		if err != nil {
 			return domain.SessionRecord{}, false, err
 		}
+		if !found {
+			current = link
+			current.OwnerSessionID = nil
+		}
+		owner, ownerValid, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, current.ProjectID, current.OwnerSessionID)
+		if err != nil {
+			return domain.SessionRecord{}, false, err
+		}
+		if ownerValid {
+			return owner, true, nil
+		}
+		if current.OwnerSessionID != nil {
+			_, cleared, err := c.store.ClearRemoteWorkerOwnerIf(ctx, current.HostID, current.RemoteSessionID, *current.OwnerSessionID, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC())
+			if err != nil {
+				return domain.SessionRecord{}, false, err
+			}
+			// The owner moved after it was read: resolve the new one.
+			if !cleared && attempt < ownerRepairAttempts {
+				continue
+			}
+			if !cleared {
+				return domain.SessionRecord{}, false, fmt.Errorf("%w: owner of %s keeps changing", ErrRecipientUnavailable, current.RemoteSessionID)
+			}
+		}
+		return root, rootFound, nil
 	}
-	return root, rootFound, nil
 }
 
 // DeliverExternal submits one resolved owner group pulled from a peer daemon

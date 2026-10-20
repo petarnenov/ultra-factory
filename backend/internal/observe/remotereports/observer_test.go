@@ -678,6 +678,65 @@ func TestPollAcknowledgesEvenWhenRecordingTheDeliveryFails(t *testing.T) {
 	}
 }
 
+func TestPollDoesNotRedeliverWhenRecordAndAcknowledgementBothFailOnce(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt_1", now))
+	host.failAck = true
+	store := newMemStore(link("host-build", "widgets-3"))
+	store.recordErr = errors.New("disk full")
+	deliverer := &fakeDeliverer{}
+	observer := newTestObserver(store, deliverer, host)
+
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.recordErr = nil
+	store.mu.Unlock()
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 {
+		t.Fatalf("deliveries = %d, want exactly 1", len(deliverer.calls))
+	}
+	if len(store.recorded) != 1 || store.recorded[0] != "rpt_1" {
+		t.Fatalf("recorded = %v, want the retried write to land", store.recorded)
+	}
+}
+
+func TestPollRetriesAFailedRecordAfterTheHostStopsListingTheReport(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt_1", now))
+	store := newMemStore(link("host-build", "widgets-3"))
+	store.recordErr = errors.New("disk full")
+	observer := newTestObserver(store, &fakeDeliverer{}, host)
+
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The acknowledgement succeeded: the host no longer lists the report.
+	host.mu.Lock()
+	host.pending["widgets-3"] = reportsJSON()
+	host.mu.Unlock()
+	store.mu.Lock()
+	store.recordErr = nil
+	store.mu.Unlock()
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.recorded) != 1 || store.recorded[0] != "rpt_1" {
+		t.Fatalf("recorded = %v, want the retried write to land", store.recorded)
+	}
+	observer.mu.Lock()
+	left := len(observer.unrecorded)
+	observer.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("unrecorded = %d entries, want cleared", left)
+	}
+}
+
 func TestAcknowledgeSplitsIntoChunksTheRemoteAccepts(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	client := &hostClient{http: remotehost.DirectClient(nil, time.Second), base: host.srv.URL, hostID: "host-build", password: "pw", label: "b"}
@@ -1235,5 +1294,99 @@ func TestPollSettlesAnUnconfirmedDeliveryAndDoesNotReplayIt(t *testing.T) {
 	}
 	if acks := host.acks(); len(acks) != 2 || acks[1][0] != "rpt_1" {
 		t.Fatalf("acks = %v, want the failed acknowledgement retried", acks)
+	}
+}
+
+// reassigningStore reassigns the link right after the pass reads its snapshot.
+type reassigningStore struct {
+	*memStore
+	durable *sync.Map
+	to      domain.SessionID
+}
+
+func (s *reassigningStore) ListRemoteWorkerLinks(ctx context.Context) ([]domain.RemoteWorkerLink, error) {
+	links, err := s.memStore.ListRemoteWorkerLinks(ctx)
+	owner := s.to
+	s.durable.Store(linkKey("host-build", "widgets-3"), &owner)
+	return links, err
+}
+
+// ownerStore is the durable half the real coordinator reads and repairs.
+type ownerStore struct {
+	reportsvc.DeliveryStore
+	durable  *sync.Map
+	sessions map[domain.SessionID]domain.SessionRecord
+	clears   int
+}
+
+func (s *ownerStore) ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error) {
+	var out []domain.SessionRecord
+	for _, rec := range s.sessions {
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+func (s *ownerStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
+	rec, ok := s.sessions[id]
+	return rec, ok, nil
+}
+
+func (s *ownerStore) GetRemoteWorkerLink(_ context.Context, host string, session domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	l := link(host, string(session))
+	if v, ok := s.durable.Load(linkKey(host, session)); ok {
+		l.OwnerSessionID = v.(*domain.SessionID)
+	}
+	return l, true, nil
+}
+
+func (s *ownerStore) ClearRemoteWorkerOwnerIf(_ context.Context, host string, session, expected domain.SessionID, _ domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
+	l, _, _ := s.GetRemoteWorkerLink(context.Background(), host, session)
+	if l.OwnerSessionID == nil || *l.OwnerSessionID != expected {
+		return l, false, nil
+	}
+	s.clears++
+	s.durable.Store(linkKey(host, session), (*domain.SessionID)(nil))
+	return l, true, nil
+}
+
+type submitRecorder struct{ targets []domain.SessionID }
+
+func (r *submitRecorder) Submit(_ context.Context, target domain.SessionID, _, _ string) error {
+	r.targets = append(r.targets, target)
+	return nil
+}
+func (r *submitRecorder) Interrupt(context.Context, domain.SessionID) error { return nil }
+
+// realDeliverer routes through the real coordinator over ownerStore.
+type realDeliverer struct{ *reportsvc.Coordinator }
+
+func TestPollDeliversToTheOwnerReassignedAfterTheSnapshot(t *testing.T) {
+	now := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-a", now))
+	stale, next := domain.SessionID("coord-gone"), domain.SessionID("coord-new")
+	linked := link("host-build", "widgets-3")
+	linked.OwnerSessionID = &stale
+	durable := &sync.Map{}
+	durable.Store(linkKey("host-build", "widgets-3"), &stale)
+	owners := &ownerStore{durable: durable, sessions: map[domain.SessionID]domain.SessionRecord{
+		"root":      {ID: "root", ProjectID: "ultra-factory", Kind: domain.KindOrchestrator},
+		stale:       {ID: stale, ProjectID: "ultra-factory", Kind: domain.KindCoordinator, IsTerminated: true},
+		"coord-new": {ID: next, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+	}}
+	submits := &submitRecorder{}
+	coord := reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{Store: owners, Delivery: submits, Now: func() time.Time { return now }})
+	store := &reassigningStore{memStore: newMemStore(linked), durable: durable, to: next}
+
+	if err := newTestObserver(store, realDeliverer{coord}, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(submits.targets) != 1 || submits.targets[0] != next {
+		t.Fatalf("report went to %v, want the reassigned owner %s", submits.targets, next)
+	}
+	got, _, _ := owners.GetRemoteWorkerLink(context.Background(), "host-build", "widgets-3")
+	if owners.clears != 0 || got.OwnerSessionID == nil || *got.OwnerSessionID != next {
+		t.Fatalf("reassignment lost: clears=%d owner=%v", owners.clears, got.OwnerSessionID)
 	}
 }

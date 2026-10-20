@@ -534,3 +534,66 @@ func TestPromoteTaskPreparationWritesOneSpawnParentAudit(t *testing.T) {
 		t.Fatalf("audit after repeat promote = %+v err=%v, want one row", events, err)
 	}
 }
+
+func TestClearOwnerIfIsACompareAndSetWithoutAuditOnMismatch(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	old, err := s.CreateSession(ctx, coordinatorRecord("ao", "old"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.CreateSession(ctx, coordinatorRecord("ao", "current"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	link := domain.RemoteWorkerLink{
+		HostID: "host-build", RemoteSessionID: "widgets-3", RemoteProjectID: "widgets",
+		ProjectID: "ao", DisplayName: "remote", OwnerSessionID: &current.ID, CreatedAt: now,
+	}
+	if err := s.UpsertRemoteWorkerLink(ctx, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.SetSessionOwner(ctx, worker.ID, &current.ID, domain.OwnershipExplicitAssignment, now, false); err != nil {
+		t.Fatal(err)
+	}
+
+	got, cleared, err := s.ClearSessionOwnerIf(ctx, worker.ID, old.ID, domain.OwnershipOwnerNotLiveReconciled, now)
+	if err != nil || cleared || got.OwnerSessionID == nil || *got.OwnerSessionID != current.ID {
+		t.Fatalf("mismatched session clear: cleared=%v owner=%v err=%v", cleared, got.OwnerSessionID, err)
+	}
+	gotLink, cleared, err := s.ClearRemoteWorkerOwnerIf(ctx, link.HostID, link.RemoteSessionID, old.ID, domain.OwnershipOwnerNotLiveReconciled, now)
+	if err != nil || cleared || gotLink.OwnerSessionID == nil || *gotLink.OwnerSessionID != current.ID {
+		t.Fatalf("mismatched link clear: cleared=%v owner=%v err=%v", cleared, gotLink.OwnerSessionID, err)
+	}
+	events, err := s.ListSessionOwnerEvents(ctx, worker.ID)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("session audit after mismatch = %+v err=%v, want only the assignment", events, err)
+	}
+	remoteEvents, err := s.ListRemoteWorkerOwnerEvents(ctx, link.HostID, link.RemoteSessionID)
+	if err != nil || len(remoteEvents) != 1 {
+		t.Fatalf("link audit after mismatch = %+v err=%v, want only the spawn row", remoteEvents, err)
+	}
+
+	got, cleared, err = s.ClearSessionOwnerIf(ctx, worker.ID, current.ID, domain.OwnershipOwnerNotLiveReconciled, now)
+	if err != nil || !cleared || got.OwnerSessionID != nil {
+		t.Fatalf("matching session clear: cleared=%v owner=%v err=%v", cleared, got.OwnerSessionID, err)
+	}
+	gotLink, cleared, err = s.ClearRemoteWorkerOwnerIf(ctx, link.HostID, link.RemoteSessionID, current.ID, domain.OwnershipOwnerNotLiveReconciled, now)
+	if err != nil || !cleared || gotLink.OwnerSessionID != nil {
+		t.Fatalf("matching link clear: cleared=%v owner=%v err=%v", cleared, gotLink.OwnerSessionID, err)
+	}
+	events, _ = s.ListSessionOwnerEvents(ctx, worker.ID)
+	remoteEvents, _ = s.ListRemoteWorkerOwnerEvents(ctx, link.HostID, link.RemoteSessionID)
+	if len(events) != 2 || events[1].Reason != domain.OwnershipOwnerNotLiveReconciled || len(remoteEvents) != 2 || remoteEvents[1].Reason != domain.OwnershipOwnerNotLiveReconciled {
+		t.Fatalf("audit after clears: session=%+v link=%+v", events, remoteEvents)
+	}
+	if _, cleared, err = s.ClearSessionOwnerIf(ctx, worker.ID, current.ID, domain.OwnershipOwnerNotLiveReconciled, now); err != nil || cleared {
+		t.Fatalf("repeat clear: cleared=%v err=%v", cleared, err)
+	}
+}
