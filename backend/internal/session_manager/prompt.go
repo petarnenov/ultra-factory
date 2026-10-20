@@ -49,7 +49,7 @@ type systemPromptConfig struct {
 	// OwnerCoordinatorSessionID is set for a worker owned by a live
 	// coordinator; it receives escalations instead of the root.
 	OwnerCoordinatorSessionID string
-	AdditionalSections    []string
+	AdditionalSections        []string
 }
 
 type projectRulesConfig struct {
