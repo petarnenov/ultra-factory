@@ -7,10 +7,38 @@ package gen
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
+
+const insertCoordinatorLimitEvent = `-- name: InsertCoordinatorLimitEvent :exec
+INSERT INTO coordinator_limit_events (
+    session_id, previous_limit, new_limit, actor_session_id, origin, created_at
+) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertCoordinatorLimitEventParams struct {
+	SessionID      string
+	PreviousLimit  sql.NullInt64
+	NewLimit       int64
+	ActorSessionID string
+	Origin         string
+	CreatedAt      time.Time
+}
+
+func (q *Queries) InsertCoordinatorLimitEvent(ctx context.Context, arg InsertCoordinatorLimitEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertCoordinatorLimitEvent,
+		arg.SessionID,
+		arg.PreviousLimit,
+		arg.NewLimit,
+		arg.ActorSessionID,
+		arg.Origin,
+		arg.CreatedAt,
+	)
+	return err
+}
 
 const insertRemoteWorkerOwnerEvent = `-- name: InsertRemoteWorkerOwnerEvent :exec
 INSERT INTO remote_worker_owner_events (
@@ -62,6 +90,44 @@ func (q *Queries) InsertSessionOwnerEvent(ctx context.Context, arg InsertSession
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const listCoordinatorLimitEvents = `-- name: ListCoordinatorLimitEvents :many
+SELECT id, session_id, previous_limit, new_limit, actor_session_id, origin, created_at
+FROM coordinator_limit_events
+WHERE session_id = ?
+ORDER BY id
+`
+
+func (q *Queries) ListCoordinatorLimitEvents(ctx context.Context, sessionID string) ([]CoordinatorLimitEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listCoordinatorLimitEvents, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CoordinatorLimitEvent{}
+	for rows.Next() {
+		var i CoordinatorLimitEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.PreviousLimit,
+			&i.NewLimit,
+			&i.ActorSessionID,
+			&i.Origin,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRemoteWorkerOwnerEvents = `-- name: ListRemoteWorkerOwnerEvents :many
@@ -142,6 +208,28 @@ func (q *Queries) ListSessionOwnerEvents(ctx context.Context, sessionID domain.S
 		return nil, err
 	}
 	return items, nil
+}
+
+const setCoordinatorWorkerLimit = `-- name: SetCoordinatorWorkerLimit :execrows
+UPDATE sessions
+SET coordinator_worker_limit = ?1,
+    updated_at = ?2
+WHERE id = ?3 AND kind = 'coordinator' AND is_terminated = 0
+`
+
+type SetCoordinatorWorkerLimitParams struct {
+	CoordinatorWorkerLimit sql.NullInt64
+	UpdatedAt              time.Time
+	ID                     domain.SessionID
+}
+
+// Narrow write: only a live coordinator's own limit changes.
+func (q *Queries) SetCoordinatorWorkerLimit(ctx context.Context, arg SetCoordinatorWorkerLimitParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setCoordinatorWorkerLimit, arg.CoordinatorWorkerLimit, arg.UpdatedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setRemoteWorkerOwner = `-- name: SetRemoteWorkerOwner :execrows

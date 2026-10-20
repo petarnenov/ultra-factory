@@ -23,6 +23,12 @@ type SessionOwnershipService interface {
 		ownerID *domain.SessionID,
 		requestedBy domain.SessionID,
 	) (domain.SessionRecord, error)
+	SetCoordinatorWorkerLimit(
+		ctx context.Context,
+		coordinatorID domain.SessionID,
+		limit *int,
+		caller sessionsvc.CoordinatorLimitsCaller,
+	) (domain.SessionRecord, error)
 	Ownership(ctx context.Context, id domain.SessionID) (sessionsvc.Ownership, error)
 	CoordinatorRoster(
 		ctx context.Context,
@@ -80,6 +86,39 @@ func (c *SessionsController) assignOwner(w http.ResponseWriter, r *http.Request)
 	envelope.WriteJSON(w, http.StatusOK, SessionResponse{Session: sessionView(r, sess)})
 }
 
+// setCoordinatorLimits changes a live coordinator's worker limit. The service
+// enforces the live-root or operator caller and the project ceiling.
+func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http.Request) {
+	svc, ok := c.Svc.(SessionOwnershipService)
+	if !ok {
+		apispec.NotImplemented(w, r, "PUT", "/api/v1/sessions/{sessionId}/coordinator-limits")
+		return
+	}
+	var req CoordinatorLimitsRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	id := domain.SessionID(chi.URLParam(r, "sessionId"))
+	caller := sessionsvc.CoordinatorLimitsCaller{
+		RequestedBy:       domain.SessionID(req.RequestedBySessionID),
+		OperatorInitiated: req.OperatorInitiated,
+		Origin:            req.Origin,
+	}
+	if _, err := svc.SetCoordinatorWorkerLimit(r.Context(), id, req.WorkerLimit, caller); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	view, err := svc.Ownership(r.Context(), id)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, sessionOwnershipResponse(view))
+}
+
 // listCoordinators reads a project's coordinator roster and owned workers.
 func (c *SessionsController) listCoordinators(w http.ResponseWriter, r *http.Request) {
 	svc, ok := c.Svc.(SessionOwnershipService)
@@ -127,6 +166,12 @@ func sessionOwnershipResponse(view sessionsvc.Ownership) SessionOwnershipRespons
 		OwnerSessionID:   sessionIDString(view.Session.OwnerSessionID),
 		CoordinatorScope: view.Session.CoordinatorScope,
 		RootSessionID:    sessionIDString(view.RootSessionID),
+		Capacity:         capacityResponse(view.Capacity),
+	}
+	if view.Session.Kind == domain.KindCoordinator {
+		limit, active := view.Capacity.WorkerLimit, view.Capacity.CoordinatorWorkers
+		out.EffectiveWorkerLimit, out.ActiveWorkerCount = &limit, &active
+		out.WorkerLimit = view.Session.CoordinatorWorkerLimit
 	}
 	if view.Owner != nil {
 		out.OwnerKind = string(view.Owner.Kind)
@@ -135,10 +180,18 @@ func sessionOwnershipResponse(view sessionsvc.Ownership) SessionOwnershipRespons
 	return out
 }
 
+func capacityResponse(c sessionsvc.CapacityView) CoordinatorCapacity {
+	return CoordinatorCapacity{
+		MaxCoordinators: c.Limits.Coordinators, MaxWorkersPerCoordinator: c.Limits.WorkersPerCoordinator,
+		MaxWorkers: c.Limits.Workers, ActiveCoordinators: c.ActiveCoordinators, ActiveWorkers: c.ActiveWorkers,
+	}
+}
+
 func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorRosterResponse {
 	out := CoordinatorRosterResponse{
 		ProjectID:            string(roster.ProjectID),
 		RootSessionID:        sessionIDString(roster.RootSessionID),
+		Capacity:             capacityResponse(roster.Capacity),
 		Coordinators:         make([]CoordinatorRosterEntry, 0, len(roster.Coordinators)),
 		RootWorkerSessionIDs: make([]string, 0, len(roster.RootWorkers)),
 	}
@@ -153,6 +206,9 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 			IsTerminated:         entry.Coordinator.IsTerminated,
 			WorkerSessionIDs:     workers,
 			WorkerCount:          len(workers),
+			WorkerLimit:          entry.Coordinator.CoordinatorWorkerLimit,
+			EffectiveWorkerLimit: entry.WorkerLimit,
+			ActiveWorkerCount:    entry.ActiveWorkers,
 			NeedsRecovery:        entry.NeedsRecovery,
 		})
 	}

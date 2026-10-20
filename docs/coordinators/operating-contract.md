@@ -107,13 +107,20 @@ The root can spawn coordinators only in a project that enables them
 (`ao project set-config <id> --coordinators`, `coordinators.enabled` in the
 API). The feature is off by default: the daemon refuses a spawn with
 `COORDINATORS_DISABLED`. `maxCoordinators`, `maxWorkersPerCoordinator` and
-`maxWorkers` may lower the limits and cannot raise them.
+`maxWorkers` default to 2 / 3 / 6. A project may set any value up to the hard
+maximum of 4 / 6 / 12 (a constant in the backend); a value above it or below
+zero is refused with `COORDINATOR_LIMITS_INVALID`, as is a
+`maxWorkersPerCoordinator` above the resolved `maxWorkers`. A coordinator may
+have its own `workerLimit`, from 1 up to the project's
+`maxWorkersPerCoordinator`: set at spawn, or changed on a live coordinator by
+the root or by the operator on its behalf. Omitted means the project value.
 
 ## What a coordinator's prompt contains
 
-- The worker cap shown to the coordinator is the project's effective
-  `maxWorkersPerCoordinator`, read from the project config at spawn and restore.
-  The daemon still enforces the real limit.
+- The worker cap shown to the coordinator is its own `workerLimit` when set,
+  never above the project's effective `maxWorkersPerCoordinator`, read at spawn
+  and restore. A live change sends the coordinator a short message with the new
+  value. The daemon still enforces the real limit.
 - A worker owned by a live coordinator is told to escalate to that coordinator's
   session id. A root-owned worker is told to message the root.
 - The project's `orchestratorRules` are appended to the coordinator prompt after

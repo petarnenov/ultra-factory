@@ -580,8 +580,11 @@ type SpawnSessionRequest struct {
 	Kind            domain.SessionKind     `json:"kind,omitempty" enum:"worker,orchestrator,coordinator"`
 	// Scope bounds a coordinator's work. Required for kind coordinator, whose
 	// parentSessionId must be the live root.
-	Scope   string              `json:"scope,omitempty" maxLength:"200"`
-	Harness domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
+	Scope string `json:"scope,omitempty" maxLength:"200"`
+	// WorkerLimit is the coordinator's own live worker limit, at most the
+	// project's maxWorkersPerCoordinator. Omitted uses the project value.
+	WorkerLimit *int                `json:"workerLimit,omitempty" minimum:"1"`
+	Harness     domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`
@@ -650,6 +653,24 @@ type SessionOwnerRequest struct {
 	RequestedBySessionID string  `json:"requestedBySessionId"`
 }
 
+// CoordinatorLimitsRequest is the PUT coordinator-limits body. Send
+// requestedBySessionId (live root) or operatorInitiated with origin.
+type CoordinatorLimitsRequest struct {
+	WorkerLimit          *int   `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
+	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
+	OperatorInitiated    bool   `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
+	Origin               string `json:"origin,omitempty" enum:"ui,cli,api"`
+}
+
+// CoordinatorCapacity is a project's effective limits and live census.
+type CoordinatorCapacity struct {
+	MaxCoordinators          int `json:"maxCoordinators"`
+	MaxWorkersPerCoordinator int `json:"maxWorkersPerCoordinator"`
+	MaxWorkers               int `json:"maxWorkers"`
+	ActiveCoordinators       int `json:"activeCoordinators"`
+	ActiveWorkers            int `json:"activeWorkers"`
+}
+
 // SessionOwnershipResponse is one session's durable ownership relation with
 // the project's live root resolved at read time.
 type SessionOwnershipResponse struct {
@@ -661,14 +682,23 @@ type SessionOwnershipResponse struct {
 	OwnerScope       string  `json:"ownerScope,omitempty"`
 	CoordinatorScope string  `json:"coordinatorScope,omitempty"`
 	RootSessionID    *string `json:"rootSessionId"`
+	// Capacity is the project's effective limits and live census.
+	Capacity CoordinatorCapacity `json:"capacity"`
+	// Set for a coordinator. WorkerLimit is the stored limit (null: project
+	// value); EffectiveWorkerLimit is clamped to the project ceiling.
+	WorkerLimit          *int `json:"workerLimit"`
+	EffectiveWorkerLimit *int `json:"effectiveWorkerLimit,omitempty"`
+	ActiveWorkerCount    *int `json:"activeWorkerCount,omitempty"`
 }
 
 // CoordinatorRosterResponse is a project's local ownership hierarchy. Remote
 // worker links are listed by GET /api/v1/remote-worker-links.
 type CoordinatorRosterResponse struct {
-	ProjectID     string                   `json:"projectId"`
-	RootSessionID *string                  `json:"rootSessionId"`
-	Coordinators  []CoordinatorRosterEntry `json:"coordinators"`
+	ProjectID     string  `json:"projectId"`
+	RootSessionID *string `json:"rootSessionId"`
+	// Capacity is the project's effective limits and live census.
+	Capacity     CoordinatorCapacity      `json:"capacity"`
+	Coordinators []CoordinatorRosterEntry `json:"coordinators"`
 	// RootWorkerSessionIDs are the project's live root-owned workers.
 	RootWorkerSessionIDs []string `json:"rootWorkerSessionIds"`
 }
@@ -680,6 +710,11 @@ type CoordinatorRosterEntry struct {
 	IsTerminated         bool     `json:"isTerminated"`
 	WorkerSessionIDs     []string `json:"workerSessionIds"`
 	WorkerCount          int      `json:"workerCount"`
+	// WorkerLimit is stored (null: project value); the effective one is
+	// clamped. ActiveWorkerCount includes remote workers.
+	WorkerLimit          *int `json:"workerLimit"`
+	EffectiveWorkerLimit int  `json:"effectiveWorkerLimit"`
+	ActiveWorkerCount    int  `json:"activeWorkerCount"`
 	// NeedsRecovery is derived at read time: the coordinator is terminated
 	// while a live worker still names it as owner.
 	NeedsRecovery bool `json:"needsRecovery"`

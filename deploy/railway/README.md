@@ -1059,11 +1059,10 @@ project's `coordinators` config:
 - Restoring a terminated worker re-checks both caps; restoring a terminated
   coordinator re-checks the two-coordinator cap and **does not** reattach its
   former workers.
-- The defaults are also the ceiling. A project may lower
+- The defaults are 2/3/6; the hard maximum is 4/6/12. A project may set
   `maxCoordinators`, `maxWorkersPerCoordinator` and `maxWorkers` in its
-  `coordinators` config block; raising a value needs a new decision, never a
-  config edit, and anything above 2/3/6 is refused with
-  `COORDINATOR_LIMITS_INVALID`. The effective limits are read from the project
+  `coordinators` config block up to the hard maximum, and anything above it is
+  refused with `COORDINATOR_LIMITS_INVALID`. The effective limits are read from the project
   config on every spawn, restore, reassignment, and remote-link write.
 
 ### Enable one pilot project
@@ -1084,8 +1083,8 @@ feature, implemented as `domain.CoordinatorsConfig`:
   with `409 COORDINATORS_DISABLED` (`projectId` in the details), after the
   root-caller and scope checks and under the project lock.
 - `maxCoordinators`, `maxWorkersPerCoordinator` and `maxWorkers` default to
-  2/3/6, which are also the ceiling. `0` means "keep the default". Lowering is
-  allowed; a value above the ceiling or below zero is rejected with
+  2/3/6. `0` means "keep the default". A value up to the hard maximum 4/6/12
+  is allowed; a value above it or below zero is rejected with
   `COORDINATOR_LIMITS_INVALID` (400, `field`, `max`) when the config is set.
 - Disabling blocks new coordinator spawns while restoring a terminated
   coordinator stays allowed for recovery, and existing ownership keeps routing
@@ -1104,7 +1103,7 @@ ao project get <project> --json
 # A project with no other config: the flag form is enough.
 ao project set-config <project> --coordinators
 
-# Optional: lower a limit for the pilot. 2/3/6 is the ceiling, not a floor.
+# Optional: lower a limit for the pilot. 2/3/6 are the defaults; 4/6/12 is the maximum.
 ao project set-config <project> --coordinators \
   --max-workers-per-coordinator 2
 ```

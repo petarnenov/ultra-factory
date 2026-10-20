@@ -19,18 +19,72 @@ func TestCoordinatorsConfigDefaultsToDisabledWithTheADRLimits(t *testing.T) {
 	}
 }
 
-func TestCoordinatorsConfigRejectsLimitsOutsideTheRolloutCap(t *testing.T) {
+func TestCoordinatorsConfigRejectsLimitsOutsideTheHardMaximum(t *testing.T) {
+	for field, tc := range map[string]struct {
+		cfg CoordinatorsConfig
+		max int
+	}{
+		"maxCoordinators":          {CoordinatorsConfig{MaxCoordinators: 5}, 4},
+		"maxWorkersPerCoordinator": {CoordinatorsConfig{MaxWorkersPerCoordinator: 7}, 6},
+		"maxWorkers":               {CoordinatorsConfig{MaxWorkers: 13}, 12},
+	} {
+		var limitsErr *CoordinatorLimitsError
+		if err := (ProjectConfig{Coordinators: tc.cfg}).Validate(); !errors.As(err, &limitsErr) || limitsErr.Field != field || limitsErr.Max != tc.max {
+			t.Fatalf("%s: err = %v", field, err)
+		}
+	}
 	for field, cfg := range map[string]CoordinatorsConfig{
-		"maxCoordinators":          {MaxCoordinators: 3},
-		"maxWorkersPerCoordinator": {MaxWorkersPerCoordinator: 4},
+		"maxCoordinators":          {MaxCoordinators: -1},
+		"maxWorkersPerCoordinator": {MaxWorkersPerCoordinator: -1},
 		"maxWorkers":               {MaxWorkers: -1},
 	} {
 		var limitsErr *CoordinatorLimitsError
 		if err := (ProjectConfig{Coordinators: cfg}).Validate(); !errors.As(err, &limitsErr) || limitsErr.Field != field {
-			t.Fatalf("%s: err = %v", field, err)
+			t.Fatalf("%s: negative value err = %v", field, err)
 		}
 	}
-	if err := (ProjectConfig{Coordinators: CoordinatorsConfig{Enabled: true, MaxCoordinators: 2, MaxWorkersPerCoordinator: 3, MaxWorkers: 6}}).Validate(); err != nil {
-		t.Fatalf("the ADR defaults are valid: %v", err)
+}
+
+func TestCoordinatorsConfigAcceptsValuesUpToTheHardMaximum(t *testing.T) {
+	for _, cfg := range []CoordinatorsConfig{
+		{},
+		{Enabled: true, MaxCoordinators: 2, MaxWorkersPerCoordinator: 3, MaxWorkers: 6},
+		{Enabled: true, MaxCoordinators: 4, MaxWorkersPerCoordinator: 6, MaxWorkers: 12},
+	} {
+		if err := (ProjectConfig{Coordinators: cfg}).Validate(); err != nil {
+			t.Fatalf("%+v is valid: %v", cfg, err)
+		}
+	}
+	raised := CoordinatorsConfig{MaxCoordinators: 4, MaxWorkersPerCoordinator: 6, MaxWorkers: 12}
+	if got := raised.Limits(); got != HardCoordinatorLimits {
+		t.Fatalf("limits at the hard maximum = %+v", got)
+	}
+	if DefaultCoordinatorLimits != (CoordinatorLimits{Coordinators: 2, WorkersPerCoordinator: 3, Workers: 6}) {
+		t.Fatalf("the defaults must stay 2/3/6, got %+v", DefaultCoordinatorLimits)
+	}
+}
+
+func TestCoordinatorsConfigRejectsWorkersPerCoordinatorAboveTheProjectTotal(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg CoordinatorsConfig
+		max int
+	}{
+		"both set":            {CoordinatorsConfig{MaxWorkersPerCoordinator: 5, MaxWorkers: 4}, 4},
+		"total only, default": {CoordinatorsConfig{MaxWorkers: 2}, 2},
+	} {
+		var limitsErr *CoordinatorLimitsError
+		err := (ProjectConfig{Coordinators: tc.cfg}).Validate()
+		if !errors.As(err, &limitsErr) || limitsErr.Field != "maxWorkersPerCoordinator" || limitsErr.Max != tc.max {
+			t.Fatalf("%s: err = %v", name, err)
+		}
+	}
+	for name, cfg := range map[string]CoordinatorsConfig{
+		"per-coordinator vs default total": {MaxWorkersPerCoordinator: 5},
+		"total vs default per-coordinator": {MaxWorkers: 4},
+		"equal":                            {MaxWorkersPerCoordinator: 4, MaxWorkers: 4},
+	} {
+		if err := (ProjectConfig{Coordinators: cfg}).Validate(); err != nil {
+			t.Fatalf("%s: %+v is valid: %v", name, cfg, err)
+		}
 	}
 }
