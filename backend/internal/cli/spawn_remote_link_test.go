@@ -177,7 +177,7 @@ func TestRemoteSpawnOverCapacityCreatesNoRemoteWorker(t *testing.T) {
 }
 
 func TestRemoteSpawnTerminatesTheWorkerWhenLinkingHitsCapacity(t *testing.T) {
-	for _, code := range []string{"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED", "OWNER_TERMINATED"} {
+	for _, code := range []string{"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED", "REMOTE_WORKER_LINK_LIMIT", "OWNER_TERMINATED"} {
 		t.Run(code, func(t *testing.T) {
 			local, remote := newLinkedSpawnFixture(t)
 			local.rejectLinksWith(http.StatusConflict, code)

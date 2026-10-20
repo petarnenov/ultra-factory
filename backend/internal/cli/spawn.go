@@ -351,7 +351,7 @@ func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID
 // ownership terminates the remote session, other failures keep it.
 func (c *commandContext) failRemoteLink(ctx context.Context, remoteID string, err error) error {
 	var apiErr apiResponseError
-	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT_REACHED") || strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER"))
+	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT") || strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER"))
 	if !rejected {
 		return fmt.Errorf("remote worker %s is still running but was not linked, so its reports will not reach this machine's orchestrator: %w", remoteID, err)
 	}
