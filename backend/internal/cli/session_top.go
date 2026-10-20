@@ -64,6 +64,7 @@ func newSessionTopCommand(ctx *commandContext) *cobra.Command {
 	addSessionProjectFlag(f, &opts.project, "Filter by project ID")
 	f.BoolVarP(&opts.all, "all", "a", false, "Include orchestrator sessions")
 	f.BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

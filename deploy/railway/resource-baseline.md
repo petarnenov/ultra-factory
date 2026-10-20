@@ -20,7 +20,7 @@ require a deployment or a configuration change.
 | Hub BFF | `ps` inside the hub container | The BFF is a separate `node .../hub/bff/src/main.ts` process; it is **not** part of the daemon's `app` reading. |
 | Hub orchestrator | The same usage route, read with the session list | The orchestrator is a session, so it appears in `sessions[]` (use `--all` with `ao session top`, or read the route without a project filter). Its harness children are in `sessions[].processes`. |
 | Hub tick loop | `ps` inside the hub container | `ao orchestrator tick loop` is a separate child of the hub supervisor, not a session. It exists only when `AO_HUB_ORCHESTRATOR_TICK=1`. |
-| Worker sessions on `Linux`, `IMac`, `Z600` | That host's own daemon route (`http://127.0.0.1:<port>/api/v1/usage/sessions/memory`) | The hub daemon has no process-level view of a remote worker. `ao session top` is **local-daemon only** and has no `--host`; each worker host must be sampled on itself. |
+| Worker sessions on `Linux`, `IMac`, `Z600` | That host's own daemon route (`http://127.0.0.1:<port>/api/v1/usage/sessions/memory`), or `ao session top --host <host>` from the hub | The hub daemon has no process-level view of a remote worker. `--host` reads the worker host's daemon over its authenticated listener, but `ao session top` prints only RSS and process counts; CPU and the per-process tree still require the host's own route, so run the sampler there. |
 | Railway service CPU and memory | `railway usage projects --project <project>` and each service's **Metrics** tab | Service-level readings include container and platform overhead; they are not process readings. |
 
 `ao session top --all --json` remains a useful cross-check, but its output is not
@@ -254,6 +254,10 @@ cross-check, not a per-row value. Entries whose `rssBytes` or `processCount` is
 `null` had no live process tree at that read and must be recorded as unmeasured,
 not zero. The command is a cross-check of session RSS and process counts; it is
 not the primary CPU/process source.
+
+From any machine where the worker hosts are paired, `ao session top --host
+<label> --all --json` returns the same shape for that host's daemon, so the hub
+and every worker host can be sampled in the same minute with one command.
 
 ## 5. Comparison template
 

@@ -33,7 +33,7 @@ Passwords are never printed.
 
 - `ao spawn`
 - `ao send`
-- `ao session ls | get | input | kill | restore | rename | exit-agent | resume-agent`
+- `ao session ls | get | top | input | kill | restore | rename | exit-agent | resume-agent`
 - `ao project ls | get`
 - `ao orchestrator ls`
 - `ao agent ls`
@@ -48,6 +48,7 @@ ao project ls --host build-box                     # optional: see its projects
 ao spawn --host build-box --name "fix flaky e2e" \
   --prompt "Fix the flaky checkout e2e test and open a PR."
 ao session ls --host build-box                     # follow PR, CI, review, activity
+ao session top --host build-box                     # memory and process count on that machine
 ao send --host build-box --session widgets-3 --message "CI failed on lint; fix it."
 ```
 
