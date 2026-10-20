@@ -45,6 +45,66 @@ func newPRCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.AddCommand(newPRMergeCommand(ctx))
 	cmd.AddCommand(newPRResolveCommentsCommand(ctx))
+	cmd.AddCommand(newPRReadyCommand(ctx))
+	return cmd
+}
+
+type setPRReadyRequest struct {
+	Ready                bool   `json:"ready"`
+	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
+}
+
+type setPRReadyResponse struct {
+	OK       bool   `json:"ok"`
+	PRURL    string `json:"prUrl"`
+	PRNumber int    `json:"prNumber"`
+	HeadSHA  string `json:"headSha"`
+	Ready    bool   `json:"ready"`
+	Changed  bool   `json:"changed"`
+}
+
+func newPRReadyCommand(ctx *commandContext) *cobra.Command {
+	var undo bool
+	cmd := &cobra.Command{
+		Use:   "ready [<session>]",
+		Short: "Mark a session's pull request ready for review (or back to draft)",
+		Long: "Mark the session's open pull request ready for review, or convert it back to a draft with\n" +
+			"--undo. This is the manual override of the CI gate. Only the project root and the session's\n" +
+			"owning coordinator may run it; a worker is refused with CI_GATE_FORBIDDEN. A pull request that\n" +
+			"already has the requested state is left alone. With no argument it targets the current session.",
+		Args: usageArgs(cobra.MaximumNArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			self := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+			target := self
+			if len(args) == 1 {
+				target = strings.TrimSpace(args[0])
+			}
+			caller := ""
+			if !ctx.targetsRemote() {
+				caller = self
+			}
+			if target == "" {
+				return usageError{errors.New("session id is required outside an AO session")}
+			}
+			var res setPRReadyResponse
+			if err := ctx.postJSON(cmd.Context(), "sessions/"+url.PathEscape(target)+"/pr/ready",
+				setPRReadyRequest{Ready: !undo, RequestedBySessionID: caller}, &res); err != nil {
+				return err
+			}
+			state := "ready for review"
+			if !res.Ready {
+				state = "a draft"
+			}
+			if !res.Changed {
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "PR #%d is already %s\n", res.PRNumber, state)
+				return err
+			}
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "PR #%d is now %s\n", res.PRNumber, state)
+			return err
+		},
+	}
+	cmd.Flags().BoolVar(&undo, "undo", false, "Convert the pull request back to a draft")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

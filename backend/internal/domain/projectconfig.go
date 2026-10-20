@@ -83,6 +83,10 @@ type ProjectConfig struct {
 	// after spawn.
 	AutoReview bool `json:"autoReview,omitempty"`
 
+	// CIGate holds PR CI until AO review; resolved once at spawn onto the
+	// session (CIGateActive). Default off.
+	CIGate CIGateConfig `json:"ciGate,omitempty"`
+
 	// TerminateOnPRMerge controls auto-teardown of spawned workers once all
 	// PRs reach a terminal state with one merged and the agent quiesces.
 	TerminateOnPRMerge bool `json:"terminateOnPrMerge,omitempty"`
@@ -334,6 +338,9 @@ func (c ProjectConfig) Validate() error {
 		return err
 	}
 	if err := c.Coordinators.Validate(); err != nil {
+		return err
+	}
+	if err := c.CIGate.Validate(); err != nil {
 		return err
 	}
 	return nil

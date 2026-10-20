@@ -116,6 +116,16 @@ sql:
               import: "github.com/aoagents/agent-orchestrator/backend/internal/domain"
               type: "SessionID"
               pointer: true
+          - column: "session_pr_ready_events.session_id"
+            go_type:
+              import: "github.com/aoagents/agent-orchestrator/backend/internal/domain"
+              type: "SessionID"
+          - column: "session_pr_ready_events.actor_session_id"
+            go_type:
+              import: "github.com/aoagents/agent-orchestrator/backend/internal/domain"
+              type: "SessionID"
+          - column: "session_pr_ready_events.ready"
+            go_type: "bool"
           - column: "session_owner_events.session_id"
             go_type:
               import: "github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -166,6 +176,8 @@ sql:
               import: "github.com/aoagents/agent-orchestrator/backend/internal/domain"
               type: "ReviewerHarness"
           - column: "sessions.auto_review_enabled"
+            go_type: "bool"
+          - column: "sessions.ci_gate_active"
             go_type: "bool"
           - column: "sessions.activity_state"
             go_type:
