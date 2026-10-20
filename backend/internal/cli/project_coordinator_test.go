@@ -140,3 +140,40 @@ func TestProjectSetConfigLocalWorkerFlagsAreExclusiveAndHostsMustResolve(t *test
 		})
 	}
 }
+
+// TestProjectSetConfigMergePreservesFieldsTheCLIDoesNotModel guards the raw
+// merge: stored preRemove, aggregateProjects and unknown keys stay unchanged.
+func TestProjectSetConfigMergePreservesFieldsTheCLIDoesNotModel(t *testing.T) {
+	cfg := setConfigEnv(t)
+	stored := `{"status":"ok","project":{"id":"demo","config":{"preRemove":["echo bye"],"aggregateProjects":[{"hostId":"host-linux-id","projectId":"mercury"}],"futureField":{"keep":true},"coordinators":{"enabled":true,"maxWorkers":6,"customCoordinatorKey":"kept"}}}}`
+	srv, capture := projectServer(t, http.StatusOK, stored)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }},
+		"project", "set-config", "demo", "--merge", "--max-workers", "2")
+	if err != nil {
+		t.Fatalf("set-config --merge: %v\nstderr=%s", err, errOut)
+	}
+	var got struct {
+		Config map[string]json.RawMessage `json:"config"`
+	}
+	if err := json.Unmarshal(capture.body, &got); err != nil {
+		t.Fatalf("decode %q: %v", capture.body, err)
+	}
+	for key, want := range map[string]string{
+		"preRemove":         `["echo bye"]`,
+		"aggregateProjects": `[{"hostId":"host-linux-id","projectId":"mercury"}]`,
+		"futureField":       `{"keep":true}`,
+	} {
+		if string(got.Config[key]) != want {
+			t.Fatalf("%s = %s, want %s (body %s)", key, got.Config[key], want, capture.body)
+		}
+	}
+	var coordinators map[string]json.RawMessage
+	if err := json.Unmarshal(got.Config["coordinators"], &coordinators); err != nil {
+		t.Fatalf("coordinators: %v", err)
+	}
+	if string(coordinators["customCoordinatorKey"]) != `"kept"` || string(coordinators["maxWorkers"]) != "2" || string(coordinators["enabled"]) != "true" {
+		t.Fatalf("coordinators = %s", got.Config["coordinators"])
+	}
+}

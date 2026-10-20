@@ -399,17 +399,20 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 				}
 				opts.allowedHostIDs = ids
 			}
-			var config projectConfig
-			var err error
+			var req any
 			if opts.merge {
-				config, err = ctx.mergeCoordinatorFlags(cmd, id, opts)
+				config, err := ctx.mergeCoordinatorFlags(cmd, id, opts)
+				if err != nil {
+					return err
+				}
+				req = rawSetConfigRequest{Config: config}
 			} else {
-				config, err = buildProjectConfig(opts)
+				config, err := buildProjectConfig(opts)
+				if err != nil {
+					return err
+				}
+				req = setConfigRequest{Config: config}
 			}
-			if err != nil {
-				return err
-			}
-			req := setConfigRequest{Config: config}
 			var res projectResult
 			if err := ctx.putJSON(cmd.Context(), "projects/"+url.PathEscape(id)+"/config", req, &res); err != nil {
 				return err
@@ -417,7 +420,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			if opts.json {
 				return writeJSON(cmd.OutOrStdout(), res)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "updated config for project %s\n", res.Project.ID)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "updated config for project %s\n", res.Project.ID)
 			return err
 		},
 	}
@@ -547,11 +550,33 @@ func coordinatorsConfigForFlags(opts projectSetConfigOptions) (coordinatorsConfi
 	return cfg, nil
 }
 
-// mergeCoordinatorFlags applies the coordinator flags the caller passed to the
-// project's stored config. Every other stored field keeps its value.
-func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, opts projectSetConfigOptions) (projectConfig, error) {
+// coordinatorFlagKeys maps each coordinator flag to the JSON key it writes in
+// the coordinators block.
+var coordinatorFlagKeys = map[string]string{
+	"coordinators":                "enabled",
+	"max-coordinators":            "maxCoordinators",
+	"max-workers-per-coordinator": "maxWorkersPerCoordinator",
+	"max-workers":                 "maxWorkers",
+	"agent-profile":               "agentProfiles",
+	"coordinator-agent":           "coordinatorAgent",
+	"coordinator-worker-agent":    "workerAgent",
+	"root-worker-agent":           "rootWorkerAgent",
+	"allowed-hosts":               "allowedHosts",
+	"allow-local-workers":         "allowLocalWorkers",
+	"no-allow-local-workers":      "allowLocalWorkers",
+}
+
+// rawSetConfigRequest sends a config as raw JSON so a merge keeps the stored
+// fields the CLI does not model (for example preRemove, aggregateProjects).
+type rawSetConfigRequest struct {
+	Config map[string]json.RawMessage `json:"config"`
+}
+
+// mergeCoordinatorFlags applies the passed coordinator flags to the stored
+// config as raw JSON. Every other stored key keeps its exact value.
+func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, opts projectSetConfigOptions) (map[string]json.RawMessage, error) {
 	if !opts.coordinatorsSet {
-		return projectConfig{}, usageError{errors.New("--merge needs at least one coordinator flag")}
+		return nil, usageError{errors.New("--merge needs at least one coordinator flag")}
 	}
 	// Flags that are not coordinator flags are counted against NFlag, so a
 	// stray field flag is refused rather than silently ignored.
@@ -562,58 +587,64 @@ func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, op
 		}
 	}
 	if cmd.Flags().NFlag() > accepted {
-		return projectConfig{}, usageError{errors.New("--merge applies to coordinator flags only; set other fields without --merge")}
+		return nil, usageError{errors.New("--merge applies to coordinator flags only; set other fields without --merge")}
 	}
 	flagged, err := coordinatorsConfigForFlags(opts)
 	if err != nil {
-		return projectConfig{}, err
+		return nil, err
 	}
-	var res projectResult
+	var res struct {
+		Project struct {
+			Config map[string]json.RawMessage `json:"config"`
+		} `json:"project"`
+	}
 	if err := c.getJSON(cmd.Context(), "projects/"+url.PathEscape(id), &res); err != nil {
-		return projectConfig{}, err
+		return nil, err
 	}
-	config := projectConfig{}
-	if res.Project.Config != nil {
-		config = *res.Project.Config
+	config := res.Project.Config
+	if config == nil {
+		config = map[string]json.RawMessage{}
 	}
-	config.Coordinators = overlayCoordinatorFlags(config.Coordinators, flagged, cmd.Flags().Changed)
+	coordinators := map[string]json.RawMessage{}
+	if raw, ok := config["coordinators"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &coordinators); err != nil {
+			return nil, fmt.Errorf("stored coordinators config is not an object: %w", err)
+		}
+	}
+	flaggedRaw, err := marshalRawObject(flagged)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range coordinatorFlagNames {
+		if !cmd.Flags().Changed(name) {
+			continue
+		}
+		key := coordinatorFlagKeys[name]
+		if value, ok := flaggedRaw[key]; ok {
+			coordinators[key] = value
+		} else {
+			delete(coordinators, key)
+		}
+	}
+	coordRaw, err := json.Marshal(coordinators)
+	if err != nil {
+		return nil, err
+	}
+	config["coordinators"] = coordRaw
 	return config, nil
 }
 
-// overlayCoordinatorFlags replaces each stored coordinator field whose flag
-// was passed. changed reports whether a flag was set on the command line.
-func overlayCoordinatorFlags(stored, flagged coordinatorsConfig, changed func(string) bool) coordinatorsConfig {
-	if changed("coordinators") {
-		stored.Enabled = flagged.Enabled
+// marshalRawObject encodes v and returns its top-level keys as raw JSON.
+func marshalRawObject(v any) (map[string]json.RawMessage, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
 	}
-	if changed("max-coordinators") {
-		stored.MaxCoordinators = flagged.MaxCoordinators
+	out := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
 	}
-	if changed("max-workers-per-coordinator") {
-		stored.MaxWorkersPerCoordinator = flagged.MaxWorkersPerCoordinator
-	}
-	if changed("max-workers") {
-		stored.MaxWorkers = flagged.MaxWorkers
-	}
-	if changed("agent-profile") {
-		stored.AgentProfiles = flagged.AgentProfiles
-	}
-	if changed("coordinator-agent") {
-		stored.CoordinatorAgent = flagged.CoordinatorAgent
-	}
-	if changed("coordinator-worker-agent") {
-		stored.WorkerAgent = flagged.WorkerAgent
-	}
-	if changed("root-worker-agent") {
-		stored.RootWorkerAgent = flagged.RootWorkerAgent
-	}
-	if changed("allowed-hosts") {
-		stored.AllowedHosts = flagged.AllowedHosts
-	}
-	if changed("allow-local-workers") || changed("no-allow-local-workers") {
-		stored.AllowLocalWorkers = flagged.AllowLocalWorkers
-	}
-	return stored
+	return out, nil
 }
 
 // resolveAllowedHosts maps --allowed-hosts entries to stored host IDs. An
