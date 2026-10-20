@@ -65,6 +65,7 @@ import { artifactCount, groupArtifactsByProject } from "../lib/artifacts";
 import { parseNightlyVersion } from "../lib/build-channel";
 import {
 	hasConfiguredOrchestratorAgent,
+	isCoordinatorSession,
 	newestActiveOrchestrator,
 	openPRs,
 	type WorkspaceSession,
@@ -2564,6 +2565,15 @@ const SessionRow = memo(function SessionRow({
 									{session.title}
 								</span>
 								{hostLabel ? <Badge variant="outline" className="h-4 shrink-0 px-1.5 text-2xs">{hostLabel}</Badge> : null}
+								{isCoordinatorSession(session) ? (
+									<Badge className="h-4 shrink-0 px-1.5 text-2xs" title={session.coordinatorScope} variant="outline">
+										{t("ownership.coordinatorBadge")}
+									</Badge>
+								) : session.ownerSessionId ? (
+									<Badge className="h-4 max-w-24 shrink-0 truncate px-1.5 text-2xs" variant="outline">
+										{t("ownership.ownedBy", { owner: session.ownerSessionId })}
+									</Badge>
+								) : null}
 								{switchLabel ? (
 									<span id={switchStatusId} className="max-w-28 shrink-0 truncate text-2xs text-muted-foreground">
 										{switchLabel}

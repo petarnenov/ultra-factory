@@ -669,6 +669,11 @@ type CoordinatorRosterEntry struct {
 	IsTerminated         bool     `json:"isTerminated"`
 	WorkerSessionIDs     []string `json:"workerSessionIds"`
 	WorkerCount          int      `json:"workerCount"`
+	// NeedsRecovery is derived at read time: the coordinator is terminated
+	// while a live worker still names it as owner.
+	NeedsRecovery bool `json:"needsRecovery"`
+	// LatestSummary is the newest persisted summary or escalation, or null.
+	LatestSummary *CoordinatorSummaryResponse `json:"latestSummary"`
 }
 
 // ListCoordinatorsQuery scopes the coordinator roster read.

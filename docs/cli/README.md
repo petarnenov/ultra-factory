@@ -142,7 +142,13 @@ Coordinator ownership is durable daemon state. `ao session ls` shows an
 (a worker's coordinator, or `root` when unowned), the owner's scope, and the
 project's live root. `ao coordinator ls` prints the project hierarchy with each
 coordinator's scope and the workers it owns; `-p/--project` defaults to
-`AO_PROJECT_ID`.
+`AO_PROJECT_ID`. The roster also carries each coordinator's latest summary
+and a derived `needsRecovery` flag (a terminated coordinator that still owns a
+live worker); a flagged coordinator is listed even without
+`--include-terminated`. `ao session ls --tree` renders the same hierarchy per
+project (`--json` returns the rosters), and `ao session get <coordinator>`
+adds its workers, recovery flag, and latest summary. Without a live root, the
+root-owned workers print as `unassigned`.
 
 Only the project's live root may write ownership. The CLI sends the caller from
 `AO_SESSION_ID`; pass `--requested-by` when the caller is not the current

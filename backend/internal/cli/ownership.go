@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -47,6 +49,21 @@ type coordinatorRosterItem struct {
 	IsTerminated         bool     `json:"isTerminated"`
 	WorkerSessionIDs     []string `json:"workerSessionIds"`
 	WorkerCount          int      `json:"workerCount"`
+	// NeedsRecovery flags a terminated coordinator that still owns live workers.
+	NeedsRecovery bool                   `json:"needsRecovery"`
+	LatestSummary *coordinatorSummaryDTO `json:"latestSummary"`
+}
+
+// sessionTreeOutput is the --json body of `session ls --tree`.
+type sessionTreeOutput struct {
+	Data []coordinatorRosterDTO `json:"data"`
+}
+
+// sessionDetailOutput is the --json body of `session get`; a coordinator
+// also carries its roster entry.
+type sessionDetailOutput struct {
+	Session     sessionDTO             `json:"session"`
+	Coordinator *coordinatorRosterItem `json:"coordinator,omitempty"`
 }
 
 // remoteWorkerLinkDTO mirrors the daemon's remote worker link read shape.
@@ -268,18 +285,14 @@ func (c *commandContext) listCoordinators(ctx context.Context, cmd *cobra.Comman
 	if project == "" {
 		return usageError{errors.New("project id is required (pass --project or set AO_PROJECT_ID)")}
 	}
-	params := url.Values{}
-	if opts.includeTerminated {
-		params.Set("includeTerminated", "true")
-	}
-	var res coordinatorRosterDTO
-	if err := c.getJSON(ctx, apiPath("projects/"+url.PathEscape(project)+"/coordinators", params), &res); err != nil {
+	res, err := c.fetchCoordinatorRoster(ctx, project, opts.includeTerminated)
+	if err != nil {
 		return err
 	}
 	if opts.json {
 		return writeJSON(cmd.OutOrStdout(), res)
 	}
-	return writeCoordinatorRoster(cmd, res)
+	return writeCoordinatorRoster(cmd, res, nil)
 }
 
 func (c *commandContext) listRemoteWorkers(ctx context.Context, cmd *cobra.Command, opts remoteWorkerListOptions) error {
@@ -383,7 +396,57 @@ func ownershipID(id *string) string {
 	return *id
 }
 
-func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO) error {
+// fetchCoordinatorRoster reads one project's ownership hierarchy.
+func (c *commandContext) fetchCoordinatorRoster(ctx context.Context, project string, includeTerminated bool) (coordinatorRosterDTO, error) {
+	params := url.Values{}
+	if includeTerminated {
+		params.Set("includeTerminated", "true")
+	}
+	var res coordinatorRosterDTO
+	err := c.getJSON(ctx, apiPath("projects/"+url.PathEscape(project)+"/coordinators", params), &res)
+	return res, err
+}
+
+// listSessionTree renders `session ls --tree` from the daemon roster of every
+// project in the listing, labelling workers with the facts already listed.
+func (c *commandContext) listSessionTree(ctx context.Context, cmd *cobra.Command, sessions []sessionDTO, opts sessionListOptions) error {
+	byID := make(map[string]sessionDTO, len(sessions))
+	projects := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, sess := range sessions {
+		byID[sess.ID] = sess
+		if sess.ProjectID != "" && !seen[sess.ProjectID] {
+			seen[sess.ProjectID] = true
+			projects = append(projects, sess.ProjectID)
+		}
+	}
+	sort.Strings(projects)
+	rosters := make([]coordinatorRosterDTO, 0, len(projects))
+	for _, project := range projects {
+		roster, err := c.fetchCoordinatorRoster(ctx, project, opts.includeTerminated)
+		if err != nil {
+			return err
+		}
+		rosters = append(rosters, roster)
+	}
+	if opts.json {
+		return writeJSON(cmd.OutOrStdout(), sessionTreeOutput{Data: rosters})
+	}
+	if len(rosters) == 0 {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "(no active sessions)")
+		return err
+	}
+	for _, roster := range rosters {
+		if err := writeCoordinatorRoster(cmd, roster, byID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeCoordinatorRoster prints the ownership tree. known, when set, adds
+// each worker's role and status from an already fetched session listing.
+func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known map[string]sessionDTO) error {
 	out := cmd.OutOrStdout()
 	if _, err := fmt.Fprintf(out, "%s\n", res.ProjectID); err != nil {
 		return err
@@ -396,32 +459,73 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO) error 
 			return err
 		}
 	}
+	workerLine := func(id string) error {
+		_, err := fmt.Fprintf(out, "    %s%s\n", id, workerFacts(known, id))
+		return err
+	}
 	for _, coordinator := range res.Coordinators {
 		status := ""
 		if coordinator.IsTerminated {
 			status = " terminated"
 		}
+		if coordinator.NeedsRecovery {
+			status += " NEEDS RECOVERY"
+		}
 		if _, err := fmt.Fprintf(out, "  coordinator %s%s (scope: %s)  workers: %d\n",
 			coordinator.CoordinatorSessionID, status, coordinator.CoordinatorScope, coordinator.WorkerCount); err != nil {
 			return err
 		}
+		if err := writeLatestSummary(out, "    ", coordinator.LatestSummary); err != nil {
+			return err
+		}
 		for _, worker := range coordinator.WorkerSessionIDs {
-			if _, err := fmt.Fprintf(out, "    %s\n", worker); err != nil {
+			if err := workerLine(worker); err != nil {
 				return err
 			}
 		}
 	}
 	if len(res.RootWorkerIDs) > 0 {
-		if _, err := fmt.Fprintf(out, "  root-owned workers: %d\n", len(res.RootWorkerIDs)); err != nil {
+		label := "root-owned workers"
+		if res.RootSessionID == nil {
+			label = "unassigned workers (no live root)"
+		}
+		if _, err := fmt.Fprintf(out, "  %s: %d\n", label, len(res.RootWorkerIDs)); err != nil {
 			return err
 		}
 		for _, worker := range res.RootWorkerIDs {
-			if _, err := fmt.Fprintf(out, "    %s\n", worker); err != nil {
+			if err := workerLine(worker); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+func workerFacts(known map[string]sessionDTO, id string) string {
+	sess, ok := known[id]
+	if !ok {
+		return ""
+	}
+	facts := emptyDash(sess.Status)
+	if sess.IsTerminated {
+		facts += ", terminated"
+	}
+	return "  (" + facts + ")"
+}
+
+func writeLatestSummary(out io.Writer, indent string, summary *coordinatorSummaryDTO) error {
+	if summary == nil {
+		return nil
+	}
+	line := summary.State
+	if summary.Escalation {
+		line += ", escalation: " + summary.EscalationReason
+	}
+	if summary.Result != "" {
+		line += " - " + summary.Result
+	}
+	_, err := fmt.Fprintf(out, "%slatest summary: %s\n", indent, line)
+	return err
 }
 
 func writeRemoteWorkerList(cmd *cobra.Command, res listRemoteWorkerLinksResponse) error {
@@ -467,4 +571,28 @@ func sessionOwnerDetails(sess sessionDTO) string {
 		return *sess.OwnerSessionID
 	}
 	return ""
+}
+
+// writeCoordinatorDetails prints a coordinator's workers, recovery flag, and
+// latest summary under `session get`; a nil entry prints nothing.
+func writeCoordinatorDetails(out io.Writer, entry *coordinatorRosterItem) error {
+	if entry == nil {
+		return nil
+	}
+	if entry.NeedsRecovery {
+		if _, err := fmt.Fprintln(out, "needs recovery: terminated coordinator still owns live workers"); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(out, "workers: %s\n", joinOrDash(entry.WorkerSessionIDs)); err != nil {
+		return err
+	}
+	return writeLatestSummary(out, "", entry.LatestSummary)
+}
+
+func joinOrDash(values []string) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	return strings.Join(values, ", ")
 }

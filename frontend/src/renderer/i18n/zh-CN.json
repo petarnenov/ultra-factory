@@ -3240,5 +3240,18 @@
   "chat.killOrchestrator.killing": "正在结束…",
   "archive.killOrchestratorTitle": "结束此编排器吗？",
   "archive.killOrchestratorBody": "这会结束编排器会话，效果与 `ao session kill <id>` 相同。之后可以用 `ao session restore <id>` 恢复；不会自动启动替代会话。",
-  "archive.killOrchestratorConfirmAria": "确认，结束编排器"
+  "archive.killOrchestratorConfirmAria": "确认，结束编排器",
+  "ownership.section": "所有权",
+  "ownership.coordinatorBadge": "协调者",
+  "ownership.ownedBy": "所有者：{{owner}}",
+  "ownership.owner": "所有者",
+  "ownership.coordinatorOwner": "协调者 {{id}}（{{scope}}）",
+  "ownership.rootOwned": "根会话所有（根 {{root}}）",
+  "ownership.unassigned": "未分配（无活动根会话）",
+  "ownership.scope": "范围",
+  "ownership.needsRecovery": "需要恢复：该协调者已终止，但仍拥有运行中的工作者。",
+  "ownership.ownerNeedsRecovery": "需要恢复：所属协调者已终止。",
+  "ownership.latestSummary": "最新摘要",
+  "ownership.escalation": "升级：{{reason}}",
+  "ownership.noWorkers": "未拥有任何工作者。"
 }

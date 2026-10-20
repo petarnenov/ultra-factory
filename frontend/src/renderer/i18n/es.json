@@ -3303,5 +3303,18 @@
   "chat.killOrchestrator.killing": "Deteniendo…",
   "archive.killOrchestratorTitle": "¿Detener este orquestador?",
   "archive.killOrchestratorBody": "Esto termina la sesión del orquestador, exactamente igual que `ao session kill <id>`. Puedes restaurarla más tarde con `ao session restore <id>`; no se inicia un reemplazo automáticamente.",
-  "archive.killOrchestratorConfirmAria": "Confirmar, detener orquestador"
+  "archive.killOrchestratorConfirmAria": "Confirmar, detener orquestador",
+  "ownership.section": "Propiedad",
+  "ownership.coordinatorBadge": "Coordinador",
+  "ownership.ownedBy": "Propietario: {{owner}}",
+  "ownership.owner": "Propietario",
+  "ownership.coordinatorOwner": "Coordinador {{id}} ({{scope}})",
+  "ownership.rootOwned": "Del root (root {{root}})",
+  "ownership.unassigned": "Sin asignar (sin root activo)",
+  "ownership.scope": "Alcance",
+  "ownership.needsRecovery": "Requiere recuperación: este coordinador está terminado pero aún tiene workers activos.",
+  "ownership.ownerNeedsRecovery": "Requiere recuperación: el coordinador propietario está terminado.",
+  "ownership.latestSummary": "Último resumen",
+  "ownership.escalation": "Escalado: {{reason}}",
+  "ownership.noWorkers": "No posee workers."
 }

@@ -3303,5 +3303,18 @@
   "chat.killOrchestrator.killing": "Arrêt en cours…",
   "archive.killOrchestratorTitle": "Arrêter cet orchestrateur ?",
   "archive.killOrchestratorBody": "Cela termine la session de l'orchestrateur, exactement comme `ao session kill <id>`. Vous pouvez la restaurer plus tard avec `ao session restore <id>` ; aucun remplacement ne démarre automatiquement.",
-  "archive.killOrchestratorConfirmAria": "Confirmer, arrêter l'orchestrateur"
+  "archive.killOrchestratorConfirmAria": "Confirmer, arrêter l'orchestrateur",
+  "ownership.section": "Propriété",
+  "ownership.coordinatorBadge": "Coordinateur",
+  "ownership.ownedBy": "Propriétaire : {{owner}}",
+  "ownership.owner": "Propriétaire",
+  "ownership.coordinatorOwner": "Coordinateur {{id}} ({{scope}})",
+  "ownership.rootOwned": "Rattaché à la racine (racine {{root}})",
+  "ownership.unassigned": "Non assigné (aucune racine active)",
+  "ownership.scope": "Périmètre",
+  "ownership.needsRecovery": "Récupération requise : ce coordinateur est terminé mais possède encore des workers actifs.",
+  "ownership.ownerNeedsRecovery": "Récupération requise : le coordinateur propriétaire est terminé.",
+  "ownership.latestSummary": "Dernier résumé",
+  "ownership.escalation": "Escalade : {{reason}}",
+  "ownership.noWorkers": "Aucun worker rattaché."
 }

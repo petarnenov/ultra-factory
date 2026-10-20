@@ -35,12 +35,15 @@ type coordinatorSummaryBody struct {
 	EscalationNote       string   `json:"escalationNote,omitempty"`
 }
 
-// coordinatorSummaryDTO mirrors the summary response.
+// coordinatorSummaryDTO mirrors the summary response, also embedded in the
+// coordinator roster as the latest summary.
 type coordinatorSummaryDTO struct {
-	ID            string `json:"id"`
-	State         string `json:"state"`
-	Escalation    bool   `json:"escalation"`
-	DeliveryState string `json:"deliveryState"`
+	ID               string `json:"id"`
+	State            string `json:"state"`
+	Result           string `json:"result,omitempty"`
+	EscalationReason string `json:"escalationReason,omitempty"`
+	Escalation       bool   `json:"escalation"`
+	DeliveryState    string `json:"deliveryState"`
 }
 
 func newCoordinatorReportCommand(ctx *commandContext) *cobra.Command {

@@ -14802,6 +14802,13 @@ components:
           type: string
         isTerminated:
           type: boolean
+        latestSummary:
+          anyOf:
+          - type: "null"
+          - $ref: '#/components/schemas/ControllersCoordinatorSummaryResponse'
+            type: object
+        needsRecovery:
+          type: boolean
         workerCount:
           type: integer
         workerSessionIds:
@@ -14814,6 +14821,8 @@ components:
       - isTerminated
       - workerSessionIds
       - workerCount
+      - needsRecovery
+      - latestSummary
       type: object
     CoordinatorRosterResponse:
       properties:

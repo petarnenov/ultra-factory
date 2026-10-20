@@ -196,6 +196,10 @@ type SessionsController struct {
 	PreviewServer            ManagedPreviewServer
 	Capabilities             SessionCapabilityValidator
 	ShellPreviewCapabilities ShellPreviewCapabilityValidator
+	// Summaries supplies each coordinator's latest summary to the roster.
+	Summaries interface {
+		List(context.Context, domain.SessionID, int) ([]domain.CoordinatorSummary, error)
+	}
 }
 
 // Register mounts the session routes on the supplied router.
