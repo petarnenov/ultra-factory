@@ -481,6 +481,10 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersNotificationEnvelope":              "NotificationEnvelope",
 	"ControllersMarkAllNotificationsReadRequest":   "MarkAllNotificationsReadRequest",
 	"ControllersMarkAllNotificationsReadResponse":  "MarkAllNotificationsReadResponse",
+	"ReportCompletionInput":                        "CompletionReportRequest",
+	"ReportCompletionRecipient":                    "CompletionRecipient",
+	"ReportCompletionPR":                           "CompletionPR",
+	"ControllersCompletionReportResponse":          "CompletionReportResponse",
 	"ControllersCreateReportRequest":               "CreateReportRequest",
 	"ControllersReportOutputRequest":               "ReportOutputRequest",
 	"ControllersCreateReportResponse":              "CreateReportResponse",
@@ -819,6 +823,16 @@ func identityOperations() []operation {
 
 func reportOperations() []operation {
 	return []operation{{
+		method: http.MethodPost, path: "/api/v1/reports/completion", id: "deliverCompletionReport", tag: "reports",
+		summary: "Notify a worker's coordinator of tick completion (loopback only)",
+		reqBody: controllers.CompletionReportRequest{},
+		resps: []respUnit{
+			{http.StatusOK, controllers.CompletionReportResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
 		method: http.MethodGet, path: "/api/v1/reports", id: "listReports", tag: "reports",
 		summary:    "List persisted project reports without changing delivery state",
 		pathParams: []any{controllers.ListReportsQuery{}},

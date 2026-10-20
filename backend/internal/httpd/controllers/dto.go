@@ -14,6 +14,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
+	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systemcheck"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systeminstall"
@@ -3860,4 +3861,12 @@ type CompletedTaskReportResponse struct {
 	Config CompletedTaskConfigHistory `json:"config"`
 	Runs   []CompletedTaskRun         `json:"runs"`
 	Stages CompletedTaskStages        `json:"stages"`
+}
+
+// CompletionReportRequest carries one durable tick completion notification.
+type CompletionReportRequest = reportsvc.CompletionInput
+
+// CompletionReportResponse acknowledges accepted completion context.
+type CompletionReportResponse struct {
+	Accepted bool `json:"accepted"`
 }

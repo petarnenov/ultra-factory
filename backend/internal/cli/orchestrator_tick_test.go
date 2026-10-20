@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -296,5 +297,75 @@ func TestTickDaemonWorkersCarryEveryOwnedPRAndBranchState(t *testing.T) {
 	}
 	if len(w.Reviews) != 1 || w.Reviews[0].PRNumber != 202 || w.Reviews[0].Status != "up_to_date" {
 		t.Fatalf("reviews = %+v", w.Reviews)
+	}
+}
+
+func TestTickStatusShowsMergeActionsAndBlockers(t *testing.T) {
+	store := orchestratortick.FileStore{Dir: t.TempDir()}
+	state := orchestratortick.CompletionState{Sessions: map[string]orchestratortick.SessionCompletion{
+		"Linux/worker": {Host: "Linux", Session: "worker", Remaining: []string{"PR #4: hold label needs-human"}, Actions: map[string]orchestratortick.CompletionAction{
+			"a": {Kind: "merge", Status: "pending", PR: 1},
+			"b": {Kind: "merge", Status: "completed", PR: 2, MergeCommitSHA: "commit-2"},
+			"c": {Kind: "merge", Status: "blocked", PR: 3, LastError: "required checks are pending"},
+			"d": {Kind: "merge", Status: "superseded", PR: 5, LastError: "head changed"},
+		}},
+	}}
+	if err := store.SaveCompletion(state); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := writeTickStatus(&out, store); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"PR #1 pending", "PR #2 completed", "commit=commit-2", "PR #3 blocked", "required checks are pending", "hold label needs-human", "head changed"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in %s", want, out.String())
+		}
+	}
+}
+
+func TestTickCompletionNotificationUsesHubAndSavedHostIdentity(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_SESSION_ID", "")
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	writeRemotesFile(t, remoteEntry{Label: "build", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+	var input struct {
+		Recipient *orchestratortick.CompletionRecipient `json:"recipient"`
+		HostID    string                                `json:"hostId"`
+		SessionID string                                `json:"sessionId"`
+		ActionKey string                                `json:"actionKey"`
+		PRs       []orchestratortick.CompletedPR        `json:"prs"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/remote-worker-links" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"links":[{"hostId":"host-build","remoteSessionId":"worker","projectId":"project","ownerSessionId":"local-coordinator"}]}`))
+			return
+		}
+		if r.URL.Path != "/api/v1/reports/completion" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"accepted":true}`))
+	}))
+	defer srv.Close()
+	writeRunFileFor(t, cfg, srv)
+	d := tickDaemon{c: &commandContext{deps: Deps{ProcessAlive: func(int) bool { return true }}.withDefaults()}}
+	recipient, err := d.ResolveCompletionOwner(context.Background(), "build", "worker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.NotifyCompletion(context.Background(), "build", "worker", "merge:201@head", "merge", []orchestratortick.CompletedPR{{Number: 201, MergeCommitSHA: "commit"}}, &recipient); err != nil {
+		t.Fatal(err)
+	}
+	if input.Recipient == nil || input.Recipient.OwnerSessionID != "local-coordinator" || input.Recipient.ProjectID != "project" || input.HostID != "host-build" || input.SessionID != "worker" || input.ActionKey != "merge:201@head" || len(input.PRs) != 1 || input.PRs[0].MergeCommitSHA != "commit" {
+		t.Fatalf("notification: %+v", input)
+	}
+	if len(remote.recorded()) != 0 {
+		t.Fatal("owner notification contacted the worker host")
 	}
 }

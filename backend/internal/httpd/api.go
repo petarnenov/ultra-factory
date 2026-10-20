@@ -39,6 +39,7 @@ type APIDeps struct {
 	Reviews            reviewsvc.Manager
 	Notifications      controllers.NotificationService
 	Reports            controllers.ReportService
+	CompletionReports  controllers.CompletionReportDelivery
 	Summaries          controllers.CoordinatorSummaryService
 	RemoteWorkerLinks  controllers.RemoteWorkerLinkService
 	CompletedTasks     controllers.CompletedTaskService
@@ -196,7 +197,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		prs:           &controllers.PRsController{Svc: deps.PRs},
 		reviews:       &controllers.ReviewsController{Svc: deps.Reviews},
 		notifications: &controllers.NotificationsController{Svc: deps.Notifications, Stream: deps.NotificationStream},
-		reports:       &controllers.ReportsController{Svc: deps.Reports},
+		reports:       &controllers.ReportsController{Svc: deps.Reports, Completion: deps.CompletionReports},
 		summaries:     &controllers.CoordinatorSummariesController{Svc: deps.Summaries},
 		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks},
 		completed:     &controllers.CompletedTasksController{Svc: deps.CompletedTasks, HostID: deps.HostID},

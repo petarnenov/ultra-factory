@@ -1,0 +1,99 @@
+package report
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+)
+
+// CompletionInput identifies one durable tick action and its merged PRs.
+type CompletionInput struct {
+	HostID    string               `json:"hostId"`
+	SessionID string               `json:"sessionId"`
+	ActionKey string               `json:"actionKey"`
+	Kind      string               `json:"kind"`
+	Recipient *CompletionRecipient `json:"recipient,omitempty"`
+	PRs       []CompletionPR       `json:"prs"`
+}
+
+// CompletionPR is a provider merge fact included in a completion report.
+type CompletionPR struct {
+	Number         int    `json:"number"`
+	MergeCommitSHA string `json:"mergeCommitSha"`
+}
+
+// DeliverCompletion resolves ownership locally and submits system context using
+// the report delivery path. Retries use the same semantic acceptance key.
+func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput) error {
+	if strings.TrimSpace(in.SessionID) == "" || strings.TrimSpace(in.ActionKey) == "" ||
+		(in.Kind != "merge" && in.Kind != "close") || len(in.PRs) == 0 {
+		return apierr.Invalid("INVALID_COMPLETION_REPORT", "Worker, action, kind and merged PRs are required", nil)
+	}
+	var owner *domain.SessionID
+	var project domain.ProjectID
+	if in.Recipient != nil {
+		if in.Recipient.OwnerSessionID == "" {
+			return nil
+		}
+		value := domain.SessionID(in.Recipient.OwnerSessionID)
+		owner, project = &value, domain.ProjectID(in.Recipient.ProjectID)
+	} else if in.HostID != "" {
+		link, found, err := c.store.GetRemoteWorkerLink(ctx, in.HostID, domain.SessionID(in.SessionID))
+		if err != nil {
+			return err
+		}
+		if !found {
+			return nil
+		}
+		owner, project = link.OwnerSessionID, link.ProjectID
+	} else {
+		worker, found, err := c.store.GetSession(ctx, domain.SessionID(in.SessionID))
+		if err != nil {
+			return err
+		}
+		if !found || worker.Kind != domain.KindWorker {
+			return nil
+		}
+		owner, project = worker.OwnerSessionID, worker.ProjectID
+	}
+	if owner == nil {
+		return nil
+	}
+	recipient, found, err := c.store.GetSession(ctx, *owner)
+	if err != nil {
+		return err
+	}
+	if !found || recipient.IsTerminated || recipient.Kind != domain.KindCoordinator ||
+		recipient.ProjectID != project || recipient.Activity.State == domain.ActivityExited {
+		return nil
+	}
+	var prs []string
+	for _, pr := range in.PRs {
+		if pr.Number <= 0 || strings.TrimSpace(pr.MergeCommitSHA) == "" {
+			return apierr.Invalid("INVALID_COMPLETION_REPORT", "PR number and merge commit are required", nil)
+		}
+		prs = append(prs, fmt.Sprintf("PR #%d merge commit %s", pr.Number, pr.MergeCommitSHA))
+	}
+	message := fmt.Sprintf("TICK completion: worker %s/%s; %s; action %s completed.",
+		in.HostID, in.SessionID, strings.Join(prs, "; "), in.Kind)
+	identity := fmt.Sprintf("%q/%q/%q", in.HostID, in.SessionID, in.ActionKey)
+	key := fmt.Sprintf("tick-completion:%x", sha256.Sum256([]byte(identity)))
+	err = c.delivery.Submit(ctx, *owner, message, key)
+	// A semantic timeout follows a written prompt; consume it like reports do.
+	if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
+		return nil
+	}
+	return err
+}
+
+// CompletionRecipient is a hub-owned snapshot taken before a completion action.
+type CompletionRecipient struct {
+	HostID         string `json:"hostId"`
+	OwnerSessionID string `json:"ownerSessionId"`
+	ProjectID      string `json:"projectId"`
+}

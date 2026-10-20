@@ -148,7 +148,7 @@ func (r *Runner) tick(ctx context.Context) Result {
 	}
 
 	snapshot := snapshotWithCompletion(cfg, facts, violations, completions, now)
-	fingerprint := Fingerprint(cfg, facts, violations, now)
+	fingerprint := Fingerprint(cfg, facts, violations, now) + strings.Join(CompletionLines(completions), "\n")
 	if !InFlight(cfg, facts, violations) && len(completions) == 0 {
 		return Result{Outcome: OutcomeNothing, Session: session, Violations: violations, Completions: completions}
 	}
