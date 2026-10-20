@@ -1610,7 +1610,7 @@ New codes, all in the existing `apierr` envelope with a request ID:
 | `WORKER_PROFILE_INVALID` | Invalid / 400 | Malformed profile list or selection | `field` |
 | `WORKER_PROFILE_UNAVAILABLE` | Conflict / 409 | No selected profile is ready on the target host | `projectId`, `hostId`, and `coordinatorId` when the worker is coordinator-owned (omitted for a root-owned worker, which uses `rootWorkerAgent`) |
 | `WORKER_PROFILE_NOT_ALLOWED` | Conflict / 409 | Explicit `--harness/--model/--effort` does not match a selected profile (coordinator-owned workers only) | `projectId`, `coordinatorId` |
-| `COORDINATOR_PROFILE_NOT_ALLOWED` | Conflict / 409 | Coordinator agent selection names a profile outside the list | `profileId` |
+| `COORDINATOR_PROFILE_NOT_ALLOWED` | Invalid / 400 | Coordinator agent selection names a profile outside the list | `profileId` |
 | `OPERATOR_MARKER_NOT_ALLOWED` | Forbidden / 403 | `operatorInitiated: true` sent together with a session caller field (`requestedBySessionId`, or a `parentSessionId` that is not the live root); an accident guard, not authentication | `sessionId` |
 
 Changed codes:
