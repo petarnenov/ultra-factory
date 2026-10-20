@@ -286,9 +286,8 @@ func PRCheckSummary(pr PullRequest, now time.Time) string {
 	return summary
 }
 
-// latestChecks keeps the newest run of each named check: the rollup also
-// lists superseded runs, and a cancelled or skipped one must not outvote a
-// rerun. A run without a completion time is still running and counts newest.
+// latestChecks keeps the newest run per named check; a run without a
+// completion time is still running and counts as newest.
 func latestChecks(checks []Check) []Check {
 	pos := map[string]int{}
 	out := make([]Check, 0, len(checks))
