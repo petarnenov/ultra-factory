@@ -174,3 +174,36 @@ func TestConversationIfNoneMatchUsesWeakComparison(t *testing.T) {
 		t.Fatalf("a different tag answered %d, want 200", resp.StatusCode)
 	}
 }
+
+func TestReviewerConversationHonoursCursorAndETag(t *testing.T) {
+	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	service := &fakeConversationService{reviewSnapshot: deltaSnapshot(base)}
+	server := conversationTestServer(t, service)
+	url := server.URL + "/api/v1/reviews/review-1/conversation"
+
+	status, body := reviewConversationRequest(t, server.Client(), http.MethodGet, fmt.Sprintf("%s?sinceRevision=%d", url, base.Add(2*time.Second).UnixNano()), "")
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil || status != http.StatusOK {
+		t.Fatalf("status %d body %s err %v", status, body, err)
+	}
+	if decoded["delta"] != true || fmt.Sprint(ids(decoded, "messages")) != "[m2]" {
+		t.Fatalf("reviewer delta = %s, want only m2", body)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	first, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = first.Body.Close()
+	req, _ = http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("If-None-Match", first.Header.Get("ETag"))
+	again, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = again.Body.Close()
+	if again.StatusCode != http.StatusNotModified {
+		t.Fatalf("reviewer conditional GET = %d, want 304", again.StatusCode)
+	}
+}

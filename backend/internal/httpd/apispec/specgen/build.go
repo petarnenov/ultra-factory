@@ -1479,7 +1479,7 @@ func shellTerminalOperations() []operation {
 		{
 			method: http.MethodGet, path: "/api/v1/reviews/{reviewId}/conversation", id: "getReviewerConversation", tag: "conversations",
 			summary: "Read a reviewer's durable Chat conversation", pathParams: []any{controllers.ReviewIDParam{}, conversationSnapshotQuery{}},
-			resps: []respUnit{{http.StatusOK, controllers.ConversationSnapshotResponse{}}, {http.StatusBadRequest, envelope.APIError{}}, {http.StatusNotFound, envelope.APIError{}}, {http.StatusConflict, envelope.APIError{}}, {http.StatusInternalServerError, envelope.APIError{}}, {http.StatusNotImplemented, envelope.APIError{}}},
+			resps: []respUnit{{http.StatusOK, controllers.ConversationSnapshotResponse{}}, {http.StatusNotModified, nil}, {http.StatusBadRequest, envelope.APIError{}}, {http.StatusNotFound, envelope.APIError{}}, {http.StatusConflict, envelope.APIError{}}, {http.StatusInternalServerError, envelope.APIError{}}, {http.StatusNotImplemented, envelope.APIError{}}},
 		},
 		{
 			method: http.MethodPost, path: "/api/v1/reviews/{reviewId}/conversation/messages", id: "sendReviewerConversationMessage", tag: "conversations",

@@ -236,6 +236,11 @@ func (c *ConversationsController) reviewSnapshot(w http.ResponseWriter, r *http.
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "CONVERSATION_CURSOR_INVALID", err.Error(), nil)
 		return
 	}
+	since, err := optionalSinceRevision(r.URL.Query().Get("sinceRevision"))
+	if err != nil || (since > 0 && before > 0) {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "CONVERSATION_CURSOR_INVALID", "sinceRevision must be a positive integer and cannot be combined with beforeSequence", nil)
+		return
+	}
 	limit := int64(200)
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		limit, err = strconv.ParseInt(raw, 10, 64)
@@ -249,7 +254,7 @@ func (c *ConversationsController) reviewSnapshot(w http.ResponseWriter, r *http.
 		writeConversationError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, conversationSnapshotResponse(snapshot))
+	writeConversationDelta(w, r, conversationSnapshotResponse(snapshot), snapshot, since)
 }
 
 func (c *ConversationsController) reviewSend(w http.ResponseWriter, r *http.Request) {
@@ -802,6 +807,12 @@ func (c *ConversationsController) snapshot(w http.ResponseWriter, r *http.Reques
 	// Excerpt verification is owned by AO, independently of provider capabilities.
 	// Older daemons ignore this request field, so clients must negotiate support.
 	response.SupportsExcerpts = true
+	writeConversationDelta(w, r, response, snapshot, since)
+}
+
+// writeConversationDelta stamps the revision, narrows the body to the cursor
+// when one was sent, and answers through the conditional-GET writer.
+func writeConversationDelta(w http.ResponseWriter, r *http.Request, response ConversationSnapshotResponse, snapshot chatsvc.Snapshot, since int64) {
 	response.Revision = snapshotRevision(snapshot)
 	if since > 0 {
 		if since > response.Revision {

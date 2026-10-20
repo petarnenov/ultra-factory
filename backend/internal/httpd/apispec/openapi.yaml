@@ -4317,6 +4317,8 @@ paths:
               schema:
                 $ref: '#/components/schemas/ConversationSnapshotResponse'
           description: OK
+        "304":
+          description: Not Modified
         "400":
           content:
             application/json:

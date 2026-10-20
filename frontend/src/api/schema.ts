@@ -12732,6 +12732,13 @@ export interface operations {
                     "application/json": components["schemas"]["ConversationSnapshotResponse"];
                 };
             };
+            /** @description Not Modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             /** @description Bad Request */
             400: {
                 headers: {
