@@ -1518,10 +1518,13 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
   `random` over the shared list, with the same host-readiness filter. Nothing
   changes until it is set.
 - **Validation.** A malformed profile (duplicate or empty `id`, unknown
-  harness, empty model, invalid effort, weight below 1), a selection that names
-  an unknown profile, or an empty `fixed` selection is `WORKER_PROFILE_INVALID`
-  at config or spawn validation. A coordinator selection that names a profile
-  outside the list is `COORDINATOR_PROFILE_NOT_ALLOWED`.
+  harness, empty model, invalid effort, weight below 1), a `workerAgent` or
+  `rootWorkerAgent` selection that names an unknown profile, or an empty `fixed`
+  selection of any of the three selections is `WORKER_PROFILE_INVALID` at config
+  or spawn validation. A `coordinatorAgent` selection that names a profile
+  outside the list is `COORDINATOR_PROFILE_NOT_ALLOWED`, not
+  `WORKER_PROFILE_INVALID`: for an unknown profile ID the code follows the
+  selection, so each input has exactly one code.
 
 ### A3. Defaults and backward compatibility
 
