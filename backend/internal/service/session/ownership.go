@@ -383,7 +383,9 @@ func (s *Service) applyCoordinatorWorkerLimit(
 func limitOrigin(caller CoordinatorLimitsCaller) (string, error) {
 	if caller.OperatorInitiated {
 		if caller.RequestedBy != "" {
-			return "", apierr.Invalid("OPERATOR_MARKER_NOT_ALLOWED", "operatorInitiated cannot be combined with requestedBySessionId", nil)
+			return "", apierr.New(apierr.KindForbidden, "OPERATOR_MARKER_NOT_ALLOWED",
+				"operatorInitiated cannot be combined with requestedBySessionId",
+				map[string]any{"sessionId": string(caller.RequestedBy)})
 		}
 		switch caller.Origin {
 		case "ui", "cli", "api":

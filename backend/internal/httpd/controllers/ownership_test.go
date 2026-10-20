@@ -455,7 +455,7 @@ func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
 		t.Fatalf("above the project value status=%d body=%s", status, body)
 	}
 	body, status = put(`{"workerLimit":1,"operatorInitiated":true,"requestedBySessionId":"` + string(f.root.ID) + `","origin":"ui"}`)
-	if status != http.StatusBadRequest || !reportContainsAll(body, "OPERATOR_MARKER_NOT_ALLOWED") {
+	if status != http.StatusForbidden || !reportContainsAll(body, "OPERATOR_MARKER_NOT_ALLOWED", `"sessionId":"`+string(f.root.ID)+`"`) {
 		t.Fatalf("marker with a named caller status=%d body=%s", status, body)
 	}
 	body, status = put(`{"workerLimit":0,"requestedBySessionId":"` + string(f.root.ID) + `"}`)

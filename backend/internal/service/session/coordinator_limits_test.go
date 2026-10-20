@@ -2,10 +2,12 @@ package session
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
@@ -242,7 +244,11 @@ func TestLiveLimitUpdateRefusesCallersAndInvalidValues(t *testing.T) {
 		wantAPIError(t, err, "COORDINATOR_ROOT_REQUIRED", nil)
 	}
 	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", OperatorInitiated: true, Origin: "ui"})
-	wantAPIError(t, err, "OPERATOR_MARKER_NOT_ALLOWED", nil)
+	wantAPIError(t, err, "OPERATOR_MARKER_NOT_ALLOWED", map[string]any{"sessionId": "ao-root"})
+	var apiErr *apierr.Error
+	if errors.As(err, &apiErr) && apiErr.Kind != apierr.KindForbidden {
+		t.Fatalf("kind = %v, want forbidden", apiErr.Kind)
+	}
 	for _, limit := range []int{0, -1, 4} {
 		_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(limit), rootCaller("ao-root"))
 		wantAPIError(t, err, "COORDINATOR_WORKER_LIMIT_INVALID", map[string]any{"max": 3})
@@ -375,7 +381,7 @@ func TestLiveLimitUpdateValidatesMarkerAndOrigin(t *testing.T) {
 	c := f.coordinator("ao-c1", false)
 	ctx := context.Background()
 	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", OperatorInitiated: true, Origin: "ui"})
-	wantAPIError(t, err, "OPERATOR_MARKER_NOT_ALLOWED", nil)
+	wantAPIError(t, err, "OPERATOR_MARKER_NOT_ALLOWED", map[string]any{"sessionId": "ao-root"})
 	for _, caller := range []CoordinatorLimitsCaller{
 		{OperatorInitiated: true}, {OperatorInitiated: true, Origin: "web"},
 		{RequestedBy: "ao-root", Origin: "ui"},
