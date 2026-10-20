@@ -15,17 +15,20 @@ import (
 
 const insertCoordinatorLimitEvent = `-- name: InsertCoordinatorLimitEvent :exec
 INSERT INTO coordinator_limit_events (
-    session_id, previous_limit, new_limit, actor_session_id, origin, created_at
-) VALUES (?, ?, ?, ?, ?, ?)
+    session_id, previous_limit, new_limit, previous_host_slots, new_host_slots,
+    actor_session_id, origin, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertCoordinatorLimitEventParams struct {
-	SessionID      string
-	PreviousLimit  sql.NullInt64
-	NewLimit       int64
-	ActorSessionID string
-	Origin         string
-	CreatedAt      time.Time
+	SessionID         string
+	PreviousLimit     sql.NullInt64
+	NewLimit          sql.NullInt64
+	PreviousHostSlots sql.NullString
+	NewHostSlots      sql.NullString
+	ActorSessionID    string
+	Origin            string
+	CreatedAt         time.Time
 }
 
 func (q *Queries) InsertCoordinatorLimitEvent(ctx context.Context, arg InsertCoordinatorLimitEventParams) error {
@@ -33,6 +36,8 @@ func (q *Queries) InsertCoordinatorLimitEvent(ctx context.Context, arg InsertCoo
 		arg.SessionID,
 		arg.PreviousLimit,
 		arg.NewLimit,
+		arg.PreviousHostSlots,
+		arg.NewHostSlots,
 		arg.ActorSessionID,
 		arg.Origin,
 		arg.CreatedAt,
@@ -93,7 +98,8 @@ func (q *Queries) InsertSessionOwnerEvent(ctx context.Context, arg InsertSession
 }
 
 const listCoordinatorLimitEvents = `-- name: ListCoordinatorLimitEvents :many
-SELECT id, session_id, previous_limit, new_limit, actor_session_id, origin, created_at
+SELECT id, session_id, previous_limit, new_limit, previous_host_slots, new_host_slots,
+    actor_session_id, origin, created_at
 FROM coordinator_limit_events
 WHERE session_id = ?
 ORDER BY id
@@ -113,6 +119,8 @@ func (q *Queries) ListCoordinatorLimitEvents(ctx context.Context, sessionID stri
 			&i.SessionID,
 			&i.PreviousLimit,
 			&i.NewLimit,
+			&i.PreviousHostSlots,
+			&i.NewHostSlots,
 			&i.ActorSessionID,
 			&i.Origin,
 			&i.CreatedAt,
@@ -210,22 +218,29 @@ func (q *Queries) ListSessionOwnerEvents(ctx context.Context, sessionID domain.S
 	return items, nil
 }
 
-const setCoordinatorWorkerLimit = `-- name: SetCoordinatorWorkerLimit :execrows
+const setCoordinatorLimits = `-- name: SetCoordinatorLimits :execrows
 UPDATE sessions
 SET coordinator_worker_limit = ?1,
-    updated_at = ?2
-WHERE id = ?3 AND kind = 'coordinator' AND is_terminated = 0
+    coordinator_host_slots = ?2,
+    updated_at = ?3
+WHERE id = ?4 AND kind = 'coordinator' AND is_terminated = 0
 `
 
-type SetCoordinatorWorkerLimitParams struct {
+type SetCoordinatorLimitsParams struct {
 	CoordinatorWorkerLimit sql.NullInt64
+	CoordinatorHostSlots   sql.NullString
 	UpdatedAt              time.Time
 	ID                     domain.SessionID
 }
 
-// Narrow write: only a live coordinator's own limit changes.
-func (q *Queries) SetCoordinatorWorkerLimit(ctx context.Context, arg SetCoordinatorWorkerLimitParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setCoordinatorWorkerLimit, arg.CoordinatorWorkerLimit, arg.UpdatedAt, arg.ID)
+// Narrow write: only a live coordinator's own limit and host slots change.
+func (q *Queries) SetCoordinatorLimits(ctx context.Context, arg SetCoordinatorLimitsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setCoordinatorLimits,
+		arg.CoordinatorWorkerLimit,
+		arg.CoordinatorHostSlots,
+		arg.UpdatedAt,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

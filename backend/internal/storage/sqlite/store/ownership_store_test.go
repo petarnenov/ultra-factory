@@ -622,12 +622,12 @@ func TestCoordinatorWorkerLimitIsStoredUpdatedAndAudited(t *testing.T) {
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	previous, err := s.SetCoordinatorWorkerLimit(ctx, limited.ID, 1, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "ui"}, now)
-	if err != nil || previous == nil || *previous != 2 {
-		t.Fatalf("previous = %v err=%v, want 2", previous, err)
+	one, three := 1, 3
+	if err := s.SetCoordinatorLimits(ctx, limited.ID, &one, nil, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "ui"}, now); err != nil {
+		t.Fatal(err)
 	}
-	if previous, err = s.SetCoordinatorWorkerLimit(ctx, plain.ID, 3, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "root"}, now); err != nil || previous != nil {
-		t.Fatalf("previous = %v err=%v, want nil", previous, err)
+	if err := s.SetCoordinatorLimits(ctx, plain.ID, &three, nil, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "root"}, now); err != nil {
+		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
@@ -646,7 +646,7 @@ func TestCoordinatorWorkerLimitIsStoredUpdatedAndAudited(t *testing.T) {
 	if err != nil || len(events) != 1 {
 		t.Fatalf("events = %+v err=%v", events, err)
 	}
-	if e := events[0]; e.NewLimit != 1 || e.PreviousLimit == nil || *e.PreviousLimit != 2 || e.ActorSessionID != "ao-root" || e.Origin != "ui" {
+	if e := events[0]; e.NewLimit == nil || *e.NewLimit != 1 || e.PreviousLimit == nil || *e.PreviousLimit != 2 || e.ActorSessionID != "ao-root" || e.Origin != "ui" {
 		t.Fatalf("audit row = %+v", e)
 	}
 }
@@ -665,13 +665,70 @@ func TestSetCoordinatorWorkerLimitRefusesNonCoordinatorsAndTerminatedOnes(t *tes
 	}
 	now := time.Now().UTC()
 	event := domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "root"}
-	if _, err := s.SetCoordinatorWorkerLimit(ctx, worker.ID, 1, event, now); err == nil {
+	one := 1
+	if err := s.SetCoordinatorLimits(ctx, worker.ID, &one, nil, event, now); err == nil {
 		t.Fatal("a worker has no coordinator limit")
 	}
-	if _, err := s.SetCoordinatorWorkerLimit(ctx, "ao-ghost", 1, event, now); !errors.Is(err, ports.ErrSessionNotFound) {
+	if err := s.SetCoordinatorLimits(ctx, "ao-ghost", &one, nil, event, now); !errors.Is(err, ports.ErrSessionNotFound) {
 		t.Fatalf("unknown session err = %v", err)
 	}
 	if events, _ := s.ListCoordinatorLimitEvents(ctx, worker.ID); len(events) != 0 {
 		t.Fatalf("a refused write left audit rows: %+v", events)
+	}
+}
+
+func TestCoordinatorHostSlotsPersistAndAreAudited(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao", RegisteredAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	rec := coordinatorRecord("ao", "auth area")
+	rec.CoordinatorHostSlots = []domain.HostSlot{{HostID: "host-a", Slots: 1}}
+	created, err := s.CreateSession(ctx, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(created.CoordinatorHostSlots) != 1 {
+		t.Fatalf("slots at spawn = %+v, want 1", created.CoordinatorHostSlots)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	next := []domain.HostSlot{{HostID: "host-a", Slots: 2}, {HostID: "host-b", Slots: 1}}
+	if err := s.SetCoordinatorLimits(ctx, created.ID, nil, next, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "cli"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCoordinatorLimits(ctx, created.ID, nil, nil, domain.CoordinatorLimitEvent{ActorSessionID: "ao-root", Origin: "ui"}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	got, _, err := reopened.GetSession(ctx, created.ID)
+	if err != nil || len(got.CoordinatorHostSlots) != 0 {
+		t.Fatalf("slots after clearing = %+v err=%v, want none", got.CoordinatorHostSlots, err)
+	}
+	listed, err := reopened.ListSessions(ctx, "ao")
+	if err != nil || len(listed) != 1 {
+		t.Fatalf("list = %v err=%v", listed, err)
+	}
+	events, err := reopened.ListCoordinatorLimitEvents(ctx, created.ID)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("events = %+v err=%v", events, err)
+	}
+	first, second := events[0], events[1]
+	if len(first.PreviousHostSlots) != 1 || len(first.NewHostSlots) != 2 || first.NewLimit != nil || first.PreviousLimit != nil {
+		t.Fatalf("first audit row = %+v, want slots 1 -> 2 and untouched NULL limits", first)
+	}
+	if len(second.PreviousHostSlots) != 2 || len(second.NewHostSlots) != 0 || second.Origin != "ui" {
+		t.Fatalf("second audit row = %+v, want slots 2 -> none", second)
 	}
 }

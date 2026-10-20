@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
@@ -92,7 +93,12 @@ func (s *Service) checkReassignCapacity(ctx context.Context, worker domain.Sessi
 	if err != nil {
 		return err
 	}
-	return counts.CheckOwner(&owner, gate.Limits())
+	if err := counts.CheckOwner(&owner, gate.Limits()); err != nil {
+		return err
+	}
+	// Session records are workers on this daemon; a paired host's workers are
+	// remote links, checked by the remote worker service.
+	return coordownership.CheckLocalWorker(&owner, worker.ProjectID, gate)
 }
 
 // Ownership is one session's durable ownership plus the project's live root.
@@ -115,6 +121,27 @@ type CapacityView struct {
 	// WorkerLimit and CoordinatorWorkers are set for a coordinator only.
 	WorkerLimit        int
 	CoordinatorWorkers int
+	// PlacementLimit and HostSlots are the coordinator's placement view.
+	PlacementLimit int
+	HostSlots      []HostSlotUsage
+}
+
+// HostSlotUsage is one host slot entry with the coordinator's live workers on
+// that host. Used can exceed Slots after a live reduction.
+type HostSlotUsage struct {
+	HostID string
+	Slots  int
+	Used   int
+}
+
+// hostSlotUsage pairs a coordinator's stored slots with its link counts.
+func hostSlotUsage(counts coordownership.Counts, coordinator domain.SessionID) []HostSlotUsage {
+	slots := counts.HostSlots[coordinator]
+	out := make([]HostSlotUsage, len(slots))
+	for i, slot := range slots {
+		out[i] = HostSlotUsage{HostID: slot.HostID, Slots: slot.Slots, Used: counts.ByOwnerHost[coordinator][slot.HostID]}
+	}
+	return out
 }
 
 // capacityView reads the project's limits and census. A coordinator also gets
@@ -139,6 +166,8 @@ func capacityFrom(counts coordownership.Counts, limits domain.CoordinatorLimits,
 	if coordinator != nil {
 		view.WorkerLimit = counts.OwnerLimit(*coordinator, limits)
 		view.CoordinatorWorkers = counts.ByOwner[*coordinator]
+		view.PlacementLimit = counts.EffectivePlacementLimit(*coordinator, limits)
+		view.HostSlots = hostSlotUsage(counts, *coordinator)
 	}
 	return view
 }
@@ -154,6 +183,10 @@ type CoordinatorRosterEntry struct {
 	// spawn paths enforce, including remote workers.
 	WorkerLimit   int
 	ActiveWorkers int
+	// PlacementLimit is WorkerLimit, or with host slots the smaller of it and
+	// the slot total. HostSlots lists each slot with its live use.
+	PlacementLimit int
+	HostSlots      []HostSlotUsage
 }
 
 // CoordinatorRoster is a project's local ownership hierarchy. Remote worker
@@ -252,8 +285,10 @@ func (s *Service) CoordinatorRoster(
 		}
 		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
 			Coordinator: coordinator, Workers: workers, NeedsRecovery: recovery,
-			WorkerLimit:   counts.OwnerLimit(coordinator.ID, out.Limits),
-			ActiveWorkers: counts.ByOwner[coordinator.ID],
+			WorkerLimit:    counts.OwnerLimit(coordinator.ID, out.Limits),
+			ActiveWorkers:  counts.ByOwner[coordinator.ID],
+			PlacementLimit: counts.EffectivePlacementLimit(coordinator.ID, out.Limits),
+			HostSlots:      hostSlotUsage(counts, coordinator.ID),
 		})
 	}
 	sort.Slice(out.Coordinators, func(i, j int) bool {
@@ -303,77 +338,127 @@ type CoordinatorLimitsCaller struct {
 	Origin            string
 }
 
-// SetCoordinatorWorkerLimit changes a live coordinator's limit under the
-// spawn lock; nil or an unchanged value is a no-op.
-func (s *Service) SetCoordinatorWorkerLimit(
+// CoordinatorLimitsUpdate is a partial live change: nil keeps the stored
+// value and an empty HostSlots clears it. Hosts may be IDs or labels.
+type CoordinatorLimitsUpdate struct {
+	WorkerLimit *int
+	HostSlots   *[]domain.HostSlot
+}
+
+// SetCoordinatorLimits changes a live coordinator's limit and host slots
+// under the spawn lock; the pair is validated whole and no change is a no-op.
+func (s *Service) SetCoordinatorLimits(
 	ctx context.Context,
 	coordinatorID domain.SessionID,
-	limit *int,
+	update CoordinatorLimitsUpdate,
 	caller CoordinatorLimitsCaller,
 ) (domain.SessionRecord, error) {
 	if s.store == nil {
-		return domain.SessionRecord{}, fmt.Errorf("set coordinator limit %s: store is required", coordinatorID)
+		return domain.SessionRecord{}, fmt.Errorf("set coordinator limits %s: store is required", coordinatorID)
 	}
 	origin, err := limitOrigin(caller)
 	if err != nil {
 		return domain.SessionRecord{}, err
 	}
-	updated, changed, err := s.applyCoordinatorWorkerLimit(ctx, coordinatorID, limit, caller, origin)
-	if err != nil || !changed {
+	updated, note, err := s.applyCoordinatorLimits(ctx, coordinatorID, update, caller, origin)
+	if err != nil || note == "" {
 		return updated, err
 	}
-	msg := fmt.Sprintf("Your worker limit is now %d. Running workers keep running; new workers are admitted only below the limit.", *limit)
 	if s.manager == nil {
 		return updated, nil
 	}
-	if sendErr := s.manager.Send(ctx, coordinatorID, msg, nil); sendErr != nil && s.logger != nil {
+	if sendErr := s.manager.Send(ctx, coordinatorID, note, nil); sendErr != nil && s.logger != nil {
 		s.logger.Warn("coordinator limit message not delivered", "session", coordinatorID, "error", sendErr)
 	}
 	return updated, nil
 }
 
-func (s *Service) applyCoordinatorWorkerLimit(
+// applyCoordinatorLimits writes the change and returns the system message for
+// the coordinator, empty when nothing changed.
+func (s *Service) applyCoordinatorLimits(
 	ctx context.Context,
 	coordinatorID domain.SessionID,
-	limit *int,
+	update CoordinatorLimitsUpdate,
 	caller CoordinatorLimitsCaller,
 	origin string,
-) (domain.SessionRecord, bool, error) {
+) (domain.SessionRecord, string, error) {
 	// The project is fixed per session; state is checked under the lock,
 	// after the caller is authorized.
 	project, err := s.limitProject(ctx, coordinatorID, caller)
 	if err != nil {
-		return domain.SessionRecord{}, false, err
+		return domain.SessionRecord{}, "", err
 	}
 	unlock := s.lockOrchestratorProject(project)
 	defer unlock()
 	actor, err := s.limitActor(ctx, project, caller)
 	if err != nil {
-		return domain.SessionRecord{}, false, err
+		return domain.SessionRecord{}, "", err
 	}
 	coordinator, err := s.loadLiveCoordinator(ctx, coordinatorID)
 	if err != nil {
-		return domain.SessionRecord{}, false, err
+		return domain.SessionRecord{}, "", err
 	}
-	if limit == nil {
-		return coordinator, false, nil
+	if update.WorkerLimit == nil && update.HostSlots == nil {
+		return coordinator, "", nil
 	}
 	gate, err := coordownership.LoadConfig(ctx, s.store, coordinator.ProjectID)
 	if err != nil {
-		return domain.SessionRecord{}, false, err
+		return domain.SessionRecord{}, "", err
 	}
-	if ceiling := gate.Limits().WorkersPerCoordinator; *limit < 1 || *limit > ceiling {
-		return domain.SessionRecord{}, false, coordownership.WorkerLimitInvalidError(*limit, ceiling)
+	ceiling := gate.Limits().WorkersPerCoordinator
+	limit := coordinator.CoordinatorWorkerLimit
+	if update.WorkerLimit != nil {
+		if *update.WorkerLimit < 1 || *update.WorkerLimit > ceiling {
+			return domain.SessionRecord{}, "", coordownership.WorkerLimitInvalidError(*update.WorkerLimit, ceiling)
+		}
+		limit = update.WorkerLimit
 	}
-	if stored := coordinator.CoordinatorWorkerLimit; stored != nil && *stored == *limit {
-		return coordinator, false, nil
+	effective := ceiling
+	if limit != nil && *limit < ceiling {
+		effective = *limit
+	}
+	slots := coordinator.CoordinatorHostSlots
+	if update.HostSlots != nil {
+		if slots, err = coordownership.NormalizeHostSlots(ctx, s.hosts, *update.HostSlots, gate.AllowedHosts, effective); err != nil {
+			return domain.SessionRecord{}, "", err
+		}
+	} else if total := slotTotal(slots); total > effective {
+		return domain.SessionRecord{}, "", coordownership.HostSlotsInvalidError("hostSlots add up to more than the coordinator's workerLimit", &effective)
+	}
+	sameLimit := (limit == nil && coordinator.CoordinatorWorkerLimit == nil) ||
+		(limit != nil && coordinator.CoordinatorWorkerLimit != nil && *limit == *coordinator.CoordinatorWorkerLimit)
+	if sameLimit && coordownership.SameHostSlots(slots, coordinator.CoordinatorHostSlots) {
+		return coordinator, "", nil
 	}
 	event := domain.CoordinatorLimitEvent{ActorSessionID: actor, Origin: origin}
-	if _, err := s.store.SetCoordinatorWorkerLimit(ctx, coordinator.ID, *limit, event, s.now()); err != nil {
-		return domain.SessionRecord{}, false, err
+	if err := s.store.SetCoordinatorLimits(ctx, coordinator.ID, limit, slots, event, s.now()); err != nil {
+		return domain.SessionRecord{}, "", err
 	}
 	updated, _, err := s.store.GetSession(ctx, coordinator.ID)
-	return updated, true, err
+	return updated, limitsMessage(effective, slots), err
+}
+
+func slotTotal(slots []domain.HostSlot) int {
+	total := 0
+	for _, slot := range slots {
+		total += slot.Slots
+	}
+	return total
+}
+
+// limitsMessage tells the coordinator its new limit and host slots.
+func limitsMessage(limit int, slots []domain.HostSlot) string {
+	msg := fmt.Sprintf("Your worker limit is now %d.", limit)
+	if len(slots) == 0 {
+		msg += " You have no host slots."
+	} else {
+		parts := make([]string, len(slots))
+		for i, slot := range slots {
+			parts[i] = fmt.Sprintf("%s:%d", slot.HostID, slot.Slots)
+		}
+		msg += " Your host slots are " + strings.Join(parts, ", ") + "; remote workers run only on those hosts."
+	}
+	return msg + " Running workers keep running; new workers are admitted only below the limit."
 }
 
 // limitOrigin validates the marker and origin before any lookup.

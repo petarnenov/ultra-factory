@@ -198,7 +198,7 @@ func TestE2E_CoordinatorPilot(t *testing.T) {
 			t.Fatalf("spawn with the gate off: exit %d, want 1: %s", code, out)
 		}
 		mustContain(t, out, "COORDINATORS_DISABLED")
-		if out, code := e.run(t, "project", "set-config", "ao", "--coordinators"); code != 0 {
+		if out, code := e.run(t, "project", "set-config", "ao", "--config-json", `{"coordinators":{"enabled":true,"allowLocalWorkers":true}}`); code != 0 {
 			t.Fatalf("enable coordinators: exit %d: %s", code, out)
 		}
 	})

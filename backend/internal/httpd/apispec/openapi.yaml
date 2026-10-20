@@ -12793,6 +12793,8 @@ components:
       type: object
     CheckRemoteWorkerCapacityRequest:
       properties:
+        hostId:
+          type: string
         parentSessionId:
           type: string
       required:
@@ -13894,6 +13896,19 @@ components:
         disabled:
           type: boolean
       type: object
+    ControllersCoordinatorHostSlot:
+      properties:
+        hostId:
+          type: string
+        slots:
+          type: integer
+        used:
+          type: integer
+      required:
+      - hostId
+      - slots
+      - used
+      type: object
     ControllersCoordinatorSummaryHistoryResponse:
       properties:
         summaries:
@@ -14018,6 +14033,17 @@ components:
       - createdAt
       - deliveryState
       - deliveryAttempts
+      type: object
+    ControllersHostSlotInput:
+      properties:
+        hostId:
+          type: string
+        slots:
+          minimum: 1
+          type: integer
+      required:
+      - hostId
+      - slots
       type: object
     ControllersKeepAwakeStatus:
       properties:
@@ -15192,6 +15218,13 @@ components:
       type: object
     CoordinatorLimitsRequest:
       properties:
+        hostSlots:
+          description: Omitted keeps stored slots; [] clears.
+          items:
+            $ref: '#/components/schemas/ControllersHostSlotInput'
+          type:
+          - "null"
+          - array
         operatorInitiated:
           description: Operator acts for the live root; needs origin.
           type: boolean
@@ -15218,8 +15251,14 @@ components:
           type: string
         coordinatorSessionId:
           type: string
+        effectivePlacementLimit:
+          type: integer
         effectiveWorkerLimit:
           type: integer
+        hostSlots:
+          items:
+            $ref: '#/components/schemas/ControllersCoordinatorHostSlot'
+          type: array
         isTerminated:
           type: boolean
         latestSummary:
@@ -15248,6 +15287,8 @@ components:
       - workerLimit
       - effectiveWorkerLimit
       - activeWorkerCount
+      - effectivePlacementLimit
+      - hostSlots
       - needsRecovery
       - latestSummary
       type: object
@@ -15648,6 +15689,12 @@ components:
       type: object
     DomainCoordinatorsConfig:
       properties:
+        allowLocalWorkers:
+          type: boolean
+        allowedHosts:
+          items:
+            type: string
+          type: array
         enabled:
           type: boolean
         maxCoordinators:
@@ -18271,10 +18318,18 @@ components:
           $ref: '#/components/schemas/CoordinatorCapacity'
         coordinatorScope:
           type: string
+        effectivePlacementLimit:
+          type:
+          - "null"
+          - integer
         effectiveWorkerLimit:
           type:
           - "null"
           - integer
+        hostSlots:
+          items:
+            $ref: '#/components/schemas/ControllersCoordinatorHostSlot'
+          type: array
         kind:
           enum:
           - worker
@@ -19605,6 +19660,10 @@ components:
           type:
           - "null"
           - boolean
+        hostSlots:
+          items:
+            $ref: '#/components/schemas/ControllersHostSlotInput'
+          type: array
         issueId:
           type: string
         kind:

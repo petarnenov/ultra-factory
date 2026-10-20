@@ -226,13 +226,13 @@ func TestAssignOwnerEnforcesTheCoordinatorsOwnLimitOnRemoteLinks(t *testing.T) {
 func TestCheckCapacityRejectsBeforeAnyLinkExistsAndStoresNothing(t *testing.T) {
 	store := &fakeStore{sessions: capSessions(), stored: ownedLinks("c1", 3, 0)}
 	svc := capService(store, nil)
-	if err := svc.CheckCapacity(context.Background(), "c1"); codeOf(err) != "COORDINATOR_WORKER_LIMIT_REACHED" {
+	if err := svc.CheckCapacity(context.Background(), "c1", ""); codeOf(err) != "COORDINATOR_WORKER_LIMIT_REACHED" {
 		t.Fatalf("err = %v, want COORDINATOR_WORKER_LIMIT_REACHED", err)
 	}
-	if err := svc.CheckCapacity(context.Background(), "c2"); err != nil {
+	if err := svc.CheckCapacity(context.Background(), "c2", ""); err != nil {
 		t.Fatalf("another coordinator has room: %v", err)
 	}
-	if err := svc.CheckCapacity(context.Background(), "ghost"); codeOf(err) != "SESSION_NOT_FOUND" {
+	if err := svc.CheckCapacity(context.Background(), "ghost", ""); codeOf(err) != "SESSION_NOT_FOUND" {
 		t.Fatalf("err = %v, want SESSION_NOT_FOUND", err)
 	}
 	if len(store.stored) != 3 {

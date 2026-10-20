@@ -151,6 +151,9 @@ type CreateRemoteWorkerLinkRequest struct {
 // session could be linked now, before the remote worker is created.
 type CheckRemoteWorkerCapacityRequest struct {
 	ParentSessionID string `json:"parentSessionId"`
+	// HostID is the paired host the worker would start on. Omitted skips the
+	// host placement rules.
+	HostID string `json:"hostId,omitempty"`
 }
 
 // CheckRemoteWorkerCapacityResponse is the body of a passing capacity check.
@@ -584,8 +587,11 @@ type SpawnSessionRequest struct {
 	Scope string `json:"scope,omitempty" maxLength:"200"`
 	// WorkerLimit is the coordinator's own live worker limit, at most the
 	// project's maxWorkersPerCoordinator. Omitted uses the project value.
-	WorkerLimit *int                `json:"workerLimit,omitempty" minimum:"1"`
-	Harness     domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
+	WorkerLimit *int `json:"workerLimit,omitempty" minimum:"1"`
+	// HostSlots are the coordinator's per-host worker slots; the slot total is
+	// at most workerLimit. Coordinator spawns only.
+	HostSlots []HostSlotInput     `json:"hostSlots,omitempty"`
+	Harness   domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`
@@ -658,13 +664,29 @@ type SessionOwnerRequest struct {
 	RequestedBySessionID string  `json:"requestedBySessionId"`
 }
 
+// HostSlotInput is one hostSlots entry. hostId may be a paired host's ID or
+// its label; the daemon stores the ID.
+type HostSlotInput struct {
+	HostID string `json:"hostId"`
+	Slots  int    `json:"slots" minimum:"1"`
+}
+
+// CoordinatorHostSlot is one stored host slot and the coordinator's live
+// workers on that host.
+type CoordinatorHostSlot struct {
+	HostID string `json:"hostId"`
+	Slots  int    `json:"slots"`
+	Used   int    `json:"used"`
+}
+
 // CoordinatorLimitsRequest is the PUT coordinator-limits body. Send
 // requestedBySessionId (live root) or operatorInitiated with origin.
 type CoordinatorLimitsRequest struct {
-	WorkerLimit          *int   `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
-	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
-	OperatorInitiated    bool   `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
-	Origin               string `json:"origin,omitempty" enum:"ui,cli,api"`
+	WorkerLimit          *int             `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
+	HostSlots            *[]HostSlotInput `json:"hostSlots,omitempty" description:"Omitted keeps stored slots; [] clears."`
+	RequestedBySessionID string           `json:"requestedBySessionId,omitempty"`
+	OperatorInitiated    bool             `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
+	Origin               string           `json:"origin,omitempty" enum:"ui,cli,api"`
 }
 
 // CoordinatorCapacity is a project's effective limits and live census.
@@ -694,6 +716,10 @@ type SessionOwnershipResponse struct {
 	WorkerLimit          *int `json:"workerLimit"`
 	EffectiveWorkerLimit *int `json:"effectiveWorkerLimit,omitempty"`
 	ActiveWorkerCount    *int `json:"activeWorkerCount,omitempty"`
+	// EffectivePlacementLimit is the effective limit, or with host slots the
+	// smaller of it and the slot total. HostSlots are set for a coordinator.
+	EffectivePlacementLimit *int                  `json:"effectivePlacementLimit,omitempty"`
+	HostSlots               []CoordinatorHostSlot `json:"hostSlots,omitempty"`
 }
 
 // CoordinatorRosterResponse is a project's local ownership hierarchy. Remote
@@ -720,6 +746,10 @@ type CoordinatorRosterEntry struct {
 	WorkerLimit          *int `json:"workerLimit"`
 	EffectiveWorkerLimit int  `json:"effectiveWorkerLimit"`
 	ActiveWorkerCount    int  `json:"activeWorkerCount"`
+	// EffectivePlacementLimit is the effective limit, or with host slots the
+	// smaller of it and the slot total.
+	EffectivePlacementLimit int                   `json:"effectivePlacementLimit"`
+	HostSlots               []CoordinatorHostSlot `json:"hostSlots"`
 	// NeedsRecovery is derived at read time: the coordinator is terminated
 	// while a live worker still names it as owner.
 	NeedsRecovery bool `json:"needsRecovery"`

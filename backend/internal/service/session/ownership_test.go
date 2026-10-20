@@ -12,6 +12,7 @@ import (
 
 func ownershipStore() (*fakeStore, domain.SessionRecord, domain.SessionRecord) {
 	st := newFakeStore()
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
 	root := domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}
 	st.sessions[root.ID] = root
 	coordinator := domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
@@ -40,7 +41,7 @@ func TestSpawnDerivesOwnerOnlyFromALiveCoordinatorParent(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newFakeStore()
-			st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+			st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
 			st.sessions[tc.parent.ID] = tc.parent
 			fc := &fakeCommander{spawnRecord: domain.SessionRecord{ID: "ao-9", ProjectID: "ao", Kind: domain.KindWorker}}
 			svc := &Service{manager: fc, store: st}
@@ -68,7 +69,7 @@ func TestSpawnDerivesOwnerOnlyFromALiveCoordinatorParent(t *testing.T) {
 
 func TestSpawnWithoutParentLeavesTheWorkerRootOwned(t *testing.T) {
 	st := newFakeStore()
-	st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
 	fc := &fakeCommander{spawnRecord: domain.SessionRecord{ID: "ao-9", ProjectID: "ao", Kind: domain.KindWorker}}
 	svc := &Service{manager: fc, store: st}
 
@@ -246,7 +247,7 @@ func TestOwnershipReadsResolveOwnerScopeAndLiveRoot(t *testing.T) {
 
 func TestCoordinatorRosterGroupsOwnedWorkersAndHidesTerminatedByDefault(t *testing.T) {
 	st := newFakeStore()
-	st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
 	st.sessions["ao-1"] = domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}
 	st.sessions["ao-2"] = domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
 	st.sessions["ao-3"] = domain.SessionRecord{ID: "ao-3", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "docs"}
@@ -300,7 +301,7 @@ func TestCoordinatorRosterRejectsAnUnknownProject(t *testing.T) {
 
 func TestCoordinatorRosterFlagsATerminatedCoordinatorWithLiveWorkers(t *testing.T) {
 	st := newFakeStore()
-	st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
 	st.sessions["ao-1"] = domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}
 	st.sessions["ao-2"] = domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "stranded", IsTerminated: true}
 	st.sessions["ao-3"] = domain.SessionRecord{ID: "ao-3", ProjectID: "ao", Kind: domain.KindWorker, OwnerSessionID: ptrToSessionID("ao-2")}
@@ -342,7 +343,7 @@ func TestSpawnAutoReviewDefaultsOnForCoordinatorOwnedWorkers(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newFakeStore()
-			st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+			st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
 			st.sessions[tc.parent.ID] = tc.parent
 			fc := &fakeCommander{spawnRecord: domain.SessionRecord{ID: "ao-9", ProjectID: "ao", Kind: domain.KindWorker}}
 			svc := &Service{manager: fc, store: st}
