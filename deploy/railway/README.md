@@ -1295,8 +1295,9 @@ What this does **not** do:
 ### Return the project to root-owned workers
 
 Run every write from the live root (the CLI uses `AO_SESSION_ID`; pass
-`--requested-by <root-id>` when it is not the current session, and always with
-`--host`). Verify ownership at the root **before** terminating anything:
+`--requested-by <root-id>` when the command does not run in the root's session,
+and a `--host` target always needs it). Verify ownership at the root **before**
+terminating anything:
 
 ```sh
 # Each worker: owner = root, project root resolved.
