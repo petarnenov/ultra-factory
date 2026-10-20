@@ -33,7 +33,7 @@ Passwords are never printed.
 
 - `ao spawn`
 - `ao send`
-- `ao session ls | get | top | input | kill | restore | rename | exit-agent | resume-agent`
+- `ao session ls | get | top | input | kill | restore | rename | exit-agent | resume-agent | claim-pr`
 - `ao project ls | get`
 - `ao orchestrator ls`
 - `ao agent ls`

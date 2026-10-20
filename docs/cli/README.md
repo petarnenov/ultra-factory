@@ -59,7 +59,7 @@ addresses change on restart.
 ### Remote host target (`--host`)
 
 `spawn`, `send`, and
-`session ls|get|top|owner|assign|input|kill|restore|rename|exit-agent|resume-agent`,
+`session ls|get|top|owner|assign|input|kill|restore|rename|exit-agent|resume-agent|claim-pr`,
 `project ls|get`, `coordinator ls`, `orchestrator ls`, `agent ls`, and
 `review trigger|ls|cancel` accept `--host <label | host ID | URL>`.
 With it, the same daemon route is called on a paired remote host's
@@ -228,6 +228,13 @@ native history and compaction.
 `AO_SESSION_ID`. From an orchestrator or external shell, pass the target
 explicitly with `ao session claim-pr <session-id> <pr-ref>`. The explicit form
 remains supported for backward compatibility and cross-session coordination.
+
+`ao session claim-pr <session-id> <pr-ref> --host <host>` records the
+association on the daemon that owns the session, so the PR shows up in that
+host's session and review registry. Session IDs are per daemon, so the target
+session is always passed explicitly and the local `AO_SESSION_ID` is never used
+for a remote host. A bare number resolves against the remote project's recorded
+repository; pass the full PR URL when it has none.
 
 A chat-mode worker that asks a structured question parks its turn until someone
 answers. `ao session input <session-id>` lists each pending request id, the
