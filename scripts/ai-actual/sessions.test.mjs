@@ -73,6 +73,16 @@ test('jsonlSessions drops a session outside the window', () => {
 	assert.deepEqual(jsonlSessions({ name: 'codex', root: codexRoot, windowStart, windowEnd: null }), []);
 });
 
+test('jsonlSessions gives sessions that share an id prefix distinct labels', () => {
+	const root = tempDir();
+	writeFileSync(join(root, 'abcdefgh-1111.jsonl'), CLAUDE);
+	writeFileSync(join(root, 'abcdefgh-2222.jsonl'), CLAUDE);
+	const names = jsonlSessions({ name: 'claude', root, ...ALL })
+		.map((session) => session.name)
+		.sort();
+	assert.deepEqual(names, ['claude/abcdefgh', 'claude/abcdefgh-2']);
+});
+
 test('jsonlSessions tolerates a missing root', () => {
 	assert.deepEqual(jsonlSessions({ name: 'claude', root: join(tempDir(), 'nope'), ...ALL }), []);
 });
@@ -111,6 +121,52 @@ test('openCodeSessions drops a session outside the window', () => {
 	const windowStart = Date.parse('2026-01-01T00:00:00Z') / 1000;
 	const sessions = openCodeSessions({ name: 'opencode', root: openCodeFixture(), windowStart, windowEnd: null });
 	assert.deepEqual(sessions.map((session) => session.name), ['opencode/clever-panda']);
+});
+
+test('openCodeSessions gives two sessions that share a slug distinct labels', () => {
+	const path = join(tempDir(), 'opencode.db');
+	const database = new DatabaseSync(path);
+	database.exec(`
+		create table session_v2 (id text primary key, slug text, directory text);
+		create table session_message (
+			id text primary key, session_id text, time_created integer
+		);
+	`);
+	const insertSession = database.prepare('insert into session_v2 values (?, ?, ?)');
+	const insertMessage = database.prepare('insert into session_message values (?, ?, ?)');
+	insertSession.run('ses_a', 'clever-panda', '/repo/one');
+	insertSession.run('ses_b', 'clever-panda', '/repo/two');
+	insertMessage.run('m1', 'ses_a', Date.parse('2026-10-19T10:00:00Z'));
+	insertMessage.run('m2', 'ses_b', Date.parse('2026-10-19T10:05:00Z'));
+	database.close();
+
+	const names = openCodeSessions({ name: 'opencode', root: path, ...ALL })
+		.map((session) => session.name)
+		.sort();
+	assert.deepEqual(names, ['opencode/clever-panda', 'opencode/clever-panda-2']);
+});
+
+test('openCodeSessions does not reuse a label that already looks suffixed', () => {
+	const path = join(tempDir(), 'opencode.db');
+	const database = new DatabaseSync(path);
+	database.exec(`
+		create table session_v2 (id text primary key, slug text, directory text);
+		create table session_message (
+			id text primary key, session_id text, time_created integer
+		);
+	`);
+	const insertSession = database.prepare('insert into session_v2 values (?, ?, ?)');
+	const insertMessage = database.prepare('insert into session_message values (?, ?, ?)');
+	for (const [id, slug] of [['ses_a', 'dup'], ['ses_b', 'dup'], ['ses_c', 'dup-2']]) {
+		insertSession.run(id, slug, `/repo/${id}`);
+		insertMessage.run(`m-${id}`, id, Date.parse('2026-10-19T10:00:00Z'));
+	}
+	database.close();
+
+	const names = openCodeSessions({ name: 'opencode', root: path, ...ALL })
+		.map((session) => session.name);
+	assert.equal(names.length, 3);
+	assert.equal(new Set(names).size, 3);
 });
 
 function copilotFixture(path = join(tempDir(), 'session-store.db'), { descending = false } = {}) {

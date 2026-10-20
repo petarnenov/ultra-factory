@@ -25,7 +25,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: ai-actual-${{ github.event.pull_request.number || github.event.inputs.issue }}
@@ -54,6 +53,11 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The evidence comment goes out with the workflow token, so this job
+    # needs issues: write; the pull request test job does not.
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v5
 

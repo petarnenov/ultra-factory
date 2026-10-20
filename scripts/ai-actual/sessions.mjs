@@ -127,8 +127,23 @@ function label(name, path) {
 	return `${name}/${file.slice(0, 8)}`;
 }
 
+// Two sessions can share a shortened id or an OpenCode slug, so a repeated
+// label gets a numeric suffix until it no longer names another session.
+function uniqueLabel(base, used) {
+	if (!used.has(base)) {
+		used.add(base);
+		return base;
+	}
+	let count = 2;
+	while (used.has(`${base}-${count}`)) count += 1;
+	const label = `${base}-${count}`;
+	used.add(label);
+	return label;
+}
+
 export function jsonlSessions({ name, root, windowStart, windowEnd }) {
 	const sessions = [];
+	const used = new Set();
 	for (const path of walk(root)) {
 		let mtime;
 		try {
@@ -140,8 +155,8 @@ export function jsonlSessions({ name, root, windowStart, windowEnd }) {
 		if (windowEnd && mtime > windowEnd + DAY_SECONDS) continue;
 		const parsed = readSession(readFileSync(path, 'utf8'));
 		if (!inWindow(parsed.events, windowStart, windowEnd)) continue;
-		sessions.push({ ...session(label(name, path), parsed.cwd, parsed.branch, parsed.events),
-			pull: parsed.pull, pullRepository: parsed.pullRepository });
+		sessions.push({ ...session(uniqueLabel(label(name, path), used), parsed.cwd,
+			parsed.branch, parsed.events), pull: parsed.pull, pullRepository: parsed.pullRepository });
 	}
 	return sessions;
 }
@@ -179,11 +194,13 @@ export function openCodeSessions({ name, root, windowStart, windowEnd }) {
 			grouped.get(key).events.push({ at: toEpochSeconds(row.at), branch: null, pull: null });
 		}
 		const sessions = [];
+		const used = new Set();
 		for (const [id, group] of grouped) {
 			// OpenCode records no branch: the worktree has to name one.
 			const events = group.events.filter((event) => event.at !== null).sort(byTime);
 			if (!inWindow(events, windowStart, windowEnd)) continue;
-			sessions.push(session(`${name}/${group.slug ?? id.slice(0, 8)}`, group.cwd, null, events));
+			const label = uniqueLabel(`${name}/${group.slug ?? id.slice(0, 8)}`, used);
+			sessions.push(session(label, group.cwd, null, events));
 		}
 		return sessions;
 	});
@@ -200,6 +217,7 @@ export function copilotSessions({ name, root, windowStart, windowEnd }) {
 			grouped.get(key).push({ at: toEpochSeconds(turn.timestamp), branch: null, pull: null });
 		}
 		const found = [];
+		const used = new Set();
 		for (const row of sessions) {
 			const events = (grouped.get(String(row.id)) ?? [])
 				.filter((event) => event.at !== null)
@@ -208,7 +226,8 @@ export function copilotSessions({ name, root, windowStart, windowEnd }) {
 			// The store records one branch per session, so every turn on that
 			// session carries it.
 			for (const event of events) event.branch = row.branch;
-			found.push(session(`${name}/${String(row.id).slice(0, 8)}`, row.cwd, row.branch, events));
+			const label = uniqueLabel(`${name}/${String(row.id).slice(0, 8)}`, used);
+			found.push(session(label, row.cwd, row.branch, events));
 		}
 		return found;
 	});
