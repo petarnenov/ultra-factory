@@ -417,9 +417,11 @@ const SummaryView = memo(function SummaryView({
 	const { t } = useTranslation();
 	const query = useSessionScmSummary(session.id, true, session.cloud?.orgId, session.cloud ? session.autoInjectCI === true : false, hostId);
 	const linkedPRs = query.data?.linkedPrs ?? [];
+	// A root-owned worker shows ownership only when the project uses coordinators.
+	const rootOwnedWorker = session.kind === "worker" && session.ownerSessionId === null;
 	const projectQuery = useQuery({
 		queryKey: hostId ? ["project", hostId, session.workspaceId] : ["project", session.workspaceId],
-		enabled: linkedPRs.length > 0 && !session.cloud,
+		enabled: (linkedPRs.length > 0 || rootOwnedWorker) && !session.cloud,
 		queryFn: async () => {
 			const { data, error } = await clientForSessionHost(hostId).GET("/api/v1/projects/{id}", {
 				params: { path: { id: session.workspaceId } },
@@ -454,7 +456,10 @@ const SummaryView = memo(function SummaryView({
 	const showOwnership =
 		!session.cloud &&
 		session.workspaceId !== STANDALONE_WORKSPACE_ID &&
-		(isCoordinatorSession(session) || (session.kind === "worker" && session.ownerSessionId !== undefined));
+		(isCoordinatorSession(session) ||
+			(session.kind === "worker" &&
+				(typeof session.ownerSessionId === "string" ||
+					(rootOwnedWorker && projectQuery.data?.config?.coordinators?.enabled === true))));
 	return (
 		<SessionInspectorSummaryView
 			activity={
