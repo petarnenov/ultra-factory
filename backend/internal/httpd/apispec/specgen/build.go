@@ -3530,6 +3530,7 @@ func prOperations() []operation {
 			resps: []respUnit{
 				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusOK, controllers.MergePRResponse{}},
+				{http.StatusForbidden, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusUnprocessableEntity, envelope.APIError{}},

@@ -10,6 +10,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
 var (
@@ -90,6 +91,23 @@ func (s *ActionService) accountForPR(ctx context.Context, pr domain.PullRequest)
 	return project.Config.GitHubAccount()
 }
 
+// requireMergeAuthority applies ADR 0010: a live coordinator or worker may not
+// merge. An anonymous requester, or one the store does not know, proceeds.
+func (s *ActionService) requireMergeAuthority(ctx context.Context, requestedBy domain.SessionID) error {
+	store, ok := s.store.(projectAccountStore)
+	if requestedBy == "" || !ok {
+		return nil
+	}
+	rec, found, err := store.GetSession(ctx, requestedBy)
+	if err != nil {
+		return fmt.Errorf("load merge requester %s: %w", requestedBy, err)
+	}
+	if !found {
+		return nil
+	}
+	return coordownership.RequireMergeAuthority(rec)
+}
+
 // NewActionService builds the guarded pull request action service.
 func NewActionService(deps ActionDeps) *ActionService {
 	resolve := deps.ResolveStore
@@ -115,6 +133,9 @@ func NewActionService(deps ActionDeps) *ActionService {
 // Merge re-fetches authoritative SCM state and then squash-merges only the
 // exact head the user saw. The provider repeats the SHA guard atomically.
 func (s *ActionService) Merge(ctx context.Context, request MergeRequest) (MergeResult, error) {
+	if err := s.requireMergeAuthority(ctx, request.RequestedBySessionID); err != nil {
+		return MergeResult{}, err
+	}
 	prNumber, err := parsePRNumber(request.PRID)
 	if err != nil || strings.TrimSpace(request.PRURL) == "" {
 		return MergeResult{}, fmt.Errorf("%w: invalid pull request identity", ErrInvalidPR)

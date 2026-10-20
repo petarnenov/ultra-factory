@@ -2500,6 +2500,9 @@ type PRIDParam struct {
 type MergePRRequest struct {
 	PRURL           string `json:"prUrl" minLength:"1"`
 	ExpectedHeadSHA string `json:"expectedHeadSha" minLength:"40"`
+	// RequestedBySessionID optionally names the requesting session. A live
+	// coordinator or worker is refused with 403 MERGE_ROOT_ONLY.
+	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
 }
 
 // MergePRResponse is the body of POST /api/v1/prs/{id}/merge (200).

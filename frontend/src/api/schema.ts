@@ -5534,6 +5534,7 @@ export interface components {
         MergePRRequest: {
             expectedHeadSha: string;
             prUrl: string;
+            requestedBySessionId?: string;
         };
         MergePRResponse: {
             method: string;
@@ -11983,6 +11984,15 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

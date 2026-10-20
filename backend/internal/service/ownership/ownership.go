@@ -26,6 +26,18 @@ func RequireLiveRoot(rec domain.SessionRecord, project domain.ProjectID) error {
 		"Only the project root may change worker ownership", map[string]any{"sessionId": string(rec.ID)})
 }
 
+// RequireMergeAuthority refuses a merge requested by a live coordinator or
+// worker. Any other requester, including an unknown or terminated session,
+// is not refused; the service skips the check when no session is named.
+func RequireMergeAuthority(rec domain.SessionRecord) error {
+	if rec.IsTerminated || (rec.Kind != domain.KindCoordinator && rec.Kind != domain.KindWorker) {
+		return nil
+	}
+	return apierr.New(apierr.KindForbidden, "MERGE_ROOT_ONLY",
+		"Only the project root may merge a pull request",
+		map[string]any{"sessionId": string(rec.ID), "role": string(rec.Kind)})
+}
+
 // SpawnOwner derives a worker's owner from its spawn parent: only a live
 // same-project coordinator owns it, everything else leaves it root-owned.
 func SpawnOwner(parent domain.SessionRecord, project domain.ProjectID) *domain.SessionID {
