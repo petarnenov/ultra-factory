@@ -257,12 +257,15 @@ Deployment-relevant rules:
   `403 COORDINATOR_ROOT_REQUIRED`. Workers may be local or linked remote
   workers; the link's owner is a local session id that never crosses to the peer
   daemon.
-- **Capacity is enforced at 2 / 3 / 6** (ADR section 8): two live coordinators
+- **Capacity defaults to 2 / 3 / 6** (ADR section 8): two live coordinators
   per project, three active workers per coordinator, six active workers per
-  project. Each count sums live local workers and remote links: a remote link is
-  one active worker, a hibernated or idle or crashed-not-yet-reaped session
-  still consumes a slot, and root-owned workers count toward the six.
-  Termination releases every slot in the terminating transaction.
+  project. The limits are the project's `coordinators` config and are read on
+  every spawn, restore, reassignment, and remote-link write; a project may lower
+  them, and a value above 2/3/6 is refused with `COORDINATOR_LIMITS_INVALID`.
+  Each count sums live local workers and remote links: a remote link is one
+  active worker, a hibernated or idle or crashed-not-yet-reaped session still
+  consumes a slot, and root-owned workers count toward the six. Termination
+  releases every slot in the terminating transaction.
 - **Termination hands work back; it does not delete.** A terminated coordinator
   returns its workers and links to the root and its slot is freed. Rows,
   reports, and summaries stay durable, and restore does not reattach the former
@@ -273,11 +276,13 @@ Deployment-relevant rules:
 - **No replication.** One daemon, one SQLite database, no shared volume, no
   second coordinator service. Helpers are sessions, not services.
 - **Enablement is deliberately off by default.** ADR section 8 defines a
-  per-project `coordinators` block (`enabled=false`, limits 2/3/6). That gate is
-  **not implemented on `dev`** at the time of writing: there is no config field,
-  daemon flag, environment variable, or `COORDINATORS_DISABLED` response. Until
-  it lands, coordinator creation is controlled only by the root and the
-  operator.
+  per-project `coordinators` block (`enabled=false`, limits 2/3/6), implemented
+  as `domain.CoordinatorsConfig` and enforced in the services. A coordinator
+  spawn in a disabled project is refused with `409 COORDINATORS_DISABLED`; the
+  gate is set per project through
+  `ao project set-config <project> --coordinators` or the project config API.
+  The feature stays off until the pilot is approved: only the pilot project
+  enables it.
 
 Operation, monitoring, and rollback for the pilot are in the runbook,
 [coordinator rollout and rollback](../../deploy/railway/README.md#coordinator-rollout-and-rollback-pilot).
