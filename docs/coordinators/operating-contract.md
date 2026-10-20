@@ -144,23 +144,33 @@ an existing worker: `ao session assign <worker> --owner <coordinator-id|root>`
 
 ### Replacing a coordinator (reassigned or terminated)
 
-Prefer a planned handover; use the automatic path when the coordinator is gone.
+The project allows at most two live coordinators, and a terminated coordinator
+frees its slot at once. There is no capacity exception, so the replacement can
+only be spawned when a slot is free.
 
-1. **Planned.** Spawn the replacement with the same scope and a brief listing
-   the remaining tasks. Reassign each live worker with
+1. **Planned, with a free slot** (fewer than two live coordinators). Spawn the
+   replacement with the same scope and a brief listing the remaining tasks.
+   Reassign each live worker with
    `ao session assign <worker> --owner <new-coordinator-id>` (at most three).
    Then stop the old coordinator with `ao session kill <old-id>`. Workers keep
    running throughout.
-2. **Automatic.** If the coordinator terminates (kill, reaper, PR-merge lifecycle, replacement),
+2. **Planned, at capacity** (two live coordinators). Stop the old coordinator
+   first with `ao session kill <old-id>`. The daemon returns its workers to the
+   root (see the automatic path below), which frees the slot. Then spawn the
+   replacement and assign the returned workers to it with
+   `ao session assign <worker> --owner <new-coordinator-id>`. Between the kill
+   and the assignment the workers are root-owned and keep running; their
+   reports go to the root.
+3. **Automatic.** If the coordinator terminates (kill, reaper, PR-merge lifecycle, replacement),
    the daemon in one transaction returns every worker and remote link it owned
    to the root and writes a root-addressed `blocked` summary with
    `escalation_reason=coordinator_terminated` listing them. The root then
    decides: take the workers itself, or spawn a replacement and assign them.
-3. Reports of the returned workers and the coordinator's pending summaries stay
+4. Reports of the returned workers and the coordinator's pending summaries stay
    durable and are delivered to the root.
-4. Restoring a terminated coordinator does **not** reattach its former workers;
+5. Restoring a terminated coordinator does **not** reattach its former workers;
    the root assigns them explicitly if wanted.
-5. Root replacement does not touch coordinators: they keep running and keep
+6. Root replacement does not touch coordinators: they keep running and keep
    their workers; pending summaries go to the new root.
 
 **(contract rule)** The replacement's brief must restate the task list with
