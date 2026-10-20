@@ -72,7 +72,7 @@ func HostSlotsFullError(coordinator domain.SessionID, host string, current, allo
 		map[string]any{"coordinatorId": string(coordinator), "hostId": host, "current": current, "allowed": allowed})
 }
 
-// LocalWorkerRefusedError reports a coordinator-owned worker on the local daemon.
+// LocalWorkerRefusedError reports a coordinator worker on the local daemon.
 func LocalWorkerRefusedError(coordinator domain.SessionID, project domain.ProjectID) error {
 	return apierr.Conflict("COORDINATOR_LOCAL_WORKER_REFUSED", "Coordinator workers may not run on the local daemon; pass --host, or set coordinators.allowLocalWorkers",
 		map[string]any{"coordinatorId": string(coordinator), "projectId": string(project)})
@@ -88,8 +88,8 @@ func HostSlotsInvalidError(message string, limit *int) error {
 	return apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", message, details)
 }
 
-// ResolveHost maps a host ID or label to the paired host's ID. The local
-// daemon, an unknown name and an ambiguous label are COORDINATOR_HOST_NOT_ALLOWED.
+// ResolveHost maps a host ID or label to a paired host's ID. The local
+// daemon, unknown and ambiguous names are COORDINATOR_HOST_NOT_ALLOWED.
 func ResolveHost(hosts HostDirectory, paired []HostRef, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -118,9 +118,8 @@ func ResolveHost(hosts HostDirectory, paired []HostRef, name string) (string, er
 	return match, nil
 }
 
-// NormalizeHostSlots validates a coordinator's host slots and returns the
-// stored form: host IDs only, one entry per host, sorted by host ID. A host
-// outside allowedHosts is refused, and the total may not exceed workerLimit.
+// NormalizeHostSlots validates host slots and returns the stored form:
+// IDs only, one entry per host, sorted. The total may not exceed workerLimit.
 func NormalizeHostSlots(
 	ctx context.Context,
 	hosts HostDirectory,

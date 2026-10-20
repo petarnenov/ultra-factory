@@ -5061,7 +5061,7 @@ export interface components {
             maxWorkersPerCoordinator: number;
         };
         CoordinatorLimitsRequest: {
-            /** @description Omitted keeps the stored slots; an empty list clears them. */
+            /** @description Omitted keeps stored slots; [] clears. */
             hostSlots?: null | components["schemas"]["ControllersHostSlotInput"][];
             /** @description Operator acts for the live root; needs origin. */
             operatorInitiated?: boolean;

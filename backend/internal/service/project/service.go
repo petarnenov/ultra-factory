@@ -1127,10 +1127,8 @@ func invalidConfigError(err error) error {
 	return apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 }
 
-// validateAllowedHosts requires every newly listed host to be a paired remote
-// host; the local daemon and unknown hosts are refused. Hosts already in the
-// stored list pass, so an unrelated settings edit never fails on a host that
-// was unpaired later.
+// validateAllowedHosts requires newly listed hosts to be paired remote hosts.
+// Hosts already stored pass, so unrelated edits never fail on them.
 func (m *Service) validateAllowedHosts(ctx context.Context, next, stored []string) error {
 	if m.hosts == nil || len(next) == 0 {
 		return nil

@@ -338,17 +338,15 @@ type CoordinatorLimitsCaller struct {
 	Origin            string
 }
 
-// CoordinatorLimitsUpdate is a partial live change: a nil field keeps the
-// stored value, and an empty HostSlots clears the slots. HostSlots entries
-// may name a host by ID or label.
+// CoordinatorLimitsUpdate is a partial live change: nil keeps the stored
+// value and an empty HostSlots clears it. Hosts may be IDs or labels.
 type CoordinatorLimitsUpdate struct {
 	WorkerLimit *int
 	HostSlots   *[]domain.HostSlot
 }
 
-// SetCoordinatorLimits changes a live coordinator's worker limit and host
-// slots under the spawn lock. The resulting pair is validated as a whole; a
-// change that leaves the stored pair as it is is a no-op.
+// SetCoordinatorLimits changes a live coordinator's limit and host slots
+// under the spawn lock; the pair is validated whole and no change is a no-op.
 func (s *Service) SetCoordinatorLimits(
 	ctx context.Context,
 	coordinatorID domain.SessionID,

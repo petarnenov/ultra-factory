@@ -236,9 +236,8 @@ func (c Counts) CheckNewWorker(project domain.ProjectID, owner *domain.SessionID
 	return nil
 }
 
-// CheckHost rejects a remote worker on a host the coordinator may not use:
-// outside the project's allowedHosts, outside its slots when it has slots, or
-// on a host whose slots it has all used. Root-owned workers pass.
+// CheckHost rejects a host outside allowedHosts or the coordinator's slots,
+// or one whose slots are all used. Root-owned workers pass.
 func (c Counts) CheckHost(owner *domain.SessionID, host string, cfg domain.CoordinatorsConfig) error {
 	if owner == nil {
 		return nil

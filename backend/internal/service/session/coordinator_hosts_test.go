@@ -146,7 +146,7 @@ func TestLiveHostSlotUpdateIsPartialAuditedAndValidatedAsAPair(t *testing.T) {
 	if _, err := f.svc.SetCoordinatorLimits(ctx, c, slots(domain.HostSlot{HostID: "host-linux", Slots: 2}), opCaller("ui")); err != nil || len(f.store.limitEvents) != 1 {
 		t.Fatalf("no-op wrote an audit row: events=%d err=%v", len(f.store.limitEvents), err)
 	}
-	// Lowering the limit under the kept slots is refused; nothing shrinks on its own.
+	// Lowering the limit under the kept slots is refused.
 	_, err = f.svc.SetCoordinatorLimits(ctx, c, CoordinatorLimitsUpdate{WorkerLimit: intp(1)}, rootCaller("ao-root"))
 	wantAPIError(t, err, "COORDINATOR_WORKER_LIMIT_INVALID", map[string]any{"field": "hostSlots", "max": 1})
 	// Limit and slots together is one valid pair.

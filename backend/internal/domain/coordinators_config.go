@@ -32,9 +32,8 @@ type CoordinatorsConfig struct {
 	// MaxWorkers bounds live workers per project once a coordinator exists
 	// (default 6).
 	MaxWorkers int `json:"maxWorkers,omitempty"`
-	// AllowedHosts bounds where coordinator-owned workers may run: paired
-	// remote host IDs. Empty allows any paired host. It never names the
-	// local daemon; local placement is AllowLocalWorkers.
+	// AllowedHosts bounds coordinator workers to these paired host IDs;
+	// empty allows any. The local daemon is AllowLocalWorkers only.
 	AllowedHosts []string `json:"allowedHosts,omitempty"`
 	// AllowLocalWorkers lets coordinator-owned workers run on this daemon.
 	// The default refuses them (COORDINATOR_LOCAL_WORKER_REFUSED).

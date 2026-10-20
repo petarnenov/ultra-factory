@@ -203,10 +203,8 @@ func (s *Service) linkParent(ctx context.Context, id domain.SessionID) (domain.S
 	return parent, nil
 }
 
-// CheckCapacity reports whether a worker spawned by parentID on hostID could
-// be linked now: the limits and, for a coordinator-owned worker, the host
-// rules. An empty hostID skips the host rules. It stores nothing; Register
-// re-validates under the project lock.
+// CheckCapacity reports whether a worker of parentID on hostID could be
+// linked now; an empty hostID skips host rules. Register re-validates.
 func (s *Service) CheckCapacity(ctx context.Context, parentID domain.SessionID, hostID string) error {
 	if s == nil || s.store == nil {
 		return errors.New("remoteworker: store is required")

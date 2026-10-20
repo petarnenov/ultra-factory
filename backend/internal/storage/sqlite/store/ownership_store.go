@@ -319,9 +319,8 @@ func parseHostSlots(v sql.NullString) []domain.HostSlot {
 	return slots
 }
 
-// SetCoordinatorLimits sets a live coordinator's own worker limit and host
-// slots and appends audit in one tx. The event carries the actor and origin;
-// the stored before and after values are filled here.
+// SetCoordinatorLimits sets a live coordinator's limit and host slots and
+// appends audit in one tx, filling the before and after values.
 func (s *Store) SetCoordinatorLimits(
 	ctx context.Context,
 	id domain.SessionID,

@@ -23,9 +23,8 @@ type HostSlot struct {
 	Slots  int    `json:"slots"`
 }
 
-// CoordinatorLimitEvent audits one worker-limit or host-slot change. The
-// limits are the stored values (nil: the project value). Origin is ui, cli
-// or api; the actor is always the live root.
+// CoordinatorLimitEvent audits a worker-limit or host-slot change. Limits
+// are stored values (nil: project value); the actor is the live root.
 type CoordinatorLimitEvent struct {
 	ID                int64
 	SessionID         SessionID

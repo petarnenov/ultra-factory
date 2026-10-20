@@ -678,7 +678,7 @@ type CoordinatorHostSlot struct {
 // requestedBySessionId (live root) or operatorInitiated with origin.
 type CoordinatorLimitsRequest struct {
 	WorkerLimit          *int             `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
-	HostSlots            *[]HostSlotInput `json:"hostSlots,omitempty" description:"Omitted keeps the stored slots; an empty list clears them."`
+	HostSlots            *[]HostSlotInput `json:"hostSlots,omitempty" description:"Omitted keeps stored slots; [] clears."`
 	RequestedBySessionID string           `json:"requestedBySessionId,omitempty"`
 	OperatorInitiated    bool             `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
 	Origin               string           `json:"origin,omitempty" enum:"ui,cli,api"`

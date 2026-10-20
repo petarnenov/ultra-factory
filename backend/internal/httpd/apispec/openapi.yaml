@@ -15053,7 +15053,7 @@ components:
     CoordinatorLimitsRequest:
       properties:
         hostSlots:
-          description: Omitted keeps the stored slots; an empty list clears them.
+          description: Omitted keeps stored slots; [] clears.
           items:
             $ref: '#/components/schemas/ControllersHostSlotInput'
           type:

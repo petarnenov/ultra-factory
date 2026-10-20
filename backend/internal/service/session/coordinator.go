@@ -37,8 +37,7 @@ func (s *Service) spawnOwner(ctx context.Context, cfg ports.SpawnConfig) (*domai
 }
 
 // admitWorker counts under the project lock; hold the release until the row
-// exists. The config is read under the exclusive lock. A local worker also
-// has to pass the local-worker rule.
+// exists. A local worker must also pass the local-worker rule.
 func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, owner *domain.SessionID, local bool) (func(), error) {
 	mu := s.projectLock(project)
 	mu.RLock()
