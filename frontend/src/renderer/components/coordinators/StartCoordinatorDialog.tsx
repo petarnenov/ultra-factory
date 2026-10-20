@@ -78,10 +78,14 @@ export function StartCoordinatorDialog({
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [started, setStarted] = useState<{ id: string } | null>(null);
 	const allowedHosts = config.coordinators?.allowedHosts ?? [];
-	const limits = { workersPerCoordinator: roster.capacity.maxWorkersPerCoordinator, allowedHosts };
+	const profiles = coordinatorsFormFrom(config.coordinators).agentProfiles;
+	const limits = {
+		workersPerCoordinator: roster.capacity.maxWorkersPerCoordinator,
+		allowedHosts,
+		profileIds: profiles.map((profile) => profile.id),
+	};
 	const errors: SpawnCoordinatorErrors = validateSpawnCoordinator(form, limits);
 	const hasErrors = Object.keys(errors).length > 0;
-	const profiles = coordinatorsFormFrom(config.coordinators).agentProfiles;
 	const hosts = useRemoteHosts().hosts.filter((host) => allowedHosts.length === 0 || allowedHosts.includes(host.hostId));
 	const update = (patch: Partial<SpawnCoordinatorForm>) => setForm((current) => ({ ...current, ...patch }));
 	const setSlot = (index: number, patch: Partial<SpawnCoordinatorForm["hostSlots"][number]>) =>
@@ -224,6 +228,7 @@ export function StartCoordinatorDialog({
 									</SelectContent>
 								</Select>
 								{form.coordinatorAgent === "profile" ? (
+									<>
 									<Select onValueChange={(coordinatorProfileId) => update({ coordinatorProfileId })} value={form.coordinatorProfileId}>
 										<SelectTrigger aria-label={t("coordinators.profilePick")} className="w-full min-w-0">
 											<SelectValue placeholder={t("coordinators.profilePick")} />
@@ -236,6 +241,10 @@ export function StartCoordinatorDialog({
 											))}
 										</SelectContent>
 									</Select>
+									{errors.coordinatorAgent ? (
+										<p className="text-sm text-error" role="alert">{t(errors.coordinatorAgent)}</p>
+									) : null}
+									</>
 								) : null}
 								{form.coordinatorAgent === "custom" ? (
 									<div className="grid grid-cols-3 gap-2">
@@ -244,10 +253,13 @@ export function StartCoordinatorDialog({
 										<Input aria-label={t("coordinators.start.effort")} onChange={(event) => update({ customEffort: event.target.value })} placeholder={t("coordinators.start.effort")} value={form.customEffort} />
 									</div>
 								) : null}
-								{errors.coordinatorAgent ? <p className="text-sm text-error">{t(errors.coordinatorAgent)}</p> : null}
+								{form.coordinatorAgent === "custom" && errors.coordinatorAgent ? (
+									<p className="text-sm text-error" role="alert">{t(errors.coordinatorAgent)}</p>
+								) : null}
 							</div>
 
 							<AgentSelectionField
+								error={errors.workerAgent}
 								id="start-worker-agent"
 								label={t("coordinators.start.workerAgent")}
 								onChange={(workerAgent) => update({ workerAgent })}

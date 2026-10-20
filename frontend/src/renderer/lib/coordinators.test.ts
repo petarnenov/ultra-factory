@@ -141,7 +141,7 @@ describe("validateCoordinatorsForm selections", () => {
 });
 
 describe("validateSpawnCoordinator", () => {
-	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[] };
+	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[], profileIds: [] as string[] };
 
 	test("requires a scope and a brief", () => {
 		expect(validateSpawnCoordinator(spawnForm({ scope: "  " }), limits).scope).toBe("coordinators.start.errors.scopeRequired");
@@ -171,7 +171,7 @@ describe("validateSpawnCoordinator", () => {
 					{ hostId: "Z600", slots: "1" },
 				],
 			}),
-			{ workersPerCoordinator: 3, allowedHosts: [] },
+			{ workersPerCoordinator: 3, allowedHosts: [], profileIds: [] },
 		);
 		expect(errors).toEqual({});
 	});
@@ -193,7 +193,7 @@ describe("validateSpawnCoordinator", () => {
 		});
 		expect(validateSpawnCoordinator(dup, limits).hostSlots).toBe("coordinators.start.errors.hostSlotDuplicate");
 		const notAllowed = spawnForm({ hostSlots: [{ hostId: "Mac", slots: "1" }] });
-		expect(validateSpawnCoordinator(notAllowed, { workersPerCoordinator: 3, allowedHosts: ["Linux"] }).hostSlots).toBe(
+		expect(validateSpawnCoordinator(notAllowed, { workersPerCoordinator: 3, allowedHosts: ["Linux"], profileIds: [] }).hostSlots).toBe(
 			"coordinators.start.errors.hostNotAllowed",
 		);
 	});
@@ -202,6 +202,37 @@ describe("validateSpawnCoordinator", () => {
 		expect(validateSpawnCoordinator(spawnForm({ coordinatorAgent: "custom" }), limits).coordinatorAgent).toBe(
 			"coordinators.start.errors.customAgentRequired",
 		);
+	});
+});
+
+describe("validateSpawnCoordinator agent selections", () => {
+	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[], profileIds: ["fast", "deep"] };
+	const sel = (mode: "inherit" | "fixed" | "random", profileId = "", profileIds: string[] = []) => ({ mode, profileId, profileIds });
+
+	test("a coordinator profile must be picked and must still exist", () => {
+		expect(validateSpawnCoordinator(spawnForm({ coordinatorAgent: "profile" }), limits).coordinatorAgent).toBe(
+			"coordinators.errors.selectionProfileRequired",
+		);
+		expect(
+			validateSpawnCoordinator(spawnForm({ coordinatorAgent: "profile", coordinatorProfileId: "removed" }), limits).coordinatorAgent,
+		).toBe("coordinators.errors.selectionProfileUnknown");
+		expect(
+			validateSpawnCoordinator(spawnForm({ coordinatorAgent: "profile", coordinatorProfileId: "fast" }), limits).coordinatorAgent,
+		).toBeUndefined();
+	});
+
+	test("a worker selection must name profiles that exist", () => {
+		expect(validateSpawnCoordinator(spawnForm({ workerAgent: sel("fixed", "gone") }), limits).workerAgent).toBe(
+			"coordinators.errors.selectionProfileUnknown",
+		);
+		expect(validateSpawnCoordinator(spawnForm({ workerAgent: sel("random") }), limits).workerAgent).toBe(
+			"coordinators.errors.selectionProfileRequired",
+		);
+		expect(validateSpawnCoordinator(spawnForm({ workerAgent: sel("random", "", ["fast", "deep"]) }), limits).workerAgent).toBeUndefined();
+	});
+
+	test("inherit needs no profile for either agent", () => {
+		expect(validateSpawnCoordinator(spawnForm(), { ...limits, profileIds: [] })).toEqual({});
 	});
 });
 

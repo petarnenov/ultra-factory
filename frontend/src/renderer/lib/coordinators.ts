@@ -218,7 +218,9 @@ export type SpawnCoordinatorForm = {
 	brief: string;
 };
 
-export type SpawnCoordinatorErrors = Partial<Record<"scope" | "workerLimit" | "hostSlots" | "brief" | "coordinatorAgent", CoordinatorsFormErrorKey | SpawnFormErrorKey>>;
+export type SpawnCoordinatorErrors = Partial<
+	Record<"scope" | "workerLimit" | "hostSlots" | "brief" | "coordinatorAgent", CoordinatorsFormErrorKey | SpawnFormErrorKey>
+> & { workerAgent?: CoordinatorsFormErrorKey };
 
 export type SpawnFormErrorKey =
 	| "coordinators.start.errors.scopeRequired"
@@ -234,7 +236,7 @@ export type SpawnFormErrorKey =
 /** Validates the start dialog against the project's effective limits. */
 export function validateSpawnCoordinator(
 	form: SpawnCoordinatorForm,
-	limits: { workersPerCoordinator: number; allowedHosts: string[] },
+	limits: { workersPerCoordinator: number; allowedHosts: string[]; profileIds: string[] },
 ): SpawnCoordinatorErrors {
 	const errors: SpawnCoordinatorErrors = {};
 	const scope = form.scope.trim();
@@ -244,6 +246,14 @@ export function validateSpawnCoordinator(
 	if (!Number.isInteger(workerLimit) || workerLimit < 1 || workerLimit > limits.workersPerCoordinator) {
 		errors.workerLimit = "coordinators.start.errors.workerLimitRange";
 	}
+	const known = new Set(limits.profileIds.map((id) => id.trim()).filter((id) => id !== ""));
+	if (form.coordinatorAgent === "profile") {
+		const id = form.coordinatorProfileId.trim();
+		if (id === "") errors.coordinatorAgent = "coordinators.errors.selectionProfileRequired";
+		else if (!known.has(id)) errors.coordinatorAgent = "coordinators.errors.selectionProfileUnknown";
+	}
+	const worker = selectionError(form.workerAgent, known);
+	if (worker) errors.workerAgent = worker;
 	const seen = new Set<string>();
 	let total = 0;
 	for (const row of form.hostSlots) {
