@@ -825,6 +825,7 @@ type Session struct {
 	AgentProfileID                   sql.NullString
 	CoordinatorWorkerAgent           sql.NullString
 	CoordinatorHostSlots             sql.NullString
+	CIGateActive                     bool
 }
 
 type SessionArtifactVersion struct {
@@ -894,6 +895,16 @@ type SessionOwnerEvent struct {
 	NewOwnerSessionID      *domain.SessionID
 	Reason                 domain.OwnershipEventReason
 	CreatedAt              time.Time
+}
+
+type SessionPRReadyEvent struct {
+	ID             int64
+	SessionID      domain.SessionID
+	ActorSessionID domain.SessionID
+	PRURL          string
+	HeadSha        string
+	Ready          bool
+	CreatedAt      time.Time
 }
 
 type SessionProgress struct {

@@ -13,6 +13,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 )
@@ -23,6 +25,14 @@ type fakePRService struct {
 	mergeRequest  prsvc.MergeRequest
 	resolveResult prsvc.ResolveResult
 	resolveErr    error
+	readyResult   prsvc.ReadyResult
+	readyErr      error
+	readyRequest  prsvc.ReadyRequest
+}
+
+func (f *fakePRService) SetReady(_ context.Context, request prsvc.ReadyRequest) (prsvc.ReadyResult, error) {
+	f.readyRequest = request
+	return f.readyResult, f.readyErr
 }
 
 func (f *fakePRService) Merge(_ context.Context, request prsvc.MergeRequest) (prsvc.MergeResult, error) {
@@ -245,4 +255,51 @@ func TestPRsRoutes_ResolveComments_InvalidPRID(t *testing.T) {
 		assertJSON(t, headers)
 		assertErrorCode(t, body, status, http.StatusBadRequest, "INVALID_PR")
 	}
+}
+
+// ---- Ready: route, requester forwarding, error envelope ----
+
+func TestPRsRoutes_Ready_200ForwardsRequest(t *testing.T) {
+	svc := &fakePRService{readyResult: prsvc.ReadyResult{PRURL: "u", PRNumber: 42, HeadSHA: "abc", Ready: true, Changed: true}}
+	srv := newPRTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/demo-1/pr/ready", `{"ready":true,"requestedBySessionId":" ao-root "}`)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", status, body)
+	}
+	var resp struct {
+		OK       bool `json:"ok"`
+		PRNumber int  `json:"prNumber"`
+		Ready    bool `json:"ready"`
+		Changed  bool `json:"changed"`
+	}
+	mustJSON(t, body, &resp)
+	if !resp.OK || resp.PRNumber != 42 || !resp.Ready || !resp.Changed {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if got := svc.readyRequest; got.SessionID != "demo-1" || !got.Ready || got.RequestedBySessionID != "ao-root" {
+		t.Fatalf("request = %+v", got)
+	}
+}
+
+func TestPRsRoutes_Ready_ForbiddenEnvelope(t *testing.T) {
+	svc := &fakePRService{readyErr: apierr.New(apierr.KindForbidden, "CI_GATE_FORBIDDEN", "no", nil)}
+	srv := newPRTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/demo-1/pr/ready", `{"ready":true,"requestedBySessionId":"w"}`)
+	assertErrorCode(t, body, status, http.StatusForbidden, "CI_GATE_FORBIDDEN")
+}
+
+func TestPRsRoutes_Ready_UnsupportedProvider(t *testing.T) {
+	svc := &fakePRService{readyErr: fmt.Errorf("%w: %w", prsvc.ErrCIGateUnsupported, ports.ErrSCMUnsupported)}
+	srv := newPRTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/demo-1/pr/ready", `{"ready":true}`)
+	assertErrorCode(t, body, status, http.StatusUnprocessableEntity, "CI_GATE_UNSUPPORTED")
+}
+
+func TestPRsRoutes_NilService_ReadyReturns501(t *testing.T) {
+	srv := newPRTestServer(t, nil)
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/demo-1/pr/ready", `{"ready":true}`)
+	assertErrorCode(t, body, status, http.StatusNotImplemented, "NOT_IMPLEMENTED")
 }

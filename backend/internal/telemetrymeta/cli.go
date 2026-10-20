@@ -152,6 +152,7 @@ var legacyActorlessUserCLICommands = map[string]struct{}{
 	"ao orchestrator done":      {},
 	"ao pr":                     {},
 	"ao pr merge":               {},
+	"ao pr ready":               {},
 	"ao pr resolve-comments":    {},
 	"ao preview":                {},
 	"ao preview clear":          {},

@@ -132,6 +132,13 @@ type githubSCMConfig struct {
 	Account string `json:"account,omitempty"`
 }
 
+// ciGateConfig mirrors domain.CIGateConfig so a CLI edit of another field
+// round-trips the CI gate setting.
+type ciGateConfig struct {
+	Mode              string `json:"mode,omitempty"`
+	WithoutAutoReview string `json:"withoutAutoReview,omitempty"`
+}
+
 // projectConfig mirrors the daemon's typed domain.ProjectConfig for the CLI
 // client. The CLI sets common fields via flags and the whole object via
 // --config-json.
@@ -160,6 +167,7 @@ type projectConfig struct {
 	WorkersRequestReview bool               `json:"workersRequestReview,omitempty"`
 	Reviewers            []reviewerConfig   `json:"reviewers,omitempty"`
 	Coordinators         coordinatorsConfig `json:"coordinators,omitempty"`
+	CIGate               ciGateConfig       `json:"ciGate,omitempty"`
 }
 
 // setConfigRequest mirrors the daemon's SetConfigInput body for
