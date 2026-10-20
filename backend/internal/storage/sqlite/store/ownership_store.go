@@ -276,3 +276,82 @@ func sameOwner(a, b *domain.SessionID) bool {
 	}
 	return *a == *b
 }
+
+func nullInt(v *int) sql.NullInt64 {
+	if v == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*v), Valid: true}
+}
+
+func intPtr(v sql.NullInt64) *int {
+	if !v.Valid {
+		return nil
+	}
+	n := int(v.Int64)
+	return &n
+}
+
+// SetCoordinatorWorkerLimit sets a live coordinator's own worker limit and
+// appends audit in one tx. It reports the previous limit.
+func (s *Store) SetCoordinatorWorkerLimit(
+	ctx context.Context,
+	id domain.SessionID,
+	limit int,
+	event domain.CoordinatorLimitEvent,
+	at time.Time,
+) (previous *int, err error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	err = s.inTx(ctx, "set coordinator worker limit", func(q *gen.Queries) error {
+		row, err := q.GetSession(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.ErrSessionNotFound
+		}
+		if err != nil {
+			return err
+		}
+		previous = intPtr(row.CoordinatorWorkerLimit)
+		rows, err := q.SetCoordinatorWorkerLimit(ctx, gen.SetCoordinatorWorkerLimitParams{
+			CoordinatorWorkerLimit: nullInt(&limit),
+			UpdatedAt:              at,
+			ID:                     id,
+		})
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return fmt.Errorf("session %s is not a live coordinator", id)
+		}
+		return q.InsertCoordinatorLimitEvent(ctx, gen.InsertCoordinatorLimitEventParams{
+			SessionID:      string(id),
+			PreviousLimit:  nullInt(previous),
+			NewLimit:       int64(limit),
+			ActorSessionID: string(event.ActorSessionID),
+			Origin:         event.Origin,
+			CreatedAt:      at,
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set coordinator worker limit %s: %w", id, err)
+	}
+	return previous, nil
+}
+
+// ListCoordinatorLimitEvents returns one coordinator's limit history.
+func (s *Store) ListCoordinatorLimitEvents(ctx context.Context, id domain.SessionID) ([]domain.CoordinatorLimitEvent, error) {
+	rows, err := s.qr.ListCoordinatorLimitEvents(ctx, string(id))
+	if err != nil {
+		return nil, fmt.Errorf("list coordinator limit events %s: %w", id, err)
+	}
+	events := make([]domain.CoordinatorLimitEvent, len(rows))
+	for i, row := range rows {
+		events[i] = domain.CoordinatorLimitEvent{
+			ID: row.ID, SessionID: domain.SessionID(row.SessionID),
+			PreviousLimit: intPtr(row.PreviousLimit), NewLimit: int(row.NewLimit),
+			ActorSessionID: domain.SessionID(row.ActorSessionID),
+			Origin:         row.Origin, CreatedAt: row.CreatedAt,
+		}
+	}
+	return events, nil
+}

@@ -46,6 +46,12 @@ func (s *capStore) ListPRFactsForSession(ctx context.Context, id domain.SessionI
 	return s.fakeStore.ListPRFactsForSession(ctx, id)
 }
 
+func (s *capStore) SetCoordinatorWorkerLimit(ctx context.Context, id domain.SessionID, limit int, event domain.CoordinatorLimitEvent, at time.Time) (*int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fakeStore.SetCoordinatorWorkerLimit(ctx, id, limit, event, at)
+}
+
 func (s *capStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
 	return s.links, nil
 }
@@ -100,6 +106,7 @@ func newCapFixture(t *testing.T) *capFixture {
 		rec := domain.SessionRecord{
 			ID: domain.SessionID(fmt.Sprintf("ao-n%d", f.next)), ProjectID: cfg.ProjectID, Kind: cfg.Kind,
 			OwnerSessionID: cfg.OwnerSessionID, CoordinatorScope: cfg.CoordinatorScope,
+			CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit,
 		}
 		st.sessions[rec.ID] = rec
 		return rec

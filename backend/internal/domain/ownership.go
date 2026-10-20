@@ -17,6 +17,18 @@ type SessionOwnerEvent struct {
 	CreatedAt              time.Time
 }
 
+// CoordinatorLimitEvent audits one worker-limit change. Origin is "root" or
+// the operator origin acting for the live root.
+type CoordinatorLimitEvent struct {
+	ID             int64
+	SessionID      SessionID
+	PreviousLimit  *int
+	NewLimit       int
+	ActorSessionID SessionID
+	Origin         string
+	CreatedAt      time.Time
+}
+
 // RemoteWorkerOwnerEvent is one append-only audit row for a remote worker
 // link's ownership transition, keyed by the link's durable identity.
 type RemoteWorkerOwnerEvent struct {

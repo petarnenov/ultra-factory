@@ -7755,6 +7755,69 @@ paths:
       summary: Promote a queued message into the in-flight turn
       tags:
       - conversations
+  /api/v1/sessions/{sessionId}/coordinator-limits:
+    put:
+      operationId: setCoordinatorLimits
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoordinatorLimitsRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionOwnershipResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Change a live coordinator's worker limit
+      tags:
+      - sessions
   /api/v1/sessions/{sessionId}/exit-agent:
     post:
       operationId: exitAgent
@@ -14880,8 +14943,48 @@ components:
       - cachedTokens
       - totalTokens
       type: object
+    CoordinatorCapacity:
+      properties:
+        activeCoordinators:
+          type: integer
+        activeWorkers:
+          type: integer
+        maxCoordinators:
+          type: integer
+        maxWorkers:
+          type: integer
+        maxWorkersPerCoordinator:
+          type: integer
+      required:
+      - maxCoordinators
+      - maxWorkersPerCoordinator
+      - maxWorkers
+      - activeCoordinators
+      - activeWorkers
+      type: object
+    CoordinatorLimitsRequest:
+      properties:
+        operatorInitiated:
+          description: Operator acts for the live root; needs origin.
+          type: boolean
+        origin:
+          enum:
+          - ui
+          - cli
+          - api
+          type: string
+        requestedBySessionId:
+          type: string
+        workerLimit:
+          minimum: 1
+          type: integer
+      required:
+      - workerLimit
+      type: object
     CoordinatorRosterEntry:
       properties:
+        activeWorkerCount:
+          type: integer
         coordinatorScope:
           type: string
         coordinatorSessionId:
@@ -14897,6 +15000,8 @@ components:
           type: boolean
         workerCount:
           type: integer
+        workerLimit:
+          type: integer
         workerSessionIds:
           items:
             type: string
@@ -14907,11 +15012,15 @@ components:
       - isTerminated
       - workerSessionIds
       - workerCount
+      - workerLimit
+      - activeWorkerCount
       - needsRecovery
       - latestSummary
       type: object
     CoordinatorRosterResponse:
       properties:
+        capacity:
+          $ref: '#/components/schemas/CoordinatorCapacity'
         coordinators:
           items:
             $ref: '#/components/schemas/CoordinatorRosterEntry'
@@ -14929,6 +15038,7 @@ components:
       required:
       - projectId
       - rootSessionId
+      - capacity
       - coordinators
       - rootWorkerSessionIds
       type: object
@@ -17919,6 +18029,12 @@ components:
       type: object
     SessionOwnershipResponse:
       properties:
+        activeWorkerCount:
+          type:
+          - "null"
+          - integer
+        capacity:
+          $ref: '#/components/schemas/CoordinatorCapacity'
         coordinatorScope:
           type: string
         kind:
@@ -17947,11 +18063,16 @@ components:
           - string
         sessionId:
           type: string
+        workerLimit:
+          type:
+          - "null"
+          - integer
       required:
       - sessionId
       - kind
       - ownerSessionId
       - rootSessionId
+      - capacity
       type: object
     SessionPRCISummary:
       properties:
@@ -19282,6 +19403,11 @@ components:
           - github
           - gitlab
           type: string
+        workerLimit:
+          minimum: 1
+          type:
+          - "null"
+          - integer
       type: object
     SpawnSessionResponse:
       properties:

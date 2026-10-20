@@ -206,3 +206,56 @@ func TestReconcileSessionKindConstraintRepairsBurnedMigration(t *testing.T) {
 		t.Fatalf("repeat repair: %v", err)
 	}
 }
+
+func TestCoordinatorWorkerLimitMigrationKeepsExistingCoordinatorsOnTheProjectLimit(t *testing.T) {
+	db := openMigratedDatabaseCopy(t, 216)
+	if _, err := db.Exec(`
+INSERT INTO projects (id, path, registered_at) VALUES ('ao', '/repo/ao', '2026-10-19T10:00:00Z');
+INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, harness, activity_last_at, created_at, updated_at)
+VALUES ('ao-1', 'ao', 1, 'coordinator', 'auth area', 'claude-code', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z');
+`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(db); err != nil {
+		t.Fatalf("migrate a database with a coordinator: %v", err)
+	}
+	var limit sql.NullInt64
+	if err := db.QueryRow(`SELECT coordinator_worker_limit FROM sessions WHERE id = 'ao-1'`).Scan(&limit); err != nil || limit.Valid {
+		t.Fatalf("existing coordinator limit = %v err=%v, want NULL", limit, err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET coordinator_worker_limit = 2 WHERE id = 'ao-1'`); err != nil {
+		t.Fatalf("set a limit: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET coordinator_worker_limit = 0 WHERE id = 'ao-1'`); err == nil {
+		t.Fatal("a limit below 1 must be rejected by the column check")
+	}
+	if _, err := db.Exec(`
+INSERT INTO coordinator_limit_events (session_id, previous_limit, new_limit, actor_session_id, origin, created_at)
+VALUES ('ao-1', NULL, 2, 'ao-root', 'ui', '2026-10-20T10:00:00Z')`); err != nil {
+		t.Fatalf("audit row: %v", err)
+	}
+	if _, err := db.Exec(`
+INSERT INTO coordinator_limit_events (session_id, previous_limit, new_limit, actor_session_id, origin, created_at)
+VALUES ('ao-1', NULL, 2, 'ao-root', '', '2026-10-20T10:00:00Z')`); err == nil {
+		t.Fatal("an empty origin must be rejected")
+	}
+}
+
+func TestCoordinatorWorkerLimitMigrationDownDropsTheColumnAndAudit(t *testing.T) {
+	db := openMigratedTestDB(t)
+	if err := goose.DownTo(db, "migrations", 216); err != nil {
+		t.Fatalf("down migration: %v", err)
+	}
+	if _, err := db.Exec(`SELECT coordinator_worker_limit FROM sessions`); err == nil {
+		t.Fatal("the column survived the down migration")
+	}
+	if _, err := db.Exec(`SELECT 1 FROM coordinator_limit_events`); err == nil {
+		t.Fatal("the audit table survived the down migration")
+	}
+	if err := migrate(db); err != nil {
+		t.Fatalf("up again after down: %v", err)
+	}
+	if _, err := db.Exec(`SELECT coordinator_worker_limit FROM sessions`); err != nil {
+		t.Fatalf("column missing after re-applying: %v", err)
+	}
+}

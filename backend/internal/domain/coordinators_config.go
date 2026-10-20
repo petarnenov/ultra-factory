@@ -9,9 +9,12 @@ type CoordinatorLimits struct {
 	Workers               int
 }
 
-// DefaultCoordinatorLimits are the ADR 0010 section 8 rollout limits. They are
-// also the ceiling: a project may lower them but not raise them.
+// DefaultCoordinatorLimits are the limits a project gets when it sets none.
 var DefaultCoordinatorLimits = CoordinatorLimits{Coordinators: 2, WorkersPerCoordinator: 3, Workers: 6}
+
+// HardCoordinatorLimits are the system maximums a project config may not
+// exceed (decided in #408).
+var HardCoordinatorLimits = CoordinatorLimits{Coordinators: 4, WorkersPerCoordinator: 6, Workers: 12}
 
 // CoordinatorsConfig is the per-project coordinator gate. A zero limit means
 // the ADR default; the feature is disabled until Enabled is true.
@@ -54,9 +57,9 @@ func (e *CoordinatorLimitsError) Error() string {
 	return fmt.Sprintf("coordinators.%s: must be between 0 and %d", e.Field, e.Max)
 }
 
-// Validate rejects limits above the rollout ceiling or below zero.
+// Validate rejects limits above the hard maximum or below zero.
 func (c CoordinatorsConfig) Validate() error {
-	caps := DefaultCoordinatorLimits
+	caps := HardCoordinatorLimits
 	for _, f := range []struct {
 		field    string
 		got, max int

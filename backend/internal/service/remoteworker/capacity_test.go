@@ -189,3 +189,36 @@ func TestRegisterHonoursTheConfiguredLimits(t *testing.T) {
 		t.Fatalf("the default of three admits the second link: %v", err)
 	}
 }
+
+func limitedSessions() map[domain.SessionID]domain.SessionRecord {
+	two := 2
+	return capSessions(domain.SessionRecord{
+		ID: "c1", ProjectID: capProject, Kind: domain.KindCoordinator, CoordinatorWorkerLimit: &two,
+	})
+}
+
+func TestRegisterEnforcesTheCoordinatorsOwnWorkerLimit(t *testing.T) {
+	store := &fakeStore{sessions: limitedSessions(), stored: ownedLinks("c1", 2, 0)}
+	in := validInput()
+	in.ParentSessionID = "c1"
+	_, err := capService(store, nil).Register(context.Background(), in)
+	if codeOf(err) != "COORDINATOR_WORKER_LIMIT_REACHED" {
+		t.Fatalf("err = %v, want COORDINATOR_WORKER_LIMIT_REACHED at the own limit of 2", err)
+	}
+	if len(store.stored) != 2 {
+		t.Fatalf("a rejected registration stored a link: %d", len(store.stored))
+	}
+	store.stored = ownedLinks("c1", 1, 0)
+	if _, err := capService(store, nil).Register(context.Background(), in); err != nil {
+		t.Fatalf("the second slot is free: %v", err)
+	}
+}
+
+func TestAssignOwnerEnforcesTheCoordinatorsOwnLimitOnRemoteLinks(t *testing.T) {
+	free := domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: "free", RemoteProjectID: "widgets", ProjectID: capProject}
+	store := &fakeStore{sessions: limitedSessions(), stored: append(ownedLinks("c1", 2, 0), free)}
+	_, err := capService(store, nil).AssignOwner(context.Background(), "host-build", "free", ownerPtr("c1"), "ao-1")
+	if codeOf(err) != "COORDINATOR_WORKER_LIMIT_REACHED" {
+		t.Fatalf("err = %v, want COORDINATOR_WORKER_LIMIT_REACHED at the own limit of 2", err)
+	}
+}

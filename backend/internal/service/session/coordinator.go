@@ -98,11 +98,17 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	if err := coordownership.RequireEnabled(gate, cfg.ProjectID); err != nil {
 		return domain.Session{}, 0, 0, err
 	}
+	limits := gate.Limits()
+	if cfg.CoordinatorWorkerLimit != nil {
+		if got := *cfg.CoordinatorWorkerLimit; got < 1 || got > limits.WorkersPerCoordinator {
+			return domain.Session{}, 0, 0, coordownership.WorkerLimitInvalidError(got, limits.WorkersPerCoordinator)
+		}
+	}
 	counts, err := s.countCapacity(ctx, cfg.ProjectID)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
 	}
-	if err := counts.CheckCoordinator(cfg.ProjectID, gate.Limits()); err != nil {
+	if err := counts.CheckCoordinator(cfg.ProjectID, limits); err != nil {
 		return domain.Session{}, 0, 0, err
 	}
 	return s.spawn(ctx, cfg)
