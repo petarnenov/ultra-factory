@@ -18,7 +18,8 @@ and limits (RW-4.2).
   [0005 (report pull)](../../docs/adr/0005-daemon-pulls-remote-worker-reports.md),
   [0006](../../docs/adr/0006-web-bff-for-hub.md),
   [0007](../../docs/adr/0007-dual-stack-remote-host-listener.md),
-  [0008](../../docs/adr/0008-hub-egress-to-off-railway-hosts.md).
+  [0008](../../docs/adr/0008-hub-egress-to-off-railway-hosts.md),
+  [0010](../../docs/adr/0010-coordinator-hierarchy-and-report-ownership.md).
 
 Conventions for everything below:
 
@@ -44,9 +45,10 @@ Conventions for everything below:
 3. [Credentials and rotation](#credentials-and-rotation)
 4. [Backup, drain, redeploy, and rollback](#backup-drain-redeploy-and-rollback)
 5. [Limits and cost monitoring](#limits-and-cost-monitoring)
-6. [Local end-to-end test](#local-end-to-end-test)
-7. [Logs and troubleshooting](#logs-and-troubleshooting)
-8. [Validation record](#validation-record)
+6. [Coordinator rollout and rollback (pilot)](#coordinator-rollout-and-rollback-pilot)
+7. [Local end-to-end test](#local-end-to-end-test)
+8. [Logs and troubleshooting](#logs-and-troubleshooting)
+9. [Validation record](#validation-record)
 
 ## Worker service
 
@@ -933,6 +935,522 @@ Railway for this runbook.
 | Hub replica limits | Leave unset for the first week, then set CPU and memory to about 1.5× the peak on the Metrics tab (service settings → Deploy → Replica Limits). Too low a memory limit crashes the service. |
 | Worker replica limits | Same method, measured on a worker while it runs its usual number of parallel agent sessions; each Claude Code session plus its build/test commands is the main memory consumer. |
 | Volumes | Hub: holds the database, `hosts.json`, and orchestrator worktrees. Worker: holds `HOME`, the AO database, and every worktree. Watch disk on the Metrics tab and grow the volume in the Railway console before it fills. |
+
+## Coordinator rollout and rollback (pilot)
+
+The coordinator hierarchy adds one root orchestrator, up to two helper
+coordinators, and up to three owned workers per coordinator. The design is
+[ADR 0010](../../docs/adr/0010-coordinator-hierarchy-and-report-ownership.md)
+and the root-to-coordinator rules are the
+[coordinator operating contract](../../docs/coordinators/operating-contract.md).
+This section is the operator procedure for the Railway topology. Statements
+marked **(guidance)** are operating practice added by this runbook; they are not
+ADR rules.
+
+**Status: pilot only, not approved for regular work.** The implementation and
+the end-to-end pilot are merged on `dev`, but two gates are still open:
+
+1. The live multi-machine run and its resource comparison against the CO-1.1.1
+   baseline are pending on
+   [#227](https://github.com/petarnenov/ultra-factory/issues/227) and
+   [#218](https://github.com/petarnenov/ultra-factory/issues/218). Values only
+   that run can produce are marked **Pending operator run** below.
+2. The project-level on/off gate from ADR section 8 is **not implemented on
+   `dev`** (see [Enable one pilot project](#enable-one-pilot-project)). Until it
+   lands, "disabled by default" is an operating instruction, not a daemon
+   guarantee.
+
+Keep feature and config defaults disabled until the pilot is approved.
+**(guidance)** Record the approval as a dated decision with a named rollback
+owner; the existence of this runbook is not approval.
+
+### Implementation status and evidence
+
+| Part | Where |
+| --- | --- |
+| Decision: coordinator kind, durable ownership, routing, capacity, recovery | [ADR 0010](../../docs/adr/0010-coordinator-hierarchy-and-report-ownership.md) |
+| Root and coordinator operating rules | [Coordinator operating contract](../../docs/coordinators/operating-contract.md) |
+| Durable ownership and audit | #220, #221 (merged) |
+| Owner-routed reports and root summaries | #223 (merged), pull request #329 |
+| Root-only spawn and the 2/3/6 limits | #224 (merged), pull request #330 |
+| Coordinator prompt and handoff | #225 (merged), pull request #331 |
+| Ownership, recovery, and latest summary in session views | #226 (merged), pull request #335 |
+| `MERGE_ROOT_ONLY` merge authority | pull request #333 |
+| End-to-end pilot (CLI and service level) | #227, pull request #339: [`coordinator_pilot_e2e_test.go`](../../backend/internal/cli/coordinator_pilot_e2e_test.go), [`pilot_test.go`](../../backend/internal/service/coordinatorpilot/pilot_test.go) |
+| Live multi-machine run and baseline comparison | **Pending operator run** on #227 and #218; capture protocol in [resource-baseline.md](resource-baseline.md) |
+| Known defect: no root escalation summary on coordinator termination | [#340](https://github.com/petarnenov/ultra-factory/issues/340) (open) |
+
+### Prerequisites
+
+| Prerequisite | Check |
+| --- | --- |
+| A hub build that contains the coordinator hierarchy | `ao --version`; the pilot and its dependencies are on `dev` at or after commit `3fd52c3ac`. |
+| A healthy hub daemon and BFF | In a hub shell: `ao status`, then `/healthz` and `/readyz` on `http://127.0.0.1:3001`. |
+| Exactly one live root for the pilot project | `ao orchestrator ls` lists one session, with the pilot project id. |
+| No coordinator in the project yet | `ao coordinator ls -p <project>` prints `(no coordinators)`. |
+| Paired worker hosts online, none running a local orchestrator | `ao host ls` shows every host `online`; `ao orchestrator ls --host <H>` is empty for each host. A host with a local orchestrator refuses a worker from the hub with `LOCAL_ORCHESTRATOR_ACTIVE`. |
+| The hub's memory limit and current headroom are recorded | Railway service **Metrics** tab and **Settings → Deploy → Replica Limits**; `railway usage limit status --target workspace`. Do not change them. |
+| A resource baseline or a recorded gap | The six-worker capture in [resource-baseline.md](resource-baseline.md) is read-only and still **not run**. ADR section 9 says a missing baseline is recorded as a gap, not assumed. **Pending operator run.** |
+| A fresh hub database and registry backup | [Hub database and registry backup](#hub-database-and-registry-backup), before the first pilot coordinator. **(guidance)** |
+| Worker credentials and project dependencies on every host | The usual worker prerequisites ([Worker service](#worker-service)). Hub credentials are not forwarded. |
+
+The pilot project, hosts, harnesses, and window are operator inputs; record them
+in [Operator values to fill in](#operator-values-to-fill-in).
+
+### Supported topology
+
+```text
+hub (coordination only)
+  root orchestrator          kind=orchestrator, owner NULL, exactly one live
+  coordinator A              kind=coordinator, scope A, Chat by default
+  coordinator B              kind=coordinator, scope B, Chat by default
+        │  remote links (owner = the coordinator's local session id)
+        ▼
+paired hosts (implementation only)
+  workers 1-3                owned by A, at most three active
+  workers 4-6                owned by B, at most three active
+  root-owned worker (optional) direct root delegation, owner NULL
+```
+
+- **Coordinators run where the root runs.** The root spawns them on the hub's
+  daemon; they are local sessions. `ao spawn --kind coordinator --host ...` is a
+  usage error (exit 2), and a caller that is not the live root gets
+  `403 COORDINATOR_ROOT_REQUIRED`.
+- **Workers run on the paired hosts.** A coordinator can spawn a remote worker
+  (`ao spawn --host` from its session) and owns it through the remote link. A
+  root-owned direct worker keeps working exactly as before and needs no
+  coordinator.
+- **Ownership is a hub fact.** A remote link stores a local coordinator session
+  id; that id is never sent to the peer daemon, so a worker host cannot see or
+  address the topology.
+- **One root per project.** A project has at most one live root; a second
+  orchestrator spawn returns the live one, and a clean replacement retires only
+  the root. Restoring a terminated root while another is live fails with
+  `ORCHESTRATOR_ALREADY_ACTIVE`. Root replacement does not touch coordinators:
+  they keep running and keep their workers.
+- **No replication.** One daemon, one SQLite database, no shared volume, no
+  second coordinator service.
+- **Scopes are disjoint by operating rule, not by constraint.** Two live
+  coordinators may share a scope; the root must not do that. **(guidance)**
+
+### Capacity defaults
+
+Limits from ADR section 8, enforced in the daemon:
+
+| Limit | Counted set | Default | Error |
+| --- | --- | --- | --- |
+| Live roots per project | `kind='orchestrator' AND is_terminated=0` | 1 | `ORCHESTRATOR_ALREADY_ACTIVE` |
+| Live coordinators per project | `kind='coordinator' AND is_terminated=0` | 2 | `COORDINATOR_LIMIT_REACHED` |
+| Active workers per coordinator | local `kind='worker'` with that owner **plus** `remote_worker_links` with that owner | 3 | `COORDINATOR_WORKER_LIMIT_REACHED` |
+| Active workers per project | every live local worker **plus** every link in the project | 6 | `PROJECT_WORKER_LIMIT_REACHED` |
+
+- A remote link counts as one active worker until it retires.
+- Root-owned workers count toward the six, so two full coordinators leave no
+  room for a seventh worker, direct or owned.
+- Idle, waiting, hibernated, and crashed-not-yet-reaped sessions consume a slot;
+  termination releases coordinator, owner, and project slots in the transaction
+  that sets the terminal fact. A rejected spawn stores nothing and consumes no
+  slot.
+- Restoring a terminated worker re-checks both caps; restoring a terminated
+  coordinator re-checks the two-coordinator cap and **does not** reattach its
+  former workers.
+- The numbers are compile-time constants in
+  `backend/internal/service/ownership/capacity.go`. The ADR's config block that
+  would allow lowering them (`maxCoordinators`, `maxWorkersPerCoordinator`,
+  `maxWorkers`) is part of the missing gate described next; raising the values
+  needs a new decision, never a config edit.
+
+### Enable one pilot project
+
+**Intended gate (ADR section 8).** One project config block gates and bounds the
+feature:
+
+```json
+"coordinators": {
+  "enabled": false,
+  "maxCoordinators": 2,
+  "maxWorkersPerCoordinator": 3,
+  "maxWorkers": 6
+}
+```
+
+`enabled` defaults to `false`; a spawn while it is off returns
+`409 COORDINATORS_DISABLED`. Lowering a limit is allowed; a value above 2/3/6 is
+rejected with `COORDINATOR_LIMITS_INVALID`. Disabling blocks new coordinator
+spawns while restoring a terminated coordinator stays allowed for recovery, and
+existing ownership keeps routing so a rollback can reassign before the flag is
+turned off. The project config is read and written through
+`ao project get <project>` and `ao project set-config <project> ...`.
+
+**Current state on `dev`.** This gate **does not exist**:
+
+- `domain.ProjectConfig` has no coordinator field
+  (`backend/internal/domain/projectconfig.go`), so `ao project set-config` has
+  no coordinator flag and `ao project get` shows no `coordinators` block.
+- No daemon flag or environment variable gates coordinator creation, and
+  `COORDINATORS_DISABLED` is not returned anywhere.
+- The limits are constants, not project config.
+
+Consequently there is no enablement or disablement switch to operate today. This
+is a blocking precondition for approving the pilot; until it lands, the
+following is the only pilot control, and it is procedural.
+
+**Enabling the single pilot project today (guidance).** Only the live project
+root can spawn a coordinator. Send the root the assignment and let it spawn, or
+run the same call from a hub shell with the root's session id:
+
+```sh
+# Preferred: from the root's own session, with the assignment brief from the
+# operating contract.
+ao spawn --project <project> --kind coordinator --scope "<one bounded area>" \
+  --prompt "<assignment brief>"
+
+# Operator start from a hub shell: the caller is checked by session id only,
+# so AO_SESSION_ID selects the live root. The ADR treats this as an accident
+# guard, not authentication.
+AO_SESSION_ID=<root-session-id> ao spawn --project <project> \
+  --kind coordinator --scope "<one bounded area>" --prompt "<assignment brief>"
+```
+
+- `--scope` is required (exit 2 when missing) and is at most 200 characters.
+- The coordinator uses the project's orchestrator role config, like the root.
+- Use the five-section brief from the
+  [operating contract](../../docs/coordinators/operating-contract.md#assignment-brief-template).
+  A missing section is not a valid assignment.
+- To keep the pilot to one project, verify that no coordinator exists anywhere
+  else: `ao session ls --all --include-terminated --json`, filtered to
+  `"kind":"coordinator"`. **(guidance)**
+- The daemon does not enforce "only this project"; the operator and the root
+  do. Do not start coordinators from another project's root.
+
+### Signals to monitor
+
+Record every signal with a UTC timestamp. Use the hub's loopback listener from a
+hub shell for hub-local reads; per-process worker memory is only readable on the
+worker's own host.
+
+| Signal | Source | Record |
+| --- | --- | --- |
+| Per-process memory | `ao session top --all -p <project> --json` and `GET /api/v1/usage/sessions/memory?projectId=<project>` | RSS and process count per root, coordinator, and worker; `null` means unmeasured, never zero |
+| Hub memory headroom | `system` and `app` in the memory route; `GET /api/v1/usage/memory/pressure`; Railway Metrics tab and replica limit | Pressure verdict, AO total, service memory, and the limit in force |
+| Coordinator liveness | `ao coordinator ls -p <project>`; `ao session ls` `HEALTH`; `ao session get <id> --json` | Terminated vs live-but-exited, `NEEDS RECOVERY`, latest summary |
+| Capacity rejections | Caller transcript; daemon access log `status=409` on `POST /api/v1/sessions` and `PUT .../owner`; roster counts | Code, project/coordinator id, current and allowed counts |
+| Pending report age | Coordinator summary history route; read-only report table query | Oldest pending age, claimed age, attempt count |
+| Delivery errors | `lastError` on summaries; `last_error` on reports; access log 5xx lines | Message, attempt count, first and last seen |
+
+#### Per-process memory and hub headroom
+
+```sh
+# In a hub shell.
+ao session top --all -p <project> --json
+curl -s 'http://127.0.0.1:3001/api/v1/usage/sessions/memory?projectId=<project>' \
+  > /tmp/ao-coordinator-memory.json
+curl -s 'http://127.0.0.1:3001/api/v1/usage/memory/pressure'
+```
+
+The memory route returns per-session `rssBytes`, `cpuPercent`, `processCount`,
+and the per-process tree, plus host `system` headroom and `app` for everything
+AO runs. `ao session top` gives RSS and process count only; it has no CPU, no
+per-process list, and no `--host`, so run it on each host for that host's
+workers.
+
+**(guidance)** Use the same "near the limit" definition as the baseline
+protocol: at or above 90% of the configured hub memory limit. The pilot's
+comparison target is the six-worker baseline from #218; until that run exists,
+the figure is **not measured** and must not be reported as one.
+
+#### Coordinator liveness
+
+```sh
+# In a hub shell.
+ao coordinator ls -p <project>
+ao coordinator ls -p <project> --include-terminated
+ao session get <coordinator-id> --json
+ao session ls -p <project>
+```
+
+A coordinator that is terminated is not a live helper: its workers are returned
+to the root and its slot is free. A coordinator that is live but whose agent has
+exited is **not** rerouted by design; its reports retry against the same owner
+until the reaper terminates it or the ownership is repaired. Treat a long-lived
+`exited` coordinator with pending summaries as a rollback trigger. Session
+health states and thresholds are in
+[session health and stall runbook](../../docs/runbooks/session-health-stalls.md).
+
+#### Capacity rejections
+
+The requesting session sees the code; the CLI prints it and exits 1:
+
+- `COORDINATOR_LIMIT_REACHED` (third live coordinator)
+- `COORDINATOR_WORKER_LIMIT_REACHED` (fourth worker for one coordinator)
+- `PROJECT_WORKER_LIMIT_REACHED` (seventh worker in the project)
+- `COORDINATOR_ROOT_REQUIRED`, `OWNERSHIP_ROOT_ONLY` (wrong caller)
+- `OWNER_REASSIGNMENT_IN_FLIGHT` (retry the ownership write)
+
+The daemon access log records the HTTP status but not the code:
+`http request ... path=/api/v1/sessions status=409`. Pair it with the caller's
+transcript, and read the current counts rather than inferring them:
+
+```sh
+# In a hub shell.
+ao coordinator ls -p <project>        # local owned workers and root-owned count
+ao remote-worker ls -p <project>      # remote links and their owners
+```
+
+The project total is every live local worker plus every link in the project,
+including root-owned ones.
+
+#### Pending report age and delivery errors
+
+The coordinator summary history is the API-visible signal; each entry carries
+`deliveryState` (`pending`, `claimed`, `acknowledged`), `deliveryAttempts`,
+`lastError`, and `createdAt`:
+
+```sh
+curl -s 'http://127.0.0.1:3001/api/v1/sessions/<coordinator-id>/summaries?limit=20'
+```
+
+The reports projection (`GET /api/v1/reports?projectId=<project>`) deliberately
+does not expose delivery state. For worker reports, read the daemon's database
+read-only; the hub image ships `sqlite3`:
+
+```sh
+sqlite3 -readonly /data/ao/ao.db "
+  SELECT delivery_state, COUNT(*) AS reports,
+         MIN(created_at) AS oldest, MAX(delivery_attempts) AS max_attempts
+  FROM reports WHERE project_id = '<project>'
+  GROUP BY delivery_state;"
+
+sqlite3 -readonly /data/ao/ao.db "
+  SELECT id, session_id, delivery_state, delivery_attempts, created_at, last_error
+  FROM reports
+  WHERE project_id = '<project>' AND last_error <> ''
+  ORDER BY created_at DESC LIMIT 20;"
+```
+
+**(guidance)** This is a read-only schema inspection, not an API contract; never
+write to the database. A worker host can still hold reports the hub has not
+pulled yet, so run the same query on that host's database when a link is down.
+The ADR accepts that pending age is an operator signal: a root outage leaves
+root-addressed work pending by design, and helper delivery continues.
+
+### Stop new coordinator spawns
+
+**With the ADR gate (once implemented):** set `coordinators.enabled` to `false`
+for the project. That is the whole switch: new coordinator spawns fail with
+`409 COORDINATORS_DISABLED`, restore of a terminated coordinator stays allowed,
+and every existing owner keeps routing.
+
+**Today (no gate):** there is nothing to flip. Only the live root can spawn a
+coordinator, so the controls are:
+
+1. Tell the root to stop spawning coordinators and to stop assigning work that
+   would need one. Do not start another root to spawn them.
+2. Record the time of the instruction and the roster snapshot
+   (`ao coordinator ls -p <project>`).
+3. Do not terminate the root as a way to "disable" the feature: that stops
+   helper summaries from reaching a root and leaves root-addressed work pending.
+
+This is weaker than the ADR requires. State it as a gap in the pilot record until
+the gate ships.
+
+### Drain or reassign a coordinator's workers
+
+There is no coordinator drain command. Draining is an ordered sequence, and the
+BFF's Railway worker drain is unrelated: it gates work to a Railway worker
+service and never touches coordinator ownership. **(guidance)**
+
+1. Ask the coordinator for a final summary: `done` when its scope is complete or
+   `blocked` with the reason when it is not. Its system prompt and the operating
+   contract require it to stop acting on a worker the root reassigns.
+2. Let active workers reach a checkpoint (pull request open, checks running) or
+   finish. Do not kill worker sessions to drain a coordinator.
+3. Reassign every worker to the root, or to another live coordinator with a free
+   slot, from the root's session:
+
+   ```sh
+   ao session assign <worker-id> --owner root
+   ao session assign <worker-id> --owner <other-coordinator-id>
+
+   # Linked remote workers use the link identity:
+   ao remote-worker assign <host-id> <remote-session-id> --owner root
+   ao remote-worker assign <host-id> <remote-session-id> --owner <other-coordinator-id>
+   ```
+
+4. Retry `409 OWNER_REASSIGNMENT_IN_FLIGHT`: a report of that worker is claimed
+   for the old owner, and the write succeeds once the claim is released or
+   acknowledged. Do not delete the report to clear the error.
+5. Verify before moving on (next section). Terminate the coordinator only after
+   its workers have an owner you intend.
+
+What this does **not** do:
+
+- It does not delete a worker session, worktree, report, or summary.
+- It does not move a report that is already claimed; it routes on the next
+  claim.
+- It does not change the project total when the target is the root.
+- It does not reattach workers when a terminated coordinator is restored; the
+  root assigns them explicitly.
+
+### Return the project to root-owned workers
+
+Run every write from the live root (the CLI uses `AO_SESSION_ID`; pass
+`--requested-by <root-id>` when it is not the current session, and always with
+`--host`). Verify ownership at the root **before** terminating anything:
+
+```sh
+# Each worker: owner = root, project root resolved.
+ao session owner <worker-id>
+
+# The whole hierarchy, including terminated coordinators.
+ao coordinator ls -p <project> --include-terminated
+
+# Remote links and their local owners.
+ao remote-worker ls -p <project>
+
+# Listing view: the OWNER column is "root" for root-owned workers.
+ao session ls -p <project>
+```
+
+The expected result after reassignment:
+
+- every worker and remote link has owner `NULL` (printed as `root`), and
+  `ao session owner` names the live root as the project root;
+- each coordinator shows `workers: 0` (or is still listed with the workers it
+  owns until you reassign them);
+- `needsRecovery` is false for every coordinator;
+- the coordinator sessions still exist, with their scopes and summaries.
+
+Only then terminate the coordinator:
+
+```sh
+ao session kill <coordinator-id>
+```
+
+Termination returns any worker or link it still owns to the root atomically and
+audits the change. It does **not** delete the coordinator, its workers, or their
+reports. Because of open defect
+[#340](https://github.com/petarnenov/ultra-factory/issues/340), it does not
+write the `coordinator_terminated` escalation summary to the root either, so
+confirm the handback yourself with the commands above instead of waiting for a
+notification.
+
+Do not run `ao session cleanup` during this sequence: it reclaims workspaces of
+terminated sessions (skipping dirty worktrees). **(guidance)** Keep worktrees
+until ownership and delivery are confirmed.
+
+### Check before declaring a rollout complete
+
+The pilot is complete only when every row is recorded with evidence, on the
+issue, not only in chat. **(guidance)** for the checklist itself; each item is a
+consequence of ADR 0010 or the merged implementation.
+
+- [ ] One live root; at most two live coordinators; scopes are disjoint and
+      documented in the roster.
+- [ ] Six active workers at most, three per coordinator; every owner is correct
+      in `ao session owner` and in the remote-link list.
+- [ ] Owner-routed delivery is observed: each worker's report reaches its owner
+      once, and a duplicate is not delivered twice.
+- [ ] Summaries and escalations reach the root; `deliveryState` becomes
+      `acknowledged` and `lastError` stays empty.
+- [ ] Capacity refusals are observed with the expected codes, return exit 1, and
+      leave no session row or consumed slot.
+- [ ] Coordinator termination returns workers and links to the root; a
+      replacement coordinator can take them; restore does not reattach them.
+- [ ] Only the root merges: a coordinator or worker gets `403 MERGE_ROOT_ONLY`;
+      the root passes.
+- [ ] A hub daemon restart with a delivery in flight loses nothing and does not
+      duplicate a claim or an acknowledgement. **(Pending operator run:** the
+      service-level pilot covers restart and requeue; the live process restart
+      is part of #227.)
+- [ ] Per-process memory for the root, both coordinators, and every worker is
+      recorded, and the hub service memory stays within the agreed headroom
+      against the #218 baseline. **(Pending operator run)**
+- [ ] Disabling and rollback were rehearsed in an isolated environment
+      (`AO_DATA_DIR` scratch data, never production), and the ownership checks
+      above were run there.
+- [ ] The ADR gate exists, defaults to `enabled=false`, and the pilot project is
+      the only project with a coordinator. **(Blocking; not implemented today.)**
+
+### Rollback steps
+
+Run in this order. The goal is root-owned workers with every pending report and
+summary delivered, and **no** coordinator, worker, report, or summary deleted.
+
+1. **Record the trigger and evidence.** UTC time, deployed revision, project id,
+   roster before (`ao coordinator ls -p <project>`), remote links, pending
+   counts, and the signal that triggered the rollback.
+2. **Stop new coordinator spawns.** Set `coordinators.enabled=false` when the
+   gate exists; otherwise instruct the root to stop spawning and record that the
+   gate is missing. Do not terminate the root.
+3. **Drain.** Ask each coordinator for a final `done` or `blocked` summary; let
+   workers reach a checkpoint; start no new tasks.
+4. **Reassign every worker and remote link to the root.** `ao session assign
+   <worker> --owner root`; `ao remote-worker assign <host> <remote-session>
+   --owner root`. Retry `OWNER_REASSIGNMENT_IN_FLIGHT`; never delete a report or
+   a link to clear it.
+5. **Verify ownership at the root before terminating.** `ao session owner` for
+   every worker, `ao coordinator ls --include-terminated`,
+   `ao remote-worker ls`. Every worker must resolve to the live root.
+6. **Terminate each coordinator.** `ao session kill <coordinator-id>`. Keep the
+   rows; termination is not deletion. If you skipped step 4, the termination
+   trigger still returns the workers to the root, but #340 means the root gets no
+   escalation summary, so verify manually.
+7. **Verify pending reports and summaries reach the root.** Check the summary
+   history (`deliveryState`, `lastError`) and the report-table query above; the
+   root's conversation must show the handback. A live-but-exited coordinator
+   blocks delivery until termination, so finish step 6 first.
+8. **Verify nothing was deleted.** Coordinators still appear with
+   `--include-terminated`; worker sessions, worktrees, reports, and summaries
+   are intact; no `needsRecovery`; `ao session cleanup` has not run.
+9. **Keep the feature off.** Leave `enabled=false` (or the procedural stop in
+   place) for every project. The schema stays; coordinator rows stay terminated.
+   Do not downgrade the binary while any `kind='coordinator'` row exists: an
+   older daemon does not understand the value, and the schema Down migration is
+   not a rollback path.
+10. **Record the outcome** on #227/#228: what was reassigned, what delivered,
+    what is still pending, and the exact revision. Do not delete the pilot
+    project's records to "clean up".
+
+If a step fails, stop and keep the feature off. Do not force-delete a worktree,
+delete a link, or drop the database; inspect with the roster, the ownership
+commands, and the read-only report query, and escalate with the evidence.
+
+### Criteria to disable the pilot
+
+**(guidance)** These are operator thresholds, not ADR rules. The ADR only says
+limits may be lowered without a schema change and that disabling blocks new
+spawns while keeping routing and restore. Disable and roll back when any of the
+following holds for longer than the agreed observation window:
+
+- Hub service memory is repeatedly at or above 90% of its configured limit, or
+  the measured coordinator cost makes the comparison against #218 fail.
+- A coordinator is live but its agent is exited with pending summaries or
+  reports that are not draining.
+- A capacity rejection blocks planned work while the census shows a free slot,
+  or a rejected spawn consumed a slot.
+- Pending report or summary age exceeds the agreed threshold, `lastError`
+  repeats, or a report is acknowledged without an accepted turn.
+- `needsRecovery` is true for any coordinator, or a handback leaves a worker
+  pointing at a terminated owner.
+- A duplicate delivery, a lost report, or a merge by a non-root session is
+  observed.
+
+### Operator values to fill in
+
+| Value | Where it goes |
+| --- | --- |
+| Pilot project id and display name | This runbook's copy of the record; issue #227 |
+| Hub service, environment, memory limit in force | Pilot record; compare with #218 |
+| Paired host labels and harness assignment (six workers) | Pilot record |
+| Observation window (UTC start/end), sample interval, repeat window | Pilot record; use [resource-baseline.md](resource-baseline.md) |
+| #218 baseline peak RSS and hub headroom, or "not measured" | Pilot record; the comparison section of the baseline template |
+| Agreed pending-report age threshold | Pilot record, before the run |
+| Approval decision (who, when) and rollback owner | Pilot record |
+| Deployed revision/version and the run's head commit | Pilot record; issue #227 |
+
+Until these values are filled from a real run, the runbook is complete but the
+rollout is **not approved**.
 
 ## Local end-to-end test
 
