@@ -1316,8 +1316,14 @@ A coordinator has its own `workerLimit`, stored on the coordinator session.
 
 - It is set at spawn. When the spawn request omits it, the project's
   `maxWorkersPerCoordinator` applies (decision 5).
-- It may not exceed the project's `maxWorkersPerCoordinator`. A value above it
-  is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`.
+- A given value must be an integer from 1 up to the effective project
+  `maxWorkersPerCoordinator`. Unlike the project fields, `0` does not mean the
+  default in a request: omit the field for the default. `0`, a negative value,
+  or a value above the effective project ceiling is rejected with
+  `COORDINATOR_WORKER_LIMIT_INVALID` (`field` is `workerLimit`, `max` is the
+  effective project `maxWorkersPerCoordinator`). The same rule applies at spawn
+  and on the live-change route; on the live route an omitted `workerLimit`
+  leaves the stored value unchanged.
 - It can change on a live coordinator, by the live root or by the operator from
   the UI on behalf of the root (see decision 6 for the marker and the audit).
   The new value stays within the project ceiling.
