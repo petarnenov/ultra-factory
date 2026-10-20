@@ -386,9 +386,7 @@ async function fetchRemoteProjects(hostId: string) {
 	return data?.projects ?? [];
 }
 
-// Polling asks for live sessions only: a host accumulates terminated sessions
-// forever, and the unfiltered list was ~110 KB per fetch. Terminated sessions
-// load on demand through fetchRemoteTerminatedSessions.
+// Polls ask for live sessions only; terminated ones load on demand.
 async function fetchRemoteSessions(hostId: string, query: { active: boolean; project?: string } = { active: true }) {
 	const { data, error, response } = await clientForHost(hostId).GET("/api/v1/sessions", { params: { query } });
 	if (error) {
@@ -659,7 +657,7 @@ export function remoteWorkspacesQueryOptions(hostId: string) {
 	};
 }
 
-/** Terminated sessions of one remote project, loaded only where an archive is shown. */
+/** Terminated sessions of one remote project, for the archive only. */
 export function useRemoteTerminatedSessions(hostId: string | undefined, projectId: string | undefined, project?: Pick<WorkspaceSummary, "id" | "name">) {
 	const query = useQuery({
 		queryKey: ["remote-terminated-sessions", hostId ?? "", projectId ?? ""],

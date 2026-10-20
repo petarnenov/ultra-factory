@@ -19,7 +19,7 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 	const localProject = localQuery.data?.find((workspace) => workspace.id === projectId);
 	const localIdentity = useProjectIdentity(undefined, projectId);
 	const associations = localIdentity.data?.aggregateProjects ?? [];
-	// Same projects/sessions queries as the sidebar, so one fetch per host serves both.
+	// Same queries as the sidebar: one fetch per host.
 	const remote = useRemoteWorkspaces();
 	const associated = associations.map((ref) => {
 		return {
