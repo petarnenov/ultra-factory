@@ -12709,7 +12709,7 @@ export interface operations {
             query?: {
                 /** @description Read items older than this conversation sequence. Omit for the newest page. */
                 beforeSequence?: null | number;
-                /** @description Return only turns, messages and activities written at or after this revision, read from a previous response. Cannot be combined with beforeSequence; a cursor newer than the host answers 409. */
+                /** @description Only entries changed since this revision. */
                 sinceRevision?: null | number;
                 /** @description Maximum combined messages and activities to return. Defaults to 200. */
                 limit?: null | number;
@@ -14385,7 +14385,7 @@ export interface operations {
             query?: {
                 /** @description Read items older than this conversation sequence. Omit for the newest page. */
                 beforeSequence?: null | number;
-                /** @description Return only turns, messages and activities written at or after this revision, read from a previous response. Cannot be combined with beforeSequence; a cursor newer than the host answers 409. */
+                /** @description Only entries changed since this revision. */
                 sinceRevision?: null | number;
                 /** @description Maximum combined messages and activities to return. Defaults to 200. */
                 limit?: null | number;

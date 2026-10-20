@@ -4289,15 +4289,11 @@ paths:
           type:
           - "null"
           - integer
-      - description: Return only turns, messages and activities written at or after
-          this revision, read from a previous response. Cannot be combined with beforeSequence;
-          a cursor newer than the host answers 409.
+      - description: Only entries changed since this revision.
         in: query
         name: sinceRevision
         schema:
-          description: Return only turns, messages and activities written at or after
-            this revision, read from a previous response. Cannot be combined with
-            beforeSequence; a cursor newer than the host answers 409.
+          description: Only entries changed since this revision.
           minimum: 1
           type:
           - "null"
@@ -5700,15 +5696,11 @@ paths:
           type:
           - "null"
           - integer
-      - description: Return only turns, messages and activities written at or after
-          this revision, read from a previous response. Cannot be combined with beforeSequence;
-          a cursor newer than the host answers 409.
+      - description: Only entries changed since this revision.
         in: query
         name: sinceRevision
         schema:
-          description: Return only turns, messages and activities written at or after
-            this revision, read from a previous response. Cannot be combined with
-            beforeSequence; a cursor newer than the host answers 409.
+          description: Only entries changed since this revision.
           minimum: 1
           type:
           - "null"

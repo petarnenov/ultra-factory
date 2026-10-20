@@ -859,11 +859,8 @@ func laterTime(a, b time.Time) time.Time {
 	return a
 }
 
-// applyConversationDelta keeps only timeline entries written at or after the
-// cursor; the equality keeps same-instant writes from being missed. Turns are
-// always kept because their diff and plan carry no write time. When the
-// oldest entry of a windowed page changed, older ones may have too, so the full
-// page is served instead.
+// applyConversationDelta keeps entries written at or after the cursor; turns
+// stay as they carry no write time. A changed oldest entry means full page.
 func applyConversationDelta(out *ConversationSnapshotResponse, s chatsvc.Snapshot, since int64) {
 	changed := func(t time.Time) bool { return t.UnixNano() >= since }
 	if s.HasMoreBefore && s.OldestSequence > 0 {
