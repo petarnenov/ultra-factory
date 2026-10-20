@@ -141,6 +141,10 @@ type localDaemon struct {
 	linkCode string
 	// checkCode, when set, makes POST remote-worker-links/check answer 409.
 	checkCode string
+	// checkAgent, when set, makes the check answer with a forced agent for a
+	// request that names a host; checkBodies records every check request.
+	checkAgent  string
+	checkBodies []string
 }
 
 func (d *localDaemon) answerLinks(status int) {
@@ -175,9 +179,16 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
 		d.mu.Unlock()
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links/check" {
+			checkBody, _ := io.ReadAll(r.Body)
 			d.mu.Lock()
-			code := d.checkCode
+			code, forced := d.checkCode, d.checkAgent
+			d.checkBodies = append(d.checkBodies, string(checkBody))
 			d.mu.Unlock()
+			if forced != "" && strings.Contains(string(checkBody), `"hostId"`) {
+				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "agent": map[string]string{
+					"profileId": "p", "harness": forced, "model": "m", "effort": "e"}})
+				return
+			}
 			if code != "" {
 				writeTestJSON(w, http.StatusConflict, map[string]string{"error": "conflict", "code": code, "message": "worker limit reached"})
 				return

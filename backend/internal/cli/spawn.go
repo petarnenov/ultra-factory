@@ -241,9 +241,11 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				if err := ctx.checkRemoteWorkerCapacity(cmd.Context(), localParentID); err != nil {
 					return err
 				}
-				agent, err := ctx.checkRemoteWorkerAgent(cmd.Context(), localParentID, &req, explicitHarness != "")
-				if err != nil {
-					return err
+				var agent *remoteWorkerAgent
+				if req.RemoteSpawn {
+					if agent, err = ctx.checkRemoteWorkerAgent(cmd.Context(), localParentID, &req, explicitHarness != ""); err != nil {
+						return err
+					}
 				}
 				if agent != nil {
 					req.Harness, req.Model, req.Effort = agent.Harness, agent.Model, agent.Effort

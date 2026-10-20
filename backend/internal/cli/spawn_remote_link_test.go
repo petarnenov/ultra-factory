@@ -319,3 +319,37 @@ func TestRemoteOrchestratorSpawnIsNotMarkedRemote(t *testing.T) {
 		t.Fatalf("orchestrator spawn body = %s, want no remoteSpawn", req.body)
 	}
 }
+
+func TestRemoteOrchestratorSpawnIgnoresWorkerAgentProfiles(t *testing.T) {
+	local, remote := newLinkedSpawnFixture(t)
+	local.answerLinks(http.StatusCreated)
+	local.mu.Lock()
+	local.checkAgent = "codex"
+	local.mu.Unlock()
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+	_, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--kind", "orchestrator",
+		"--name", "remote root", "--prompt", "go", "--agent", "claude-code", "--skip-agent-check")
+	if err != nil {
+		t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+	}
+	local.mu.Lock()
+	bodies := append([]string(nil), local.checkBodies...)
+	local.mu.Unlock()
+	for _, body := range bodies {
+		if strings.Contains(body, `"hostId"`) {
+			t.Fatalf("an orchestrator spawn asked for a worker agent profile: %s", body)
+		}
+	}
+	recorded, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+	if !ok {
+		t.Fatal("remote spawn request not recorded")
+	}
+	var spawned spawnRequest
+	if err := json.Unmarshal([]byte(recorded.body), &spawned); err != nil {
+		t.Fatal(err)
+	}
+	if spawned.Harness != "claude-code" || spawned.AgentProfileID != "" || spawned.Model != "" {
+		t.Fatalf("orchestrator spawn = %+v, want its own harness and no profile", spawned)
+	}
+}
