@@ -355,6 +355,12 @@ PR actions are available through `ao pr merge` and
 `ao review trigger` (also `execute` and `restart`), `ao review cancel` (also
 `stop`), and `ao review submit`.
 
+`ao pr merge <pr-number>` merges a pull request that an AO session tracks. It
+looks up the pull request's URL and current head commit from the owning
+session and asks the daemon to merge exactly that head. `--head <sha>` pins the
+commit you reviewed instead, and `--project <id>` disambiguates a PR number that
+exists in several projects.
+
 `ao pr merge` sends `AO_SESSION_ID` as `requestedBySessionId` (ADR 0010). The
 daemon refuses a live coordinator or worker with `403 MERGE_ROOT_ONLY`; the
 root, a human, and any caller that omits or does not match a live session
