@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -471,5 +472,38 @@ func TestSessionGetCoordinatorShowsItsWorkersSummaryAndRecovery(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil || got.Coordinator == nil ||
 		got.Coordinator.WorkerCount != 1 || !got.Coordinator.NeedsRecovery {
 		t.Fatalf("detail = %+v err=%v\n%s", got, err, jsonOut)
+	}
+}
+
+func TestCoordinatorReportSendsReadyPRs(t *testing.T) {
+	srv, capture := ownershipServer(t, http.StatusCreated, `{"id":"csum_1","state":"done","escalation":false,"deliveryState":"pending"}`)
+	t.Setenv("AO_SESSION_ID", "demo-coord")
+
+	if _, errOut, err := runOwnershipCLI(t, srv, "coordinator", "report", "--state", "done",
+		"--ready-pr", "12@abc123", "--ready-pr", "#13@def456@run-9"); err != nil {
+		t.Fatalf("coordinator report failed: %v\nstderr=%s", err, errOut)
+	}
+	var body coordinatorSummaryBody
+	if err := json.Unmarshal([]byte(capture.body), &body); err != nil {
+		t.Fatalf("body %q: %v", capture.body, err)
+	}
+	want := []readyPRBody{{Number: 12, HeadSHA: "abc123"}, {Number: 13, HeadSHA: "def456", ReviewRunID: "run-9"}}
+	if len(body.ReadyPRs) != 2 || body.ReadyPRs[0] != want[0] || body.ReadyPRs[1] != want[1] {
+		t.Fatalf("readyPRs = %+v, want %+v", body.ReadyPRs, want)
+	}
+}
+
+func TestCoordinatorReportRejectsMalformedReadyPR(t *testing.T) {
+	srv, capture := ownershipServer(t, http.StatusCreated, `{}`)
+	t.Setenv("AO_SESSION_ID", "demo-coord")
+	for _, bad := range []string{"12", "abc@sha", "0@sha", "12@", "1@a@b@c"} {
+		_, _, err := runOwnershipCLI(t, srv, "coordinator", "report", "--state", "done", "--ready-pr", bad)
+		var usage usageError
+		if !errors.As(err, &usage) {
+			t.Fatalf("--ready-pr %q err = %v, want usage error", bad, err)
+		}
+	}
+	if capture.path != "" {
+		t.Fatalf("a malformed --ready-pr still reached the daemon: %s", capture.path)
 	}
 }

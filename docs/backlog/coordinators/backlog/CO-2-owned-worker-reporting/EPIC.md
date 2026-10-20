@@ -1,6 +1,6 @@
 # CO-2 · Epic: Persist coordinator ownership and route reports
 
-**Status:** 🔄 in progress — CO-2.1.1 merged in [#296](https://github.com/petarnenov/ultra-factory/pull/296); CO-2.1.2 is in review in [#318](https://github.com/petarnenov/ultra-factory/pull/318).
+**Status:** ✅ done — CO-2.1.1, CO-2.1.2, CO-2.2.1 and CO-2.2.2 are merged ([#296](https://github.com/petarnenov/ultra-factory/pull/296), [#318](https://github.com/petarnenov/ultra-factory/pull/318), [#328](https://github.com/petarnenov/ultra-factory/pull/328), [#329](https://github.com/petarnenov/ultra-factory/pull/329)) and issue [#206](https://github.com/petarnenov/ultra-factory/issues/206) is closed.
 
 **Goal.** Store each worker's coordinator owner and deliver worker reports to
 that owner, while preserving the root orchestrator as the project-level

@@ -48,6 +48,13 @@ func (s *Store) CreateCoordinatorSummary(ctx context.Context, rec domain.Coordin
 				return err
 			}
 		}
+		for i, pr := range rec.ReadyPRs {
+			if err := q.InsertCoordinatorSummaryReadyPR(ctx, gen.InsertCoordinatorSummaryReadyPRParams{
+				SummaryID: row.ID, PRNumber: int64(pr.Number), HeadSha: pr.HeadSHA, ReviewRunID: pr.ReviewRunID, Position: int64(i),
+			}); err != nil {
+				return err
+			}
+		}
 		out, created = row, true
 		return nil
 	})
@@ -231,7 +238,14 @@ func (s *Store) summaryWithWorkers(ctx context.Context, row gen.CoordinatorSumma
 	if err != nil {
 		return domain.CoordinatorSummary{}, fmt.Errorf("list coordinator summary remote workers: %w", err)
 	}
+	ready, err := s.qr.ListCoordinatorSummaryReadyPRs(ctx, row.ID)
+	if err != nil {
+		return domain.CoordinatorSummary{}, fmt.Errorf("list coordinator summary ready prs: %w", err)
+	}
 	rec := coordinatorSummaryFromGen(row)
+	for _, pr := range ready {
+		rec.ReadyPRs = append(rec.ReadyPRs, domain.ReadyPR{Number: int(pr.PRNumber), HeadSHA: pr.HeadSha, ReviewRunID: pr.ReviewRunID})
+	}
 	for _, r := range remotes {
 		rec.RemoteWorkers = append(rec.RemoteWorkers, domain.SummaryRemoteWorker{HostID: r.HostID, RemoteSessionID: r.RemoteSessionID})
 	}

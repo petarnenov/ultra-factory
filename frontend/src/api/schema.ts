@@ -4643,6 +4643,7 @@ export interface components {
             escalationNote?: string;
             /** @enum {string} */
             escalationReason?: "overlapping_files" | "unclear_acceptance" | "worker_failed" | "scope_decision" | "other";
+            readyPRs?: components["schemas"]["ControllersReadyPRRequest"][];
             result?: string;
             scope?: string;
             /** @enum {string} */
@@ -4666,6 +4667,7 @@ export interface components {
             id: string;
             lastError?: string;
             projectId: string;
+            readyPRs: components["schemas"]["ControllersReadyPRResponse"][];
             result: string;
             scope: string;
             /** @enum {string} */
@@ -4681,6 +4683,16 @@ export interface components {
         };
         ControllersKillSessionRequest: {
             deleteArtifacts?: boolean;
+        };
+        ControllersReadyPRRequest: {
+            headSha: string;
+            number: number;
+            reviewRunId?: string;
+        };
+        ControllersReadyPRResponse: {
+            headSha: string;
+            number: number;
+            reviewRunId: string;
         };
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
@@ -6804,6 +6816,7 @@ export interface components {
             /** @enum {string} */
             approvalMode?: "default" | "accept-edits" | "auto" | "bypass-permissions";
             attachments?: components["schemas"]["AttachmentInput"][];
+            autoReview?: null | boolean;
             branch?: string;
             clientRequestId?: string;
             coordinatorAgent?: components["schemas"]["AgentSelection"];
@@ -11293,7 +11306,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11388,7 +11401,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11492,7 +11505,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11958,7 +11971,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12049,7 +12062,7 @@ export interface operations {
                     "application/json": components["schemas"]["ClonePreparationResult"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12163,7 +12176,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: MERGE_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12575,7 +12588,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12593,7 +12606,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13672,8 +13685,17 @@ export interface operations {
                     "application/json": components["schemas"]["SpawnSessionResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: coordinator codes in x-error-codes */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden: COORDINATOR_ROOT_REQUIRED */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13683,6 +13705,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict: coordinator codes in x-error-codes */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17616,7 +17647,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17634,7 +17665,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;

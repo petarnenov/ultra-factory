@@ -40,6 +40,7 @@ type spawnOptions struct {
 	skipAgentCheck     bool
 	trackerProvider    string
 	terminateOnPRMerge bool
+	autoReview         bool
 	scope              string
 	workerAgent        string
 	coordinatorAgent   string
@@ -72,6 +73,7 @@ type spawnRequest struct {
 	RemoteSpawn        bool   `json:"remoteSpawn,omitempty"`
 	AgentProfileID     string `json:"agentProfileId,omitempty"`
 	TerminateOnPRMerge *bool  `json:"terminateOnPrMerge,omitempty"`
+	AutoReview         *bool  `json:"autoReview,omitempty"`
 }
 
 type spawnResult struct {
@@ -214,6 +216,16 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				value := opts.terminateOnPRMerge
 				terminateOnPRMerge = &value
 			}
+			var autoReview *bool
+			if cmd.Flags().Changed("auto-review") {
+				value := opts.autoReview
+				autoReview = &value
+			} else if ctx.targetsRemote() && localParentID != "" && ctx.localCoordinatorLive(cmd.Context(), localParentID) {
+				// The peer cannot see the local coordinator, so the default
+				// for coordinator-owned workers is sent explicitly.
+				value := true
+				autoReview = &value
+			}
 			req := spawnRequest{
 				ProjectID:          opts.project,
 				IssueID:            opts.issue,
@@ -234,6 +246,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				DisplayName:        name,
 				RemoteSpawn:        ctx.targetsRemote() && opts.kind != "orchestrator",
 				TerminateOnPRMerge: terminateOnPRMerge,
+				AutoReview:         autoReview,
 			}
 			if ctx.remote != nil && localParentID != "" && !opts.standalone {
 				if err := ctx.checkRemoteWorkerCapacity(cmd.Context(), localParentID); err != nil {
@@ -334,6 +347,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.model, "model", "", "Agent model override for this session only (e.g. sonnet, gpt-5.6-sol); overrides project/role config without changing it. The value must be valid for the resolved harness or the daemon blocks the spawn")
 	f.StringVar(&opts.effort, "effort", "", "Reasoning effort for the selected model (e.g. low, medium, high); must be one the model advertises or the daemon blocks the spawn")
 	f.StringVar(&opts.output, "output", "", "Deliverable for the session: artifact asks the agent to write a file in its artifact directory instead of opening a PR (default: ordinary task)")
+	f.BoolVar(&opts.autoReview, "auto-review", false, "Review this session's PR heads automatically; overrides the project default. Also sent with --host")
 	f.BoolVar(&opts.terminateOnPRMerge, "terminate-on-pr-merge", false, "Tear down this session after all its PRs reach a terminal state with at least one merged and the agent quiesces; overrides the project default")
 	f.StringVar(&opts.issue, "issue", "", "Issue id to associate with the session")
 	f.StringVar(&opts.trackerProvider, "tracker-provider", "github", "Issue tracker provider: github or gitlab (default: github)")
@@ -362,6 +376,13 @@ func (c *commandContext) linkRemoteWorker(ctx context.Context, parentID string, 
 		return "", err
 	}
 	return link.PullBlocked, nil
+}
+
+// localCoordinatorLive reports whether id is a live coordinator on this
+// machine. A failed lookup reads as no, so a spawn never fails on it.
+func (c *commandContext) localCoordinatorLive(ctx context.Context, id string) bool {
+	session, err := c.localContext().fetchScopedSession(ctx, id, "")
+	return err == nil && session.Kind == "coordinator" && !session.IsTerminated
 }
 
 // checkRemoteWorkerCapacity asks the local daemon if a link would pass its

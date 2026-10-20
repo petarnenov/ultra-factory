@@ -3038,7 +3038,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3153,7 +3153,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3198,7 +3198,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3586,7 +3586,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3650,7 +3650,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3738,7 +3738,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: MERGE_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4052,7 +4052,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4064,7 +4064,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -4080,6 +4080,12 @@ paths:
       summary: Assign or clear a linked remote worker's local owner
       tags:
       - reports
+      x-error-codes:
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -4956,13 +4962,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: coordinator codes in x-error-codes'
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: COORDINATOR_ROOT_REQUIRED'
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Conflict: coordinator codes in x-error-codes'
         "500":
           content:
             application/json:
@@ -4972,6 +4990,18 @@ paths:
       summary: Spawn a new agent session
       tags:
       - sessions
+      x-error-codes:
+        "400":
+        - COORDINATOR_SCOPE_REQUIRED
+        - COORDINATOR_SCOPE_TOO_LONG
+        - REMOTE_SPAWN_WORKER_REQUIRED
+        "403":
+        - COORDINATOR_ROOT_REQUIRED
+        "409":
+        - COORDINATORS_DISABLED
+        - COORDINATOR_LIMIT_REACHED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - PROJECT_WORKER_LIMIT_REACHED
   /api/v1/sessions/{sessionId}:
     get:
       operationId: getSession
@@ -8302,7 +8332,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -8314,7 +8344,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -8330,6 +8360,13 @@ paths:
       summary: Assign or clear a worker's coordinator owner (live root only)
       tags:
       - sessions
+      x-error-codes:
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - OWNER_REASSIGNMENT_IN_FLIGHT
   /api/v1/sessions/{sessionId}/ownership:
     get:
       operationId: getSessionOwnership
@@ -13907,6 +13944,11 @@ components:
           - scope_decision
           - other
           type: string
+        readyPRs:
+          items:
+            $ref: '#/components/schemas/ControllersReadyPRRequest'
+          maxItems: 10
+          type: array
         result:
           maxLength: 2000
           type: string
@@ -13967,6 +14009,10 @@ components:
           type: string
         projectId:
           type: string
+        readyPRs:
+          items:
+            $ref: '#/components/schemas/ControllersReadyPRResponse'
+          type: array
         result:
           type: string
         scope:
@@ -13992,6 +14038,7 @@ components:
       - scope
       - state
       - workerSessionIds
+      - readyPRs
       - result
       - escalation
       - createdAt
@@ -14018,6 +14065,35 @@ components:
       properties:
         deleteArtifacts:
           type: boolean
+      type: object
+    ControllersReadyPRRequest:
+      properties:
+        headSha:
+          maxLength: 64
+          minLength: 1
+          type: string
+        number:
+          minimum: 1
+          type: integer
+        reviewRunId:
+          maxLength: 200
+          type: string
+      required:
+      - number
+      - headSha
+      type: object
+    ControllersReadyPRResponse:
+      properties:
+        headSha:
+          type: string
+        number:
+          type: integer
+        reviewRunId:
+          type: string
+      required:
+      - number
+      - headSha
+      - reviewRunId
       type: object
     ControllersRemoteHostAccountTokenResponse:
       properties:
@@ -19581,6 +19657,10 @@ components:
           items:
             $ref: '#/components/schemas/AttachmentInput'
           type: array
+        autoReview:
+          type:
+          - "null"
+          - boolean
         branch:
           type: string
         clientRequestId:

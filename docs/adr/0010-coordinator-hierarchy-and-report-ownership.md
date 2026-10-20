@@ -1702,3 +1702,86 @@ and #390 landed) for conflicts:
 
 Implementation tasks must add tests for every code in A5, for the default
 behavior with no new field set, and for the migration up and down.
+
+### A9. Ready-PR hand-off and default auto-review
+
+A coordinator hands a pull request to the root only when an AO native review
+approved its exact head, required CI is green, and no review thread is
+unresolved. Merge authority does not move: only the root merges, and a
+coordinator running `ao pr merge` is still refused with `MERGE_ROOT_ONLY`.
+
+- **Spawn-time `autoReview`.** The spawn request takes an optional
+  `autoReview` boolean (`ao spawn --auto-review[=true|false]`). When set, it
+  overrides the project's `autoReview` for that one session, including a
+  `--host` spawn, where the peer daemon applies it. Without the field the
+  project default applies.
+- **Coordinator rule.** A worker whose spawn parent is a live coordinator gets
+  `autoReview=true` unless the spawn sets `false`. For a `--host` spawn the
+  calling CLI resolves the local parent and sends the value, because the peer
+  cannot see the local coordinator. Root-owned workers are unchanged.
+- **`readyPRs` on a summary.** `ao coordinator report --ready-pr
+  <number>@<head-sha>[@<review-run-id>]` and `POST
+  /api/v1/coordinator-summaries` carry `readyPRs: [{number, headSha,
+  reviewRunId}]`. The daemon validates every entry before it stores the
+  summary: the PR belongs to a worker this coordinator owns, is still open,
+  `headSha` is its current head, and the review run is complete (or delivered)
+  with an approved verdict for that head. An omitted `reviewRunId` resolves to
+  the newest approved run for the head. One bad entry rejects the whole summary
+  and stores nothing.
+- **Scope.** Validation reads this daemon's PR and review records, so it covers
+  workers on this machine. CI and unresolved threads are the coordinator's check
+  and the root's re-check, not part of the daemon validation.
+- **Root.** A summary lists each ready PR with its head SHA. The root re-checks
+  that the head is unchanged and CI is green, then merges with `gh pr merge <n>
+  --squash --match-head-commit <sha>`. It does not re-run the review for an
+  approved head.
+
+New error code:
+
+| Code | Kind / status | When | Details |
+| --- | --- | --- | --- |
+| `READY_PR_INVALID` | Invalid / 400 | A `readyPRs` entry names a PR outside this coordinator's workers, a head that is not current, a PR that is not open, or a review run that is missing, for another head, or not approved | `number`, `reason` (`pr_not_owned`, `pr_not_open`, `stale_head`, `review_run_not_found`, `review_head_mismatch`, `review_not_approved`) |
+
+## Implementation notes
+
+These notes record where the shipped code (0.18.0) differs from the text
+above. The decisions and the Accepted status are unchanged.
+
+### N1. The project worker cap binds only while a coordinator is live
+
+Section 8 counts every live worker, root-owned ones included, against the
+project total. The code applies the project total (and the per-coordinator
+cap) only while at least one coordinator is live: `Counts.CheckNewWorker`
+returns early when `Coordinators == 0`
+(`backend/internal/service/ownership/capacity.go`), and the spawn path skips the
+exclusive lock for a root-owned worker in that case
+(`backend/internal/service/session/coordinator.go`). A project that has never
+enabled coordinators, or has none live, keeps its pre-0.18.0 behavior of no
+worker cap. This is deliberate: it is safer for existing projects, which could
+otherwise start refusing direct spawns after an upgrade. Once a coordinator is
+live, root-owned and remote workers count toward the total as section 8
+describes.
+
+### N2. Remote worker reassignment CLI
+
+Section 12 describes `ao session assign --host <host> --remote-session <id>`.
+The shipped commands are `ao remote-worker assign <host-id> <remote-session-id>
+--owner <coordinator-id|root>` and `ao remote-worker ls`
+(`backend/internal/cli/ownership.go`). `ao session assign <worker>` covers
+local workers only. The daemon route is unchanged:
+`PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner`.
+
+### N3. Merge guard scope
+
+`MERGE_ROOT_ONLY` (invariant I6) applies to every live worker and coordinator
+in every project, whether or not coordinators are enabled
+(`backend/internal/service/ownership/ownership.go`,
+`backend/internal/service/pr/action_service.go`). Since 0.18.0 a worker that runs
+`ao pr merge` receives 403. The runbook (`deploy/railway/README.md`) and
+`AGENTS.md` say so.
+
+### N4. Deviations fixed elsewhere
+
+The `coordinator_terminated` root escalation (section 7) was missing until
+#340, which migration `0216` closed. The amendment above covers the configurable
+limits.

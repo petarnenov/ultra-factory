@@ -1,6 +1,6 @@
 # CO-4.2.1 · Task: Document coordinator rollout and rollback
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#341](https://github.com/petarnenov/ultra-factory/pull/341); issue [#228](https://github.com/petarnenov/ultra-factory/issues/228) is closed.
 
 **Type:** operations and documentation. **Estimate:** 1–2 pd. **Story:** CO-4.2.
 

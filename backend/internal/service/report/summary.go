@@ -19,6 +19,10 @@ type SummaryStore interface {
 	CreateCoordinatorSummary(context.Context, domain.CoordinatorSummary) (domain.CoordinatorSummary, bool, error)
 	GetCoordinatorSummaryByKey(context.Context, domain.SessionID, string) (domain.CoordinatorSummary, bool, error)
 	ListCoordinatorSummaries(context.Context, domain.SessionID, int64) ([]domain.CoordinatorSummary, error)
+	ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error)
+	ListPRsBySession(context.Context, domain.SessionID) ([]domain.PullRequest, error)
+	GetReviewRun(context.Context, string) (domain.ReviewRun, bool, error)
+	ListReviewRunsBySession(context.Context, domain.SessionID) ([]domain.ReviewRun, error)
 }
 
 // SummaryInput is the caller payload of one coordinator summary submission.
@@ -28,9 +32,12 @@ type SummaryInput struct {
 	Scope                string
 	State                domain.CoordinatorSummaryState
 	WorkerSessionIDs     []domain.SessionID
-	Result               string
-	EscalationReason     domain.EscalationReason
-	EscalationNote       string
+	// ReadyPRs hands PRs to the root; an empty ReviewRunID resolves to the
+	// newest approved run for the head.
+	ReadyPRs         []domain.ReadyPR
+	Result           string
+	EscalationReason domain.EscalationReason
+	EscalationNote   string
 }
 
 // SummaryService validates and persists coordinator summaries. It never
@@ -130,6 +137,15 @@ func (s *SummaryService) Submit(ctx context.Context, in SummaryInput) (domain.Co
 			return domain.CoordinatorSummary{}, false, apierr.Invalid("SUMMARY_WORKER_NOT_OWNED", "Summary workers must be owned by the submitting coordinator", map[string]any{"workerSessionId": string(id)})
 		}
 	}
+	if len(in.ReadyPRs) > domain.MaxSummaryReadyPRs {
+		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Too many ready PRs in one summary", nil)
+	}
+	if rec.ReadyPRs, err = s.resolveReadyPRs(ctx, coordinator, in.ReadyPRs); err != nil {
+		return domain.CoordinatorSummary{}, false, err
+	}
+	if err := domain.ValidateCoordinatorSummary(rec); err != nil {
+		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Summary ready PRs are invalid", nil)
+	}
 	// An escalation is available at once; everything else waits one batch window
 	// so a chatty coordinator reaches the root as a single turn.
 	rec.AvailableAt = now.Add(domain.CoordinatorSummaryBatchWindow)
@@ -169,4 +185,108 @@ func (s *SummaryService) List(ctx context.Context, coordinator domain.SessionID,
 		return nil, apierr.Invalid("SUMMARY_COORDINATOR_REQUIRED", "Summaries belong only to coordinator sessions", nil)
 	}
 	return s.store.ListCoordinatorSummaries(ctx, coordinator, int64(limit))
+}
+
+func readyPRInvalid(number int, reason, message string) error {
+	return apierr.Invalid("READY_PR_INVALID", message, map[string]any{"number": number, "reason": reason})
+}
+
+// resolveReadyPRs checks each entry against live state and adds its run id.
+// One bad entry rejects the whole summary, so nothing is stored.
+func (s *SummaryService) resolveReadyPRs(ctx context.Context, coordinator domain.SessionRecord, in []domain.ReadyPR) ([]domain.ReadyPR, error) {
+	if len(in) == 0 {
+		return nil, nil
+	}
+	sessions, err := s.store.ListSessions(ctx, coordinator.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	var owned []domain.SessionID
+	for _, w := range sessions {
+		if w.Kind == domain.KindWorker && w.OwnerSessionID != nil && *w.OwnerSessionID == coordinator.ID {
+			owned = append(owned, w.ID)
+		}
+	}
+	out := make([]domain.ReadyPR, 0, len(in))
+	for _, entry := range in {
+		worker, pr, found, err := s.findOwnedPR(ctx, owned, entry.Number)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, readyPRInvalid(entry.Number, "pr_not_owned", "The PR does not belong to a worker owned by this coordinator")
+		}
+		if pr.Merged || pr.Closed {
+			return nil, readyPRInvalid(entry.Number, "pr_not_open", "The PR is already merged or closed")
+		}
+		head := strings.TrimSpace(entry.HeadSHA)
+		if head == "" || !strings.EqualFold(head, pr.HeadSHA) {
+			return nil, readyPRInvalid(entry.Number, "stale_head", "headSha is not the PR's current head")
+		}
+		run, err := s.approvedRun(ctx, worker, pr, head, strings.TrimSpace(entry.ReviewRunID))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, domain.ReadyPR{Number: entry.Number, HeadSHA: pr.HeadSHA, ReviewRunID: run.ID})
+	}
+	return out, nil
+}
+
+func (s *SummaryService) findOwnedPR(ctx context.Context, workers []domain.SessionID, number int) (domain.SessionID, domain.PullRequest, bool, error) {
+	for _, id := range workers {
+		prs, err := s.store.ListPRsBySession(ctx, id)
+		if err != nil {
+			return "", domain.PullRequest{}, false, err
+		}
+		for _, pr := range prs {
+			if pr.Number == number {
+				return id, pr, true, nil
+			}
+		}
+	}
+	return "", domain.PullRequest{}, false, nil
+}
+
+func isApprovedRun(run domain.ReviewRun) bool {
+	done := run.Status == domain.ReviewRunComplete || run.Status == domain.ReviewRunDelivered
+	return done && run.Verdict == domain.VerdictApproved
+}
+
+// approvedRun returns the approved review run for the PR's head: the named
+// run, or the newest approved one when runID is empty.
+func (s *SummaryService) approvedRun(ctx context.Context, worker domain.SessionID, pr domain.PullRequest, head, runID string) (domain.ReviewRun, error) {
+	onHead := func(run domain.ReviewRun) bool {
+		return run.SessionID == worker && run.PRURL == pr.URL && strings.EqualFold(run.TargetSHA, head)
+	}
+	if runID != "" {
+		run, ok, err := s.store.GetReviewRun(ctx, runID)
+		if err != nil {
+			return domain.ReviewRun{}, err
+		}
+		if !ok || run.SessionID != worker || run.PRURL != pr.URL {
+			return domain.ReviewRun{}, readyPRInvalid(pr.Number, "review_run_not_found", "The review run does not belong to this PR")
+		}
+		if !onHead(run) {
+			return domain.ReviewRun{}, readyPRInvalid(pr.Number, "review_head_mismatch", "The review run did not review the PR's current head")
+		}
+		if !isApprovedRun(run) {
+			return domain.ReviewRun{}, readyPRInvalid(pr.Number, "review_not_approved", "The review run is not an approval")
+		}
+		return run, nil
+	}
+	runs, err := s.store.ListReviewRunsBySession(ctx, worker)
+	if err != nil {
+		return domain.ReviewRun{}, err
+	}
+	var best domain.ReviewRun
+	found := false
+	for _, run := range runs {
+		if onHead(run) && isApprovedRun(run) && (!found || run.CreatedAt.After(best.CreatedAt)) {
+			best, found = run, true
+		}
+	}
+	if !found {
+		return domain.ReviewRun{}, readyPRInvalid(pr.Number, "review_not_approved", "No approved AO review run exists for the PR's current head")
+	}
+	return best, nil
 }
