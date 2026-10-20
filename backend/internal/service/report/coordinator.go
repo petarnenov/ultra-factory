@@ -57,8 +57,8 @@ type Coordinator struct {
 	wake       chan struct{}
 	mu         sync.Mutex
 	summaries  SummaryDeliveryStore
-	// escalated holds exited coordinators the root was already told about.
-	escalated map[domain.SessionID]bool
+	// escalated holds the exits each root was already told about.
+	escalated map[exitNotice]bool
 }
 
 // CoordinatorDeps configures durable scheduling and delivery.
@@ -83,7 +83,7 @@ func NewCoordinator(d CoordinatorDeps) *Coordinator {
 	if d.RetryDelay <= 0 {
 		d.RetryDelay = 5 * time.Second
 	}
-	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1), summaries: d.Summaries, escalated: map[domain.SessionID]bool{}}
+	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1), summaries: d.Summaries, escalated: map[exitNotice]bool{}}
 }
 
 // Wake asks the coordinator to inspect durable scheduling state.
@@ -342,18 +342,29 @@ func resolveOwnerRecipient(ctx context.Context, store recipientStore, projectID 
 	return domain.SessionRecord{}, ownerStale, root, rootFound, nil
 }
 
-// escalateExitedOwner tells the root once per exit that a coordinator needs
-// recovery; a coordinator that is running again re-arms the notice.
+// exitNotice identifies one coordinator exit as seen by one root.
+type exitNotice struct {
+	coordinator, root domain.SessionID
+	exitedAt          int64
+}
+
+// escalateExitedOwner tells a root once per coordinator exit. The exit time
+// keys the latch and the delivery id, so a new exit or root is a new notice.
 func (c *Coordinator) escalateExitedOwner(ctx context.Context, owner, root domain.SessionRecord, rootFound bool) {
-	if !rootFound || c.delivery == nil || c.escalated[owner.ID] {
+	if !rootFound || c.delivery == nil {
+		return
+	}
+	notice := exitNotice{owner.ID, root.ID, owner.Activity.LastActivityAt.UnixNano()}
+	if c.escalated[notice] {
 		return
 	}
 	text := fmt.Sprintf("Coordinator %s exited and needs recovery. Its workers' reports are routed to you until it is restored or terminated; ownership is unchanged.", owner.ID)
-	if err := c.delivery.Submit(ctx, root.ID, text, "coordinator-exited:"+string(owner.ID)); err != nil {
+	key := fmt.Sprintf("coordinator-exited:%s:%d", owner.ID, notice.exitedAt)
+	if err := c.delivery.Submit(ctx, root.ID, text, key); err != nil {
 		slog.Warn("coordinator recovery notice failed", "coordinator", owner.ID, "root", root.ID, "err", err)
 		return
 	}
-	c.escalated[owner.ID] = true
+	c.escalated[notice] = true
 }
 
 // ownerRepairAttempts bounds the re-resolve loop after a lost compare-and-set.
@@ -378,7 +389,6 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 			group.Root = root.ID
 		}
 		if state == ownerLive {
-			delete(c.escalated, ownerRec.ID)
 			group.Recipient, group.Found = ownerRec.ID, true
 			return group, nil
 		}
@@ -488,7 +498,6 @@ func (c *Coordinator) ResolveRemoteRecipient(ctx context.Context, link domain.Re
 			return domain.SessionRecord{}, false, err
 		}
 		if state == ownerLive {
-			delete(c.escalated, owner.ID)
 			return owner, true, nil
 		}
 		if state == ownerExited {

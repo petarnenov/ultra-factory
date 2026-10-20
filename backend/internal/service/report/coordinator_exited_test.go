@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,11 +74,50 @@ func TestCoordinatorRearmsTheRecoveryNoticeAfterRestore(t *testing.T) {
 	if got := delivery.submissions[len(delivery.submissions)-1].target; got != "coord-exited" {
 		t.Fatalf("restored coordinator got no report; last target %s", got)
 	}
-	store.sessions[1].Activity.State = domain.ActivityExited
+	store.sessions[1].Activity = domain.Activity{State: domain.ActivityExited, LastActivityAt: now.Add(time.Hour)}
 	before := len(delivery.submissions)
 	run("three")
 	if len(delivery.submissions)-before != 2 {
 		t.Fatalf("second exit sent %d submissions, want notice and report", len(delivery.submissions)-before)
+	}
+	keys := map[string]bool{}
+	for _, sub := range delivery.submissions {
+		if strings.HasPrefix(sub.key, "coordinator-exited:") {
+			if keys[sub.key] {
+				t.Fatalf("recovery notice id %s reused; a deduping chat drops the second exit", sub.key)
+			}
+			keys[sub.key] = true
+		}
+	}
+	if len(keys) != 2 {
+		t.Fatalf("notice ids = %v, want one per exit", keys)
+	}
+}
+
+func TestCoordinatorTellsAReplacementRootAboutAnExitedOwner(t *testing.T) {
+	now := time.Date(2026, 10, 20, 9, 7, 0, 0, time.UTC)
+	owner := domain.SessionID("coord-exited")
+	store := exitedCoordinatorStore(now, owner)
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+	store.add(reportAt("one", "worker", now, now, "one"))
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.sessions[0].IsTerminated = true
+	store.sessions = append(store.sessions, domain.SessionRecord{ID: "root2", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat, CreatedAt: now.Add(time.Minute)})
+	store.add(reportAt("two", "worker", now, now, "two"))
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	notices := 0
+	for _, sub := range delivery.submissions {
+		if sub.target == "root2" && strings.HasPrefix(sub.key, "coordinator-exited:") {
+			notices++
+		}
+	}
+	if notices != 1 {
+		t.Fatalf("replacement root got %d notices, want 1: %#v", notices, delivery.submissions)
 	}
 }
 

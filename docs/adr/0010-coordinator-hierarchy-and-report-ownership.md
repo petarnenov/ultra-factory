@@ -358,7 +358,8 @@ whose row is live but whose agent exited (amended for #387) is not a live
 recipient: its workers' reports go to the live root **without clearing the
 ownership**, because a crashed coordinator may be restored and then resumes
 receiving them. The root is told once per exit that the coordinator needs
-recovery; the notice re-arms when the coordinator runs again. Capacity counting
+recovery. The exit time keys the notice and its delivery id, so a later exit
+is a new notice and a replacement root is told again. Capacity counting
 is unchanged: the exited, not-terminated coordinator keeps its slot. Delivery to
 an exited coordinator therefore never retries in a loop; `DeliverExternal`
 rejects it like an exited root.
