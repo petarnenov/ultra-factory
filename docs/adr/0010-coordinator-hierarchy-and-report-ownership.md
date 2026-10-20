@@ -1277,8 +1277,12 @@ coordinator and 12 workers per project**. The defaults stay 2 / 3 / 6.
   maximum is accepted. A value above the hard maximum, or below zero, is
   rejected with `COORDINATOR_LIMITS_INVALID` (`field`, `max` now carry the hard
   maximum of that field).
-- `maxWorkersPerCoordinator` may not exceed `maxWorkers`. This is checked at
-  config validation and reported as `COORDINATOR_LIMITS_INVALID`.
+- The effective `maxWorkersPerCoordinator` may not exceed the effective
+  `maxWorkers`. Both are resolved first: `0` or unset becomes the default (3 and
+  6), so `maxWorkersPerCoordinator: 5` with no `maxWorkers` compares 5 against 6
+  and is accepted, and `maxWorkers: 4` with no `maxWorkersPerCoordinator`
+  compares 3 against 4. This is checked at config validation and reported as
+  `COORDINATOR_LIMITS_INVALID`.
 - The hard maximum is a constant in the backend. A deployment does not change
   it with an environment variable. The operator lowers the effective limits
   through the project ceilings, which already work per project. The user
@@ -1327,7 +1331,8 @@ reassignment and needs to rebalance), and killing workers above a lowered limit
   A larger total is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`. A smaller
   total is allowed. The part of `workerLimit` that no slot covers cannot be
   placed: with slots set, a worker may run only on a host that has a slot, so
-  the effective limit is the slot total.
+  the effective placement limit is the slot total. `workerLimit` itself does
+  not change; it stays the value reported by `COORDINATOR_WORKER_LIMIT_REACHED`.
 - **Allow list is a hard bound.** The project's `allowedHosts` (or, when it is
   empty, any registered remote host) always bounds placement. Slots can only
   narrow it. A slot for a host outside `allowedHosts` is rejected with
@@ -1542,9 +1547,9 @@ Changed codes:
 
 | Code | Change |
 | --- | --- |
-| `COORDINATOR_LIMITS_INVALID` | Details `max` is the hard maximum of the field (4 / 6 / 12). Also returned when `maxWorkersPerCoordinator` exceeds `maxWorkers`; then `field` is `maxWorkersPerCoordinator` and `max` is the configured `maxWorkers` |
+| `COORDINATOR_LIMITS_INVALID` | Details `max` is the hard maximum of the field (4 / 6 / 12). Also returned when `maxWorkersPerCoordinator` exceeds `maxWorkers`; then `field` is `maxWorkersPerCoordinator` and `max` is the effective `maxWorkers` (the configured value, or the default 6 when it is 0) |
 | `COORDINATOR_ROOT_REQUIRED` | Also returned to an operator-initiated spawn when the project has no live root |
-| `COORDINATOR_LIMIT_REACHED`, `COORDINATOR_WORKER_LIMIT_REACHED`, `PROJECT_WORKER_LIMIT_REACHED` | `allowed` is the effective limit (project ceiling, or the coordinator's `workerLimit`), not the fixed 2 / 3 / 6 |
+| `COORDINATOR_LIMIT_REACHED`, `COORDINATOR_WORKER_LIMIT_REACHED`, `PROJECT_WORKER_LIMIT_REACHED` | `allowed` is the effective limit: the effective project ceiling, or for `COORDINATOR_WORKER_LIMIT_REACHED` the coordinator's resolved `workerLimit` (not the slot total), not the fixed 2 / 3 / 6. A placement refused by host slots is reported by `COORDINATOR_HOST_SLOTS_FULL` or `COORDINATOR_HOST_NOT_ALLOWED`, whose `allowed` is that host's slot count |
 
 ### A6. API and CLI contract
 
