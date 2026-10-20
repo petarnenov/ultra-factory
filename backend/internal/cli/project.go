@@ -211,6 +211,19 @@ type projectSetConfigOptions struct {
 	coordinatorAgent         string
 	coordinatorWorkerAgent   string
 	rootWorkerAgent          string
+	allowedHosts             string
+	allowedHostIDs           []string
+	allowLocalWorkers        bool
+	noAllowLocalWorkers      bool
+	merge                    bool
+}
+
+// coordinatorFlagNames are the set-config flags that write the coordinators
+// block. --merge touches only these and keeps every other stored field.
+var coordinatorFlagNames = []string{
+	"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers",
+	"agent-profile", "coordinator-agent", "coordinator-worker-agent", "root-worker-agent",
+	"allowed-hosts", "allow-local-workers", "no-allow-local-workers",
 }
 
 type projectListResult struct {
@@ -373,10 +386,26 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			id := strings.TrimSpace(args[0])
 			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
 			opts.githubAccountSet = cmd.Flags().Changed("github-account")
-			for _, name := range []string{"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers", "agent-profile", "coordinator-agent", "coordinator-worker-agent", "root-worker-agent"} {
+			for _, name := range coordinatorFlagNames {
 				opts.coordinatorsSet = opts.coordinatorsSet || cmd.Flags().Changed(name)
 			}
-			config, err := buildProjectConfig(opts)
+			if opts.allowLocalWorkers && opts.noAllowLocalWorkers {
+				return usageError{errors.New("--allow-local-workers and --no-allow-local-workers cannot be used together")}
+			}
+			if cmd.Flags().Changed("allowed-hosts") {
+				ids, err := resolveAllowedHosts(opts.allowedHosts)
+				if err != nil {
+					return err
+				}
+				opts.allowedHostIDs = ids
+			}
+			var config projectConfig
+			var err error
+			if opts.merge {
+				config, err = ctx.mergeCoordinatorFlags(cmd, id, opts)
+			} else {
+				config, err = buildProjectConfig(opts)
+			}
 			if err != nil {
 				return err
 			}
@@ -421,6 +450,10 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.coordinatorAgent, "coordinator-agent", "", "Agent selection for new coordinators: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.StringVar(&opts.coordinatorWorkerAgent, "coordinator-worker-agent", "", "Default agent selection for the workers of a coordinator: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.StringVar(&opts.rootWorkerAgent, "root-worker-agent", "", "Agent selection for workers the root spawns directly: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
+	f.StringVar(&opts.allowedHosts, "allowed-hosts", "", "Saved hosts (label or ID, comma-separated) coordinator workers may use; \"\" clears the list, which allows any paired host")
+	f.BoolVar(&opts.allowLocalWorkers, "allow-local-workers", false, "Let coordinator-owned workers run on this machine's daemon (off by default)")
+	f.BoolVar(&opts.noAllowLocalWorkers, "no-allow-local-workers", false, "Refuse coordinator-owned workers on this machine's daemon (the default)")
+	f.BoolVar(&opts.merge, "merge", false, "Change only the coordinator flags you pass and keep every other stored field (default: replace the whole config)")
 	f.BoolVar(&opts.clear, "clear", false, "Clear all config")
 	f.BoolVar(&opts.json, "json", false, "Output the updated project as JSON")
 	addHostFlag(cmd, ctx)
@@ -489,6 +522,8 @@ func coordinatorsConfigForFlags(opts projectSetConfigOptions) (coordinatorsConfi
 		MaxCoordinators:          opts.maxCoordinators,
 		MaxWorkersPerCoordinator: opts.maxWorkersPerCoordinator,
 		MaxWorkers:               opts.maxWorkers,
+		AllowedHosts:             opts.allowedHostIDs,
+		AllowLocalWorkers:        opts.allowLocalWorkers,
 	}
 	var err error
 	if cfg.AgentProfiles, err = parseAgentProfiles(opts.agentProfiles); err != nil {
@@ -510,6 +545,100 @@ func coordinatorsConfigForFlags(opts projectSetConfigOptions) (coordinatorsConfi
 		}
 	}
 	return cfg, nil
+}
+
+// mergeCoordinatorFlags applies the coordinator flags the caller passed to the
+// project's stored config. Every other stored field keeps its value.
+func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, opts projectSetConfigOptions) (projectConfig, error) {
+	if !opts.coordinatorsSet {
+		return projectConfig{}, usageError{errors.New("--merge needs at least one coordinator flag")}
+	}
+	// Flags that are not coordinator flags are counted against NFlag, so a
+	// stray field flag is refused rather than silently ignored.
+	accepted := 0
+	for _, name := range append([]string{"merge", "json", "host"}, coordinatorFlagNames...) {
+		if cmd.Flags().Changed(name) {
+			accepted++
+		}
+	}
+	if cmd.Flags().NFlag() > accepted {
+		return projectConfig{}, usageError{errors.New("--merge applies to coordinator flags only; set other fields without --merge")}
+	}
+	flagged, err := coordinatorsConfigForFlags(opts)
+	if err != nil {
+		return projectConfig{}, err
+	}
+	var res projectResult
+	if err := c.getJSON(cmd.Context(), "projects/"+url.PathEscape(id), &res); err != nil {
+		return projectConfig{}, err
+	}
+	config := projectConfig{}
+	if res.Project.Config != nil {
+		config = *res.Project.Config
+	}
+	config.Coordinators = overlayCoordinatorFlags(config.Coordinators, flagged, cmd.Flags().Changed)
+	return config, nil
+}
+
+// overlayCoordinatorFlags replaces each stored coordinator field whose flag
+// was passed. changed reports whether a flag was set on the command line.
+func overlayCoordinatorFlags(stored, flagged coordinatorsConfig, changed func(string) bool) coordinatorsConfig {
+	if changed("coordinators") {
+		stored.Enabled = flagged.Enabled
+	}
+	if changed("max-coordinators") {
+		stored.MaxCoordinators = flagged.MaxCoordinators
+	}
+	if changed("max-workers-per-coordinator") {
+		stored.MaxWorkersPerCoordinator = flagged.MaxWorkersPerCoordinator
+	}
+	if changed("max-workers") {
+		stored.MaxWorkers = flagged.MaxWorkers
+	}
+	if changed("agent-profile") {
+		stored.AgentProfiles = flagged.AgentProfiles
+	}
+	if changed("coordinator-agent") {
+		stored.CoordinatorAgent = flagged.CoordinatorAgent
+	}
+	if changed("coordinator-worker-agent") {
+		stored.WorkerAgent = flagged.WorkerAgent
+	}
+	if changed("root-worker-agent") {
+		stored.RootWorkerAgent = flagged.RootWorkerAgent
+	}
+	if changed("allowed-hosts") {
+		stored.AllowedHosts = flagged.AllowedHosts
+	}
+	if changed("allow-local-workers") || changed("no-allow-local-workers") {
+		stored.AllowLocalWorkers = flagged.AllowLocalWorkers
+	}
+	return stored
+}
+
+// resolveAllowedHosts maps --allowed-hosts entries to stored host IDs. An
+// empty value clears the list.
+func resolveAllowedHosts(spec string) ([]string, error) {
+	if strings.TrimSpace(spec) == "" {
+		return []string{}, nil
+	}
+	entries, err := savedHostEntries()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, part := range strings.Split(spec, ",") {
+		selector := strings.TrimSpace(part)
+		if selector == "" {
+			continue
+		}
+		id, err := resolveSavedHostID(entries, selector)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // reviewersForFlags turns repeated --reviewer harness values into the config
