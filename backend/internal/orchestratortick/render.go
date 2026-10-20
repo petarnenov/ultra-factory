@@ -3,18 +3,19 @@ package orchestratortick
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Snapshot renders the state a tick reports, with one "VIOLATION:" line per
 // violated invariant.
-func Snapshot(cfg Config, facts Facts, violations []Violation) string {
-	return snapshotWithCompletion(cfg, facts, violations, nil)
+func Snapshot(cfg Config, facts Facts, violations []Violation, now time.Time) string {
+	return snapshotWithCompletion(cfg, facts, violations, nil, now)
 }
 
 // snapshotWithCompletion renders the state plus the durable completion result,
 // so a remaining obligation is visible in the tick message and tick status.
-func snapshotWithCompletion(cfg Config, facts Facts, violations []Violation, completions []CompletionNote) string {
-	out := render(cfg, facts, violations, func(v Violation) string { return v.Text })
+func snapshotWithCompletion(cfg Config, facts Facts, violations []Violation, completions []CompletionNote, now time.Time) string {
+	out := render(cfg, facts, violations, now, func(v Violation) string { return v.Text })
 	if len(completions) == 0 {
 		return out
 	}
@@ -29,11 +30,11 @@ func snapshotWithCompletion(cfg Config, facts Facts, violations []Violation, com
 
 // Fingerprint renders the state with each violation's stable key instead of its
 // text, so two ticks of the same state match even as durations grow.
-func Fingerprint(cfg Config, facts Facts, violations []Violation) string {
-	return render(cfg, facts, violations, func(v Violation) string { return v.Key })
+func Fingerprint(cfg Config, facts Facts, violations []Violation, now time.Time) string {
+	return render(cfg, facts, violations, now, func(v Violation) string { return v.Key })
 }
 
-func render(cfg Config, facts Facts, violations []Violation, show func(Violation) string) string {
+func render(cfg Config, facts Facts, violations []Violation, now time.Time, show func(Violation) string) string {
 	var b strings.Builder
 	for _, h := range facts.Hosts {
 		fmt.Fprintf(&b, "[%s]\n", h.Host)
@@ -62,7 +63,7 @@ func render(cfg Config, facts Facts, violations []Violation, show func(Violation
 			if pr.Draft {
 				mergeable = "NO(draft)"
 			}
-			fmt.Fprintf(&b, "  #%d %s mergeable=%s checks=%s\n", pr.Number, pr.Head, mergeable, CheckSummary(pr.Checks))
+			fmt.Fprintf(&b, "  #%d %s mergeable=%s checks=%s\n", pr.Number, pr.Head, mergeable, PRCheckSummary(pr, now))
 		}
 	}
 	b.WriteString("[invariants]\n")

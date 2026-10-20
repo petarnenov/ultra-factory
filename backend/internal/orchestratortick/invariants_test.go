@@ -51,7 +51,7 @@ func TestDraftWithSkippedExpensiveChecksIsNotAGreenPR(t *testing.T) {
 	if got := greenPRsLeftOpen(cfg, facts, now); len(got) != 0 {
 		t.Fatalf("draft produced a green-PR violation: %v", got)
 	}
-	if out := Snapshot(cfg, facts, nil); !strings.Contains(out, "mergeable=NO(draft)") {
+	if out := Snapshot(cfg, facts, nil, now); !strings.Contains(out, "mergeable=NO(draft)") {
 		t.Fatalf("snapshot does not mark the draft not mergeable:\n%s", out)
 	}
 	draft.Draft = false
@@ -318,10 +318,26 @@ func TestFingerprintIgnoresGrowingDurations(t *testing.T) {
 	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE",
 		Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-time.Hour)}}}}}}
 	early, late := Violations(cfg, facts, now), Violations(cfg, facts, now.Add(5*time.Minute))
-	if Snapshot(cfg, facts, early) == Snapshot(cfg, facts, late) {
+	if Snapshot(cfg, facts, early, now) == Snapshot(cfg, facts, late, now) {
 		t.Fatal("the shown durations should differ")
 	}
-	if Fingerprint(cfg, facts, early) != Fingerprint(cfg, facts, late) {
+	if Fingerprint(cfg, facts, early, now) != Fingerprint(cfg, facts, late, now) {
 		t.Fatal("the fingerprint changed although only the duration grew")
+	}
+}
+
+func TestSnapshotShowsTheHeldCheckSummary(t *testing.T) {
+	cfg := DefaultConfig()
+	flip := now.Add(-time.Minute)
+	pr := PullRequest{Number: 7, Head: "rw/x", Mergeable: "MERGEABLE", ReadyAt: flip, Checks: []Check{
+		{Name: "policy", Result: "SUCCESS", CompletedAt: flip.Add(time.Second)},
+		{Name: "go", Result: "SKIPPED", CompletedAt: flip.Add(-time.Minute)},
+	}}
+	facts := Facts{GitHub: &GitHubState{OpenPRs: []PullRequest{pr}}}
+	if out := Snapshot(cfg, facts, nil, now); !strings.Contains(out, "checks=pending") {
+		t.Fatalf("held PR must not read green:\n%s", out)
+	}
+	if out := Snapshot(cfg, facts, nil, flip.Add(staleSkipWindow)); !strings.Contains(out, "checks=green") {
+		t.Fatalf("after the window the skip is genuine:\n%s", out)
 	}
 }

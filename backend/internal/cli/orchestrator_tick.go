@@ -81,8 +81,9 @@ func newOrchestratorTickCommand(ctx *commandContext) *cobra.Command {
 				return err
 			}
 			facts := r.Gather(cmd.Context())
-			violations := orchestratortick.Violations(r.Config, facts, ctx.deps.Now())
-			_, err = io.WriteString(cmd.OutOrStdout(), orchestratortick.Snapshot(r.Config, facts, violations))
+			now := ctx.deps.Now()
+			violations := orchestratortick.Violations(r.Config, facts, now)
+			_, err = io.WriteString(cmd.OutOrStdout(), orchestratortick.Snapshot(r.Config, facts, violations, now))
 			return err
 		},
 	}
