@@ -74,3 +74,30 @@ it("does not show a complete-empty message when all remote results are unavailab
 	render(<AggregateProjectBoard projectId="local-project" />);
 	expect(screen.getByText(/Unavailable project state is unknown/)).toBeInTheDocument();
 });
+
+it("stays loading while a connected host has not answered yet", () => {
+	mocks.loaded = [];
+	render(<AggregateProjectBoard projectId="local-project" />);
+	expect(screen.getByText("Loading project boards…")).toBeInTheDocument();
+});
+
+it("shows local cards and a partial banner once a connected host has failed", () => {
+	mocks.loaded = [];
+	mocks.failed = ["host-a"];
+	mocks.remote = [];
+	render(<AggregateProjectBoard projectId="local-project" />);
+	expect(screen.queryByText("Loading project boards…")).not.toBeInTheDocument();
+	expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
+	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
+});
+
+it("renders partial, not loading, when the remote layer is gated off but links exist", () => {
+	mocks.hosts = [];
+	mocks.loaded = [];
+	mocks.remote = [];
+	render(<AggregateProjectBoard projectId="local-project" />);
+	expect(screen.queryByText("Loading project boards…")).not.toBeInTheDocument();
+	expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
+	expect(screen.getByText(/remote-project/)).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
+});
