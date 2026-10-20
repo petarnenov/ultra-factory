@@ -1966,3 +1966,37 @@ func TestMergeabilityObservation_UnstableOutranksBlockers(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckProjectionsDropSupersededRuns(t *testing.T) {
+	run := func(id int, conclusion, at, wf string) map[string]any {
+		return map[string]any{
+			"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": conclusion,
+			"completedAt": at, "databaseId": float64(id),
+			"checkSuite": map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": wf}}},
+		}
+	}
+	pr := map[string]any{
+		"commits": map[string]any{"nodes": []any{
+			map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{
+				"contexts": map[string]any{"nodes": []any{
+					run(1, "CANCELLED", "2026-10-20T15:25:50Z", "Go"),
+					run(2, "SUCCESS", "2026-10-20T15:40:00Z", "Go"),
+					run(3, "FAILURE", "2026-10-20T15:30:00Z", "Mobile"),
+				}},
+			}}},
+		}},
+	}
+	scm := scmChecksFromGraphQL(pr)
+	if len(scm) != 2 || scm[0].ProviderID != "2" || scm[1].ProviderID != "3" {
+		t.Fatalf("scm checks = %+v", scm)
+	}
+	if failed := failedSCMChecks(scm); len(failed) != 1 || failed[0].ProviderID != "3" {
+		t.Fatalf("failed checks = %+v", failed)
+	}
+	if got := checksFromGraphQL(pr, "sha"); len(got) != 2 {
+		t.Fatalf("pr checks = %+v", got)
+	}
+	if id := jobIDForCheck(pr, "go"); id != 2 {
+		t.Fatalf("job id = %d, want the newest run's 2", id)
+	}
+}

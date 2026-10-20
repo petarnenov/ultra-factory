@@ -529,7 +529,7 @@ func mergeabilityFromGraphQL(pr map[string]any, rest restPull, ci domain.CIState
 func checksFromGraphQL(pr map[string]any, headSHA string) []ports.PRCheckObservation {
 	roll := statusRollup(pr)
 	contexts, _ := roll["contexts"].(map[string]any)
-	rawNodes := nodes(contexts["nodes"])
+	rawNodes := latestCheckRuns(nodes(contexts["nodes"]))
 	if len(rawNodes) == 0 {
 		return nil
 	}
@@ -618,7 +618,7 @@ func isBotAuthor(author map[string]any) bool {
 func jobIDForCheck(pr map[string]any, name string) int64 {
 	roll := statusRollup(pr)
 	contexts, _ := roll["contexts"].(map[string]any)
-	for _, n := range nodes(contexts["nodes"]) {
+	for _, n := range latestCheckRuns(nodes(contexts["nodes"])) {
 		if str(n["__typename"]) != "CheckRun" {
 			continue
 		}
