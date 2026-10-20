@@ -109,6 +109,9 @@ type coordinatorsConfig struct {
 	MaxCoordinators          int  `json:"maxCoordinators,omitempty"`
 	MaxWorkersPerCoordinator int  `json:"maxWorkersPerCoordinator,omitempty"`
 	MaxWorkers               int  `json:"maxWorkers,omitempty"`
+	// Settable through --config-json; flags come with the coordinator CLI.
+	AllowedHosts      []string `json:"allowedHosts,omitempty"`
+	AllowLocalWorkers bool     `json:"allowLocalWorkers,omitempty"`
 }
 
 type containerReapConfig struct {

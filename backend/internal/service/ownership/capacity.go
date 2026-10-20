@@ -132,11 +132,18 @@ type Counts struct {
 	// OwnerLimits holds the stored worker limit of every coordinator that has
 	// one, terminated or not, so a restore keeps it.
 	OwnerLimits map[domain.SessionID]int
+	// HostSlots holds the stored host slots of every coordinator that has
+	// any, terminated or not. ByOwnerHost counts remote links per owner and host.
+	HostSlots   map[domain.SessionID][]domain.HostSlot
+	ByOwnerHost map[domain.SessionID]map[string]int
 }
 
 // Count reads the census. links may be nil when the store has no links.
 func Count(ctx context.Context, sessions SessionLister, links LinkLister, project domain.ProjectID) (Counts, error) {
-	counts := Counts{ByOwner: map[domain.SessionID]int{}, OwnerLimits: map[domain.SessionID]int{}}
+	counts := Counts{
+		ByOwner: map[domain.SessionID]int{}, OwnerLimits: map[domain.SessionID]int{},
+		HostSlots: map[domain.SessionID][]domain.HostSlot{}, ByOwnerHost: map[domain.SessionID]map[string]int{},
+	}
 	recs, err := sessions.ListSessions(ctx, project)
 	if err != nil {
 		return counts, fmt.Errorf("count capacity for %s: %w", project, err)
@@ -144,6 +151,9 @@ func Count(ctx context.Context, sessions SessionLister, links LinkLister, projec
 	for _, rec := range recs {
 		if rec.Kind == domain.KindCoordinator && rec.CoordinatorWorkerLimit != nil {
 			counts.OwnerLimits[rec.ID] = *rec.CoordinatorWorkerLimit
+		}
+		if rec.Kind == domain.KindCoordinator && len(rec.CoordinatorHostSlots) > 0 {
+			counts.HostSlots[rec.ID] = rec.CoordinatorHostSlots
 		}
 		if rec.IsTerminated || rec.IsTaskPreparation {
 			continue
@@ -172,6 +182,10 @@ func Count(ctx context.Context, sessions SessionLister, links LinkLister, projec
 		counts.Workers++
 		if link.OwnerSessionID != nil {
 			counts.ByOwner[*link.OwnerSessionID]++
+			if counts.ByOwnerHost[*link.OwnerSessionID] == nil {
+				counts.ByOwnerHost[*link.OwnerSessionID] = map[string]int{}
+			}
+			counts.ByOwnerHost[*link.OwnerSessionID][link.HostID]++
 		}
 	}
 	return counts, nil
@@ -220,4 +234,61 @@ func (c Counts) CheckNewWorker(project domain.ProjectID, owner *domain.SessionID
 		return ProjectWorkerLimitError(project, c.Workers, limits.Workers)
 	}
 	return nil
+}
+
+// CheckHost rejects a host outside allowedHosts or the coordinator's slots,
+// or one whose slots are all used. Root-owned workers pass.
+func (c Counts) CheckHost(owner *domain.SessionID, host string, cfg domain.CoordinatorsConfig) error {
+	if owner == nil {
+		return nil
+	}
+	if len(cfg.AllowedHosts) > 0 && !containsHost(cfg.AllowedHosts, host) {
+		return HostNotAllowedError(*owner, host)
+	}
+	slots := c.HostSlots[*owner]
+	if len(slots) == 0 {
+		return nil
+	}
+	for _, slot := range slots {
+		if slot.HostID != host {
+			continue
+		}
+		if used := c.ByOwnerHost[*owner][host]; used >= slot.Slots {
+			return HostSlotsFullError(*owner, host, used, slot.Slots)
+		}
+		return nil
+	}
+	return HostNotAllowedError(*owner, host)
+}
+
+// CheckNewRemoteWorker applies the limits, then the host rules, to one more
+// worker on a paired host.
+func (c Counts) CheckNewRemoteWorker(project domain.ProjectID, owner *domain.SessionID, host string, cfg domain.CoordinatorsConfig) error {
+	if err := c.CheckNewWorker(project, owner, cfg.Limits()); err != nil {
+		return err
+	}
+	return c.CheckHost(owner, host, cfg)
+}
+
+// CheckLocalWorker refuses a coordinator-owned worker on the local daemon
+// unless the project allows it. Root-owned workers pass.
+func CheckLocalWorker(owner *domain.SessionID, project domain.ProjectID, cfg domain.CoordinatorsConfig) error {
+	if owner == nil || cfg.AllowLocalWorkers {
+		return nil
+	}
+	return LocalWorkerRefusedError(*owner, project)
+}
+
+// EffectivePlacementLimit is the coordinator's worker limit, or with host
+// slots the smaller of it and the slot total.
+func (c Counts) EffectivePlacementLimit(owner domain.SessionID, limits domain.CoordinatorLimits) int {
+	limit := c.OwnerLimit(owner, limits)
+	total := 0
+	for _, slot := range c.HostSlots[owner] {
+		total += slot.Slots
+	}
+	if total > 0 && total < limit {
+		return total
+	}
+	return limit
 }

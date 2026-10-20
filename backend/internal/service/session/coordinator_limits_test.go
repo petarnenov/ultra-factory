@@ -187,7 +187,7 @@ func TestLiveLimitUpdateKeepsWorkersAndBlocksNewOnes(t *testing.T) {
 	f.worker("ao-w2", &c, false)
 	ctx := context.Background()
 
-	if _, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), rootCaller("ao-root")); err != nil {
+	if _, err := setLimit(ctx, f.svc, c, intp(1), rootCaller("ao-root")); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []domain.SessionID{"ao-w1", "ao-w2"} {
@@ -210,20 +210,20 @@ func TestLiveLimitUpdateIsAuditedWithTheCallerOrigin(t *testing.T) {
 	f := newCapFixture(t)
 	c := f.coordinator("ao-c1", false)
 	ctx := context.Background()
-	if _, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(2), rootCaller("ao-root")); err != nil {
+	if _, err := setLimit(ctx, f.svc, c, intp(2), rootCaller("ao-root")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(3), opCaller("ui")); err != nil {
+	if _, err := setLimit(ctx, f.svc, c, intp(3), opCaller("ui")); err != nil {
 		t.Fatalf("the operator acts on behalf of the live root: %v", err)
 	}
 	ev := f.store.limitEvents
 	if len(ev) != 2 {
 		t.Fatalf("audit rows = %d, want 2", len(ev))
 	}
-	if ev[0].Origin != "api" || ev[0].ActorSessionID != "ao-root" || ev[0].PreviousLimit != nil || ev[0].NewLimit != 2 {
+	if ev[0].Origin != "api" || ev[0].ActorSessionID != "ao-root" || ev[0].PreviousLimit != nil || ev[0].NewLimit == nil || *ev[0].NewLimit != 2 {
 		t.Fatalf("root event = %+v", ev[0])
 	}
-	if ev[1].Origin != "ui" || ev[1].ActorSessionID != "ao-root" || ev[1].PreviousLimit == nil || *ev[1].PreviousLimit != 2 || ev[1].NewLimit != 3 {
+	if ev[1].Origin != "ui" || ev[1].ActorSessionID != "ao-root" || ev[1].PreviousLimit == nil || *ev[1].PreviousLimit != 2 || ev[1].NewLimit == nil || *ev[1].NewLimit != 3 {
 		t.Fatalf("operator event = %+v", ev[1])
 	}
 }
@@ -237,20 +237,20 @@ func TestLiveLimitUpdateRefusesCallersAndInvalidValues(t *testing.T) {
 	for name, caller := range map[string]domain.SessionID{
 		"coordinator": c, "worker": "ao-w", "terminated root": "ao-old", "unknown": "ao-ghost", "none": "",
 	} {
-		_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), rootCaller(caller))
+		_, err := setLimit(ctx, f.svc, c, intp(1), rootCaller(caller))
 		if err == nil {
 			t.Fatalf("%s: a non-root caller must be refused", name)
 		}
 		wantAPIError(t, err, "COORDINATOR_ROOT_REQUIRED", nil)
 	}
-	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", OperatorInitiated: true, Origin: "ui"})
+	_, err := setLimit(ctx, f.svc, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", OperatorInitiated: true, Origin: "ui"})
 	wantAPIError(t, err, "OPERATOR_MARKER_NOT_ALLOWED", map[string]any{"sessionId": "ao-root"})
 	var apiErr *apierr.Error
 	if errors.As(err, &apiErr) && apiErr.Kind != apierr.KindForbidden {
 		t.Fatalf("kind = %v, want forbidden", apiErr.Kind)
 	}
 	for _, limit := range []int{0, -1, 4} {
-		_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(limit), rootCaller("ao-root"))
+		_, err := setLimit(ctx, f.svc, c, intp(limit), rootCaller("ao-root"))
 		wantAPIError(t, err, "COORDINATOR_WORKER_LIMIT_INVALID", map[string]any{"max": 3})
 	}
 	if len(f.store.limitEvents) != 0 || f.store.sessions[c].CoordinatorWorkerLimit != nil {
@@ -262,7 +262,7 @@ func TestOperatorLimitUpdateWithoutALiveRootIsRefused(t *testing.T) {
 	f := newCapFixture(t)
 	c := f.coordinator("ao-c1", false)
 	f.seed(domain.SessionRecord{ID: "ao-root", ProjectID: "ao", Kind: domain.KindOrchestrator, IsTerminated: true})
-	_, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(1), opCaller("ui"))
+	_, err := setLimit(context.Background(), f.svc, c, intp(1), opCaller("ui"))
 	wantAPIError(t, err, "COORDINATOR_ROOT_REQUIRED", map[string]any{"projectId": "ao"})
 }
 
@@ -271,11 +271,11 @@ func TestLiveLimitUpdateTargetsALiveCoordinatorOnly(t *testing.T) {
 	f.worker("ao-w", nil, false)
 	dead := f.coordinator("ao-dead", true)
 	ctx := context.Background()
-	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, "ao-w", intp(1), rootCaller("ao-root"))
+	_, err := setLimit(ctx, f.svc, "ao-w", intp(1), rootCaller("ao-root"))
 	wantAPIError(t, err, "OWNER_NOT_COORDINATOR", nil)
-	_, err = f.svc.SetCoordinatorWorkerLimit(ctx, dead, intp(1), rootCaller("ao-root"))
+	_, err = setLimit(ctx, f.svc, dead, intp(1), rootCaller("ao-root"))
 	wantAPIError(t, err, "OWNER_TERMINATED", nil)
-	_, err = f.svc.SetCoordinatorWorkerLimit(ctx, "ao-ghost", intp(1), rootCaller("ao-root"))
+	_, err = setLimit(ctx, f.svc, "ao-ghost", intp(1), rootCaller("ao-root"))
 	wantAPIError(t, err, "SESSION_NOT_FOUND", nil)
 }
 
@@ -285,7 +285,7 @@ func TestLiveLimitUpdateSharesTheSpawnLock(t *testing.T) {
 	unlock := f.svc.lockOrchestratorProject("ao")
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(1), rootCaller("ao-root"))
+		_, err := setLimit(context.Background(), f.svc, c, intp(1), rootCaller("ao-root"))
 		done <- err
 	}()
 	select {
@@ -341,12 +341,12 @@ func TestLiveLimitUpdateOmittedOrUnchangedIsANoOp(t *testing.T) {
 	f := newCapFixture(t)
 	c := f.coordinator("ao-c1", false)
 	ctx := context.Background()
-	if _, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(2), rootCaller("ao-root")); err != nil {
+	if _, err := setLimit(ctx, f.svc, c, intp(2), rootCaller("ao-root")); err != nil {
 		t.Fatal(err)
 	}
 	sent, events := len(f.fc.sentMessages), len(f.store.limitEvents)
 	for name, limit := range map[string]*int{"omitted": nil, "same as stored": intp(2)} {
-		rec, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, limit, rootCaller("ao-root"))
+		rec, err := setLimit(ctx, f.svc, c, limit, rootCaller("ao-root"))
 		if err != nil || rec.CoordinatorWorkerLimit == nil || *rec.CoordinatorWorkerLimit != 2 {
 			t.Fatalf("%s: rec=%v err=%v, want the stored 2", name, rec.CoordinatorWorkerLimit, err)
 		}
@@ -357,7 +357,7 @@ func TestLiveLimitUpdateOmittedOrUnchangedIsANoOp(t *testing.T) {
 	// A stored value is compared, not the effective one: setting the project
 	// value explicitly on a coordinator with none still writes.
 	other := f.coordinator("ao-c2", false)
-	if _, err := f.svc.SetCoordinatorWorkerLimit(ctx, other, intp(3), rootCaller("ao-root")); err != nil {
+	if _, err := setLimit(ctx, f.svc, other, intp(3), rootCaller("ao-root")); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.store.limitEvents) != events+1 {
@@ -368,7 +368,7 @@ func TestLiveLimitUpdateOmittedOrUnchangedIsANoOp(t *testing.T) {
 func TestLiveLimitUpdateMessagesTheCoordinator(t *testing.T) {
 	f := newCapFixture(t)
 	c := f.coordinator("ao-c1", false)
-	if _, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(2), rootCaller("ao-root")); err != nil {
+	if _, err := setLimit(context.Background(), f.svc, c, intp(2), rootCaller("ao-root")); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.fc.sent) != 1 || f.fc.sent[0] != c || f.fc.sentMessages[0] == "" {
@@ -380,16 +380,16 @@ func TestLiveLimitUpdateValidatesMarkerAndOrigin(t *testing.T) {
 	f := newCapFixture(t)
 	c := f.coordinator("ao-c1", false)
 	ctx := context.Background()
-	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", OperatorInitiated: true, Origin: "ui"})
+	_, err := setLimit(ctx, f.svc, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", OperatorInitiated: true, Origin: "ui"})
 	wantAPIError(t, err, "OPERATOR_MARKER_NOT_ALLOWED", map[string]any{"sessionId": "ao-root"})
 	for _, caller := range []CoordinatorLimitsCaller{
 		{OperatorInitiated: true}, {OperatorInitiated: true, Origin: "web"},
 		{RequestedBy: "ao-root", Origin: "ui"},
 	} {
-		_, err = f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), caller)
+		_, err = setLimit(ctx, f.svc, c, intp(1), caller)
 		wantAPIError(t, err, "COORDINATOR_LIMITS_ORIGIN_INVALID", nil)
 	}
-	if _, err = f.svc.SetCoordinatorWorkerLimit(ctx, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", Origin: "cli"}); err != nil {
+	if _, err = setLimit(ctx, f.svc, c, intp(1), CoordinatorLimitsCaller{RequestedBy: "ao-root", Origin: "cli"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.store.limitEvents[len(f.store.limitEvents)-1].Origin; got != "cli" {
@@ -430,7 +430,7 @@ func TestConcurrentSameValueUpdatesWriteOneAuditRowAndOneMessage(t *testing.T) {
 	f := newCapFixture(t)
 	c := f.coordinator("ao-c1", false)
 	results := runConcurrently(8, func(int) error {
-		_, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(2), rootCaller("ao-root"))
+		_, err := setLimit(context.Background(), f.svc, c, intp(2), rootCaller("ao-root"))
 		return err
 	})
 	for _, err := range results {
@@ -451,7 +451,7 @@ func TestLimitUpdateSeesATerminationThatLandsBeforeTheLock(t *testing.T) {
 	unlock := f.svc.lockOrchestratorProject("ao")
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(2), rootCaller("ao-root"))
+		_, err := setLimit(context.Background(), f.svc, c, intp(2), rootCaller("ao-root"))
 		done <- err
 	}()
 	time.Sleep(50 * time.Millisecond)
@@ -471,13 +471,18 @@ func TestUnauthorizedLimitCallerLearnsNothingAboutTheTarget(t *testing.T) {
 	ctx := context.Background()
 	for _, target := range []domain.SessionID{live, dead, "ao-w", "ao-ghost"} {
 		for _, caller := range []domain.SessionID{live, "ao-w", "ao-ghost", ""} {
-			_, err := f.svc.SetCoordinatorWorkerLimit(ctx, target, nil, rootCaller(caller))
+			_, err := setLimit(ctx, f.svc, target, nil, rootCaller(caller))
 			wantAPIError(t, err, "COORDINATOR_ROOT_REQUIRED", nil)
 		}
 	}
 	// The live root gets the real reason.
-	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, dead, intp(1), rootCaller("ao-root"))
+	_, err := setLimit(ctx, f.svc, dead, intp(1), rootCaller("ao-root"))
 	wantAPIError(t, err, "OWNER_TERMINATED", nil)
-	_, err = f.svc.SetCoordinatorWorkerLimit(ctx, "ao-ghost", intp(1), rootCaller("ao-root"))
+	_, err = setLimit(ctx, f.svc, "ao-ghost", intp(1), rootCaller("ao-root"))
 	wantAPIError(t, err, "SESSION_NOT_FOUND", nil)
+}
+
+// setLimit changes only the worker limit through the live-change route.
+func setLimit(ctx context.Context, svc *Service, id domain.SessionID, limit *int, caller CoordinatorLimitsCaller) (domain.SessionRecord, error) {
+	return svc.SetCoordinatorLimits(ctx, id, CoordinatorLimitsUpdate{WorkerLimit: limit}, caller)
 }

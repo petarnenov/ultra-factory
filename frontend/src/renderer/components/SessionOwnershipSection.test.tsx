@@ -26,6 +26,8 @@ const entry = (overrides: Partial<CoordinatorRosterEntry> = {}): CoordinatorRost
 	workerCount: 2,
 	workerLimit: null,
 	effectiveWorkerLimit: 3,
+	effectivePlacementLimit: 3,
+	hostSlots: [],
 	activeWorkerCount: 2,
 	workerSessionIds: ["ao-w1", "ao-w2"],
 	...overrides,

@@ -322,6 +322,21 @@ func writeTickStatus(w io.Writer, store orchestratortick.Store) error {
 			if _, err := fmt.Fprintln(w, line); err != nil {
 				return err
 			}
+			actionKeys := make([]string, 0, len(session.Actions))
+			for actionKey := range session.Actions {
+				actionKeys = append(actionKeys, actionKey)
+			}
+			sort.Strings(actionKeys)
+			for _, actionKey := range actionKeys {
+				action := session.Actions[actionKey]
+				if action.Kind != orchestratortick.ActionMerge {
+					continue
+				}
+				if _, err := fmt.Fprintf(w, "  merge: PR #%d %s head=%s commit=%s blocker=%s\n",
+					action.PR, action.Status, action.HeadSHA, action.MergeCommitSHA, action.LastError); err != nil {
+					return err
+				}
+			}
 			for _, obligation := range session.Obligations {
 				if _, err := fmt.Fprintf(w, "  obligation: %s (until %s)\n", obligation.Reason, obligation.CompletionCondition); err != nil {
 					return err
@@ -509,7 +524,7 @@ const tickGitHubQuery = `query($owner: String!, $name: String!, $base: String!, 
       }
     }
     merged: pullRequests(baseRefName: $base, states: MERGED, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
-      nodes { number headRefName headRefOid body mergedAt }
+      nodes { number headRefName headRefOid body mergedAt mergeCommit { oid } }
     }
     closed: pullRequests(baseRefName: $base, states: CLOSED, first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { number headRefName headRefOid closedAt }
@@ -589,6 +604,9 @@ type tickGitHubResponse struct {
 				HeadRefOID  string    `json:"headRefOid"`
 				Body        string    `json:"body"`
 				MergedAt    time.Time `json:"mergedAt"`
+				MergeCommit struct {
+					OID string `json:"oid"`
+				} `json:"mergeCommit"`
 			} `json:"nodes"`
 		} `json:"merged"`
 		Closed struct {
@@ -689,7 +707,7 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 	}
 	for _, pr := range repo.Merged.Nodes {
 		state.MergedPRs = append(state.MergedPRs, orchestratortick.MergedPR{
-			Number: pr.Number, Head: pr.HeadRefName, HeadSHA: pr.HeadRefOID, Body: pr.Body, MergedAt: pr.MergedAt,
+			Number: pr.Number, Head: pr.HeadRefName, HeadSHA: pr.HeadRefOID, Body: pr.Body, MergedAt: pr.MergedAt, MergeCommitSHA: pr.MergeCommit.OID,
 		})
 	}
 	for _, pr := range repo.Closed.Nodes {
@@ -708,4 +726,89 @@ func shortSHA(oid string) string {
 		return oid[:7]
 	}
 	return oid
+}
+
+func (d tickDaemon) NotifyCompletion(ctx context.Context, host, session, actionKey, kind string, prs []orchestratortick.CompletedPR, recipient *orchestratortick.CompletionRecipient) error {
+	var hostID string
+	if recipient != nil {
+		hostID = recipient.HostID
+	} else {
+		var err error
+		hostID, err = tickCompletionHostID(host)
+		if err != nil {
+			return err
+		}
+	}
+	request := struct {
+		Recipient *orchestratortick.CompletionRecipient `json:"recipient,omitempty"`
+		HostID    string                                `json:"hostId"`
+		SessionID string                                `json:"sessionId"`
+		ActionKey string                                `json:"actionKey"`
+		Kind      string                                `json:"kind"`
+		PRs       []orchestratortick.CompletedPR        `json:"prs"`
+	}{recipient, hostID, session, actionKey, kind, prs}
+	return d.c.postJSON(ctx, "reports/completion", request, &struct {
+		Accepted bool `json:"accepted"`
+	}{})
+}
+
+func (d tickDaemon) ResolveCompletionOwner(ctx context.Context, host, session string) (orchestratortick.CompletionRecipient, error) {
+	if host == "" || host == "local" {
+		worker, err := d.c.fetchScopedSession(ctx, session, "")
+		if err != nil {
+			return orchestratortick.CompletionRecipient{}, err
+		}
+		recipient := orchestratortick.CompletionRecipient{ProjectID: worker.ProjectID}
+		if worker.OwnerSessionID != nil {
+			recipient.OwnerSessionID = *worker.OwnerSessionID
+		}
+		return recipient, nil
+	}
+	hostID, err := tickCompletionHostID(host)
+	if err != nil {
+		return orchestratortick.CompletionRecipient{}, err
+	}
+	var response struct {
+		Links []struct {
+			HostID         string  `json:"hostId"`
+			SessionID      string  `json:"remoteSessionId"`
+			ProjectID      string  `json:"projectId"`
+			OwnerSessionID *string `json:"ownerSessionId"`
+		} `json:"links"`
+	}
+	if err := d.c.getJSON(ctx, "remote-worker-links", &response); err != nil {
+		return orchestratortick.CompletionRecipient{}, err
+	}
+	for _, link := range response.Links {
+		if link.HostID == hostID && link.SessionID == session {
+			recipient := orchestratortick.CompletionRecipient{HostID: hostID, ProjectID: link.ProjectID}
+			if link.OwnerSessionID != nil {
+				recipient.OwnerSessionID = *link.OwnerSessionID
+			}
+			return recipient, nil
+		}
+	}
+	return orchestratortick.CompletionRecipient{HostID: hostID}, nil
+}
+
+func tickCompletionHostID(host string) (string, error) {
+	if host == "" || host == "local" {
+		return "", nil
+	}
+	path, err := remotesFilePath()
+	if err != nil {
+		return "", err
+	}
+	entries, err := readRemoteEntries(path)
+	if err != nil {
+		return "", err
+	}
+	entry, err := selectRemoteEntry(entries, host)
+	if err != nil {
+		return "", err
+	}
+	if entry.HostID == "" {
+		return "", fmt.Errorf("remote host %q has no saved identity", host)
+	}
+	return entry.HostID, nil
 }

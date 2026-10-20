@@ -92,6 +92,7 @@ var lanControlBlockedPrefixes = []string{
 	"/api/v1/agents/codex/accounts",
 	"/api/v1/agents/codex/account-switches",
 	"/api/v1/remote-worker-links",
+	"/api/v1/reports/completion",
 	"/api/v1/secrets",
 }
 

@@ -472,6 +472,31 @@ func TestCreate_DuplicateErrors(t *testing.T) {
 	hosts["sess-dup"].cleanup(t)
 }
 
+// TestCreate_ReapsDeadRegisteredSession verifies a registered session whose
+// host process is gone does not block re-creating the same id.
+func TestCreate_ReapsDeadRegisteredSession(t *testing.T) {
+	isolateRegistry(t)
+	hosts := map[string]*inProcHost{}
+	rt := New(Options{Spawner: fakeSpawnerFor(t, hosts, livePID())})
+	ctx := context.Background()
+	cfg := ports.RuntimeConfig{SessionID: "sess-dead", WorkspacePath: "/tmp/w", Argv: []string{"sh"}}
+
+	if _, err := rt.Create(ctx, cfg); err != nil {
+		t.Fatalf("first Create: %v", err)
+	}
+	hosts["sess-dead"].cleanup(t)
+	rt.pidIsAlive = func(int) bool { return false }
+
+	handle, err := rt.Create(ctx, cfg)
+	if err != nil {
+		t.Fatalf("Create over a dead registered session: %v", err)
+	}
+	if handle.ID != "sess-dead" {
+		t.Fatalf("handle.ID = %q", handle.ID)
+	}
+	hosts["sess-dead"].cleanup(t)
+}
+
 // TestCreate_InvalidIDErrors verifies Create rejects invalid session ids.
 func TestCreate_InvalidIDErrors(t *testing.T) {
 	isolateRegistry(t)

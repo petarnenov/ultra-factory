@@ -365,7 +365,8 @@ func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID
 	var ok struct{}
 	err := c.localContext().postJSON(ctx, "remote-worker-links/check", struct {
 		ParentSessionID string `json:"parentSessionId"`
-	}{parentID}, &ok)
+		HostID          string `json:"hostId,omitempty"`
+	}{parentID, c.remote.hostID}, &ok)
 	var apiErr apiResponseError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound && apiErr.ErrorBody.Code != "SESSION_NOT_FOUND" {
 		return nil
@@ -377,7 +378,8 @@ func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID
 // ownership terminates the remote session, other failures keep it.
 func (c *commandContext) failRemoteLink(ctx context.Context, remoteID string, err error) error {
 	var apiErr apiResponseError
-	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT") || strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER"))
+	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT") ||
+		strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER") || strings.HasPrefix(apiErr.ErrorBody.Code, "COORDINATOR_HOST_"))
 	if !rejected {
 		return fmt.Errorf("remote worker %s is still running but was not linked, so its reports will not reach this machine's orchestrator: %w", remoteID, err)
 	}

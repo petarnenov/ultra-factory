@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	workeragent "github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/claudecode"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/reviewer/agentrestore"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -87,7 +89,7 @@ var reviewerDisallowedTools = []string{
 // through an AO-owned prompt file so only the short task-file reference is
 // terminal-visible.
 func (r *Reviewer) ReviewCommand(ctx context.Context, inv ports.ReviewInvocation) (ports.ReviewCommandSpec, error) {
-	agentSessionID := workeragent.SessionUUID(inv.ReviewerID)
+	agentSessionID := r.freshSessionID(ctx, inv)
 	argv, err := r.agent.GetLaunchCommand(ctx, ports.LaunchConfig{
 		Config: inv.Config,
 		// Pin the same deterministic reviewer-native id we persist. Hooks can
@@ -110,6 +112,21 @@ func (r *Reviewer) ReviewCommand(ctx context.Context, inv ports.ReviewInvocation
 		return ports.ReviewCommandSpec{}, err
 	}
 	return ports.ReviewCommandSpec{Argv: argv, AgentSessionID: agentSessionID}, nil
+}
+
+// freshSessionID avoids Claude's "session id already in use": once a
+// transcript exists for the deterministic id, a recreated pane gets a new one.
+func (r *Reviewer) freshSessionID(ctx context.Context, inv ports.ReviewInvocation) string {
+	id := workeragent.SessionUUID(inv.ReviewerID)
+	probe, ok := r.agent.(ports.AgentInterfaceHandoffHistoryProbe)
+	if !ok {
+		return id
+	}
+	session := ports.SessionRef{ID: inv.ReviewerID, WorkspacePath: inv.WorkspacePath}
+	if exists, err := probe.NativeConversationExists(ctx, session, id, nil); err != nil || exists {
+		return uuid.NewString()
+	}
+	return id
 }
 
 // PreLaunch runs reviewer-specific preflight. For Claude Code this installs the

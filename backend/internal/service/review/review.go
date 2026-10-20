@@ -97,6 +97,9 @@ type Service struct {
 	// instrumented path can be exercised without standing up a full engine and
 	// its eighteen-method store. Defaulted in New; only tests replace it.
 	engineTrigger func(context.Context, domain.SessionID, reviewcore.TriggerOptions) (reviewcore.TriggerResult, error)
+	// releasePanes destroys reviewer panes with no running pass left. Defaulted
+	// in New to the engine; only tests replace it.
+	releasePanes func(context.Context, domain.SessionID)
 }
 
 type reviewNotificationSink interface {
@@ -232,6 +235,9 @@ func New(engine *reviewcore.Engine, store Store, opts ...Option) *Service {
 		s.engineTrigger = func(ctx context.Context, workerID domain.SessionID, opts reviewcore.TriggerOptions) (reviewcore.TriggerResult, error) {
 			return s.engine.TriggerWithOptions(ctx, workerID, opts)
 		}
+	}
+	if s.releasePanes == nil && s.engine != nil {
+		s.releasePanes = s.engine.ReleaseFinishedReviewerPanes
 	}
 	return s
 }
@@ -799,6 +805,9 @@ func (s *Service) SubmitMany(ctx context.Context, workerID domain.SessionID, rev
 	// review comments to the worker like any other reviewer's. AO does not send
 	// a second, separate verdict message.
 	s.releaseCheckouts(ctx, workerID, runs)
+	if s.releasePanes != nil {
+		s.releasePanes(ctx, workerID)
+	}
 	return runs, nil
 }
 

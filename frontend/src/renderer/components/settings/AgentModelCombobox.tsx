@@ -67,6 +67,7 @@ export function AgentModelCombobox({
 	onChange,
 	onCustom,
 	emptyLabel,
+	explicitModelOnly = false,
 	triggerLabel,
 	triggerClassName,
 	menuAlign = "end",
@@ -93,6 +94,8 @@ export function AgentModelCombobox({
 	onCustom?: (value: string) => void;
 	/** Shown when the agent does not report a concrete model. */
 	emptyLabel?: string;
+	/** Empty means unset: show `emptyLabel`, and save every concrete pick. */
+	explicitModelOnly?: boolean;
 	/** Claude Code lists its newest model per family and folds the rest under "Other models". */
 	agentId?: string;
 	triggerLabel?: string;
@@ -161,7 +164,7 @@ export function AgentModelCombobox({
 	const normalizedSearch = normalizeSearch(search);
 	const searchIndex = useMemo(() => buildModelSearchIndex(concreteModels), [concreteModels]);
 	const defaultModel = concreteModels.find((model) => model.isDefault)?.id || "";
-	const effectiveModel = explicitModel || defaultModel;
+	const effectiveModel = explicitModel || (explicitModelOnly ? "" : defaultModel);
 	const selected = searchIndex.byID.get(normalizeSearch(effectiveModel));
 	const hasMultipleProviders = useMemo(
 		() =>
@@ -236,7 +239,7 @@ export function AgentModelCombobox({
 			const next = rememberRecentModel(recentScope, modelID);
 			setSessionRecentModels((current) => ({ ...current, [recentScope]: next }));
 		}
-		onChange(modelID === defaultModel ? "" : modelID);
+		onChange(!explicitModelOnly && modelID === defaultModel ? "" : modelID);
 	};
 	const selectCatalogModel = (event: Event, item: IndexedModel) => {
 		const openEffort = Boolean(tuning && item.model.efforts?.some((effort) => effort && effort.toLowerCase() !== "default"));
@@ -396,6 +399,11 @@ export function AgentModelCombobox({
 						className="model-menu-scroll min-h-0 overflow-y-auto overscroll-contain"
 						onScroll={updateScrollCue}
 					>
+						{explicitModelOnly && explicitModel !== "" && normalizedSearch === "" && (
+							<DropdownMenuItem onSelect={() => onChange("")} className={modelItemClass(false)}>
+								<span className="truncate text-settings-label">{emptyLabel || t("settings.models.defaultModel")}</span>
+							</DropdownMenuItem>
+						)}
 						{groups.map((group, groupIndex) => (
 							<div key={group.key}>
 								{!compact && (groupIndex > 0 || normalizedSearch === "") && <DropdownMenuSeparator />}

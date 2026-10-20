@@ -134,7 +134,8 @@ func (r *Runtime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.Ru
 	}
 
 	r.mu.Lock()
-	if _, dup := r.sessions[id]; dup {
+	// A known session whose host process is gone falls through to the reap below.
+	if known, dup := r.sessions[id]; dup && (known == nil || known.pid <= 0 || r.pidIsAlive(known.pid)) {
 		r.mu.Unlock()
 		return ports.RuntimeHandle{}, conptyCreateFailure(fmt.Errorf("conpty: session %q already exists; destroy before re-creating", id))
 	}
@@ -144,7 +145,17 @@ func (r *Runtime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.Ru
 		return ports.RuntimeHandle{}, conptyCreateFailure(fmt.Errorf("conpty: inspect existing ownership for %q: %w", id, resolveErr))
 	}
 	if existing != nil {
-		return ports.RuntimeHandle{}, conptyCreateFailure(fmt.Errorf("conpty: session %q already exists; destroy before re-creating", id))
+		if existing.pid <= 0 || r.pidIsAlive(existing.pid) {
+			return ports.RuntimeHandle{}, conptyCreateFailure(fmt.Errorf("conpty: session %q already exists; destroy before re-creating", id))
+		}
+		// The host process is gone (killed by hand or crashed): the entry is
+		// stale evidence, not a live session, so reap it instead of blocking.
+		if err := r.unregisterHost(ctx, id); err != nil {
+			return ports.RuntimeHandle{}, conptyCreateFailure(fmt.Errorf("conpty: reap dead session %q: %w", id, err))
+		}
+		r.mu.Lock()
+		delete(r.sessions, id)
+		r.mu.Unlock()
 	}
 
 	r.mu.Lock()

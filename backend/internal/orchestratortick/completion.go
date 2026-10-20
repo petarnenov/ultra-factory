@@ -29,13 +29,14 @@ var headSHAPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$`)
 // CompletionNote is one worker's reconciled completion state for status and
 // reporting, derived from durable PR, branch and activity facts every tick.
 type CompletionNote struct {
-	Host      string
-	Session   string
-	PRs       []int
-	Merged    int
-	Closed    bool
-	Remaining []string
-	Errors    []string
+	Host        string
+	Session     string
+	PRs         []int
+	Merged      int
+	MergeCommit string
+	Closed      bool
+	Remaining   []string
+	Errors      []string
 }
 
 // CompletionLines renders completion notes for `ao orchestrator tick status`
@@ -53,6 +54,9 @@ func CompletionLines(notes []CompletionNote) []string {
 		}
 		if note.Merged > 0 {
 			line += fmt.Sprintf(" merged=#%d", note.Merged)
+		}
+		if note.MergeCommit != "" {
+			line += " commit=" + note.MergeCommit
 		}
 		if note.Closed {
 			line += " closed"
@@ -226,7 +230,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	for _, host := range facts.Hosts {
 		hostReachable[host.Host] = host.Err == nil
 		for _, worker := range host.Sessions {
-			if !worker.Terminated && !strings.EqualFold(worker.Kind, "orchestrator") {
+			if completionWorker(worker) {
 				workers[completionKey(host.Host, worker.ID)] = worker
 			}
 		}
@@ -238,7 +242,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 	// Derive eligibility and queue one idempotent merge action per ready PR.
 	for _, host := range facts.Hosts {
 		for _, worker := range host.Sessions {
-			if worker.Terminated || strings.EqualFold(worker.Kind, "orchestrator") {
+			if !completionWorker(worker) {
 				continue
 			}
 			key := completionKey(host.Host, worker.ID)
@@ -292,11 +296,49 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 				if existing, exists := session.Actions["close"]; !exists || existing.Status == CompletionActionSuperseded {
 					session.Actions["close"] = CompletionAction{
 						Kind: ActionClose, Status: CompletionActionPending, UpdatedAt: now,
+						PRs: completionPRs(ownedMergedPRs(worker, facts.GitHub), session.Actions),
 					}
 					changed = true
 				}
 			}
 			state.Sessions[key] = session
+		}
+	}
+
+	ownerFailed := map[string]bool{}
+	if resolver, ok := r.Daemon.(CompletionOwnerResolver); ok {
+		for _, key := range sortedKeys(state.Sessions) {
+			session := state.Sessions[key]
+			if _, present := workers[key]; !present || !hostReachable[session.Host] {
+				continue
+			}
+			for _, actionKey := range sortedActionKeys(session.Actions) {
+				action := session.Actions[actionKey]
+				if action.Status == CompletionActionCompleted || action.Status == CompletionActionSuperseded {
+					continue
+				}
+				if action.Kind == ActionClose && !closeEligible[key] {
+					continue
+				}
+				recipient, err := resolver.ResolveCompletionOwner(ctx, session.Host, session.Session)
+				if err != nil {
+					// Scope the failure: skip this worker's actions this tick.
+					ownerFailed[key] = true
+					note := noteFor(notes, key)
+					note.Host, note.Session = session.Host, session.Session
+					note.Errors = appendUniqueStrings(note.Errors, "resolve completion owner: "+err.Error())
+					break
+				}
+				action.Recipient = &recipient
+				session.Actions[actionKey] = action
+				state.Sessions[key] = session
+				changed = true
+			}
+		}
+		if changed {
+			if err := r.Store.SaveCompletion(state); err != nil {
+				return notesList(notes), changed, err
+			}
 		}
 	}
 
@@ -313,6 +355,9 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 				continue
 			}
 			worker, workerPresent := workers[key]
+			if ownerFailed[key] {
+				continue
+			}
 			if !hostReachable[session.Host] {
 				// A transient host failure is not proof the worker is gone.
 				continue
@@ -346,7 +391,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 		if !ok || action.Status == CompletionActionCompleted || action.Status == CompletionActionSuperseded {
 			continue
 		}
-		if !hostReachable[session.Host] {
+		if !hostReachable[session.Host] || ownerFailed[key] {
 			// A transient host failure is not proof the close is no longer due.
 			continue
 		}
@@ -405,6 +450,36 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 			return notesList(notes), changed, fmt.Errorf("save completion state: %w", err)
 		}
 	}
+	if notifier, ok := r.Daemon.(CompletionNotifier); ok {
+		for _, key := range sortedKeys(state.Sessions) {
+			session := state.Sessions[key]
+			for _, actionKey := range sortedActionKeys(session.Actions) {
+				action := session.Actions[actionKey]
+				if action.Status != CompletionActionCompleted || action.Notified {
+					continue
+				}
+				prs := action.PRs
+				if action.Kind == ActionMerge {
+					prs = []CompletedPR{{Number: action.PR, MergeCommitSHA: action.MergeCommitSHA}}
+				}
+				// Pre-upgrade actions have no owner snapshot; never replay them.
+				if action.Recipient != nil && (action.Kind != ActionClose || len(prs) > 0) {
+					if err := notifier.NotifyCompletion(ctx, session.Host, session.Session, actionKey, action.Kind, prs, action.Recipient); err != nil {
+						note := noteFor(notes, key)
+						note.Host, note.Session = session.Host, session.Session
+						note.Errors = appendUniqueStrings(note.Errors, "owner notification: "+err.Error())
+						continue
+					}
+				}
+				action.Notified = true
+				session.Actions[actionKey] = action
+				state.Sessions[key] = session
+				if err := r.Store.SaveCompletion(state); err != nil {
+					return notesList(notes), true, err
+				}
+			}
+		}
+	}
 	return notesList(notes), changed, nil
 }
 
@@ -419,7 +494,7 @@ func (r *Runner) reconcileWorker(session SessionCompletion, worker Worker, facts
 	}
 	for _, pr := range merged {
 		note.PRs = append(note.PRs, pr.Number)
-		note.Merged = pr.Number
+		note.Merged, note.MergeCommit = pr.Number, pr.MergeCommitSHA
 	}
 	for _, pr := range closed {
 		note.PRs = append(note.PRs, pr.Number)
@@ -474,6 +549,11 @@ func (r *Runner) retryAction(ctx context.Context, worker Worker, session Session
 		if !open {
 			if mergedPR(gh, action.PR) {
 				action.Status = CompletionActionCompleted
+				for _, merged := range gh.MergedPRs {
+					if merged.Number == action.PR {
+						action.MergeCommitSHA = merged.MergeCommitSHA
+					}
+				}
 				action.LastError = ""
 				action.UpdatedAt = now
 				return action, note, true
@@ -531,6 +611,7 @@ func (r *Runner) retryAction(ctx context.Context, worker Worker, session Session
 		}
 		action.Status = CompletionActionCompleted
 		action.MergeCommitSHA = result.MergeCommitSHA
+		note.Merged, note.MergeCommit = action.PR, result.MergeCommitSHA
 		action.LastError = ""
 		action.UpdatedAt = now
 		return action, note, true
@@ -618,6 +699,7 @@ func addNote(notes map[string]*CompletionNote, key string, note CompletionNote) 
 	existing.PRs = appendUniqueInts(existing.PRs, note.PRs...)
 	if note.Merged != 0 {
 		existing.Merged = note.Merged
+		existing.MergeCommit = note.MergeCommit
 	}
 	existing.Closed = existing.Closed || note.Closed
 	existing.Remaining = appendUniqueStrings(existing.Remaining, note.Remaining...)
@@ -703,4 +785,25 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func completionWorker(worker Worker) bool {
+	return !worker.Terminated && !strings.EqualFold(worker.Kind, "orchestrator") &&
+		!strings.EqualFold(worker.Kind, "coordinator")
+}
+
+func completionPRs(prs []MergedPR, actions map[string]CompletionAction) []CompletedPR {
+	out := make([]CompletedPR, 0, len(prs))
+	for _, pr := range prs {
+		sha := pr.MergeCommitSHA
+		if sha == "" {
+			for _, action := range actions {
+				if action.Kind == ActionMerge && action.PR == pr.Number && action.Status == CompletionActionCompleted {
+					sha = action.MergeCommitSHA
+				}
+			}
+		}
+		out = append(out, CompletedPR{Number: pr.Number, MergeCommitSHA: sha})
+	}
+	return out
 }

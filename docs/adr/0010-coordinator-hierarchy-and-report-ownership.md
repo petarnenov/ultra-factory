@@ -1785,3 +1785,23 @@ in every project, whether or not coordinators are enabled
 The `coordinator_terminated` root escalation (section 7) was missing until
 #340, which migration `0216` closed. The amendment above covers the configurable
 limits.
+
+### 16. Gated tick merge under root authority (#420)
+
+The orchestrator tick's existing completion reconciler is the single gated
+non-root merge path. It acts under the root's authority only when an operator
+explicitly sets `RW_TICK_MERGE_AUTHORIZED=1`; the default is disabled. The
+`MERGE_ROOT_ONLY` guard on the daemon's merge route remains unchanged.
+
+The tick uses fresh provider facts and current-head native review evidence,
+keeps every existing merge gate, and pins the squash merge to the evaluated
+head. Coordinator `readyPRs` summaries are advisory and do not grant merge
+authority. Coordinators and roots are never completion candidates.
+
+After a worker merge or closure the tick uses report delivery to inform the
+live owning coordinator, resolving remote ownership on the hub. Durable
+actions and stable semantic acceptance keys prevent replayed merges and
+duplicate owner notifications. The root's tick message retains completion
+visibility. The runbook's Merge queue subsection defines operator controls
+and the pending live authorization check; this decision changes no live
+Railway variables.

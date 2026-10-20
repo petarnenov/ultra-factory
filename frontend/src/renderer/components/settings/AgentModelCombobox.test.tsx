@@ -27,6 +27,19 @@ function renderCombobox(
 describe("AgentModelCombobox", () => {
 	beforeEach(() => window.localStorage.clear());
 
+	it("with explicitModelOnly an empty value reads as unset and every pick is persisted", async () => {
+		const { onChange } = renderCombobox(
+			[{ id: "opus", label: "Opus", isDefault: true }, { id: "sonnet", label: "Sonnet" }],
+			{ compact: true, explicitModelOnly: true, emptyLabel: "Default" },
+		);
+		const picker = screen.getByRole("button", { name: "Worker model" });
+		expect(picker).toHaveTextContent("Default");
+		expect(picker).not.toHaveTextContent("Opus");
+		await userEvent.click(picker);
+		await userEvent.click(screen.getByRole("menuitem", { name: "Opus" }));
+		expect(onChange).toHaveBeenCalledWith("opus");
+	});
+
 	it("shows resolved effort beside the model and keeps effort in the menu", async () => {
 		function Picker() {
 			const [model, setModel] = useState("capable");

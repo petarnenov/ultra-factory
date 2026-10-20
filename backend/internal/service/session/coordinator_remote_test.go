@@ -27,7 +27,8 @@ func TestConcurrentLocalSpawnsAndRemoteLinksShareTheCoordinatorCap(t *testing.T)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao", RegisteredAt: now}); err != nil {
+	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao", RegisteredAt: now,
+		Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	create := func(kind domain.SessionKind, owner *domain.SessionID) domain.SessionRecord {
