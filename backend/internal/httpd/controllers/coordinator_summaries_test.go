@@ -10,6 +10,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 )
@@ -116,5 +117,56 @@ func TestCoordinatorSummaryRouteRejectsReservedSubmissionKey(t *testing.T) {
 	resp, status, _ := doRequest(t, srv, "POST", "/api/v1/coordinator-summaries", body)
 	if status != http.StatusBadRequest {
 		t.Fatalf("status = %d body=%s, want 400", status, resp)
+	}
+}
+
+func TestCoordinatorSummaryRouteReadyPRsAcceptedAndRejected(t *testing.T) {
+	store, coordinator, owned, _, deps := summaryRouteFixture(t)
+	srv := newRouterServer(t, *deps)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	pr := domain.PullRequest{
+		URL: "https://github.com/o/r/pull/12", SessionID: owned.ID, Number: 12, HeadSHA: "headsha1", UpdatedAt: now,
+		Provider: "github", Host: "github.com", Repo: "o/r",
+	}
+	if err := store.WriteSCMObservation(ctx, pr, nil, nil, nil, nil, ports.ReviewWritePreserve); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertReview(ctx, domain.Review{ID: "rev-1", SessionID: owned.ID, ProjectID: "ao", Harness: domain.ReviewerClaudeCode, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InsertReviewRun(ctx, domain.ReviewRun{
+		ID: "run-1", ReviewID: "rev-1", SessionID: owned.ID, Harness: domain.ReviewerClaudeCode, PRURL: pr.URL, TargetSHA: "headsha1",
+		Status: domain.ReviewRunComplete, Verdict: domain.VerdictApproved, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	post := func(key, ready string) ([]byte, int) {
+		body := `{"coordinatorSessionId":"` + string(coordinator.ID) + `","submissionKey":"` + key + `","state":"done","readyPRs":[` + ready + `]}`
+		resp, status, _ := doRequest(t, srv, "POST", "/api/v1/coordinator-summaries", body)
+		return resp, status
+	}
+
+	resp, status := post("ok", `{"number":12,"headSha":"headsha1"}`)
+	var created struct {
+		ReadyPRs []struct {
+			Number      int    `json:"number"`
+			HeadSHA     string `json:"headSha"`
+			ReviewRunID string `json:"reviewRunId"`
+		} `json:"readyPRs"`
+	}
+	if err := json.Unmarshal(resp, &created); err != nil || status != http.StatusCreated || len(created.ReadyPRs) != 1 ||
+		created.ReadyPRs[0].Number != 12 || created.ReadyPRs[0].HeadSHA != "headsha1" || created.ReadyPRs[0].ReviewRunID != "run-1" {
+		t.Fatalf("status=%d body=%s err=%v", status, resp, err)
+	}
+
+	for name, ready := range map[string]string{
+		"stale head": `{"number":12,"headSha":"moved"}`,
+		"unknown PR": `{"number":99,"headSha":"headsha1"}`,
+	} {
+		resp, status := post("bad-"+name, ready)
+		if status != http.StatusBadRequest || !strings.Contains(string(resp), "READY_PR_INVALID") || !strings.Contains(string(resp), `"reason"`) {
+			t.Fatalf("%s: status=%d body=%s, want 400 READY_PR_INVALID", name, status, resp)
+		}
 	}
 }

@@ -434,3 +434,43 @@ func TestCoordinatorUsesOrchestratorRoleConfiguration(t *testing.T) {
 		t.Fatal("a coordinator has its own prompt role")
 	}
 }
+
+func TestBuildSystemPrompt_CoordinatorGatesReadyPRsOnReviewAndCI(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:             sessionPromptRoleCoordinator,
+		Project:          promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope: "auth module",
+	})
+	for _, want := range []string{
+		"ao spawn --auto-review",
+		"wait for the AO review verdict on its current head and for green CI",
+		"ao review ls --session <id>",
+		"gh pr checks <n>",
+		"only when no review is running for that head",
+		"re-check after every new head",
+		"no review thread is unresolved",
+		"ao coordinator report --ready-pr <number>@<head-sha>",
+		"Never merge it yourself",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("coordinator prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildSystemPrompt_RootHandlesReadyPRsFromSummaries(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+	})
+	for _, want := range []string{
+		"A coordinator summary with ready PRs",
+		"Re-check that the head is unchanged and CI is green",
+		"gh pr merge <n> --squash --match-head-commit <sha>",
+		"Do not re-run the review for an approved head",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("orchestrator prompt missing %q:\n%s", want, got)
+		}
+	}
+}

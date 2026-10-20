@@ -53,6 +53,12 @@ blocked. No timer-based reports. One line per worker, not raw conversation.
 
 You never merge and never close issues. A finished worker or a green pull
 request means "ready for the root to integrate", not "done".
+
+Ready pull requests: spawn workers with auto-review on (the default for your
+workers). After a worker reports done, wait for the AO review verdict on its
+current head and for green CI. Report a PR with
+`ao coordinator report --ready-pr <number>@<head-sha>` only when the review
+approved that head, CI is green, and no review thread is unresolved.
 ```
 
 The root checks before sending: scope is non-empty and bounded, every task has
