@@ -947,22 +947,20 @@ This section is the operator procedure for the Railway topology. Statements
 marked **(guidance)** are operating practice added by this runbook; they are not
 ADR rules.
 
-**Status: pilot only, not approved for regular work.** The implementation and
-the end-to-end pilot are merged on `dev`, but two gates are still open:
+**Status: pilot only, not approved for regular work.** The implementation, the
+end-to-end pilot, and the ADR section 8 project gate are merged on `dev`. What
+remains is the operator's live run: the multi-machine pilot and its resource
+comparison against the CO-1.1.1 baseline are pending on
+[#227](https://github.com/petarnenov/ultra-factory/issues/227) and
+[#218](https://github.com/petarnenov/ultra-factory/issues/218). Values only that
+run can produce are marked **Pending operator run** below.
 
-1. The live multi-machine run and its resource comparison against the CO-1.1.1
-   baseline are pending on
-   [#227](https://github.com/petarnenov/ultra-factory/issues/227) and
-   [#218](https://github.com/petarnenov/ultra-factory/issues/218). Values only
-   that run can produce are marked **Pending operator run** below.
-2. The project-level on/off gate from ADR section 8 is **not implemented on
-   `dev`** (see [Enable one pilot project](#enable-one-pilot-project)). Until it
-   lands, "disabled by default" is an operating instruction, not a daemon
-   guarantee.
-
-Keep feature and config defaults disabled until the pilot is approved.
-**(guidance)** Record the approval as a dated decision with a named rollback
-owner; the existence of this runbook is not approval.
+The gate is live and defaults to off: no project spawns a coordinator until its
+`coordinators.enabled` is set (see
+[Enable one pilot project](#enable-one-pilot-project)). Keep feature and config
+defaults disabled until the pilot is approved. **(guidance)** Record the
+approval as a dated decision with a named rollback owner; the existence of this
+runbook is not approval.
 
 ### Implementation status and evidence
 
@@ -973,6 +971,7 @@ owner; the existence of this runbook is not approval.
 | Durable ownership and audit | #220, #221 (merged) |
 | Owner-routed reports and root summaries | #223 (merged), pull request #329 |
 | Root-only spawn and the 2/3/6 limits | #224 (merged), pull request #330 |
+| Coordinator gate and per-project limits (ADR section 8) | #350, pull request #353: `ProjectConfig.Coordinators` in [`coordinators_config.go`](../../backend/internal/domain/coordinators_config.go) |
 | Coordinator prompt and handoff | #225 (merged), pull request #331 |
 | Ownership, recovery, and latest summary in session views | #226 (merged), pull request #335 |
 | `MERGE_ROOT_ONLY` merge authority | pull request #333 |
@@ -984,10 +983,11 @@ owner; the existence of this runbook is not approval.
 
 | Prerequisite | Check |
 | --- | --- |
-| A hub build that contains the coordinator hierarchy | `ao --version`; the pilot and its dependencies are on `dev` at or after commit `3fd52c3ac`. |
+| A hub build that contains the coordinator hierarchy and the gate | `ao --version`; the pilot, its dependencies, and the coordinator gate are on `dev` at or after commit `c292e21c`. |
 | A healthy hub daemon and BFF | In a hub shell: `ao status`, then `/healthz` and `/readyz` on `http://127.0.0.1:3001`. |
 | Exactly one live root for the pilot project | `ao orchestrator ls` lists one session, with the pilot project id. |
 | No coordinator in the project yet | `ao coordinator ls -p <project>` prints `(no coordinators)`. |
+| Coordinators enabled for the pilot project only | `ao project get <project> --json` shows `project.config.coordinators.enabled` true; every other project shows it false or absent. |
 | Paired worker hosts online, none running a local orchestrator | `ao host ls` shows every host `online`; `ao orchestrator ls --host <H>` is empty for each host. A host with a local orchestrator refuses a worker from the hub with `LOCAL_ORCHESTRATOR_ACTIVE`. |
 | The hub's memory limit and current headroom are recorded | Railway service **Metrics** tab and **Settings → Deploy → Replica Limits**; `railway usage limit status --target workspace`. Do not change them. |
 | A resource baseline or a recorded gap | The six-worker capture in [resource-baseline.md](resource-baseline.md) is read-only and still **not run**. ADR section 9 says a missing baseline is recorded as a gap, not assumed. **Pending operator run.** |
@@ -1039,7 +1039,8 @@ paired hosts (implementation only)
 
 ### Capacity defaults
 
-Limits from ADR section 8, enforced in the daemon:
+Default limits from ADR section 8, enforced in the daemon and read from the
+project's `coordinators` config:
 
 | Limit | Counted set | Default | Error |
 | --- | --- | --- | --- |
@@ -1058,16 +1059,17 @@ Limits from ADR section 8, enforced in the daemon:
 - Restoring a terminated worker re-checks both caps; restoring a terminated
   coordinator re-checks the two-coordinator cap and **does not** reattach its
   former workers.
-- The numbers are compile-time constants in
-  `backend/internal/service/ownership/capacity.go`. The ADR's config block that
-  would allow lowering them (`maxCoordinators`, `maxWorkersPerCoordinator`,
-  `maxWorkers`) is part of the missing gate described next; raising the values
-  needs a new decision, never a config edit.
+- The defaults are also the ceiling. A project may lower
+  `maxCoordinators`, `maxWorkersPerCoordinator` and `maxWorkers` in its
+  `coordinators` config block; raising a value needs a new decision, never a
+  config edit, and anything above 2/3/6 is refused with
+  `COORDINATOR_LIMITS_INVALID`. The effective limits are read from the project
+  config on every spawn, restore, reassignment, and remote-link write.
 
 ### Enable one pilot project
 
-**Intended gate (ADR section 8).** One project config block gates and bounds the
-feature:
+**The gate (ADR section 8).** One project config block gates and bounds the
+feature, implemented as `domain.CoordinatorsConfig`:
 
 ```json
 "coordinators": {
@@ -1078,30 +1080,57 @@ feature:
 }
 ```
 
-`enabled` defaults to `false`; a spawn while it is off returns
-`409 COORDINATORS_DISABLED`. Lowering a limit is allowed; a value above 2/3/6 is
-rejected with `COORDINATOR_LIMITS_INVALID`. Disabling blocks new coordinator
-spawns while restoring a terminated coordinator stays allowed for recovery, and
-existing ownership keeps routing so a rollback can reassign before the flag is
-turned off. The project config is read and written through
-`ao project get <project>` and `ao project set-config <project> ...`.
+- `enabled` defaults to `false`. A coordinator spawn while it is off is refused
+  with `409 COORDINATORS_DISABLED` (`projectId` in the details), after the
+  root-caller and scope checks and under the project lock.
+- `maxCoordinators`, `maxWorkersPerCoordinator` and `maxWorkers` default to
+  2/3/6, which are also the ceiling. `0` means "keep the default". Lowering is
+  allowed; a value above the ceiling or below zero is rejected with
+  `COORDINATOR_LIMITS_INVALID` (400, `field`, `max`) when the config is set.
+- Disabling blocks new coordinator spawns while restoring a terminated
+  coordinator stays allowed for recovery, and existing ownership keeps routing
+  so a rollback can reassign before the flag is turned off.
+- The config is read and written through `ao project get <project> --json` and
+  `ao project set-config <project> ...`, or
+  `PUT /api/v1/projects/{id}/config`.
 
-**Current state on `dev`.** This gate **does not exist**:
+**Enable it for the pilot project only (guidance).** `set-config` replaces the
+whole config, even when you pass one focused flag, so read the current object
+first and keep every field you need:
 
-- `domain.ProjectConfig` has no coordinator field
-  (`backend/internal/domain/projectconfig.go`), so `ao project set-config` has
-  no coordinator flag and `ao project get` shows no `coordinators` block.
-- No daemon flag or environment variable gates coordinator creation, and
-  `COORDINATORS_DISABLED` is not returned anywhere.
-- The limits are constants, not project config.
+```sh
+ao project get <project> --json
 
-Consequently there is no enablement or disablement switch to operate today. This
-is a blocking precondition for approving the pilot; until it lands, the
-following is the only pilot control, and it is procedural.
+# A project with no other config: the flag form is enough.
+ao project set-config <project> --coordinators
 
-**Enabling the single pilot project today (guidance).** Only the live project
-root can spawn a coordinator. Send the root the assignment and let it spawn, or
-run the same call from a hub shell with the root's session id:
+# Optional: lower a limit for the pilot. 2/3/6 is the ceiling, not a floor.
+ao project set-config <project> --coordinators \
+  --max-workers-per-coordinator 2
+```
+
+For a project that already has config, keep every field from
+`ao project get` and add the block before submitting the complete object:
+
+```json
+"coordinators": {"enabled": true}
+```
+
+```sh
+ao project set-config <project> --config-json '<full config JSON>'
+```
+
+- `{"enabled": true}` alone leaves the limits at 2/3/6; add `maxCoordinators`,
+  `maxWorkersPerCoordinator`, or `maxWorkers` to lower them.
+- Verify before spawning: `ao project get <project> --json` shows
+  `project.config.coordinators.enabled` true. A spawn in another project still
+  fails with `COORDINATORS_DISABLED`; keep it that way for the pilot.
+- The ADR keeps the feature off until the pilot is approved: enabling one
+  project is a pilot step, not approval for regular work.
+
+Only the live project root can spawn a coordinator. Send the root the assignment
+and let it spawn, or run the same call from a hub shell with the root's session
+id:
 
 ```sh
 # Preferred: from the root's own session, with the assignment brief from the
@@ -1240,23 +1269,23 @@ root-addressed work pending by design, and helper delivery continues.
 
 ### Stop new coordinator spawns
 
-**With the ADR gate (once implemented):** set `coordinators.enabled` to `false`
-for the project. That is the whole switch: new coordinator spawns fail with
-`409 COORDINATORS_DISABLED`, restore of a terminated coordinator stays allowed,
-and every existing owner keeps routing.
+Set `coordinators.enabled` to `false` for the project. That is the whole
+switch: new coordinator spawns fail with `409 COORDINATORS_DISABLED`, restore of
+a terminated coordinator stays allowed, and every existing owner keeps routing.
+`set-config` replaces the whole config, so read the current object first and
+submit the complete one:
 
-**Today (no gate):** there is nothing to flip. Only the live root can spawn a
-coordinator, so the controls are:
+```sh
+ao project get <project> --json
+ao project set-config <project> --config-json '<full config JSON>'
+```
 
-1. Tell the root to stop spawning coordinators and to stop assigning work that
-   would need one. Do not start another root to spawn them.
-2. Record the time of the instruction and the roster snapshot
-   (`ao coordinator ls -p <project>`).
-3. Do not terminate the root as a way to "disable" the feature: that stops
-   helper summaries from reaching a root and leaves root-addressed work pending.
-
-This is weaker than the ADR requires. State it as a gap in the pilot record until
-the gate ships.
+- Disabling stops new spawns; it does not stop a running coordinator or
+  reassign its workers. Continue with the drain and reassignment below.
+- Record the time of the change and the roster snapshot
+  (`ao coordinator ls -p <project>`).
+- Do not terminate the root as a way to "disable" the feature: that stops
+  helper summaries from reaching a root and leaves root-addressed work pending.
 
 ### Drain or reassign a coordinator's workers
 
@@ -1374,8 +1403,10 @@ consequence of ADR 0010 or the merged implementation.
 - [ ] Disabling and rollback were rehearsed in an isolated environment
       (`AO_DATA_DIR` scratch data, never production), and the ownership checks
       above were run there.
-- [ ] The ADR gate exists, defaults to `enabled=false`, and the pilot project is
-      the only project with a coordinator. **(Blocking; not implemented today.)**
+- [ ] The gate is enabled only for the pilot project: `ao project get <project>
+      --json` shows `project.config.coordinators.enabled` true, every other
+      project shows it false or absent, and a coordinator spawn in a disabled
+      project returns `409 COORDINATORS_DISABLED`.
 
 ### Rollback steps
 
@@ -1385,9 +1416,11 @@ summary delivered, and **no** coordinator, worker, report, or summary deleted.
 1. **Record the trigger and evidence.** UTC time, deployed revision, project id,
    roster before (`ao coordinator ls -p <project>`), remote links, pending
    counts, and the signal that triggered the rollback.
-2. **Stop new coordinator spawns.** Set `coordinators.enabled=false` when the
-   gate exists; otherwise instruct the root to stop spawning and record that the
-   gate is missing. Do not terminate the root.
+2. **Stop new coordinator spawns.** Set `coordinators.enabled=false` for the
+   project: read `ao project get <project> --json`, keep every field, and submit
+   the complete object with `--config-json`. New spawns fail with
+   `409 COORDINATORS_DISABLED`; restore and routing stay allowed. Do not
+   terminate the root.
 3. **Drain.** Ask each coordinator for a final `done` or `blocked` summary; let
    workers reach a checkpoint; start no new tasks.
 4. **Reassign every worker and remote link to the root.** `ao session assign
@@ -1408,8 +1441,8 @@ summary delivered, and **no** coordinator, worker, report, or summary deleted.
 8. **Verify nothing was deleted.** Coordinators still appear with
    `--include-terminated`; worker sessions, worktrees, reports, and summaries
    are intact; no `needsRecovery`; `ao session cleanup` has not run.
-9. **Keep the feature off.** Leave `enabled=false` (or the procedural stop in
-   place) for every project. The schema stays; coordinator rows stay terminated.
+9. **Keep the feature off.** Leave `enabled=false` for every project. The schema
+   stays; coordinator rows stay terminated.
    Do not downgrade the binary while any `kind='coordinator'` row exists: an
    older daemon does not understand the value, and the schema Down migration is
    not a rollback path.
