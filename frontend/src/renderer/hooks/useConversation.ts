@@ -328,27 +328,94 @@ export async function fetchConversationActivity(sessionId: string, hostId: strin
 	return toActivity(data as WireActivity);
 }
 
+type LivePageFetch = { page: ConversationSnapshot; delta: boolean } | "unchanged";
+
+// The ETag the host last gave for a cursor, so an idle poll costs headers only.
+const liveEtags = new Map<string, { since: number | undefined; etag: string }>();
+
+async function fetchLivePage(sessionId: string, hostId: string, since?: number): Promise<LivePageFetch> {
+	const key = `${hostId}\0${sessionId}`;
+	const known = liveEtags.get(key);
+	const { data, error, response } = await clientForSessionHost(hostId).GET("/api/v1/sessions/{sessionId}/conversation", {
+		params: { path: { sessionId }, query: { limit: CONVERSATION_PAGE_SIZE, sinceRevision: since } },
+		headers: known && known.since === since ? { "If-None-Match": known.etag } : undefined,
+	});
+	if (response?.status === 304) return "unchanged";
+	if (error) throw error;
+	const etag = response?.headers?.get?.("ETag");
+	if (etag) liveEtags.set(key, { since, etag });
+	else liveEtags.delete(key);
+	const wire = data as WireSnapshot;
+	return { page: toSnapshot(wire), delta: wire.delta === true };
+}
+
+const REJECTED_CURSOR_CODES = new Set(["CONVERSATION_CURSOR_AHEAD", "CONVERSATION_CURSOR_INVALID"]);
+
+/** Fold a delta into the cached live page; the result equals a full refetch. */
+export function applyConversationDelta(live: ConversationSnapshot, delta: ConversationSnapshot): ConversationSnapshot {
+	const items = new Map<string, ConversationItem>();
+	for (const item of live.items) items.set(`${item.kind}:${item.id}`, item);
+	for (const item of delta.items) items.set(`${item.kind}:${item.id}`, item);
+	const turns = new Map(live.turns.map((turn) => [turn.id, turn]));
+	for (const turn of delta.turns) turns.set(turn.id, turn);
+	// A rolled-back turn's entries leave the timeline without being rewritten.
+	const rolledBack = new Set([...turns.values()].filter((turn) => turn.rolledBack).map((turn) => turn.id));
+	return {
+		...delta,
+		oldestSequence: live.oldestSequence,
+		hasMoreBefore: live.hasMoreBefore,
+		items: [...items.values()].filter((item) => !item.turnId || !rolledBack.has(item.turnId)).sort((a, b) => a.sequence - b.sequence),
+		turns: [...turns.values()].sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)),
+	};
+}
+
 /** Refresh only the live page; refetching an infinite query downloads all older history. */
 export async function refreshRemoteConversation(queryClient: QueryClient, sessionId: string, hostId: string): Promise<void> {
-	let latest: ConversationSnapshot;
+	const cachedLive = () => queryClient.getQueryData<InfiniteData<ConversationSnapshot>>(conversationQueryKey(sessionId, hostId))?.pages[0];
+	let fetched: LivePageFetch;
 	try {
-		latest = await fetchConversationPage(sessionId, hostId);
+		const since = cachedLive()?.revision;
+		try {
+			fetched = await fetchLivePage(sessionId, hostId, since);
+		} catch (error) {
+			const code = apiErrorCode(error);
+			if (since === undefined || !code || !REJECTED_CURSOR_CODES.has(code)) throw error;
+			fetched = await fetchLivePage(sessionId, hostId);
+		}
 	} catch (error) {
 		queryClient.setQueryData(remoteConversationRefreshErrorKey(sessionId, hostId), true);
 		throw error;
 	}
 	queryClient.setQueryData(remoteConversationRefreshErrorKey(sessionId, hostId), false);
+	if (fetched === "unchanged") return;
+	let latest = fetched.page;
+	let isDelta = fetched.delta;
+	const base = cachedLive();
+	if (isDelta && (!base || base.conversationId !== latest.conversationId || base.activeBranchId !== latest.activeBranchId)) {
+		try {
+			latest = (await fetchLivePage(sessionId, hostId) as { page: ConversationSnapshot }).page;
+		} catch (error) {
+			queryClient.setQueryData(remoteConversationRefreshErrorKey(sessionId, hostId), true);
+			throw error;
+		}
+		isDelta = false;
+	}
+	const applied = latest;
 	queryClient.setQueryData<InfiniteData<ConversationSnapshot>>(conversationQueryKey(sessionId, hostId), (previous) => {
-		if (previous?.pages.length && previous.pages[0].conversationId === latest.conversationId && previous.pages[0].activeBranchId === latest.activeBranchId && latest.latestSequence < previous.pages[0].latestSequence) return previous;
-		if (!previous?.pages.length || !latest.hasMoreBefore || previous.pages[0].conversationId !== latest.conversationId || previous.pages[0].activeBranchId !== latest.activeBranchId) return { pages: [latest], pageParams: [undefined] };
+		if (previous?.pages.length && previous.pages[0].conversationId === applied.conversationId && previous.pages[0].activeBranchId === applied.activeBranchId && applied.latestSequence < previous.pages[0].latestSequence) return previous;
+		// An overlapping older delta must not undo a newer one. Full pages are
+		// exempt: a rollback can lower the host revision and must still replace.
+		if (isDelta && previous?.pages[0]?.revision !== undefined && applied.revision !== undefined && applied.revision < previous.pages[0].revision) return previous;
+		if (isDelta && previous?.pages.length) return { ...previous, pages: [applyConversationDelta(previous.pages[0], applied), ...previous.pages.slice(1)] };
+		if (!previous?.pages.length || !applied.hasMoreBefore || previous.pages[0].conversationId !== applied.conversationId || previous.pages[0].activeBranchId !== applied.activeBranchId) return { pages: [applied], pageParams: [undefined] };
 		const priorLive = previous.pages[0];
-		const slidOut = latest.oldestSequence > priorLive.oldestSequence
-			? priorLive.items.filter((item) => item.sequence < latest.oldestSequence)
+		const slidOut = applied.oldestSequence > priorLive.oldestSequence
+			? priorLive.items.filter((item) => item.sequence < applied.oldestSequence)
 			: [];
 		const slidTurnIds = new Set(slidOut.map((item) => item.turnId));
 		const live = slidOut.length
-			? mergeConversationPages([latest, { ...priorLive, items: slidOut, turns: priorLive.turns.filter((turn) => slidTurnIds.has(turn.id)) }]) ?? latest
-			: latest;
+			? mergeConversationPages([applied, { ...priorLive, items: slidOut, turns: priorLive.turns.filter((turn) => slidTurnIds.has(turn.id)) }]) ?? applied
+			: applied;
 		return { ...previous, pages: [live, ...previous.pages.slice(1)] };
 	});
 }
@@ -1497,6 +1564,7 @@ export function toSnapshot(wire: WireSnapshot): ConversationSnapshot {
 		latestSequence: wire.latestSequence,
 		oldestSequence: wire.oldestSequence ?? wire.latestSequence + 1,
 		hasMoreBefore: wire.hasMoreBefore ?? false,
+		revision: wire.revision || undefined,
 		nativeForkAvailableAfterSequence: wire.nativeForkAvailableAfterSequence ?? 0,
 		settings: {
 			model: wire.settings?.model || undefined,

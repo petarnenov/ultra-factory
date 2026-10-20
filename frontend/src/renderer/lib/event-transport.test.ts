@@ -104,6 +104,7 @@ function fakeQueryClient() {
 		isFetching: vi.fn().mockReturnValue(0),
 		refetchQueries: vi.fn().mockResolvedValue(undefined),
 		setQueryData: vi.fn(),
+		getQueryData: vi.fn(),
 	} as unknown as Parameters<typeof createEventTransport>[0];
 }
 
