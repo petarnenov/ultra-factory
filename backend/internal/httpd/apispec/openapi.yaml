@@ -3038,7 +3038,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3153,7 +3153,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3198,7 +3198,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3586,7 +3586,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3650,7 +3650,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:

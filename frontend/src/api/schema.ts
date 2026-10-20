@@ -11178,7 +11178,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11273,7 +11273,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11377,7 +11377,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11843,7 +11843,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11934,7 +11934,7 @@ export interface operations {
                     "application/json": components["schemas"]["ClonePreparationResult"];
                 };
             };
-            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
+            /** @description Bad Request: also COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -2587,7 +2587,7 @@ func projectOperations() []operation {
 			method: http.MethodPost, path: "/api/v1/projects", id: "addProject", tag: "projects",
 			summary: "Register a new project from a git repository path",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: COORDINATOR_LIMITS_INVALID",
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
 			},
 			reqBody: projectsvc.AddInput{},
 			resps: []respUnit{
@@ -2601,7 +2601,7 @@ func projectOperations() []operation {
 			method: http.MethodPost, path: "/api/v1/projects/clone", id: "cloneProject", tag: "projects",
 			summary: "Clone and register a project from a git repository URL",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: COORDINATOR_LIMITS_INVALID",
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
 			},
 			reqBody: projectsvc.CloneInput{},
 			resps: []respUnit{
@@ -2615,7 +2615,7 @@ func projectOperations() []operation {
 			method: http.MethodPost, path: "/api/v1/projects/clone/prepare", id: "prepareCloneProject", tag: "projects",
 			summary: "Clone a project without registering it so Git setup can be completed",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: COORDINATOR_LIMITS_INVALID",
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
 			},
 			reqBody: projectsvc.CloneInput{},
 			resps: []respUnit{
@@ -2659,7 +2659,7 @@ func projectOperations() []operation {
 			method: http.MethodPut, path: "/api/v1/projects/{id}", id: "updateProjectSettings", tag: "projects",
 			summary: "Atomically replace a project's display name and config",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: COORDINATOR_LIMITS_INVALID",
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
 			},
 			pathParams: []any{controllers.ProjectIDParam{}},
 			reqBody:    projectsvc.UpdateSettingsInput{},
@@ -2674,7 +2674,7 @@ func projectOperations() []operation {
 			method: http.MethodPut, path: "/api/v1/projects/{id}/config", id: "setProjectConfig", tag: "projects",
 			summary: "Replace a project's per-project config",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: COORDINATOR_LIMITS_INVALID",
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
 			},
 			pathParams: []any{controllers.ProjectIDParam{}},
 			reqBody:    projectsvc.SetConfigInput{},
