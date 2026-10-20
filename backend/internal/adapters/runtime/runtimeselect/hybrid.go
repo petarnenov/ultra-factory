@@ -77,9 +77,16 @@ func (r *hybridRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (po
 	return fallback, nil
 }
 
+// Destroy of an unprefixed ID reaches both backends. Callers such as the
+// reviewer launcher address a pane by its bare name, while a direct-host pane
+// is persisted as directHandlePrefix+name; routing the bare name to tmux alone
+// would orphan the direct host. Both backends treat an unknown ID as success.
 func (r *hybridRuntime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error {
 	backend, raw := r.route(handle)
-	return backend.Destroy(ctx, raw)
+	if backend == r.direct {
+		return backend.Destroy(ctx, raw)
+	}
+	return errors.Join(r.legacy.Destroy(ctx, raw), r.direct.Destroy(ctx, raw))
 }
 
 func (r *hybridRuntime) IsAlive(ctx context.Context, handle ports.RuntimeHandle) (bool, error) {

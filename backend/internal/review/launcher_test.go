@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -629,6 +630,49 @@ func TestLauncherSpawnReplacesStalePane(t *testing.T) {
 	}
 	if !rt.destroyBefore {
 		t.Fatal("stale pane must be destroyed before the fresh pane is created")
+	}
+}
+
+// directHostRuntime models the hybrid runtime's contract: Create persists a
+// "ptyhost-v1:"-prefixed handle and refuses a duplicate raw name, and Destroy of
+// the bare name must reach that direct pane.
+type directHostRuntime struct {
+	fakeRuntime
+	panes map[string]bool
+}
+
+func (d *directHostRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.RuntimeHandle, error) {
+	id := string(cfg.SessionID)
+	if d.panes[id] {
+		return ports.RuntimeHandle{}, fmt.Errorf("session %q already exists; destroy before re-creating", id)
+	}
+	d.panes[id] = true
+	if _, err := d.fakeRuntime.Create(ctx, cfg); err != nil {
+		return ports.RuntimeHandle{}, err
+	}
+	return ports.RuntimeHandle{ID: "ptyhost-v1:" + id}, nil
+}
+
+func (d *directHostRuntime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error {
+	delete(d.panes, strings.TrimPrefix(handle.ID, "ptyhost-v1:"))
+	return d.fakeRuntime.Destroy(ctx, handle)
+}
+
+func TestLauncherSpawnLeavesNoOrphanDirectHostPane(t *testing.T) {
+	rt := &directHostRuntime{panes: map[string]bool{}}
+	l := newTestLauncher(t, &fakeReviewer{}, rt)
+
+	for pass := 1; pass <= 2; pass++ {
+		res, err := l.Spawn(context.Background(), launchSpec())
+		if err != nil {
+			t.Fatalf("Spawn pass %d: %v", pass, err)
+		}
+		if res.HandleID != "ptyhost-v1:review-mer-1" {
+			t.Fatalf("pass %d handle = %q, want the direct-host handle (no tmux fallback)", pass, res.HandleID)
+		}
+	}
+	if len(rt.panes) != 1 {
+		t.Fatalf("live panes = %v, want exactly one after two passes", rt.panes)
 	}
 }
 

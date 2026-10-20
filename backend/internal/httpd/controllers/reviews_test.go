@@ -1,7 +1,9 @@
 package controllers_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -185,6 +187,24 @@ func TestReviewsTrigger_MissingReviewerBinaryReturns422WithCause(t *testing.T) {
 	mustJSON(t, body, &got)
 	if !strings.Contains(got.Message, "claude") || !strings.Contains(got.Message, ports.ErrAgentBinaryNotFound.Error()) {
 		t.Fatalf("message = %q, want reviewer binary cause", got.Message)
+	}
+}
+
+func TestReviewsTrigger_UnclassifiedErrorReturns500AndLogsCause(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	srv := newReviewTestServer(t, &fakeReviewService{triggerErr: errors.New("launch reviewer: replace stale pane: boom")})
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/mer-1/reviews/trigger", "")
+	assertErrorCode(t, body, status, http.StatusInternalServerError, "REVIEW_OPERATION_FAILED")
+
+	out := logs.String()
+	if strings.Count(out, "review operation failed") != 1 || !strings.Contains(out, "level=ERROR") ||
+		!strings.Contains(out, "replace stale pane: boom") || !strings.Contains(out, "path=/api/v1/sessions/mer-1/reviews/trigger") {
+		t.Fatalf("log output = %q, want one ERROR line with cause and path", out)
 	}
 }
 

@@ -650,6 +650,24 @@ func TestSubmitManyReleasesDisposableCheckoutAfterBatchCompletes(t *testing.T) {
 	}
 }
 
+func TestSubmitManyReleasesFinishedReviewerPanes(t *testing.T) {
+	st := &fakeStore{
+		ok:  true,
+		run: domain.ReviewRun{ID: "run-1", SessionID: "mer-1", PRURL: "pr1", TargetSHA: "sha1", Status: domain.ReviewRunRunning},
+		prs: []domain.PullRequest{{URL: "pr1", HeadSHA: "sha1"}},
+	}
+	svc := New(nil, st)
+	var released []domain.SessionID
+	svc.releasePanes = func(_ context.Context, id domain.SessionID) { released = append(released, id) }
+
+	if _, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictApproved, "ok", "987"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if len(released) != 1 || released[0] != "mer-1" {
+		t.Fatalf("released = %v, want one release for mer-1 after the submit", released)
+	}
+}
+
 func TestSubmitManyKeepsCheckoutWhileBatchSiblingRuns(t *testing.T) {
 	st := &fakeStore{
 		ok: true,

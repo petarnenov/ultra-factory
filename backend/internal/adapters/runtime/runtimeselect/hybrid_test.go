@@ -19,6 +19,7 @@ type fakeBackend struct {
 	processRefs  []ports.SupervisedProcessRef
 	childAlive   bool
 	childErr     error
+	destroyErr   error
 }
 
 func (f *fakeBackend) record(call string, handle ports.RuntimeHandle) {
@@ -39,7 +40,7 @@ func (f *fakeBackend) Create(_ context.Context, cfg ports.RuntimeConfig) (ports.
 
 func (f *fakeBackend) Destroy(_ context.Context, handle ports.RuntimeHandle) error {
 	f.record("destroy", handle)
-	return nil
+	return f.destroyErr
 }
 
 func (f *fakeBackend) GetOutput(_ context.Context, handle ports.RuntimeHandle, _ int) (string, error) {
@@ -202,7 +203,6 @@ func TestHybridRuntimeRoutesPersistedLegacyHandlesToTmux(t *testing.T) {
 	handle := ports.RuntimeHandle{ID: "existing-session"}
 	ref := ports.SupervisedProcessRef{SessionID: domain.SessionID("existing-session"), LaunchID: "launch-1"}
 
-	_ = runtime.Destroy(ctx, handle)
 	_, _ = runtime.IsAlive(ctx, handle)
 	stream, _ := runtime.Attach(ctx, handle, 24, 80)
 	_ = stream.Close()
@@ -215,7 +215,7 @@ func TestHybridRuntimeRoutesPersistedLegacyHandlesToTmux(t *testing.T) {
 	_, _ = runtime.IsExactSupervisedProcessAlive(ctx, handle, ref)
 	_, _ = runtime.HasSupervisedProcessRecord(ctx, handle)
 
-	wantCalls := []string{"destroy", "alive", "attach", "interrupt", "input", "message", "output", "styled", "supervised", "exact", "supervised-record"}
+	wantCalls := []string{"alive", "attach", "interrupt", "input", "message", "output", "styled", "supervised", "exact", "supervised-record"}
 	if !reflect.DeepEqual(legacy.calls, wantCalls) {
 		t.Fatalf("legacy calls = %v, want %v", legacy.calls, wantCalls)
 	}
@@ -226,6 +226,55 @@ func TestHybridRuntimeRoutesPersistedLegacyHandlesToTmux(t *testing.T) {
 	}
 	if len(direct.calls) != 0 {
 		t.Fatalf("direct calls = %v, want none", direct.calls)
+	}
+}
+
+func TestHybridRuntimeDestroysUnprefixedHandleOnBothBackends(t *testing.T) {
+	legacy := &restartableFakeBackend{}
+	direct := &fakeBackend{}
+	runtime := newHybridRuntime(legacy, direct, nil, "Linux")
+	handle := ports.RuntimeHandle{ID: "review-worker"}
+
+	if err := runtime.Destroy(context.Background(), handle); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(legacy.calls, []string{"destroy"}) || legacy.handles[0] != handle {
+		t.Fatalf("legacy calls = %v handles = %v", legacy.calls, legacy.handles)
+	}
+	if !reflect.DeepEqual(direct.calls, []string{"destroy"}) || direct.handles[0] != handle {
+		t.Fatalf("direct calls = %v handles = %v", direct.calls, direct.handles)
+	}
+}
+
+func TestHybridRuntimeDestroyJoinsBackendErrors(t *testing.T) {
+	legacyErr := errors.New("legacy failed")
+	directErr := errors.New("direct failed")
+	legacy := &restartableFakeBackend{fakeBackend{destroyErr: legacyErr}}
+	direct := &fakeBackend{destroyErr: directErr}
+	runtime := newHybridRuntime(legacy, direct, nil, "Linux")
+
+	err := runtime.Destroy(context.Background(), ports.RuntimeHandle{ID: "review-worker"})
+	if !errors.Is(err, legacyErr) || !errors.Is(err, directErr) {
+		t.Fatalf("err = %v, want both backend errors", err)
+	}
+	if len(direct.calls) != 1 {
+		t.Fatalf("direct must still be attempted after a legacy failure, calls = %v", direct.calls)
+	}
+}
+
+func TestHybridRuntimeDestroyPrefixedHandleOnlyReachesDirectHost(t *testing.T) {
+	legacy := &restartableFakeBackend{}
+	direct := &fakeBackend{}
+	runtime := newHybridRuntime(legacy, direct, nil, "Linux")
+
+	if err := runtime.Destroy(context.Background(), ports.RuntimeHandle{ID: directHandlePrefix + "review-worker"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy.calls) != 0 {
+		t.Fatalf("legacy calls = %v, want none", legacy.calls)
+	}
+	if len(direct.calls) != 1 || direct.handles[0].ID != "review-worker" {
+		t.Fatalf("direct calls = %v handles = %v", direct.calls, direct.handles)
 	}
 }
 

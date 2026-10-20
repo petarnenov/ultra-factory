@@ -12,6 +12,7 @@ import (
 	stdctx "context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -2005,6 +2006,7 @@ func (e *Engine) Cancel(ctx stdctx.Context, workerID domain.SessionID) (CancelRe
 		return CancelResult{}, err
 	}
 	e.releaseFinishedCheckouts(ctx, workerID, cancelled)
+	e.ReleaseFinishedReviewerPanes(ctx, workerID)
 	return CancelResult{ReviewerHandleID: primary.ReviewerHandleID, Reviews: Plan(prs, runs), CancelledRuns: cancelled}, nil
 }
 
@@ -2092,6 +2094,42 @@ func (e *Engine) TerminateReviewer(ctx stdctx.Context, workerID domain.SessionID
 func (e *Engine) ArchiveReviewer(ctx stdctx.Context, workerID domain.SessionID) error {
 	_, err := e.terminateReviewer(ctx, workerID, "cancelled because reviewer was archived", true)
 	return err
+}
+
+// ReleaseFinishedReviewerPanes destroys the TUI reviewer pane of every review
+// that has no running pass left and clears its handle. A pane is kept when it
+// carries a resumable native agent session (the next pass reuses it, see
+// reviewerPaneReusable); otherwise nothing ever reaches it again and the agent
+// process would idle until the worker is torn down. Best effort: the verdict or
+// cancellation is already durable, so a failure is logged and left for the
+// next trigger's stale-pane replacement.
+func (e *Engine) ReleaseFinishedReviewerPanes(ctx stdctx.Context, workerID domain.SessionID) {
+	ctx = stdctx.WithoutCancel(ctx)
+	unlock := e.lockWorker(workerID)
+	defer unlock()
+	reviews, err := e.store.ListReviewsBySession(ctx, workerID)
+	if err != nil {
+		slog.WarnContext(ctx, "list reviews to release reviewer panes", "session", workerID, "err", err)
+		return
+	}
+	running, err := e.store.ListRunningReviewRunsBySession(ctx, workerID)
+	if err != nil {
+		slog.WarnContext(ctx, "list running reviews to release reviewer panes", "session", workerID, "err", err)
+		return
+	}
+	for _, review := range reviews {
+		if review.ReviewerHandleID == "" || review.IsArchived || review.InterfaceMode == domain.ReviewerInterfaceChat ||
+			strings.TrimSpace(review.AgentSessionID) != "" || reviewRunsContainRunningForReview(running, review) {
+			continue
+		}
+		if err := e.launcher.Destroy(ctx, review.ReviewerHandleID); err != nil {
+			slog.WarnContext(ctx, "destroy finished reviewer pane", "session", workerID, "harness", review.Harness, "handle", review.ReviewerHandleID, "err", err)
+			continue
+		}
+		if err := e.store.ClearReviewerHandleByHarness(ctx, workerID, review.Harness); err != nil {
+			slog.WarnContext(ctx, "clear finished reviewer handle", "session", workerID, "harness", review.Harness, "err", err)
+		}
+	}
 }
 
 func (e *Engine) terminateReviewer(ctx stdctx.Context, workerID domain.SessionID, body string, archive bool) (TerminateResult, error) {
