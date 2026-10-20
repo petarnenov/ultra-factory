@@ -26,6 +26,8 @@ export type EventTransport = {
 };
 
 const INVALIDATE_WINDOW_MS = 150;
+// A streaming chat emits an event per token; remote hosts coalesce them.
+const REMOTE_REFRESH_WINDOW_MS = 1_500;
 // EventSource.CLOSED, referenced numerically so test stubs without the static
 // constants still work.
 const EVENTSOURCE_CLOSED = 2;
@@ -115,6 +117,54 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					remoteConversationRefreshes.delete(key);
 				})();
 			};
+			// A remote page is megabytes: fetch only what a view observes.
+			const isConversationObserved = (hostId: string, sessionId: string) =>
+				(queryClient.getQueryCache().find({ queryKey: conversationQueryKey(sessionId, hostId), exact: true })?.getObserversCount() ?? 0) > 0;
+			const isTabHidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
+			// Per host, one flush per window; a hidden tab flushes once visible.
+			const remoteRefreshQueues = new Map<string, {
+				pendingHost: boolean;
+				sessions: Set<string>;
+				reviews: Set<string>;
+				timer?: ReturnType<typeof setTimeout>;
+				lastFlushAt: number;
+			}>();
+			const flushRemoteRefresh = (hostId: string) => {
+				const queue = remoteRefreshQueues.get(hostId);
+				if (!queue || disposed || isTabHidden()) return;
+				if (queue.timer !== undefined) { clearTimeout(queue.timer); queue.timer = undefined; }
+				const sessions = [...queue.sessions];
+				const pendingHost = queue.pendingHost;
+				const reviews = [...queue.reviews];
+				queue.sessions.clear();
+				queue.reviews.clear();
+				queue.pendingHost = false;
+				queue.lastFlushAt = Date.now();
+				if (pendingHost) refreshRemote(hostId);
+				for (const reviewId of reviews) invalidate(["reviewer-conversation", hostId, reviewId]);
+				for (const sessionId of sessions) {
+					if (isConversationObserved(hostId, sessionId)) refreshRemoteConversationOnce(hostId, sessionId);
+				}
+			};
+			const queueRemoteRefresh = (hostId: string, sessionId?: string, reviewId?: string) => {
+				let queue = remoteRefreshQueues.get(hostId);
+				if (!queue) {
+					queue = { pendingHost: false, sessions: new Set(), reviews: new Set(), lastFlushAt: Number.NEGATIVE_INFINITY };
+					remoteRefreshQueues.set(hostId, queue);
+				}
+				queue.pendingHost = true;
+				if (sessionId) queue.sessions.add(sessionId);
+				if (reviewId) queue.reviews.add(reviewId);
+				if (isTabHidden() || queue.timer !== undefined) return;
+				const wait = REMOTE_REFRESH_WINDOW_MS - (Date.now() - queue.lastFlushAt);
+				if (wait <= 0) { flushRemoteRefresh(hostId); return; }
+				queue.timer = setTimeout(() => { queue.timer = undefined; flushRemoteRefresh(hostId); }, wait);
+			};
+			const onVisibilityChange = () => {
+				if (isTabHidden()) return;
+				for (const hostId of remoteRefreshQueues.keys()) flushRemoteRefresh(hostId);
+			};
+			if (typeof document !== "undefined") document.addEventListener("visibilitychange", onVisibilityChange);
 			// Do not repeatedly cancel a slow fetch under continuous CDC traffic. A
 			// key receives at most one in-flight refresh and one queued catch-up.
 			const refreshes = new Map<string, { dirty: boolean }>();
@@ -165,6 +215,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 				remoteSources.set(hostId, connection);
 				refreshRemote(hostId, true);
 				connection.pollTimer = setInterval(() => {
+					if (isTabHidden()) return;
 					refreshRemote(hostId);
 					invalidate(["reviewer-conversation", hostId]);
 				}, 2_000);
@@ -173,18 +224,17 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					CDC_EVENT_TYPES,
 					(event) => {
 						if (disposed || remoteSources.get(hostId) !== connection) return;
-						refreshRemote(hostId);
-						if (!("data" in event)) return;
+						if (!("data" in event)) { queueRemoteRefresh(hostId); return; }
 						try {
 							const decoded = JSON.parse(String((event as MessageEvent).data)) as { sessionId?: unknown; payload?: { conversationId?: unknown; reviewId?: unknown } };
-							if (typeof decoded.sessionId === "string" && typeof decoded.payload?.conversationId === "string" && typeof decoded.payload.reviewId !== "string") {
-								refreshRemoteConversationOnce(hostId, decoded.sessionId);
-							}
-							if (typeof decoded.payload?.reviewId === "string") {
-								invalidate(["reviewer-conversation", hostId, decoded.payload.reviewId]);
-							}
+							const conversationSessionId = typeof decoded.sessionId === "string" && typeof decoded.payload?.conversationId === "string" && typeof decoded.payload.reviewId !== "string"
+								? decoded.sessionId
+								: undefined;
+							const reviewId = typeof decoded.payload?.reviewId === "string" ? decoded.payload.reviewId : undefined;
+							queueRemoteRefresh(hostId, conversationSessionId, reviewId);
 						} catch {
 							// The host's project/session cache still refreshes after a malformed event.
+							queueRemoteRefresh(hostId);
 						}
 					},
 					() => {
@@ -196,6 +246,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					() => {
 						if (remoteSources.get(hostId) !== connection) return;
 						if (connection.pollTimer === undefined) connection.pollTimer = setInterval(() => {
+							if (isTabHidden()) return;
 							refreshRemote(hostId);
 							invalidate(["reviewer-conversation", hostId]);
 						}, 2_000);
@@ -210,6 +261,9 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					connection.close?.();
 					if (connection.pollTimer !== undefined) clearInterval(connection.pollTimer);
 					remoteSources.delete(hostId);
+					const queue = remoteRefreshQueues.get(hostId);
+					if (queue?.timer !== undefined) clearTimeout(queue.timer);
+					remoteRefreshQueues.delete(hostId);
 				}
 				for (const hostId of active) connectRemote(hostId);
 			};
@@ -554,6 +608,9 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 				removeDaemonListener();
 				removeBaseUrlListener();
 				removeConnectedHostsListener();
+				if (typeof document !== "undefined") document.removeEventListener("visibilitychange", onVisibilityChange);
+				for (const queue of remoteRefreshQueues.values()) if (queue.timer !== undefined) clearTimeout(queue.timer);
+				remoteRefreshQueues.clear();
 				source?.close();
 				accountSource?.close();
 				for (const connection of remoteSources.values()) {

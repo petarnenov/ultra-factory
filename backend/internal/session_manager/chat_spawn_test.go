@@ -1729,7 +1729,7 @@ func TestSendRoutesIntoTheChatConversation(t *testing.T) {
 	} {
 		options.InteractionAt = time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
 		for _, key := range []string{"", "outbox-message-1"} {
-			handled, err := mgr.sendChat(ctx, rec.ID, "direction", key, options)
+			handled, _, err := mgr.sendChat(ctx, rec.ID, "direction", key, options)
 			if err != nil || !handled {
 				t.Fatalf("sendChat: handled=%v err=%v", handled, err)
 			}

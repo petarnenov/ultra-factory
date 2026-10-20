@@ -11709,7 +11709,7 @@ func TestSendRecordsInteractionOnlyForDirectTerminalSender(t *testing.T) {
 			if tc.replay {
 				key = "outbox-1"
 			}
-			if err := m.send(context.Background(), "s1", "direction", key, ports.MessageDeliveryOptions{SenderSessionID: tc.sender, AuthoredByUser: tc.human}); err != nil {
+			if _, err := m.send(context.Background(), "s1", "direction", key, ports.MessageDeliveryOptions{SenderSessionID: tc.sender, AuthoredByUser: tc.human}); err != nil {
 				t.Fatal(err)
 			}
 			if counter.calls != tc.want {

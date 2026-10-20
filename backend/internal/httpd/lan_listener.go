@@ -268,7 +268,7 @@ func (m *LANManager) start(port int, host string) (int, error) {
 	m.bound = tcpAddr.Port
 	m.bindHost = host
 	m.srv = &http.Server{
-		Handler:           m.handler,
+		Handler:           gzipJSON(m.handler),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return streamCtx },
 		ConnContext: func(ctx context.Context, conn net.Conn) context.Context {

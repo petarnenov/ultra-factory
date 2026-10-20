@@ -1308,6 +1308,16 @@ SELECT EXISTS (
       AND status = 'pending'
 );
 
+-- The structured questions a conversation is still waiting on, oldest first.
+-- A send that queues reports these with its own delivery outcome.
+-- name: SelectPendingConversationInputRequestIDs :many
+SELECT request_id
+FROM conversation_activities
+WHERE conversation_id = sqlc.arg(conversation_id)
+  AND kind = 'user_input'
+  AND status = 'pending'
+ORDER BY sequence;
+
 -- Any approval still pending when a controller dies can never be answered: the
 -- provider call it was blocking is gone.
 -- name: FailPendingConversationApprovals :exec

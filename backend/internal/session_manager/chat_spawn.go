@@ -398,26 +398,39 @@ func (m *Manager) stopChatBestEffort(ctx context.Context, id domain.SessionID) {
 // receive a message, and one whose controller is gone cannot either. Busy is not
 // a refusal — the controller queues a mid-turn message, which is strictly better
 // than the terminal path's habit of dropping a nudge it cannot safely deliver.
-func (m *Manager) sendChat(ctx context.Context, id domain.SessionID, message, clientMessageID string, options ports.MessageDeliveryOptions) (bool, error) {
+func (m *Manager) sendChat(ctx context.Context, id domain.SessionID, message, clientMessageID string, options ports.MessageDeliveryOptions) (bool, ports.MessageDelivery, error) {
 	rec, ok, err := m.store.GetSession(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("send %s: session: %w", id, err)
+		return false, ports.MessageDelivery{}, fmt.Errorf("send %s: session: %w", id, err)
 	}
 	if !ok || domain.NormalizeSessionMode(rec.Mode) != domain.SessionModeChat {
-		return false, nil
+		return false, ports.MessageDelivery{}, nil
 	}
 	if m.chat == nil {
-		return true, fmt.Errorf("send %s: %w: chat mode is not available in this build",
+		return true, ports.MessageDelivery{}, fmt.Errorf("send %s: %w: chat mode is not available in this build",
 			id, ports.ErrChatUnsupported)
 	}
 	if rec.IsTerminated {
-		return true, fmt.Errorf("send %s: %w", id, ErrTerminated)
+		return true, ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrTerminated)
+	}
+	if relay, ok := m.chat.(chatDeliveryRelay); ok {
+		delivery, relayErr := relay.RelaySessionChatTurnDelivery(ctx, id, message, clientMessageID, options)
+		if relayErr != nil {
+			return true, ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, relayErr)
+		}
+		return true, delivery, nil
 	}
 	_, relayErr := m.chat.RelaySessionChatTurn(ctx, id, message, clientMessageID, options)
 	if relayErr != nil {
-		return true, fmt.Errorf("send %s: %w", id, relayErr)
+		return true, ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, relayErr)
 	}
-	return true, nil
+	return true, ports.MessageDelivery{}, nil
+}
+
+// chatDeliveryRelay is implemented by a chat service that reports what the
+// controller did with the accepted message.
+type chatDeliveryRelay interface {
+	RelaySessionChatTurnDelivery(ctx context.Context, id domain.SessionID, text, clientMessageID string, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error)
 }
 
 // SessionModeDefaults supplies the daemon-owned default session interface.

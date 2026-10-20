@@ -21,8 +21,8 @@ type sessionInputOptions struct {
 	answers   []string
 }
 
-// conversationInputSnapshotDTO is the part of the conversation snapshot this
-// command reads. Pending structured inputs are timeline activities.
+// conversationInputSnapshotDTO is the part of the conversation snapshot these
+// commands read. Pending structured inputs are timeline activities.
 type conversationInputSnapshotDTO struct {
 	SessionID  string                         `json:"sessionId"`
 	Activities []conversationInputActivityDTO `json:"activities"`
@@ -161,12 +161,19 @@ func (c *commandContext) listPendingSessionInputs(
 	}
 	out := sessionInputList{
 		SessionID: snapshot.SessionID,
-		Inputs:    make([]pendingSessionInput, 0),
+		Inputs:    pendingInputsFromActivities(snapshot.Activities),
 	}
 	if out.SessionID == "" {
 		out.SessionID = session
 	}
-	for _, activity := range snapshot.Activities {
+	return out, nil
+}
+
+// pendingInputsFromActivities keeps the unanswered structured inputs, in the
+// order the daemon listed them.
+func pendingInputsFromActivities(activities []conversationInputActivityDTO) []pendingSessionInput {
+	inputs := make([]pendingSessionInput, 0)
+	for _, activity := range activities {
 		if activity.ActivityKind != "user_input" || activity.Status != "pending" ||
 			strings.TrimSpace(activity.RequestID) == "" {
 			continue
@@ -186,9 +193,9 @@ func (c *commandContext) listPendingSessionInputs(
 		if schema, ok := activity.Detail["schema"].(map[string]any); ok {
 			item.Schema = schema
 		}
-		out.Inputs = append(out.Inputs, item)
+		inputs = append(inputs, item)
 	}
-	return out, nil
+	return inputs
 }
 
 func inputDetailString(detail map[string]any, key string) string {

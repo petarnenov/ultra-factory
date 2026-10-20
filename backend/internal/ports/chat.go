@@ -479,6 +479,20 @@ type MessageDeliveryOptions struct {
 	AuthoredByUser  bool
 }
 
+// MessageDelivery is what the daemon did with an accepted message. It is
+// decided by the delivery itself, never inferred by a later read.
+type MessageDelivery struct {
+	// Known reports whether this transport can say what happened at all. A
+	// caller must not read Queued when Known is false.
+	Known bool
+	// Queued means the message waits behind work in flight; the agent has not
+	// read it yet.
+	Queued bool
+	// PendingInputRequestIDs are the unanswered structured questions pending
+	// when the message was recorded, read in that same transaction.
+	PendingInputRequestIDs []string
+}
+
 // ChatTurnSettings are the per-turn choices a provider accepts alongside the
 // message text.
 //

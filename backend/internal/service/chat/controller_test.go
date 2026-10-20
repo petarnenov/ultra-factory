@@ -5740,6 +5740,153 @@ func TestInitialPromptIsAttributedToTheUser(t *testing.T) {
 	}
 }
 
+// resolveDuringAppendStore answers a pending question before the send returns,
+// so a response built from a later read would miss it.
+type resolveDuringAppendStore struct {
+	*sqlite.Store
+	resolved int
+}
+
+func (s *resolveDuringAppendStore) AppendUserMessageSnapshot(
+	ctx context.Context,
+	conversationID string,
+	session domain.SessionID,
+	reviewID, generation string,
+	msg domain.ConversationMessage,
+	turnID string,
+	now time.Time,
+) (bool, []string, error) {
+	created, ids, err := s.Store.AppendUserMessageSnapshot(ctx, conversationID, session, reviewID, generation, msg, turnID, now)
+	if err != nil || len(ids) == 0 {
+		return created, ids, err
+	}
+	if resolveErr := s.ResolveApproval(ctx, conversationID, ids[0], "{}", now); resolveErr != nil {
+		return created, ids, fmt.Errorf("resolve during append: %w", resolveErr)
+	}
+	s.resolved++
+	return created, ids, nil
+}
+
+// The snapshot a queued send reports belongs to the commit that accepted it, so
+// a question answered before the response is built is still named.
+func TestQueuedDeliveryReportsTheQuestionPendingAtAcceptance(t *testing.T) {
+	resolving := &resolveDuringAppendStore{}
+	h := newHarnessWithConversationAndStore(t, nil, func(st *sqlite.Store) chatsvc.Store {
+		resolving.Store = st
+		return resolving
+	})
+	ctx := context.Background()
+
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "first", "c1", ports.MessageDeliveryOptions{}); err != nil {
+		t.Fatalf("first relay: %v", err)
+	}
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventInputRequested, ProviderTurnID: "provider-turn-1",
+		ProviderItemID: "input-1", RequestID: "input-1",
+		Input: &ports.ChatInputRequest{Message: "Choose a value"},
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Activities) != 0 && s.Activities[len(s.Activities)-1].Status == domain.ActivityStatusPending
+	})
+
+	delivery, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "second", "c2", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("busy relay: %v", err)
+	}
+	if !delivery.Queued {
+		t.Fatalf("delivery = %+v, want queued", delivery)
+	}
+	if len(delivery.PendingInputRequestIDs) != 1 || delivery.PendingInputRequestIDs[0] != "input-1" {
+		t.Fatalf("pending inputs = %v, want [input-1] from the accepting commit", delivery.PendingInputRequestIDs)
+	}
+	if resolving.resolved != 1 {
+		t.Fatalf("store resolved %d questions during the append, want 1", resolving.resolved)
+	}
+	// The answer landed before the response was built, so the store no longer
+	// holds a pending question: only the commit snapshot still names it.
+	snapshot := h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Activities) != 0 && s.Activities[len(s.Activities)-1].Status != domain.ActivityStatusPending
+	})
+	_ = snapshot
+}
+
+// A relayed message reports what the accepted send did: the agent read it, or
+// it waits behind the turn already running. Callers must not infer that later.
+func TestRelaySessionChatTurnDeliveryReportsTheAcceptedQueueOutcome(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	delivery, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "first", "c1", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("idle relay: %v", err)
+	}
+	if !delivery.Known || delivery.Queued {
+		t.Fatalf("idle relay delivery = %+v, want known and not queued", delivery)
+	}
+
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+
+	delivery, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "second", "c2", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("busy relay: %v", err)
+	}
+	if !delivery.Known || !delivery.Queued {
+		t.Fatalf("busy relay delivery = %+v, want known and queued", delivery)
+	}
+	if len(delivery.PendingInputRequestIDs) != 0 {
+		t.Fatalf("pending inputs = %v, want none before the agent asks", delivery.PendingInputRequestIDs)
+	}
+
+	// The running turn asks a structured question; the next queued message
+	// reports that question with its own delivery outcome.
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventInputRequested, ProviderTurnID: "provider-turn-1",
+		ProviderItemID: "input-1", RequestID: "input-1",
+		Input: &ports.ChatInputRequest{Message: "Choose a value"},
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Activities) != 0 && s.Activities[len(s.Activities)-1].Status == domain.ActivityStatusPending
+	})
+
+	delivery, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "third", "c3", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("parked relay: %v", err)
+	}
+	if !delivery.Known || !delivery.Queued {
+		t.Fatalf("parked relay delivery = %+v, want known and queued", delivery)
+	}
+	if len(delivery.PendingInputRequestIDs) != 1 || delivery.PendingInputRequestIDs[0] != "input-1" {
+		t.Fatalf("pending inputs = %v, want [input-1]", delivery.PendingInputRequestIDs)
+	}
+
+	// Once the question is answered it is no longer part of the snapshot a later
+	// queued message reports: the answer and the queue write cannot interleave.
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventInputResolved, ProviderTurnID: "provider-turn-1", RequestID: "input-1",
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Activities) != 0 && s.Activities[len(s.Activities)-1].Status != domain.ActivityStatusPending
+	})
+
+	delivery, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "fourth", "c4", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("relay after answer: %v", err)
+	}
+	if !delivery.Queued {
+		t.Fatalf("relay after answer = %+v, want still queued", delivery)
+	}
+	if len(delivery.PendingInputRequestIDs) != 0 {
+		t.Fatalf("pending inputs = %v, want none once the question is answered", delivery.PendingInputRequestIDs)
+	}
+}
+
 // A relayed message is AO carrying someone else's words: `ao send`, or an
 // orchestrator writing to a worker. It must be attributed to automation, not
 // passed off as something the user typed here — the timeline distinguishes the
