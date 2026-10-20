@@ -726,6 +726,28 @@ func TestConversationSnapshotPagesCombinedTimelineBySequence(t *testing.T) {
 	}
 }
 
+func TestLoadConversationActivityReturnsTheWholeStoredDetail(t *testing.T) {
+	s, _, conversation := conversationFixture(t)
+	ctx := context.Background()
+	full := `{"files":[{"path":"a.go","oldText":"old","newText":"new"}]}`
+	if err := s.UpsertActivity(ctx, conversation, "", domain.ConversationActivity{
+		ID: "activity-full", ProviderItemID: "item-1", Kind: domain.ActivityKindFileChange,
+		Status: domain.ActivityStatusCompleted, Summary: "Edited a.go", Detail: []byte(full),
+	}, histClock); err != nil {
+		t.Fatalf("upsert activity: %v", err)
+	}
+	got, err := s.LoadConversationActivity(ctx, conversation, "activity-full")
+	if err != nil {
+		t.Fatalf("load activity: %v", err)
+	}
+	if string(got.Detail) != full || got.Summary != "Edited a.go" {
+		t.Fatalf("activity = %+v", got)
+	}
+	if _, err := s.LoadConversationActivity(ctx, conversation, "missing"); !errors.Is(err, domain.ErrNoConversationActivity) {
+		t.Fatalf("missing activity error = %v", err)
+	}
+}
+
 func TestProjectConversationPageStartsAtCurrentContextReset(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

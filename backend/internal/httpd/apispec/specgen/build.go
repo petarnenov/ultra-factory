@@ -1033,6 +1033,10 @@ type renderSourceQuery struct {
 	Source *string `query:"source,omitempty" enum:"1" description:"Set to 1 to read the page as the agent wrote it: the stored bytes as text/plain, without the theme bootstrap."`
 }
 
+type conversationActivityParams struct {
+	ActivityID string `path:"activityId" description:"Conversation activity id."`
+}
+
 type conversationSnapshotQuery struct {
 	BeforeSequence *int64 `query:"beforeSequence,omitempty" minimum:"1" description:"Read items older than this conversation sequence. Omit for the newest page."`
 	SinceRevision  *int64 `query:"sinceRevision,omitempty" minimum:"1" description:"Only entries changed since this revision."`
@@ -1167,6 +1171,18 @@ func shellTerminalOperations() []operation {
 				{http.StatusOK, controllers.ConversationSnapshotResponse{}},
 				{http.StatusNotModified, nil},
 				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/sessions/{sessionId}/conversation/activities/{activityId}", id: "getSessionConversationActivity", tag: "conversations",
+			summary:    "Read one conversation activity with its full, unbounded detail",
+			pathParams: []any{controllers.SessionIDParam{}, conversationActivityParams{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.ConversationActivityResponse{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},

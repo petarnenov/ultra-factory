@@ -56,6 +56,7 @@ type Service struct {
 	store                  Store
 	reader                 SnapshotReader
 	pageReader             SnapshotPageReader
+	activityReader         ActivityReader
 	sessions               SessionReader
 	drivers                ports.ChatDriverRegistry
 	activity               ActivityRecorder
@@ -139,8 +140,11 @@ type Options struct {
 	Store      Store
 	Reader     SnapshotReader
 	PageReader SnapshotPageReader
-	Sessions   SessionReader
-	Drivers    ports.ChatDriverRegistry
+	// ActivityReader serves one activity whole. Nil makes Activity report
+	// ErrNoConversationActivity.
+	ActivityReader ActivityReader
+	Sessions       SessionReader
+	Drivers        ports.ChatDriverRegistry
 	// Activity feeds derived session status from turn events. Nil leaves a chat
 	// session reading as idle while it works, so production always wires it.
 	Activity ActivityRecorder
@@ -192,6 +196,7 @@ func New(opts Options) *Service {
 		store:                  opts.Store,
 		reader:                 opts.Reader,
 		pageReader:             opts.PageReader,
+		activityReader:         opts.ActivityReader,
 		sessions:               opts.Sessions,
 		drivers:                opts.Drivers,
 		activity:               opts.Activity,
@@ -1736,6 +1741,11 @@ type SnapshotPageReader interface {
 	LoadConversationSnapshotPage(ctx context.Context, conversationID string, beforeSequence, limit int64) (ConversationRows, error)
 }
 
+// ActivityReader reads one activity with its full, unbounded payload.
+type ActivityReader interface {
+	LoadConversationActivity(ctx context.Context, conversationID, activityID string) (domain.ConversationActivity, error)
+}
+
 // ConversationRows is the raw durable read.
 type ConversationRows struct {
 	Conversation                     domain.ConversationRecord
@@ -1960,6 +1970,22 @@ func (s *Service) SnapshotPage(ctx context.Context, id domain.SessionID, beforeS
 		Usage:                            rows.Conversation.Usage,
 		RateLimits:                       rows.Conversation.RateLimits,
 	}, nil
+}
+
+// Activity returns one activity of a chat session's conversation with its full
+// payload, which a bounded snapshot page may have cut short.
+func (s *Service) Activity(ctx context.Context, id domain.SessionID, activityID string) (domain.ConversationActivity, error) {
+	if _, err := s.requireChatSession(ctx, id); err != nil {
+		return domain.ConversationActivity{}, err
+	}
+	conversation, err := s.store.ConversationForSession(ctx, id)
+	if errors.Is(err, domain.ErrNoConversation) || s.activityReader == nil {
+		return domain.ConversationActivity{}, domain.ErrNoConversationActivity
+	}
+	if err != nil {
+		return domain.ConversationActivity{}, fmt.Errorf("conversation for %s: %w", id, err)
+	}
+	return s.activityReader.LoadConversationActivity(ctx, conversation.ID, activityID)
 }
 
 // SnapshotPageForReview returns a paginated snapshot of a reviewer-owned chat.

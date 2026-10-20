@@ -5761,6 +5761,58 @@ paths:
       summary: Read a chat session's durable conversation
       tags:
       - conversations
+  /api/v1/sessions/{sessionId}/conversation/activities/{activityId}:
+    get:
+      operationId: getSessionConversationActivity
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      - description: Conversation activity id.
+        in: path
+        name: activityId
+        required: true
+        schema:
+          description: Conversation activity id.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationActivityResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Read one conversation activity with its full, unbounded detail
+      tags:
+      - conversations
   /api/v1/sessions/{sessionId}/conversation/approvals/{requestId}/resolve:
     post:
       operationId: resolveSessionConversationApproval

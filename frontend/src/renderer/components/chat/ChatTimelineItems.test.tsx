@@ -1,8 +1,9 @@
 import { act, render as rtlRender, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode, type ReactElement } from "react";
+import { ActivityDetailProvider } from "./ActivityDetailContext";
 import { ActivityRow, AssistantMessage, HumanMessage, TurnOutcome } from "./ChatTimelineItems";
-import type { ConversationMessage } from "../../types/conversation";
+import type { ConversationActivity, ConversationMessage } from "../../types/conversation";
 import { TooltipProvider } from "../ui/tooltip";
 
 function render(ui: ReactElement) {
@@ -324,6 +325,61 @@ describe("AssistantMessage streaming", () => {
 		drain();
 
 		expect(document.querySelector("p")?.textContent).toBe("abcdefghij");
+	});
+});
+
+describe("ActivityRow file change detail", () => {
+	const bounded: ConversationActivity = {
+		kind: "activity", id: "edit-1", sequence: 1, revision: 2, createdAt: "2026-10-20T00:00:00Z",
+		activityKind: "file_change", status: "completed", summary: "Edited pkg/big.go (1 replacement)",
+		detail: {
+			detailTruncated: true,
+			files: [{ path: "pkg/big.go", status: "modified", additions: 1, deletions: 1, patch: "--- pkg/big.go\n+++ pkg/big.go\n@@ -1,1 +1,1 @@\n-old\n+compact-new" }],
+		},
+	};
+	const whole: ConversationActivity = {
+		...bounded,
+		detail: {
+			files: [{ path: "pkg/big.go", status: "modified", additions: 1, deletions: 1, patch: "--- pkg/big.go\n+++ pkg/big.go\n-old\n+whole-file-new" }],
+		},
+	};
+
+	it("renders the bounded diff and loads the full detail when expanded", async () => {
+		const load = vi.fn().mockResolvedValue(whole);
+		render(
+			<ActivityDetailProvider value={load}>
+				<ActivityRow activity={bounded} />
+			</ActivityDetailProvider>,
+		);
+		expect(load).not.toHaveBeenCalled();
+		await act(async () => screen.getByRole("button").click());
+		expect(load).toHaveBeenCalledExactlyOnceWith("edit-1");
+		expect(await screen.findByText(/whole-file-new/)).toBeInTheDocument();
+		expect(screen.queryByText(/compact-new/)).toBeNull();
+	});
+
+	it("keeps the bounded diff when the full detail cannot be loaded", async () => {
+		const load = vi.fn().mockRejectedValue(new Error("offline"));
+		render(
+			<ActivityDetailProvider value={load}>
+				<ActivityRow activity={bounded} />
+			</ActivityDetailProvider>,
+		);
+		await act(async () => screen.getByRole("button").click());
+		expect(load).toHaveBeenCalled();
+		expect(screen.getByText(/compact-new/)).toBeInTheDocument();
+	});
+
+	it("does not fetch for a complete detail", async () => {
+		const load = vi.fn();
+		render(
+			<ActivityDetailProvider value={load}>
+				<ActivityRow activity={whole} />
+			</ActivityDetailProvider>,
+		);
+		await act(async () => screen.getByRole("button").click());
+		expect(load).not.toHaveBeenCalled();
+		expect(screen.getByText(/whole-file-new/)).toBeInTheDocument();
 	});
 });
 

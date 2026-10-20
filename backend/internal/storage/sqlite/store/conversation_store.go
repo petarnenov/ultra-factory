@@ -3241,6 +3241,21 @@ type ConversationSnapshot struct {
 	HasMoreBefore                    bool
 }
 
+// LoadConversationActivity reads one activity with its full detail.
+func (s *Store) LoadConversationActivity(ctx context.Context, conversationID, activityID string) (domain.ConversationActivity, error) {
+	row, err := s.qr.SelectConversationActivityByID(ctx, gen.SelectConversationActivityByIDParams{
+		ConversationID: conversationID,
+		ID:             activityID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ConversationActivity{}, domain.ErrNoConversationActivity
+	}
+	if err != nil {
+		return domain.ConversationActivity{}, fmt.Errorf("select activity %s: %w", activityID, err)
+	}
+	return activityToDomain(row), nil
+}
+
 // DefaultConversationPageSize is the standard bounded read size for conversation snapshots.
 const DefaultConversationPageSize = 200
 
