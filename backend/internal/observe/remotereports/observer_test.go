@@ -705,6 +705,38 @@ func TestPollDoesNotRedeliverWhenRecordAndAcknowledgementBothFailOnce(t *testing
 	}
 }
 
+func TestPollRetriesAFailedRecordAfterTheHostStopsListingTheReport(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt_1", now))
+	store := newMemStore(link("host-build", "widgets-3"))
+	store.recordErr = errors.New("disk full")
+	observer := newTestObserver(store, &fakeDeliverer{}, host)
+
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	// The acknowledgement succeeded: the host no longer lists the report.
+	host.mu.Lock()
+	host.pending["widgets-3"] = reportsJSON()
+	host.mu.Unlock()
+	store.mu.Lock()
+	store.recordErr = nil
+	store.mu.Unlock()
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.recorded) != 1 || store.recorded[0] != "rpt_1" {
+		t.Fatalf("recorded = %v, want the retried write to land", store.recorded)
+	}
+	observer.mu.Lock()
+	left := len(observer.unrecorded)
+	observer.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("unrecorded = %d entries, want cleared", left)
+	}
+}
+
 func TestAcknowledgeSplitsIntoChunksTheRemoteAccepts(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	client := &hostClient{http: remotehost.DirectClient(nil, time.Second), base: host.srv.URL, hostID: "host-build", password: "pw", label: "b"}

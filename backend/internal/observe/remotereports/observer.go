@@ -86,8 +86,8 @@ type Observer struct {
 	failures map[string]string
 	refused  map[string]string
 	// unrecorded: delivered IDs per link whose record write failed;
-	// acknowledge retries the write until it succeeds.
-	unrecorded map[string]map[string]bool
+	// every pass retries the write until it succeeds.
+	unrecorded map[linkRef]map[string]bool
 }
 
 // New constructs an idle Observer.
@@ -113,7 +113,7 @@ func New(d Deps) *Observer {
 	return &Observer{
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
-		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[string]map[string]bool{},
+		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[linkRef]map[string]bool{},
 	}
 }
 
@@ -190,6 +190,7 @@ func (o *Observer) Poll(ctx context.Context) error {
 	if o == nil || o.store == nil || o.deliverer == nil {
 		return errors.New("remote reports: dependencies are required")
 	}
+	o.flushUnrecorded(ctx)
 	links, err := o.store.ListRemoteWorkerLinks(ctx)
 	if err != nil {
 		return err
@@ -316,7 +317,7 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 		return nil, err
 	}
 	o.mu.Lock()
-	for id := range o.unrecorded[linkID(link.HostID, link.RemoteSessionID)] {
+	for id := range o.unrecorded[linkRef{link.HostID, link.RemoteSessionID}] {
 		delivered[id] = true
 	}
 	o.mu.Unlock()
@@ -404,7 +405,7 @@ func (o *Observer) settle(ctx context.Context, projectID domain.ProjectID, items
 func (o *Observer) acknowledge(ctx context.Context, items []*pulled, pass *settlePass) {
 	at := o.now().UTC()
 	for _, item := range items {
-		key := linkID(item.link.HostID, item.link.RemoteSessionID)
+		key := linkRef{item.link.HostID, item.link.RemoteSessionID}
 		// Retry failed writes too; until one lands, pull skips these IDs
 		// via the in-memory set, even if the host ack fails.
 		o.mu.Lock()
@@ -562,4 +563,35 @@ func closeIdle(client http.Client) {
 	}
 }
 
-func linkID(hostID string, session domain.SessionID) string { return hostID + "/" + string(session) }
+type linkRef struct {
+	hostID  string
+	session domain.SessionID
+}
+
+// flushUnrecorded retries failed record writes each pass, even after the
+// host stopped listing the reports, so the durable record is not lost.
+func (o *Observer) flushUnrecorded(ctx context.Context) {
+	o.mu.Lock()
+	pending := make(map[linkRef][]string, len(o.unrecorded))
+	for ref, set := range o.unrecorded {
+		for id := range set {
+			pending[ref] = append(pending[ref], id)
+		}
+	}
+	o.mu.Unlock()
+	at := o.now().UTC()
+	for ref, ids := range pending {
+		if err := o.store.RecordDeliveredRemoteReports(ctx, ref.hostID, ref.session, ids, at); err != nil {
+			o.log.Error("remote reports: record retry failed", "host", ref.hostID, "session", ref.session, "err", err)
+			continue
+		}
+		o.mu.Lock()
+		for _, id := range ids {
+			delete(o.unrecorded[ref], id)
+		}
+		if len(o.unrecorded[ref]) == 0 {
+			delete(o.unrecorded, ref)
+		}
+		o.mu.Unlock()
+	}
+}
