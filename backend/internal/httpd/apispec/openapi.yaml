@@ -4289,6 +4289,19 @@ paths:
           type:
           - "null"
           - integer
+      - description: Return only turns, messages and activities written at or after
+          this revision, read from a previous response. Cannot be combined with beforeSequence;
+          a cursor newer than the host answers 409.
+        in: query
+        name: sinceRevision
+        schema:
+          description: Return only turns, messages and activities written at or after
+            this revision, read from a previous response. Cannot be combined with
+            beforeSequence; a cursor newer than the host answers 409.
+          minimum: 1
+          type:
+          - "null"
+          - integer
       - description: Maximum combined messages and activities to return. Defaults
           to 200.
         in: query
@@ -5687,6 +5700,19 @@ paths:
           type:
           - "null"
           - integer
+      - description: Return only turns, messages and activities written at or after
+          this revision, read from a previous response. Cannot be combined with beforeSequence;
+          a cursor newer than the host answers 409.
+        in: query
+        name: sinceRevision
+        schema:
+          description: Return only turns, messages and activities written at or after
+            this revision, read from a previous response. Cannot be combined with
+            beforeSequence; a cursor newer than the host answers 409.
+          minimum: 1
+          type:
+          - "null"
+          - integer
       - description: Maximum combined messages and activities to return. Defaults
           to 200.
         in: query
@@ -5706,6 +5732,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ConversationSnapshotResponse'
           description: OK
+        "304":
+          description: Not Modified
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
         "404":
           content:
             application/json:
@@ -14609,6 +14643,8 @@ components:
           type: string
         conversationId:
           type: string
+        delta:
+          type: boolean
         harness:
           type: string
         hasMoreBefore:
@@ -14639,6 +14675,9 @@ components:
           type: integer
         rateLimits:
           $ref: '#/components/schemas/ConversationRateLimitsPayload'
+        revision:
+          format: int64
+          type: integer
         sessionId:
           type: string
         settings:
@@ -14663,6 +14702,7 @@ components:
       - controller
       - latestSequence
       - hasMoreBefore
+      - revision
       - nativeForkAvailableAfterSequence
       - turns
       - messages

@@ -1034,6 +1034,7 @@ type renderSourceQuery struct {
 
 type conversationSnapshotQuery struct {
 	BeforeSequence *int64 `query:"beforeSequence,omitempty" minimum:"1" description:"Read items older than this conversation sequence. Omit for the newest page."`
+	SinceRevision  *int64 `query:"sinceRevision,omitempty" minimum:"1" description:"Return only turns, messages and activities written at or after this revision, read from a previous response. Cannot be combined with beforeSequence; a cursor newer than the host answers 409."`
 	Limit          *int64 `query:"limit,omitempty" minimum:"1" maximum:"500" description:"Maximum combined messages and activities to return. Defaults to 200."`
 }
 
@@ -1163,6 +1164,8 @@ func shellTerminalOperations() []operation {
 			pathParams: []any{controllers.SessionIDParam{}, conversationSnapshotQuery{}},
 			resps: []respUnit{
 				{http.StatusOK, controllers.ConversationSnapshotResponse{}},
+				{http.StatusNotModified, nil},
+				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},

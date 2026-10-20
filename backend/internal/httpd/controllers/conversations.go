@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -773,6 +775,11 @@ func (c *ConversationsController) snapshot(w http.ResponseWriter, r *http.Reques
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "CONVERSATION_CURSOR_INVALID", err.Error(), nil)
 		return
 	}
+	since, err := optionalSinceRevision(r.URL.Query().Get("sinceRevision"))
+	if err != nil || (since > 0 && before > 0) {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "CONVERSATION_CURSOR_INVALID", "sinceRevision must be a positive integer and cannot be combined with beforeSequence", nil)
+		return
+	}
 	limit := int64(200)
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		limit, err = strconv.ParseInt(raw, 10, 64)
@@ -795,7 +802,107 @@ func (c *ConversationsController) snapshot(w http.ResponseWriter, r *http.Reques
 	// Excerpt verification is owned by AO, independently of provider capabilities.
 	// Older daemons ignore this request field, so clients must negotiate support.
 	response.SupportsExcerpts = true
-	envelope.WriteJSON(w, http.StatusOK, response)
+	response.Revision = snapshotRevision(snapshot)
+	if since > 0 {
+		if since > response.Revision {
+			envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "CONVERSATION_CURSOR_AHEAD", "sinceRevision is newer than this conversation", nil)
+			return
+		}
+		applyConversationDelta(&response, snapshot, since)
+	}
+	writeConversationSnapshot(w, r, response)
+}
+
+// writeConversationSnapshot answers 304 when the client already holds this
+// exact body, so an idle poll costs headers only.
+func writeConversationSnapshot(w http.ResponseWriter, r *http.Request, response ConversationSnapshotResponse) {
+	body, err := json.Marshal(response)
+	if err != nil {
+		envelope.WriteAPIError(w, r, http.StatusInternalServerError, "internal", "CONVERSATION_ENCODE_FAILED", "could not encode the conversation", nil)
+		return
+	}
+	sum := sha256.Sum256(body)
+	etag := `W/"` + hex.EncodeToString(sum[:16]) + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	for _, candidate := range strings.Split(r.Header.Get("If-None-Match"), ",") {
+		if strings.TrimSpace(candidate) == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(body, '\n'))
+}
+
+// snapshotRevision is the newest write time, in Unix nanoseconds, across the
+// returned messages, activities and the conversation row.
+func snapshotRevision(s chatsvc.Snapshot) int64 {
+	newest := s.Conversation.UpdatedAt
+	for _, msg := range s.Messages {
+		newest = laterTime(newest, msg.UpdatedAt)
+	}
+	for _, activity := range s.Activities {
+		newest = laterTime(newest, activity.UpdatedAt)
+	}
+	if newest.IsZero() {
+		return 0
+	}
+	return newest.UnixNano()
+}
+
+func laterTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+// applyConversationDelta keeps only timeline entries written at or after the
+// cursor; the equality keeps same-instant writes from being missed. Turns are
+// always kept because their diff and plan carry no write time. When the
+// oldest entry of a windowed page changed, older ones may have too, so the full
+// page is served instead.
+func applyConversationDelta(out *ConversationSnapshotResponse, s chatsvc.Snapshot, since int64) {
+	changed := func(t time.Time) bool { return t.UnixNano() >= since }
+	if s.HasMoreBefore && s.OldestSequence > 0 {
+		for _, msg := range s.Messages {
+			if msg.Sequence == s.OldestSequence && changed(msg.UpdatedAt) {
+				return
+			}
+		}
+		for _, activity := range s.Activities {
+			if activity.Sequence == s.OldestSequence && changed(activity.UpdatedAt) {
+				return
+			}
+		}
+	}
+	messages := make([]ConversationMessageResponse, 0)
+	for i, msg := range s.Messages {
+		if changed(msg.UpdatedAt) {
+			messages = append(messages, out.Messages[i])
+		}
+	}
+	activities := make([]ConversationActivityResponse, 0)
+	for i, activity := range s.Activities {
+		if changed(activity.UpdatedAt) {
+			activities = append(activities, out.Activities[i])
+		}
+	}
+	out.Messages, out.Activities = messages, activities
+	out.Delta = true
+}
+
+func optionalSinceRevision(raw string) (int64, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value < 1 {
+		return 0, fmt.Errorf("sinceRevision must be a positive integer")
+	}
+	return value, nil
 }
 
 func optionalPositiveInt64(raw string) (int64, error) {
