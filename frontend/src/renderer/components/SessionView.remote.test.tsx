@@ -601,7 +601,7 @@ it("reuses a Chat delivery ID when a lost response is retried", async () => {
 		let body: unknown;
 		let status = 200;
 		if (request.url.endsWith("/projects")) body = { projects: [{ id: "project-1", name: "Remote", path: "/remote" }] };
-		else if (request.url.endsWith("/sessions")) body = { sessions: [{ id: "session-1", projectId: "project-1", harness: "codex", status: "working", mode: "chat", prs: [] }] };
+		else if (new URL(request.url).pathname.endsWith("/sessions")) body = { sessions: [{ id: "session-1", projectId: "project-1", harness: "codex", status: "working", mode: "chat", prs: [] }] };
 		else if (new URL(request.url).pathname.endsWith("/conversation")) body = conversationBody();
 		else if (new URL(request.url).pathname.endsWith("/conversation/messages")) {
 			posts.push(request.url);
@@ -645,7 +645,7 @@ it("refreshes a remote approval after an already-answered 409", async () => {
 		const request = input instanceof Request ? input : new Request(input);
 		let body: unknown;
 		if (request.url.endsWith("/projects")) body = { projects: [{ id: "project-1", name: "Remote", path: "/remote" }] };
-		else if (request.url.endsWith("/sessions")) body = { sessions: [{ id: "session-1", projectId: "project-1", harness: "codex", status: "working", mode: "chat", prs: [] }] };
+		else if (new URL(request.url).pathname.endsWith("/sessions")) body = { sessions: [{ id: "session-1", projectId: "project-1", harness: "codex", status: "working", mode: "chat", prs: [] }] };
 		else if (new URL(request.url).pathname.endsWith("/conversation")) {
 			conversationReads++;
 			body = conversationBody({ controller: "busy", turns: [{ id: "turn-1", state: "running", requestedAt: "2026-09-28T00:00:00Z" }], activities: conversationReads === 1 ? [{
