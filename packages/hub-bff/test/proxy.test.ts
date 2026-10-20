@@ -39,7 +39,7 @@ beforeEach(async () => {
 		req.on("end", () => { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ url: req.url, method: req.method, body })); });
 	});
 	host = { url: await listen(upstream), hostId: "h_test", bearer: "upstream-secret" };
-	bff = createBff({ spaDir: "/unused", passwordHash: await hashPassword("test", { ln: 10, r: 8, p: 1 }), publicOrigin: origin, log: () => {}, hosts: { getHub: () => host, getHost: (id) => { hostLookups.push(id); return id === "h_test" ? host : undefined; } } });
+	bff = createBff({ spaDir: "/unused", passwordHash: await hashPassword("test", { ln: 10, r: 8, p: 1 }), publicOrigin: origin, log: () => {}, sseIdleMs: 300, hosts: { getHub: () => host, getHost: (id) => { hostLookups.push(id); return id === "h_test" ? host : undefined; } } });
 	address = await listen(bff);
 	const login = await request(bff).post("/login").set("Origin", origin).send({ password: "test" });
 	cookie = login.headers["set-cookie"][0].split(";")[0];
@@ -158,6 +158,45 @@ it("streams three SSE events before upstream completion and aborts when the clie
 		client.on("error", reject); client.end();
 	});
 	await disconnected;
+});
+
+it("closes an SSE stream that stays idle past the bound, on both sides", async () => {
+	upstream.removeAllListeners("request");
+	let upstreamClosed!: () => void;
+	const upstreamGone = new Promise<void>((resolve) => { upstreamClosed = resolve; });
+	upstream.on("request", (_req, res) => {
+		res.writeHead(200, { "Content-Type": "text/event-stream" });
+		res.write("event: ready\ndata: {}\n\n");
+		res.on("close", upstreamClosed);
+	});
+	const started = Date.now();
+	await new Promise<void>((resolve, reject) => {
+		const client = httpRequest(`${address}/api/events`, { headers: { Cookie: cookie } }, (res) => {
+			res.resume();
+			res.on("close", resolve);
+			res.on("error", () => resolve());
+		});
+		client.on("error", reject); client.end();
+	});
+	await upstreamGone;
+	expect(Date.now() - started).toBeLessThan(5_000);
+});
+
+it("keeps an SSE stream open while frames keep arriving inside the idle bound", async () => {
+	upstream.removeAllListeners("request");
+	upstream.on("request", (_req, res) => {
+		res.writeHead(200, { "Content-Type": "text/event-stream" });
+		const timer = setInterval(() => res.write("event: heartbeat\ndata: {}\n\n"), 100);
+		res.on("close", () => clearInterval(timer));
+	});
+	await new Promise<void>((resolve, reject) => {
+		let frames = 0;
+		const client = httpRequest(`${address}/api/events`, { headers: { Cookie: cookie } }, (res) => {
+			res.on("data", () => { if (++frames >= 8) { res.destroy(); resolve(); } });
+			res.on("close", () => reject(new Error("closed early")));
+		});
+		client.on("error", () => {}); client.end();
+	});
 });
 
 function upgrade(url: string, headers: Record<string, string> = {}) {

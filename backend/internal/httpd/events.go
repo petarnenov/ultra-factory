@@ -13,6 +13,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/sse"
 
 	"time"
 )
@@ -72,7 +73,7 @@ func (c *EventsController) stream(w http.ResponseWriter, r *http.Request) {
 		after = latestSeq
 	}
 
-	flusher, ok := w.(http.Flusher)
+	_, ok := w.(http.Flusher)
 	if !ok {
 		envelope.WriteAPIError(w, r, http.StatusInternalServerError, "internal", "SSE_UNSUPPORTED",
 			"Streaming is not supported by this server", nil)
@@ -104,14 +105,15 @@ func (c *EventsController) stream(w http.ResponseWriter, r *http.Request) {
 	if startAtHead {
 		// Give EventSource a Last-Event-ID before the first live change so an
 		// immediate reconnect replays the gap instead of starting at head again.
-		if _, err := fmt.Fprintf(w, "id: %d\nevent: cursor\ndata: {}\n\n", after); err != nil { //nolint:gosec // G705: an int64 formatted with %d cannot inject SSE fields.
+		if err := sse.Send(w, "id: %d\nevent: cursor\ndata: {}\n\n", after); err != nil { //nolint:gosec // G705: an int64 formatted with %d cannot inject SSE fields.
 			return
 		}
+	} else if err := sse.Send(w, ""); err != nil {
+		return
 	}
-	flusher.Flush()
 
 	sentSeq := after
-	if err := c.replay(ctx, w, flusher, &sentSeq); err != nil {
+	if err := c.replay(ctx, w, &sentSeq); err != nil {
 		return
 	}
 
@@ -131,21 +133,20 @@ func (c *EventsController) stream(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, "event: heartbeat\ndata: {}\n\n"); err != nil {
+			if err := sse.Send(w, "event: heartbeat\ndata: {}\n\n"); err != nil {
 				return
 			}
-			flusher.Flush()
 		case <-ctx.Done():
 			return
 		case e := <-live:
-			if err := writeSSEEvent(w, flusher, e, &sentSeq); err != nil {
+			if err := writeSSEEvent(w, e, &sentSeq); err != nil {
 				return
 			}
 		}
 	}
 }
 
-func (c *EventsController) replay(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, sentSeq *int64) error {
+func (c *EventsController) replay(ctx context.Context, w http.ResponseWriter, sentSeq *int64) error {
 	for {
 		events, err := c.Source.EventsAfter(ctx, *sentSeq, eventsReplayBatch)
 		if err != nil {
@@ -155,7 +156,7 @@ func (c *EventsController) replay(ctx context.Context, w http.ResponseWriter, fl
 			return nil
 		}
 		for _, e := range events {
-			if err := writeSSEEvent(w, flusher, e, sentSeq); err != nil {
+			if err := writeSSEEvent(w, e, sentSeq); err != nil {
 				return err
 			}
 		}
@@ -182,7 +183,7 @@ func parseEventsAfter(r *http.Request) (int64, error) {
 	return seq, nil
 }
 
-func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, e cdc.Event, sentSeq *int64) error {
+func writeSSEEvent(w http.ResponseWriter, e cdc.Event, sentSeq *int64) error {
 	if e.Seq <= *sentSeq {
 		return nil
 	}
@@ -190,11 +191,10 @@ func writeSSEEvent(w http.ResponseWriter, flusher http.Flusher, e cdc.Event, sen
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", e.Seq, sseEventName(e.Type), data); err != nil {
+	if err := sse.Send(w, "id: %d\nevent: %s\ndata: %s\n\n", e.Seq, sseEventName(e.Type), data); err != nil {
 		return err
 	}
 	*sentSeq = e.Seq
-	flusher.Flush()
 	return nil
 }
 

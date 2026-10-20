@@ -185,7 +185,10 @@ function createWorkspaceStream(sessionId: string, queryClient: QueryClient, host
 					stream.poll = undefined;
 					invalidate();
 				},
-				invalidate,
+				() => {
+					stream.poll ??= setInterval(invalidate, 2_000);
+					invalidate();
+				},
 			);
 			return;
 		}
