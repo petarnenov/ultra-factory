@@ -784,6 +784,8 @@ export interface ConversationSnapshot {
 	latestSequence: number;
 	oldestSequence: number;
 	hasMoreBefore: boolean;
+	/** Host write cursor for the live page, sent back as sinceRevision. */
+	revision?: number;
 	/** The first provider-backed prompt in the active provider scope. */
 	nativeForkAvailableAfterSequence?: number;
 	activeBranchId?: string;
