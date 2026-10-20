@@ -1523,7 +1523,11 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
 - **Explicit flags.** A coordinator may still pass `--harness`, `--model` and
   `--effort` on a worker spawn only when the combination matches a profile that
   is in its selection. Anything else is `WORKER_PROFILE_NOT_ALLOWED`. With
-  `inherit` and no profile list, flags work as today.
+  `inherit` and no profile list, flags work as today. For a root-owned direct
+  worker the explicit flags always win (decision 5, precedence): they are the
+  root's deliberate choice, `rootWorkerAgent` only fills spawns without flags,
+  and `WORKER_PROFILE_NOT_ALLOWED` is never returned. The worker records a
+  profile ID only when the flags match a profile in the list.
 - **Host readiness.** The daemon never picks a profile whose harness is not
   authorized on the target host. With `random`, unready profiles are filtered
   out before the pick; with `fixed`, an unready profile is
@@ -1598,8 +1602,8 @@ New codes, all in the existing `apierr` envelope with a request ID:
 | `COORDINATOR_LOCAL_WORKER_REFUSED` | Conflict / 409 | Coordinator-owned worker on the local daemon while `allowLocalWorkers` is false | `coordinatorId`, `projectId` |
 | `COORDINATOR_WORKER_LIMIT_INVALID` | Invalid / 400 | Per-coordinator `workerLimit` above the project's `maxWorkersPerCoordinator`, or slots total above `workerLimit`, or an invalid `hostSlots` entry (`slots` below 1, or two entries for the same host) | `field` (`workerLimit` or `hostSlots`), `max` (the effective project `maxWorkersPerCoordinator` for `workerLimit`; the coordinator's `workerLimit` for a slots total; omitted for an invalid entry) |
 | `WORKER_PROFILE_INVALID` | Invalid / 400 | Malformed profile list or selection | `field` |
-| `WORKER_PROFILE_UNAVAILABLE` | Conflict / 409 | No selected profile is ready on the target host | `coordinatorId`, `hostId` |
-| `WORKER_PROFILE_NOT_ALLOWED` | Conflict / 409 | Explicit `--harness/--model/--effort` does not match a selected profile | `coordinatorId` |
+| `WORKER_PROFILE_UNAVAILABLE` | Conflict / 409 | No selected profile is ready on the target host | `projectId`, `hostId`, and `coordinatorId` when the worker is coordinator-owned (omitted for a root-owned worker, which uses `rootWorkerAgent`) |
+| `WORKER_PROFILE_NOT_ALLOWED` | Conflict / 409 | Explicit `--harness/--model/--effort` does not match a selected profile (coordinator-owned workers only) | `projectId`, `coordinatorId` |
 | `COORDINATOR_PROFILE_NOT_ALLOWED` | Conflict / 409 | Coordinator agent selection names a profile outside the list | `profileId` |
 | `OPERATOR_MARKER_NOT_ALLOWED` | Forbidden / 403 | `operatorInitiated: true` sent together with a session caller field (`requestedBySessionId`, or a `parentSessionId` that is not the live root); an accident guard, not authentication | `sessionId` |
 
