@@ -54,9 +54,9 @@ issue, and sub-issue progress fields: [AO: Hierarchical Coordinators (CO)](https
 
 | Item | GitHub issue | Status |
 |---|---:|---|
-| [CO-1] Epic: Measure load and define coordinator ownership | [#205](https://github.com/petarnenov/ultra-factory/issues/205) | Todo |
-| [CO-1.1] Story: Baseline resource use under six workers | [#209](https://github.com/petarnenov/ultra-factory/issues/209) | Todo |
-| [CO-1.1.1] Task: Record per-process resource baseline | [#218](https://github.com/petarnenov/ultra-factory/issues/218) | Todo |
+| [CO-1] Epic: Measure load and define coordinator ownership | [#205](https://github.com/petarnenov/ultra-factory/issues/205) | In progress |
+| [CO-1.1] Story: Baseline resource use under six workers | [#209](https://github.com/petarnenov/ultra-factory/issues/209) | In progress |
+| [CO-1.1.1] Task: Record per-process resource baseline | [#218](https://github.com/petarnenov/ultra-factory/issues/218) | Needs human |
 | [CO-1.2] Story: Coordinator ownership contract | [#210](https://github.com/petarnenov/ultra-factory/issues/210) | Done |
 | [CO-1.2.1] Task: ADR for coordinator hierarchy and report routing | [#219](https://github.com/petarnenov/ultra-factory/issues/219) | Done |
 | [CO-2] Epic: Persist coordinator ownership and route reports | [#206](https://github.com/petarnenov/ultra-factory/issues/206) | Done |
@@ -73,9 +73,9 @@ issue, and sub-issue progress fields: [AO: Hierarchical Coordinators (CO)](https
 | [CO-3.2.1] Task: Define coordinator operating prompt and handoff | [#225](https://github.com/petarnenov/ultra-factory/issues/225) | Done |
 | [CO-3.3] Story: Inspect coordinator hierarchy | [#215](https://github.com/petarnenov/ultra-factory/issues/215) | Done |
 | [CO-3.3.1] Task: Show coordinator ownership in session listings | [#226](https://github.com/petarnenov/ultra-factory/issues/226) | Done |
-| [CO-4] Epic: Validate and roll out hierarchical coordination | [#208](https://github.com/petarnenov/ultra-factory/issues/208) | Todo |
-| [CO-4.1] Story: End-to-end pilot and resource comparison | [#216](https://github.com/petarnenov/ultra-factory/issues/216) | Todo |
-| [CO-4.1.1] Task: Run coordinator hierarchy end-to-end | [#227](https://github.com/petarnenov/ultra-factory/issues/227) | Todo |
+| [CO-4] Epic: Validate and roll out hierarchical coordination | [#208](https://github.com/petarnenov/ultra-factory/issues/208) | In progress |
+| [CO-4.1] Story: End-to-end pilot and resource comparison | [#216](https://github.com/petarnenov/ultra-factory/issues/216) | In progress |
+| [CO-4.1.1] Task: Run coordinator hierarchy end-to-end | [#227](https://github.com/petarnenov/ultra-factory/issues/227) | Needs human |
 | [CO-4.2] Story: Roll out and recover the coordinator hierarchy | [#217](https://github.com/petarnenov/ultra-factory/issues/217) | Done |
 | [CO-4.2.1] Task: Document coordinator rollout and rollback | [#228](https://github.com/petarnenov/ultra-factory/issues/228) | Done |
 

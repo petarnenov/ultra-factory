@@ -12460,7 +12460,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -17357,7 +17357,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;

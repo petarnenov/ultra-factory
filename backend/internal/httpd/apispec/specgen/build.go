@@ -886,7 +886,8 @@ func reportOperations() []operation {
 		method: http.MethodPut, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner", id: "assignRemoteWorkerOwner", tag: "reports",
 		summary: "Assign or clear a linked remote worker's local owner",
 		respNotes: map[int]string{
-			http.StatusConflict: "Conflict: see x-error-codes",
+			http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
+			http.StatusConflict:  "Conflict: see x-error-codes",
 		},
 		errorCodes: map[int][]string{
 			http.StatusConflict: {
@@ -3581,7 +3582,8 @@ func sessionOperations() []operation {
 			method: http.MethodPut, path: "/api/v1/sessions/{sessionId}/owner", id: "assignSessionOwner", tag: "sessions",
 			summary: "Assign or clear a worker's coordinator owner (live root only)",
 			respNotes: map[int]string{
-				http.StatusConflict: "Conflict: see x-error-codes",
+				http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
+				http.StatusConflict:  "Conflict: see x-error-codes",
 			},
 			errorCodes: map[int][]string{
 				http.StatusConflict: {
