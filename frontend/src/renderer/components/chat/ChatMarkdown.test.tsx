@@ -270,7 +270,7 @@ describe("ChatMarkdown", () => {
 
 	it("scopes a session preview to the chat source", async () => {
 		sessionPreview.mockClear();
-		render(
+		const { unmount } = render(
 			<ChatLinkProvider
 				onSessionLinkOpen={vi.fn()}
 				sessionLinkHostId="box-a"
@@ -286,6 +286,8 @@ describe("ChatMarkdown", () => {
 			sourceHostId: "box-a",
 			sourceKind: undefined,
 		});
+		// Unmount so the hover card's pending timers die with the test.
+		unmount();
 	});
 
 	it("renders remote workspace paths as text while keeping external links working", async () => {
