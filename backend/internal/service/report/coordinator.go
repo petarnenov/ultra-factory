@@ -360,7 +360,7 @@ func (c *Coordinator) escalateExitedOwner(ctx context.Context, owner, root domai
 	}
 	text := fmt.Sprintf("Coordinator %s exited and needs recovery. Its workers' reports are routed to you until it is restored or terminated; ownership is unchanged.", owner.ID)
 	key := fmt.Sprintf("coordinator-exited:%s:%d", owner.ID, notice.exitedAt)
-	if err := c.delivery.Submit(ctx, root.ID, text, key); err != nil {
+	if err := c.delivery.Submit(ctx, root.ID, text, key); err != nil && !errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
 		slog.Warn("coordinator recovery notice failed", "coordinator", owner.ID, "root", root.ID, "err", err)
 		return
 	}

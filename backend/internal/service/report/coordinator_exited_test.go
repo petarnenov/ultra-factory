@@ -153,3 +153,27 @@ func TestDeliverExternalRejectsAnExitedCoordinator(t *testing.T) {
 		t.Fatalf("err = %v submissions = %#v", err, delivery.submissions)
 	}
 }
+
+func TestCoordinatorRecoveryNoticeAcceptanceTimeoutIsNotResent(t *testing.T) {
+	now := time.Date(2026, 10, 20, 9, 20, 0, 0, time.UTC)
+	owner := domain.SessionID("coord-exited")
+	store := exitedCoordinatorStore(now, owner)
+	delivery := &coordinatorDelivery{submitErr: domain.ErrSemanticAcceptanceTimeout}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+	for _, id := range []string{"one", "two"} {
+		store.add(reportAt(id, "worker", now, now, id))
+		if _, err := c.RunDue(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notices := 0
+	for _, sub := range delivery.submissions {
+		if strings.HasPrefix(sub.key, "coordinator-exited:") {
+			notices++
+		}
+	}
+	// The fake records only successful submits, so count attempts instead.
+	if delivery.attempts != 3 || notices != 0 {
+		t.Fatalf("attempts = %d, want one notice attempt plus two report attempts", delivery.attempts)
+	}
+}
