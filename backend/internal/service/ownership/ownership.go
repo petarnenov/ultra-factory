@@ -27,8 +27,7 @@ func RequireLiveRoot(rec domain.SessionRecord, project domain.ProjectID) error {
 }
 
 // RequireMergeAuthority refuses a merge requested by a live coordinator or
-// worker. Any other requester, including an unknown or terminated session,
-// is not refused; the service skips the check when no session is named.
+// worker; any other requester, even terminated, passes.
 func RequireMergeAuthority(rec domain.SessionRecord) error {
 	if rec.IsTerminated || (rec.Kind != domain.KindCoordinator && rec.Kind != domain.KindWorker) {
 		return nil
