@@ -18,6 +18,7 @@ Decisions behind this design:
 | [0006](../adr/0006-web-bff-for-hub.md) | A separate web BFF in front of the hub daemon. It talks only to authenticated listeners with a bearer and never proxies the loopback `127.0.0.1:3001` listener. |
 | [0007](../adr/0007-dual-stack-remote-host-listener.md) | The `0.0.0.0` remote-host bind is already dual-stack in Go and must not be narrowed to `tcp4`. |
 | [0008](../adr/0008-hub-egress-to-off-railway-hosts.md) | Accepted: one loopback-only SOCKS5 listener in the hub (Tailscale userspace) for tailnet destinations only. Not implemented on this branch; tracked by RW-5.2. |
+| [0010](../adr/0010-coordinator-hierarchy-and-report-ownership.md) | Helper coordinators are a third session kind on the root's daemon. Workers carry a durable owner; reports route to the owner and coordinator summaries to the root. |
 
 ## Components
 
@@ -203,9 +204,90 @@ and the terminal stay real.
 A hub orchestrator delegates to workers with `ao spawn --host`. The hub daemon
 then pulls each linked worker's pending `ao report` deliveries (ADR 0005,
 daemon pulls), probing identity before sending the bearer. Traffic is always
-hub → worker; workers never call the hub. PR and CI changes are not reports, so
+hub → worker; workers never call the hub. A worker's report is delivered to its
+durable owner (the project root when it has none), and a helper coordinator's
+summaries and escalations go to the root. PR and CI changes are not reports, so
 the optional wake-up loop (`AO_HUB_ORCHESTRATOR_TICK=1`) nudges the orchestrator
 when they change.
+
+#### Coordinator hierarchy (pilot)
+
+[ADR 0010](../adr/0010-coordinator-hierarchy-and-report-ownership.md) adds a
+third session kind, `coordinator`. It is a project-scoped session on the root's
+daemon — the hub in this deployment — spawned only by the live root, running the
+orchestrator role configuration with a scope prompt. It owns at most three
+active workers. Workers keep a durable `owner_session_id`; `NULL` means the
+project's live root. Reports route to the worker's owner, and helper summaries and
+escalations route to the root. Only the root merges. The root-to-coordinator
+rules are the
+[coordinator operating contract](../coordinators/operating-contract.md).
+
+Two valid shapes, both exactly at the six-worker project total:
+
+**Shape A — two full coordinators, no root-owned worker (six of six).**
+
+```mermaid
+flowchart TD
+    R[Root orchestrator<br/>hub] --> C1[Coordinator A<br/>3 workers]
+    R --> C2[Coordinator B<br/>3 workers]
+```
+
+**Shape B — the root keeps one worker directly, so a coordinator holds fewer
+(six of six).**
+
+```mermaid
+flowchart TD
+    R[Root orchestrator<br/>hub] --> C1[Coordinator A<br/>2 workers]
+    R --> C2[Coordinator B<br/>3 workers]
+    R -.->|owner NULL| W1[Root-owned worker<br/>1 slot]
+```
+
+The project total is **six active workers**, not six plus direct delegation:
+coordinator-owned workers and root-owned workers draw from the same six slots.
+Both shapes above use exactly six. A root-owned direct worker is an alternative
+to an owned worker, never a seventh, and a coordinator never exceeds three.
+
+Deployment-relevant rules:
+
+- **One live root per project**, backed by the partial unique index
+  `ux_sessions_active_root`. Root replacement retires only the root; coordinators
+  keep running and keep their workers.
+- **Coordinators run where the root runs.** `ao spawn --host` with
+  `--kind coordinator` is rejected, and a caller that is not the live root gets
+  `403 COORDINATOR_ROOT_REQUIRED`. Workers may be local or linked remote
+  workers; the link's owner is a local session id that never crosses to the peer
+  daemon.
+- **Capacity is enforced at 2 / 3 / 6** (ADR section 8): two live coordinators
+  per project, three active workers per coordinator, six active workers per
+  project. Each count sums live local workers and remote links: a remote link is
+  one active worker, a hibernated or idle or crashed-not-yet-reaped session
+  still consumes a slot, and root-owned workers count toward the six.
+  Termination releases every slot in the terminating transaction.
+- **Termination hands work back; it does not delete.** A terminated coordinator
+  returns its workers and links to the root and its slot is freed. Rows,
+  reports, and summaries stay durable, and restore does not reattach the former
+  workers. Open defect
+  [#340](https://github.com/petarnenov/ultra-factory/issues/340) means the root
+  escalation summary for that termination is not written yet; verify the
+  handback through the roster.
+- **No replication.** One daemon, one SQLite database, no shared volume, no
+  second coordinator service. Helpers are sessions, not services.
+- **Enablement is deliberately off by default.** ADR section 8 defines a
+  per-project `coordinators` block (`enabled=false`, limits 2/3/6). That gate is
+  **not implemented on `dev`** at the time of writing: there is no config field,
+  daemon flag, environment variable, or `COORDINATORS_DISABLED` response. Until
+  it lands, coordinator creation is controlled only by the root and the
+  operator.
+
+Operation, monitoring, and rollback for the pilot are in the runbook,
+[coordinator rollout and rollback](../../deploy/railway/README.md#coordinator-rollout-and-rollback-pilot).
+The end-to-end pilot is
+[`coordinator_pilot_e2e_test.go`](../../backend/internal/cli/coordinator_pilot_e2e_test.go)
+and
+[`pilot_test.go`](../../backend/internal/service/coordinatorpilot/pilot_test.go);
+the live multi-machine comparison is pending on
+[#227](https://github.com/petarnenov/ultra-factory/issues/227) and
+[#218](https://github.com/petarnenov/ultra-factory/issues/218).
 
 ## What does not work on the web
 

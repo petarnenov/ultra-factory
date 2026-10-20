@@ -13,6 +13,7 @@ state are marked **(contract rule)**.
 | Standing rules: scope, worker cap, no merge or closure, summaries, escalation reasons, handback | The coordinator system prompt in `backend/internal/session_manager/prompt.go` (`coordinatorSystemPrompt`). Every coordinator gets it, including after a relaunch. | Product |
 | Assignment: scope, task list, branch rules, reporting cadence | The brief the root sends with `ao spawn --kind coordinator --scope <text> --prompt <brief>`, filled in from the template below. | Root, per coordinator |
 | Root-side procedures: reassignment, replacement, termination | This document. | Root reads it |
+| Rollout, monitoring, and rollback for the pilot | [Railway runbook: coordinator rollout and rollback](../../deploy/railway/README.md#coordinator-rollout-and-rollback-pilot). | Operator |
 
 The system prompt is the enforced baseline. This document is the long form: it
 explains the rules, gives the brief template, and defines what the root does.
