@@ -216,24 +216,36 @@ when they change.
 third session kind, `coordinator`. It is a project-scoped session on the root's
 daemon — the hub in this deployment — spawned only by the live root, running the
 orchestrator role configuration with a scope prompt. It owns at most three
-workers. Workers keep a durable `owner_session_id`; `NULL` means the project's
-live root. Reports route to the worker's owner, and helper summaries and
+active workers. Workers keep a durable `owner_session_id`; `NULL` means the
+project's live root. Reports route to the worker's owner, and helper summaries and
 escalations route to the root. Only the root merges. The root-to-coordinator
 rules are the
 [coordinator operating contract](../coordinators/operating-contract.md).
 
+Two valid shapes, both exactly at the six-worker project total:
+
+**Shape A — two full coordinators, no root-owned worker (six of six).**
+
 ```mermaid
 flowchart TD
-    R[Root orchestrator<br/>hub] --> C1[Coordinator A<br/>hub, scope A]
-    R --> C2[Coordinator B<br/>hub, scope B]
-    C1 --> W1[Up to 3 of the 6 workers<br/>paired hosts]
-    C2 --> W2[Up to 3 of the 6 workers<br/>paired hosts]
-    R -.->|direct delegation, uses a slot in the same six| W3[Root-owned worker<br/>owner NULL]
+    R[Root orchestrator<br/>hub] --> C1[Coordinator A<br/>3 workers]
+    R --> C2[Coordinator B<br/>3 workers]
+```
+
+**Shape B — the root keeps one worker directly, so a coordinator holds fewer
+(six of six).**
+
+```mermaid
+flowchart TD
+    R[Root orchestrator<br/>hub] --> C1[Coordinator A<br/>2 workers]
+    R --> C2[Coordinator B<br/>3 workers]
+    R -.->|owner NULL| W1[Root-owned worker<br/>1 slot]
 ```
 
 The project total is **six active workers**, not six plus direct delegation:
-coordinator-owned workers and root-owned workers draw from the same six slots. A
-root-owned direct worker is an alternative to an owned worker, never a seventh.
+coordinator-owned workers and root-owned workers draw from the same six slots.
+Both shapes above use exactly six. A root-owned direct worker is an alternative
+to an owned worker, never a seventh, and a coordinator never exceeds three.
 
 Deployment-relevant rules:
 
@@ -245,10 +257,12 @@ Deployment-relevant rules:
   `403 COORDINATOR_ROOT_REQUIRED`. Workers may be local or linked remote
   workers; the link's owner is a local session id that never crosses to the peer
   daemon.
-- **Capacity is 2 / 3 / 6** (ADR section 8): two live coordinators per project,
-  three active workers per coordinator, six active workers per project, counted
-  over live local workers plus remote links. Root-owned workers count toward the
-  six. Termination releases slots in the terminating transaction.
+- **Capacity is enforced at 2 / 3 / 6** (ADR section 8): two live coordinators
+  per project, three active workers per coordinator, six active workers per
+  project. Each count sums live local workers and remote links: a remote link is
+  one active worker, a hibernated or idle or crashed-not-yet-reaped session
+  still consumes a slot, and root-owned workers count toward the six.
+  Termination releases every slot in the terminating transaction.
 - **Termination hands work back; it does not delete.** A terminated coordinator
   returns its workers and links to the root and its slot is freed. Rows,
   reports, and summaries stay durable, and restore does not reattach the former
