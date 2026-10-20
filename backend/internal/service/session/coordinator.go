@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
@@ -91,9 +92,13 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	if s.store == nil {
 		return domain.Session{}, 0, 0, fmt.Errorf("spawn coordinator: store is required")
 	}
-	if err := s.requireRoot(ctx, cfg); err != nil {
+	caller := cfg
+	origin, root, err := s.resolveSpawnRoot(ctx, caller)
+	if err != nil {
 		return domain.Session{}, 0, 0, err
 	}
+	cfg.ParentSessionID = root
+	operator := cfg.OperatorInitiated
 	scope, err := coordownership.NormalizeScope(cfg.CoordinatorScope)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
@@ -105,9 +110,10 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	}
 	unlock := s.lockOrchestratorProject(cfg.ProjectID)
 	defer unlock()
-	if err := s.requireRoot(ctx, cfg); err != nil {
+	if _, root, err = s.resolveSpawnRoot(ctx, caller); err != nil {
 		return domain.Session{}, 0, 0, err
 	}
+	cfg.ParentSessionID = root
 	gate, err := coordownership.LoadConfig(ctx, s.store, cfg.ProjectID)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
@@ -140,7 +146,55 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	if cfg, err = s.resolveCoordinatorAgent(ctx, cfg, gate); err != nil {
 		return domain.Session{}, 0, 0, err
 	}
-	return s.spawn(ctx, cfg)
+	if !operator {
+		return s.spawn(ctx, cfg)
+	}
+	sess, promptBytes, systemPromptBytes, err := s.spawn(ctx, cfg)
+	if err != nil {
+		return sess, promptBytes, systemPromptBytes, err
+	}
+	event := domain.CoordinatorOperatorEvent{
+		CoordinatorSessionID: sess.ID,
+		ProjectID:            cfg.ProjectID,
+		RootSessionID:        cfg.ParentSessionID,
+		Origin:               origin,
+		Scope:                scope,
+		WorkerLimit:          cfg.CoordinatorWorkerLimit,
+		HostSlots:            cfg.CoordinatorHostSlots,
+		CoordinatorAgent:     cfg.CoordinatorAgent,
+		WorkerAgent:          cfg.CoordinatorWorkerAgent,
+		CreatedAt:            s.now(),
+	}
+	if err := s.store.AppendCoordinatorOperatorEvent(ctx, event); err != nil {
+		return sess, promptBytes, systemPromptBytes, err
+	}
+	return sess, promptBytes, systemPromptBytes, nil
+}
+
+// resolveSpawnRoot returns the root that parents a coordinator. An operator
+// spawn gets the live root and its origin; a root spawn checks the caller.
+func (s *Service) resolveSpawnRoot(ctx context.Context, cfg ports.SpawnConfig) (string, domain.SessionID, error) {
+	if !cfg.OperatorInitiated {
+		return "", cfg.ParentSessionID, s.requireRoot(ctx, cfg)
+	}
+	origin, err := limitOrigin(CoordinatorLimitsCaller{
+		RequestedBy:       cfg.ParentSessionID,
+		OperatorInitiated: true,
+		Origin:            cfg.OperatorOrigin,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	root, err := s.liveRootID(ctx, cfg.ProjectID)
+	if err != nil {
+		return "", "", err
+	}
+	if root == nil {
+		return "", "", apierr.New(apierr.KindForbidden, "COORDINATOR_ROOT_REQUIRED",
+			"The project has no live root to start a coordinator for",
+			map[string]any{"projectId": string(cfg.ProjectID)})
+	}
+	return origin, *root, nil
 }
 
 // admitRestore re-checks capacity before a terminated session returns to

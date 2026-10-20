@@ -407,6 +407,20 @@ type CoordinatorLimitEvent struct {
 	CreatedAt         time.Time
 }
 
+type CoordinatorOperatorEvent struct {
+	ID                   int64
+	CoordinatorSessionID string
+	ProjectID            string
+	RootSessionID        string
+	Origin               string
+	Scope                string
+	WorkerLimit          sql.NullInt64
+	HostSlots            sql.NullString
+	CoordinatorAgent     sql.NullString
+	WorkerAgent          sql.NullString
+	CreatedAt            time.Time
+}
+
 type CoordinatorSummary struct {
 	ID                   string
 	CoordinatorSessionID string

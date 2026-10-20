@@ -19882,6 +19882,14 @@ components:
         model:
           maxLength: 256
           type: string
+        operatorInitiated:
+          type: boolean
+        origin:
+          enum:
+          - ui
+          - cli
+          - api
+          type: string
         parentSessionId:
           type: string
         projectId:

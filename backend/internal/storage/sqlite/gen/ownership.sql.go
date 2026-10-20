@@ -72,6 +72,42 @@ func (q *Queries) InsertCoordinatorLimitEvent(ctx context.Context, arg InsertCoo
 	return err
 }
 
+const insertCoordinatorOperatorEvent = `-- name: InsertCoordinatorOperatorEvent :exec
+INSERT INTO coordinator_operator_events (
+    coordinator_session_id, project_id, root_session_id, origin, scope,
+    worker_limit, host_slots, coordinator_agent, worker_agent, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertCoordinatorOperatorEventParams struct {
+	CoordinatorSessionID string
+	ProjectID            string
+	RootSessionID        string
+	Origin               string
+	Scope                string
+	WorkerLimit          sql.NullInt64
+	HostSlots            sql.NullString
+	CoordinatorAgent     sql.NullString
+	WorkerAgent          sql.NullString
+	CreatedAt            time.Time
+}
+
+func (q *Queries) InsertCoordinatorOperatorEvent(ctx context.Context, arg InsertCoordinatorOperatorEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertCoordinatorOperatorEvent,
+		arg.CoordinatorSessionID,
+		arg.ProjectID,
+		arg.RootSessionID,
+		arg.Origin,
+		arg.Scope,
+		arg.WorkerLimit,
+		arg.HostSlots,
+		arg.CoordinatorAgent,
+		arg.WorkerAgent,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const insertRemoteWorkerOwnerEvent = `-- name: InsertRemoteWorkerOwnerEvent :exec
 INSERT INTO remote_worker_owner_events (
     host_id, remote_session_id, previous_owner_session_id, new_owner_session_id, reason, created_at

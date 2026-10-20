@@ -22,6 +22,7 @@ import { buildIntake } from "./IntakeFields";
 import { ReviewerSelect, reviewerTrustWarning } from "./ReviewerSelect";
 import { ProjectSettingsEditor, type ProjectAgentPickerProps, type ProjectSettingsDraft } from "./ProjectSettingsEditor";
 import { CloudProjectSettingsAdapter } from "./CloudProjectSettingsForm";
+import { CoordinatorsSettingsForm } from "./coordinators/CoordinatorsSettingsForm";
 
 type Project = components["schemas"]["Project"];
 type ProjectConfig = components["schemas"]["ProjectConfig"];
@@ -39,7 +40,7 @@ type SettingsSaveResult = {
 	spawnError: unknown;
 };
 
-export type ProjectSettingsSection = "general" | "agents";
+export type ProjectSettingsSection = "general" | "agents" | "coordinators";
 export type ProjectSettingsSaveState = {
 	phase: "idle" | "pending" | "saving" | "saved" | "failed";
 	dirty?: boolean;
@@ -328,6 +329,21 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 			throw error;
 		}
 	};
+	if (section === "coordinators") {
+		return (
+			<CoordinatorsSettingsForm
+				config={config}
+				hostId={hostId}
+				onSaveState={onSaveState}
+				onSaved={() => {
+					void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId, hostId) });
+					void onSaved();
+				}}
+				projectId={projectId}
+				projectName={project.name}
+			/>
+		);
+	}
 	return <ProjectSettingsEditor initialValues={initialValues} section={section} disabled={!hostConnected}
 		capabilities={{ workflow: !isScratchProject, sessionPrefix: !isScratchProject, intake: intakeVisible, reviewer: !isScratchProject, requiredAgents: true, workersRequestReview: !isScratchProject }}
 		details={[{ label: t("settings.project.path"), value: project.path, href: hostId ? undefined : `file://${encodeURI(project.path)}` }, { label: t("settings.project.repo"), value: project.repo || "—", href: project.repo ? repositoryHref(project.repo) : undefined }]}

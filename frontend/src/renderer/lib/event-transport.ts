@@ -193,6 +193,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 			};
 			const refreshRemote = (hostId: string, reconnect = false) => {
 				invalidate(["remote-workspaces", hostId]);
+				invalidate(["coordinator-roster", hostId]);
 				invalidate(["project", hostId]);
 				invalidate(["project-config", hostId]);
 				if (reconnect) invalidate(["remote-conversation", hostId]);
@@ -290,6 +291,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 					invalidate(agentSwitchesQueryRoot);
 					invalidate(sessionScmSummaryQueryKey());
 					invalidate(sessionUsageQueryRoot);
+					invalidate(["coordinator-roster"]);
 					workspaceInvalidationPending = false;
 				}
 				if (allEventScopedCachesInvalidationPending) {

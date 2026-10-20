@@ -1,0 +1,186 @@
+import { describe, expect, test } from "vitest";
+import {
+	coordinatorErrorKey,
+	coordinatorsConfigFrom,
+	coordinatorsFormFrom,
+	validateCoordinatorsForm,
+	validateSpawnCoordinator,
+	withCoordinatorsConfig,
+	type CoordinatorsForm,
+	type SpawnCoordinatorForm,
+} from "./coordinators";
+
+const baseForm = (overrides: Partial<CoordinatorsForm> = {}): CoordinatorsForm => ({
+	enabled: true,
+	maxCoordinators: "",
+	maxWorkersPerCoordinator: "",
+	maxWorkers: "",
+	allowedHosts: [],
+	allowLocalWorkers: false,
+	coordinatorAgent: { mode: "inherit", profileId: "", profileIds: [] },
+	workerAgent: { mode: "inherit", profileId: "", profileIds: [] },
+	rootWorkerAgent: { mode: "inherit", profileId: "", profileIds: [] },
+	agentProfiles: [],
+	...overrides,
+});
+
+const spawnForm = (overrides: Partial<SpawnCoordinatorForm> = {}): SpawnCoordinatorForm => ({
+	scope: "docs",
+	workerLimit: "",
+	hostSlots: [],
+	coordinatorAgent: "inherit",
+	coordinatorProfileId: "",
+	customHarness: "",
+	customModel: "",
+	customEffort: "",
+	workerAgent: { mode: "inherit", profileId: "", profileIds: [] },
+	brief: "Brief text",
+	...overrides,
+});
+
+describe("withCoordinatorsConfig", () => {
+	test("replaces only the coordinators block and keeps every other project field", () => {
+		const config = {
+			defaultBranch: "dev",
+			autoReview: true,
+			sessionPrefix: "ao",
+			coordinators: { enabled: false, maxWorkers: 2 },
+		};
+		const next = withCoordinatorsConfig(config, { enabled: true, maxWorkers: 4 });
+		expect(next).toEqual({
+			defaultBranch: "dev",
+			autoReview: true,
+			sessionPrefix: "ao",
+			coordinators: { enabled: true, maxWorkers: 4 },
+		});
+		expect(config.coordinators).toEqual({ enabled: false, maxWorkers: 2 });
+	});
+});
+
+describe("coordinatorsConfigFrom", () => {
+	test("omits blank limits so the daemon defaults apply", () => {
+		const config = coordinatorsConfigFrom(baseForm({ maxCoordinators: "1" }));
+		expect(config.maxCoordinators).toBe(1);
+		expect(config.maxWorkers).toBeUndefined();
+		expect(config.maxWorkersPerCoordinator).toBeUndefined();
+	});
+
+	test("round-trips a saved configuration through the form", () => {
+		const saved = {
+			enabled: true,
+			maxCoordinators: 3,
+			maxWorkersPerCoordinator: 2,
+			maxWorkers: 8,
+			allowedHosts: ["Linux"],
+			allowLocalWorkers: true,
+			coordinatorAgent: { mode: "fixed", profileId: "a" },
+			agentProfiles: [{ id: "a", label: "Alpha", harness: "codex", model: "m", effort: "high", weight: 2 }],
+		};
+		const form = coordinatorsFormFrom(saved);
+		expect(form.maxCoordinators).toBe("3");
+		expect(coordinatorsConfigFrom(form)).toMatchObject(saved);
+	});
+});
+
+describe("validateCoordinatorsForm", () => {
+	test("accepts blank limits and values up to the hard maximum", () => {
+		expect(validateCoordinatorsForm(baseForm())).toEqual({});
+		expect(validateCoordinatorsForm(baseForm({ maxCoordinators: "4", maxWorkersPerCoordinator: "6", maxWorkers: "12" }))).toEqual({});
+	});
+
+	test("rejects a limit above the hard maximum", () => {
+		const errors = validateCoordinatorsForm(baseForm({ maxCoordinators: "5" }));
+		expect(errors.maxCoordinators).toBe("coordinators.errors.limitRange");
+	});
+
+	test("rejects a per-coordinator limit above the project limit", () => {
+		const errors = validateCoordinatorsForm(baseForm({ maxWorkersPerCoordinator: "4", maxWorkers: "3" }));
+		expect(errors.maxWorkersPerCoordinator).toBe("coordinators.errors.workersPerCoordinatorAboveWorkers");
+	});
+
+	test("requires an ID and harness for every profile and unique IDs", () => {
+		const profile = { id: "", label: "", harness: "codex", model: "", effort: "", weight: "" };
+		expect(validateCoordinatorsForm(baseForm({ agentProfiles: [profile] })).profiles).toBe("coordinators.errors.profileIdRequired");
+		const dup = { ...profile, id: "a", harness: "codex" };
+		expect(validateCoordinatorsForm(baseForm({ agentProfiles: [dup, dup] })).profiles).toBe("coordinators.errors.profileIdDuplicate");
+		expect(validateCoordinatorsForm(baseForm({ agentProfiles: [{ ...profile, id: "a", harness: "" }] })).profiles).toBe(
+			"coordinators.errors.profileHarnessRequired",
+		);
+	});
+});
+
+describe("validateSpawnCoordinator", () => {
+	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[] };
+
+	test("requires a scope and a brief", () => {
+		expect(validateSpawnCoordinator(spawnForm({ scope: "  " }), limits).scope).toBe("coordinators.start.errors.scopeRequired");
+		expect(validateSpawnCoordinator(spawnForm({ brief: "" }), limits).brief).toBe("coordinators.start.errors.briefRequired");
+	});
+
+	test("bounds the scope at 200 characters", () => {
+		expect(validateSpawnCoordinator(spawnForm({ scope: "x".repeat(201) }), limits).scope).toBe(
+			"coordinators.start.errors.scopeTooLong",
+		);
+		expect(validateSpawnCoordinator(spawnForm({ scope: "x".repeat(200) }), limits).scope).toBeUndefined();
+	});
+
+	test("keeps the worker limit within the project's per-coordinator limit", () => {
+		expect(validateSpawnCoordinator(spawnForm({ workerLimit: "2" }), limits).workerLimit).toBeUndefined();
+		expect(validateSpawnCoordinator(spawnForm({ workerLimit: "4" }), limits).workerLimit).toBe(
+			"coordinators.start.errors.workerLimitRange",
+		);
+	});
+
+	test("accepts the spec example Linux:1, Z600:1 with workerLimit 2", () => {
+		const errors = validateSpawnCoordinator(
+			spawnForm({
+				workerLimit: "2",
+				hostSlots: [
+					{ hostId: "Linux", slots: "1" },
+					{ hostId: "Z600", slots: "1" },
+				],
+			}),
+			{ workersPerCoordinator: 3, allowedHosts: [] },
+		);
+		expect(errors).toEqual({});
+	});
+
+	test("refuses slots above the worker limit, duplicates and hosts outside the allowed list", () => {
+		const over = spawnForm({
+			workerLimit: "1",
+			hostSlots: [
+				{ hostId: "Linux", slots: "1" },
+				{ hostId: "Z600", slots: "1" },
+			],
+		});
+		expect(validateSpawnCoordinator(over, limits).hostSlots).toBe("coordinators.start.errors.hostSlotsTotal");
+		const dup = spawnForm({
+			hostSlots: [
+				{ hostId: "Linux", slots: "1" },
+				{ hostId: "Linux", slots: "1" },
+			],
+		});
+		expect(validateSpawnCoordinator(dup, limits).hostSlots).toBe("coordinators.start.errors.hostSlotDuplicate");
+		const notAllowed = spawnForm({ hostSlots: [{ hostId: "Mac", slots: "1" }] });
+		expect(validateSpawnCoordinator(notAllowed, { workersPerCoordinator: 3, allowedHosts: ["Linux"] }).hostSlots).toBe(
+			"coordinators.start.errors.hostNotAllowed",
+		);
+	});
+
+	test("requires a harness for a custom coordinator agent", () => {
+		expect(validateSpawnCoordinator(spawnForm({ coordinatorAgent: "custom" }), limits).coordinatorAgent).toBe(
+			"coordinators.start.errors.customAgentRequired",
+		);
+	});
+});
+
+describe("coordinatorErrorKey", () => {
+	test("maps a known daemon code to a readable message key", () => {
+		expect(coordinatorErrorKey({ code: "COORDINATOR_HOST_SLOTS_FULL", message: "x" })).toBe("coordinators.errors.hostSlotsFull");
+	});
+
+	test("returns null for an unknown code so the daemon text shows", () => {
+		expect(coordinatorErrorKey({ code: "SOMETHING_ELSE" })).toBeNull();
+		expect(coordinatorErrorKey(new Error("boom"))).toBeNull();
+	});
+});
