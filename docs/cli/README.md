@@ -59,7 +59,7 @@ addresses change on restart.
 ### Remote host target (`--host`)
 
 `spawn`, `send`, and
-`session ls|get|owner|assign|input|kill|restore|rename|exit-agent|resume-agent`,
+`session ls|get|top|owner|assign|input|kill|restore|rename|exit-agent|resume-agent`,
 `project ls|get`, `coordinator ls`, `orchestrator ls`, `agent ls`, and
 `review trigger|ls|cancel` accept `--host <label | host ID | URL>`.
 With it, the same daemon route is called on a paired remote host's
@@ -108,6 +108,7 @@ commit and records which tree the verdict read. See
 | `ao spawn --kind coordinator --scope <text>` | `POST /api/v1/sessions` with `kind=coordinator`, `scope`, and the calling root as `parentSessionId` |
 | `ao session ls`                     | `GET /api/v1/sessions` plus per-session PR summaries; shows branch, PR, CI, review, unresolved threads, activity, and age. |
 | `ao session get <id>`               | `GET /api/v1/sessions/{id}`                    |
+| `ao session top`                    | `GET /api/v1/sessions` and `GET /api/v1/usage/sessions/memory`; per-session RSS and process count, largest first. |
 | `ao session owner <id>`             | `GET /api/v1/sessions/{id}/ownership`         |
 | `ao session assign <worker> --owner <coordinator-id\|root>` | `PUT /api/v1/sessions/{id}/owner` |
 | `ao coordinator ls`                 | `GET /api/v1/projects/{id}/coordinators`      |

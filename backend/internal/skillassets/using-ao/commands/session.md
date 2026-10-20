@@ -91,6 +91,43 @@ ao session ls --include-terminated -p agent-orchestrator
 
 ---
 
+### ao session top
+
+Show resident memory (RSS) and process count of each live session's process
+tree, largest first, with a `TOTAL` row. Unmeasured sessions print `-`, and
+`--json` reports `rssBytes` and `processCount` as `null` rather than a zero
+reading. It reports RSS and process counts only; CPU percent and the individual
+process list are available from the daemon's `GET /api/v1/usage/sessions/memory`
+route.
+
+**Syntax:**
+```
+ao session top [flags]
+```
+
+**Flags:**
+
+| Flag | Meaning | Default / Required |
+|---|---|---|
+| `-a, --all` | Include orchestrator sessions | - |
+| `--json` | Output as JSON | - |
+| `-p, --project string` | Filter by project ID | - |
+| `--host string` | Run against a saved remote AO host instead of this machine | - |
+
+**Examples:**
+
+```bash
+# Show the largest sessions on this machine
+ao session top
+```
+
+```bash
+# Sample a paired worker host's daemon in the same pass
+ao session top --host build-box --all
+```
+
+---
+
 ### ao session get
 
 Fetch one session. For a coordinator it also prints its workers, a

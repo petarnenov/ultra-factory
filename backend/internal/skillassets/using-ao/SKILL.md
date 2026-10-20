@@ -11,7 +11,7 @@ trigger: "Using the ao CLI in an AO workspace: creating Cues, spawning workers, 
 | Command | What it does | When to use | Details |
 |---|---|---|---|
 | `spawn` | Spawn a project worker, orchestrator, or projectless standalone worker | Starting a new task or issue | [commands/spawn.md](commands/spawn.md) |
-| `session` | Manage agent sessions (list, kill, rename, restore, assign ownership, answer pending questions, etc.) | Inspecting or controlling running/terminated sessions, or assigning a worker's coordinator owner | [commands/session.md](commands/session.md) |
+| `session` | Manage agent sessions (list, memory usage, kill, rename, restore, assign ownership, answer pending questions, etc.) | Inspecting or controlling running/terminated sessions, or assigning a worker's coordinator owner | [commands/session.md](commands/session.md) |
 | `coordinator` | List a project's coordinators, scopes, and the workers they own | Understanding project ownership before delegating or recovering a helper | [commands/coordinator.md](commands/coordinator.md) |
 | `remote-worker` | List linked remote workers and assign or clear their local owner | Inspecting or reassigning ownership of `ao spawn --host` workers | [commands/remote-worker.md](commands/remote-worker.md) |
 | `agent` | Inspect installed harnesses and launch readiness | Choosing or diagnosing an agent harness | `ao agent ls --refresh` |
