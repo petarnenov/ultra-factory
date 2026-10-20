@@ -100,6 +100,15 @@ describe("refreshRemoteConversation cursor", () => {
 		expect(live(client)?.items.find((item) => item.id === "m2")).toMatchObject({ text: "ab" });
 	});
 
+	it("keeps a millisecond-epoch revision exact through the cursor", async () => {
+		const revision = 1792497601234;
+		const client = await seeded({ ...FULL_A, revision });
+		remoteGetMock.mockResolvedValueOnce({ data: undefined, response: { status: 304 } });
+		await refreshRemoteConversation(client, "s1", "h1");
+		expect(Number.isSafeInteger(revision)).toBe(true);
+		expect(remoteGetMock.mock.calls[1][1].params.query.sinceRevision).toBe(revision);
+	});
+
 	it("keeps the cache on 304", async () => {
 		const client = await seeded(FULL_A);
 		const before = live(client);

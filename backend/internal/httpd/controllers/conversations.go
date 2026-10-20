@@ -865,7 +865,7 @@ func ifNoneMatchHits(values []string, etag string) bool {
 	return false
 }
 
-// snapshotRevision is the newest write time, in Unix nanoseconds, across the
+// snapshotRevision is the newest write time, in Unix milliseconds, across the
 // returned messages, activities and the conversation row.
 func snapshotRevision(s chatsvc.Snapshot) int64 {
 	newest := s.Conversation.UpdatedAt
@@ -878,7 +878,7 @@ func snapshotRevision(s chatsvc.Snapshot) int64 {
 	if newest.IsZero() {
 		return 0
 	}
-	return newest.UnixNano()
+	return newest.UnixMilli()
 }
 
 func laterTime(a, b time.Time) time.Time {
@@ -891,7 +891,7 @@ func laterTime(a, b time.Time) time.Time {
 // applyConversationDelta keeps entries written at or after the cursor; turns
 // stay as they carry no write time. A changed oldest entry means full page.
 func applyConversationDelta(out *ConversationSnapshotResponse, s chatsvc.Snapshot, since int64) {
-	changed := func(t time.Time) bool { return t.UnixNano() >= since }
+	changed := func(t time.Time) bool { return t.UnixMilli() >= since }
 	if s.HasMoreBefore && s.OldestSequence > 0 {
 		for _, msg := range s.Messages {
 			if msg.Sequence == s.OldestSequence && changed(msg.UpdatedAt) {

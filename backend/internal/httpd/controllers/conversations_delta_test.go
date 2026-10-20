@@ -78,15 +78,18 @@ func TestConversationWithoutCursorIsFullAndCarriesRevision(t *testing.T) {
 	if body["delta"] != nil {
 		t.Fatalf("a request without a cursor must not be marked delta: %v", body["delta"])
 	}
-	want := float64(base.Add(2 * time.Second).UnixNano())
+	want := float64(base.Add(2 * time.Second).UnixMilli())
 	if body["revision"] != want {
 		t.Fatalf("revision = %v, want the newest write time %v", body["revision"], want)
+	}
+	if want >= 1<<53 {
+		t.Fatalf("revision %v is not exactly representable in a JS number", want)
 	}
 }
 
 func TestConversationCursorReturnsOnlyChangedEntries(t *testing.T) {
 	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	since := base.Add(2 * time.Second).UnixNano()
+	since := base.Add(2 * time.Second).UnixMilli()
 	_, body := getConversation(t, deltaSnapshot(base), fmt.Sprintf("?sinceRevision=%d", since), nil)
 	if body["delta"] != true {
 		t.Fatalf("delta = %v, want true", body["delta"])
@@ -101,7 +104,7 @@ func TestConversationCursorReturnsOnlyChangedEntries(t *testing.T) {
 
 func TestConversationCursorBehindReturnsEverythingNewer(t *testing.T) {
 	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	since := base.Add(time.Second).UnixNano()
+	since := base.Add(time.Second).UnixMilli()
 	_, body := getConversation(t, deltaSnapshot(base), fmt.Sprintf("?sinceRevision=%d", since), nil)
 	if got := fmt.Sprint(ids(body, "messages"), ids(body, "activities")); got != "[m2] [a1]" {
 		t.Fatalf("delta = %s, want m2 and a1", got)
@@ -112,7 +115,7 @@ func TestConversationCursorOnWindowedPageFallsBackWhenOldestChanged(t *testing.T
 	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	snapshot := deltaSnapshot(base)
 	snapshot.HasMoreBefore, snapshot.OldestSequence = true, 1
-	_, body := getConversation(t, snapshot, fmt.Sprintf("?sinceRevision=%d", base.UnixNano()), nil)
+	_, body := getConversation(t, snapshot, fmt.Sprintf("?sinceRevision=%d", base.UnixMilli()), nil)
 	if body["delta"] != nil || fmt.Sprint(ids(body, "messages")) != "[m1 m2]" {
 		t.Fatalf("an oldest-entry change on a windowed page must serve the full page: %v", body)
 	}
@@ -120,7 +123,7 @@ func TestConversationCursorOnWindowedPageFallsBackWhenOldestChanged(t *testing.T
 
 func TestConversationCursorAheadOfHostIsRejected(t *testing.T) {
 	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	resp, body := getConversation(t, deltaSnapshot(base), fmt.Sprintf("?sinceRevision=%d", base.Add(time.Hour).UnixNano()), nil)
+	resp, body := getConversation(t, deltaSnapshot(base), fmt.Sprintf("?sinceRevision=%d", base.Add(time.Hour).UnixMilli()), nil)
 	if resp.StatusCode != http.StatusConflict || body["code"] != "CONVERSATION_CURSOR_AHEAD" {
 		t.Fatalf("status = %d body = %v, want 409 CONVERSATION_CURSOR_AHEAD", resp.StatusCode, body)
 	}
@@ -138,7 +141,7 @@ func TestConversationCursorValidation(t *testing.T) {
 
 func TestConversationUnchangedAnswersNotModified(t *testing.T) {
 	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
-	for _, query := range []string{"", fmt.Sprintf("?sinceRevision=%d", base.Add(2*time.Second).UnixNano())} {
+	for _, query := range []string{"", fmt.Sprintf("?sinceRevision=%d", base.Add(2*time.Second).UnixMilli())} {
 		first, _ := getConversation(t, deltaSnapshot(base), query, nil)
 		etag := first.Header.Get("ETag")
 		if etag == "" {
@@ -181,7 +184,7 @@ func TestReviewerConversationHonoursCursorAndETag(t *testing.T) {
 	server := conversationTestServer(t, service)
 	url := server.URL + "/api/v1/reviews/review-1/conversation"
 
-	status, body := reviewConversationRequest(t, server.Client(), http.MethodGet, fmt.Sprintf("%s?sinceRevision=%d", url, base.Add(2*time.Second).UnixNano()), "")
+	status, body := reviewConversationRequest(t, server.Client(), http.MethodGet, fmt.Sprintf("%s?sinceRevision=%d", url, base.Add(2*time.Second).UnixMilli()), "")
 	var decoded map[string]any
 	if err := json.Unmarshal(body, &decoded); err != nil || status != http.StatusOK {
 		t.Fatalf("status %d body %s err %v", status, body, err)

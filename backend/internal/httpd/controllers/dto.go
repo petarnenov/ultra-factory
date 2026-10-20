@@ -3168,8 +3168,8 @@ type ConversationSnapshotResponse struct {
 	LatestSequence int64  `json:"latestSequence"`
 	OldestSequence int64  `json:"oldestSequence,omitempty"`
 	HasMoreBefore  bool   `json:"hasMoreBefore"`
-	// Revision is the newest write time (Unix nanoseconds) in the live page. A
-	// client sends it back as sinceRevision to read only what changed since.
+	// Revision is the newest write time (Unix ms, exact in JS) in the live
+	// page. Clients send it back as sinceRevision to read only what changed.
 	Revision int64 `json:"revision"`
 	// Delta is true when turns, messages and activities hold only the entries
 	// written at or after sinceRevision. Absent means a full page.
