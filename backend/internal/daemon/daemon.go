@@ -996,10 +996,8 @@ func Run() error {
 			Binary: res.Path, PIDPath: tunnelPID, Log: log,
 		})
 	}
-	// A system cloudflared is version-checked by running it (30-120ms, up to a
-	// 5s timeout), so resolve off the boot path. Status reads and anything that
-	// needs a connector, such as restoring an enabled bridge, wait for this
-	// lookup rather than racing it.
+	// Checking a system cloudflared's version can take up to 5s, so resolve it
+	// off the boot path; status reads and bridge restores wait for the lookup.
 	bs.ResolveTunnelInBackground(func() controllers.TunnelController {
 		res := mobilebridge.ResolveCloudflared(mobilebridge.LocalCloudflaredLookup(cfg.DataDir))
 		if res.NeedsInstall {
