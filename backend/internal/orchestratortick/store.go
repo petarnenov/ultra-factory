@@ -40,15 +40,18 @@ type Obligation struct {
 // CompletionAction is one idempotent provider or lifecycle mutation; the key
 // pins it to the facts it was evaluated against, so a retry stays safe.
 type CompletionAction struct {
-	Kind           string    `json:"kind"`
-	Status         string    `json:"status"`
-	PR             int       `json:"pr,omitempty"`
-	HeadSHA        string    `json:"headSha,omitempty"`
-	AOReviewStatus string    `json:"aoReviewStatus,omitempty"`
-	MergeCommitSHA string    `json:"mergeCommitSha,omitempty"`
-	Attempts       int       `json:"attempts,omitempty"`
-	LastError      string    `json:"lastError,omitempty"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	Recipient      *CompletionRecipient `json:"recipient,omitempty"`
+	PRs            []CompletedPR        `json:"prs,omitempty"`
+	Notified       bool                 `json:"notified,omitempty"`
+	Kind           string               `json:"kind"`
+	Status         string               `json:"status"`
+	PR             int                  `json:"pr,omitempty"`
+	HeadSHA        string               `json:"headSha,omitempty"`
+	AOReviewStatus string               `json:"aoReviewStatus,omitempty"`
+	MergeCommitSHA string               `json:"mergeCommitSha,omitempty"`
+	Attempts       int                  `json:"attempts,omitempty"`
+	LastError      string               `json:"lastError,omitempty"`
+	UpdatedAt      time.Time            `json:"updatedAt"`
 }
 
 // Action statuses.
