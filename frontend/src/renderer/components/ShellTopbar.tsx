@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, CalendarClock, FileText, Folder, LayoutDashboard, ListChecks, Plus } from "lucide-react";
+import { Archive, CalendarClock, FileText, Folder, LayoutDashboard, ListChecks, Plus, SquareKanban } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { NotificationCenter } from "./NotificationCenter";
 import { ProjectBoardActions } from "./ProjectBoardActions";
@@ -160,6 +160,14 @@ export function ShellTopbar({
 		? t("shell.spawning") : orchestrator ? t("shell.openOrchestrator") : t("shell.spawnOrchestrator");
 
 	const openBoard = () => void navigate(projectId ? projectNavigateTarget(projectId, hostId) : { to: "/" });
+	// Same availability as the Sidebar project menu's Aggregate Kanban item;
+	// anywhere the aggregate board is unavailable the header keeps Open Kanban.
+	const aggregateKanbanAvailable = Boolean(
+		projectId && project && !hostId && project.kind !== CLOUD_PROJECT_KIND && supportsProjectActions,
+	);
+	const kanbanLabelKey = aggregateKanbanAvailable ? "shell.openAggregateKanban" : "shell.openKanban";
+	const openAggregateBoard = () =>
+		projectId && void navigate({ to: "/projects/$projectId/aggregate", params: { projectId } });
 
 	return (
 		<header
@@ -265,19 +273,23 @@ export function ShellTopbar({
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<TopbarButton
-											aria-label={t("shell.openKanban")}
+											aria-label={t(kanbanLabelKey)}
 											disabled={startingOrchestrator}
 											className="topbar-control--labeled"
 											data-priority="secondary"
-											onClick={openBoard}
+											onClick={aggregateKanbanAvailable ? openAggregateBoard : openBoard}
 											style={noDragStyle}
 											variant="feature"
 										>
-											<LayoutDashboard className="size-icon-md" aria-hidden="true" />
-											<span data-compact-label>{t("shell.openKanban")}</span>
+											{aggregateKanbanAvailable ? (
+												<SquareKanban className="size-icon-md" aria-hidden="true" />
+											) : (
+												<LayoutDashboard className="size-icon-md" aria-hidden="true" />
+											)}
+											<span data-compact-label>{t(kanbanLabelKey)}</span>
 										</TopbarButton>
 									</TooltipTrigger>
-									<TooltipContent side="bottom">{t("shell.openKanban")}</TooltipContent>
+									<TooltipContent side="bottom">{t(kanbanLabelKey)}</TooltipContent>
 								</Tooltip>
 							</>
 						) : null}
