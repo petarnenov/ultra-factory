@@ -1392,9 +1392,14 @@ turn, can be dropped or reworded, and gives the operator no result.
 
 - **Marker.** The request body carries `operatorInitiated: true` next to
   `parentSessionId`, which the daemon fills with the live root's session ID
-  (or the UI sends it after reading the roster). The marker is accepted only
-  on the app API, never from a session-token caller; a session caller that
-  sends it gets `OPERATOR_MARKER_NOT_ALLOWED`.
+  (or the UI sends it after reading the roster). The daemon has no session
+  authentication (section 10), so the marker is an audit declaration and an
+  accident guard, not an authorization boundary. The guard is: a request that
+  sets `operatorInitiated: true` and also names a session as the caller
+  (`requestedBySessionId`, or a `parentSessionId` that is not the project's
+  live root) is contradictory and gets `OPERATOR_MARKER_NOT_ALLOWED`. This adds
+  no authentication path; a local caller can still set the marker alone, as
+  A7 states.
 - **No live root.** The daemon refuses with `COORDINATOR_ROOT_REQUIRED` and the
   UI shows the reason. The UI never creates a root.
 - **Spawn audit.** Every operator-initiated spawn writes an append-only row,
@@ -1414,8 +1419,9 @@ turn, can be dropped or reworded, and gives the operator no result.
   `api`. With the marker, the daemon resolves the project's live root itself
   and acts on its behalf; with no live root it returns
   `COORDINATOR_ROOT_REQUIRED`. Without the marker the caller is the live root
-  (`requestedBySessionId`), as for the owner routes. A session caller that sends
-  the marker gets `OPERATOR_MARKER_NOT_ALLOWED`.
+  (`requestedBySessionId`), as for the owner routes. A request that sets the marker
+  and also names a session in `requestedBySessionId` gets
+  `OPERATOR_MARKER_NOT_ALLOWED` (the same accident guard as for the spawn).
 - **Limit audit.** Every limit change writes an append-only row, in the same
   transaction as the change, in `coordinator_limit_events(session_id,
   previous_limit, new_limit, actor_session_id, origin, created_at)`.
@@ -1548,7 +1554,7 @@ New codes, all in the existing `apierr` envelope with a request ID:
 | `WORKER_PROFILE_UNAVAILABLE` | Conflict / 409 | No selected profile is ready on the target host | `coordinatorId`, `hostId` |
 | `WORKER_PROFILE_NOT_ALLOWED` | Conflict / 409 | Explicit `--harness/--model/--effort` does not match a selected profile | `coordinatorId` |
 | `COORDINATOR_PROFILE_NOT_ALLOWED` | Conflict / 409 | Coordinator agent selection names a profile outside the list | `profileId` |
-| `OPERATOR_MARKER_NOT_ALLOWED` | Forbidden / 403 | `operatorInitiated` sent by a session caller | `sessionId` |
+| `OPERATOR_MARKER_NOT_ALLOWED` | Forbidden / 403 | `operatorInitiated: true` sent together with a session caller field (`requestedBySessionId`, or a `parentSessionId` that is not the live root); an accident guard, not authentication | `sessionId` |
 
 Changed codes:
 
