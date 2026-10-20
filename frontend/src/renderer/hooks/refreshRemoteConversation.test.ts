@@ -86,6 +86,20 @@ describe("refreshRemoteConversation cursor", () => {
 		expect(remoteGetMock.mock.calls[2][1].headers).toEqual({ "If-None-Match": 'W/"b"' });
 	});
 
+	it("ignores an older delta that arrives after a newer one", async () => {
+		const client = await seeded(FULL_A);
+		let release!: () => void;
+		const late = new Promise<void>((resolve) => { release = resolve; });
+		remoteGetMock.mockImplementationOnce(async () => { await late; return { data: wire({ ...DELTA_B, revision: 150, messages: [msg("m2", 3, "stale")], activities: [], turns: [turn("t1")] }), response: { status: 200 } }; });
+		const slow = refreshRemoteConversation(client, "s1", "h1");
+		remoteGetMock.mockResolvedValueOnce({ data: DELTA_B, response: { status: 200 } });
+		await refreshRemoteConversation(client, "s1", "h1");
+		release();
+		await slow;
+		expect(live(client)?.revision).toBe(200);
+		expect(live(client)?.items.find((item) => item.id === "m2")).toMatchObject({ text: "ab" });
+	});
+
 	it("keeps the cache on 304", async () => {
 		const client = await seeded(FULL_A);
 		const before = live(client);

@@ -403,6 +403,9 @@ export async function refreshRemoteConversation(queryClient: QueryClient, sessio
 	const applied = latest;
 	queryClient.setQueryData<InfiniteData<ConversationSnapshot>>(conversationQueryKey(sessionId, hostId), (previous) => {
 		if (previous?.pages.length && previous.pages[0].conversationId === applied.conversationId && previous.pages[0].activeBranchId === applied.activeBranchId && applied.latestSequence < previous.pages[0].latestSequence) return previous;
+		// An overlapping older delta must not undo a newer one. Full pages are
+		// exempt: a rollback can lower the host revision and must still replace.
+		if (isDelta && previous?.pages[0]?.revision !== undefined && applied.revision !== undefined && applied.revision < previous.pages[0].revision) return previous;
 		if (isDelta && previous?.pages.length) return { ...previous, pages: [applyConversationDelta(previous.pages[0], applied), ...previous.pages.slice(1)] };
 		if (!previous?.pages.length || !applied.hasMoreBefore || previous.pages[0].conversationId !== applied.conversationId || previous.pages[0].activeBranchId !== applied.activeBranchId) return { pages: [applied], pageParams: [undefined] };
 		const priorLive = previous.pages[0];
