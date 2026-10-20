@@ -139,7 +139,7 @@ describe("WorkerListRow", () => {
 		const sessions = Array.from({ length: 120 }, (_, index) => ({ ...session, id: String(index) }));
 		const board = <WorkerBoardList sessions={sessions} contentBottomInset={0} refreshing={false} onRefresh={vi.fn()} />;
 		// Without a pinned clock this asserts the wall clock too: two renders that
-		// straddle a minute boundary legitimately differ (see the next test). #377
+		// straddle a minute boundary legitimately differ (see the minute test). #377
 		const clock = vi.spyOn(Date, "now").mockReturnValue(PINNED_NOW);
 		try {
 			let renderer!: ReactTestRenderer;
