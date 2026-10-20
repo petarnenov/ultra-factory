@@ -194,3 +194,48 @@ func TestCoordinatorTerminatedTwiceWithFixedClockWritesTwoEscalations(t *testing
 		t.Fatalf("history = %+v err=%v, want two distinct escalations", hist, err)
 	}
 }
+
+func TestCoordinatorTerminationSurvivesACallerKeyOnTheLegacyGeneratedForm(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	coordinator, err := s.CreateSession(ctx, coordinatorRecord("ao", "area"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := sampleRecord("ao")
+	rec.OwnerSessionID = &coordinator.ID
+	worker, err := s.CreateSession(ctx, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, key := range []string{"coordinator_terminated:1", "daemon:coordinator_terminated:1"} {
+		if _, _, err := s.CreateCoordinatorSummary(ctx, domain.CoordinatorSummary{
+			ID: "csum_" + key, CoordinatorSessionID: coordinator.ID, ProjectID: "ao", SubmissionKey: key,
+			Scope: "area", State: domain.SummaryWorking, CreatedAt: now, AvailableAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	coordinator.IsTerminated = true
+	coordinator.UpdatedAt = now.Add(time.Minute)
+	if err := s.UpdateSession(ctx, coordinator); err != nil {
+		t.Fatalf("termination must not be blocked by caller keys: %v", err)
+	}
+	got, found, err := s.GetSession(ctx, worker.ID)
+	if err != nil || !found || got.OwnerSessionID != nil {
+		t.Fatalf("worker owner = %v found=%v err=%v, want released", got.OwnerSessionID, found, err)
+	}
+	hist, err := s.ListCoordinatorSummaries(ctx, coordinator.ID, 10)
+	if err != nil || len(hist) != 3 {
+		t.Fatalf("history = %+v err=%v, want 2 caller summaries and the escalation", hist, err)
+	}
+	for _, h := range hist {
+		if h.EscalationReason == domain.EscalationCoordinatorTerminated &&
+			(len(h.WorkerSessionIDs) != 1 || h.WorkerSessionIDs[0] != worker.ID) {
+			t.Fatalf("escalation = %+v, want the released worker", h)
+		}
+	}
+}
