@@ -40,6 +40,11 @@ func (s *Service) spawnOwner(ctx context.Context, cfg ports.SpawnConfig) (*domai
 // exists. Without coordinators it is shared, otherwise exclusive.
 func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, owner *domain.SessionID) (func(), error) {
 	mu := s.projectLock(project)
+	cfg, err := coordownership.LoadConfig(ctx, s.store, project)
+	if err != nil {
+		return nil, err
+	}
+	limits := cfg.Limits()
 	mu.RLock()
 	counts, err := s.countCapacity(ctx, project)
 	if err != nil {
@@ -53,7 +58,7 @@ func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, own
 	mu.Lock()
 	counts, err = s.countCapacity(ctx, project)
 	if err == nil {
-		err = counts.CheckNewWorker(project, owner)
+		err = counts.CheckNewWorker(project, owner, limits)
 	}
 	if err != nil {
 		mu.Unlock()
@@ -86,12 +91,19 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	}
 	unlock := s.lockOrchestratorProject(cfg.ProjectID)
 	defer unlock()
+	gate, err := coordownership.LoadConfig(ctx, s.store, cfg.ProjectID)
+	if err != nil {
+		return domain.Session{}, 0, 0, err
+	}
+	if err := coordownership.RequireEnabled(gate, cfg.ProjectID); err != nil {
+		return domain.Session{}, 0, 0, err
+	}
 	counts, err := s.countCapacity(ctx, cfg.ProjectID)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
 	}
-	if counts.Coordinators >= coordownership.MaxCoordinators {
-		return domain.Session{}, 0, 0, coordownership.CoordinatorLimitError(cfg.ProjectID, counts.Coordinators)
+	if err := counts.CheckCoordinator(cfg.ProjectID, gate.Limits()); err != nil {
+		return domain.Session{}, 0, 0, err
 	}
 	return s.spawn(ctx, cfg)
 }
@@ -102,9 +114,13 @@ func (s *Service) admitRestore(ctx context.Context, rec domain.SessionRecord) (f
 	switch rec.Kind {
 	case domain.KindCoordinator:
 		unlock := s.lockOrchestratorProject(rec.ProjectID)
-		counts, err := s.countCapacity(ctx, rec.ProjectID)
-		if err == nil && counts.Coordinators >= coordownership.MaxCoordinators {
-			err = coordownership.CoordinatorLimitError(rec.ProjectID, counts.Coordinators)
+		gate, err := coordownership.LoadConfig(ctx, s.store, rec.ProjectID)
+		var counts coordownership.Counts
+		if err == nil {
+			counts, err = s.countCapacity(ctx, rec.ProjectID)
+		}
+		if err == nil {
+			err = counts.CheckCoordinator(rec.ProjectID, gate.Limits())
 		}
 		if err != nil {
 			unlock()

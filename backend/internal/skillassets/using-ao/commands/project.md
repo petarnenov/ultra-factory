@@ -158,13 +158,18 @@ ao project set-config <id> [flags]
 | `--tracker-intake` | Opt this project into GitHub or GitLab issue intake; inert unless the daemon also has `AO_TRACKER_INTAKE=on` | Disabled |
 | `--tracker-repo string` | Provider-native issue repository (`owner/repo` or `group/subgroup/repo`); defaults to the Git origin | - |
 | `--reviewer stringArray` | Reviewer harness for worker PRs (repeatable) | - |
+| `--coordinators` | Allow the root to spawn coordinators in this project; without it a coordinator spawn is refused with `COORDINATORS_DISABLED` | Disabled |
+| `--max-coordinators int` | Live coordinators per project, 1-2 (0 keeps the default) | 2 |
+| `--max-workers-per-coordinator int` | Live workers per coordinator, 1-3 (0 keeps the default) | 3 |
+| `--max-workers int` | Live workers per project once a coordinator exists, 1-6 (0 keeps the default) | 6 |
 | `--worker-agent string` | Harness override for worker sessions | - |
 
 Use `--config-json` for fields without a dedicated flag, including
 `trackerIntake.provider`, `autoReview`, `containerReap.disabled`,
 `agentConfig.mode`, `worker.agentConfig.mode`, and
 `orchestrator.agentConfig.mode`. The full-config replacement warning above
-still applies.
+still applies. Limits above the defaults are refused with
+`COORDINATOR_LIMITS_INVALID`.
 
 **Examples:**
 

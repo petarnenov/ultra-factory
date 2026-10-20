@@ -5126,6 +5126,12 @@ export interface components {
             lastActivityAt: string;
             state: string;
         };
+        DomainCoordinatorsConfig: {
+            enabled?: boolean;
+            maxCoordinators?: number;
+            maxWorkers?: number;
+            maxWorkersPerCoordinator?: number;
+        };
         DomainGitHubSCMConfig: {
             account?: string;
         };
@@ -5703,6 +5709,7 @@ export interface components {
             autoReview?: boolean;
             canonicalRepoURL?: string;
             containerReap?: components["schemas"]["ContainerReapConfig"];
+            coordinators?: components["schemas"]["DomainCoordinatorsConfig"];
             defaultBranch?: string;
             env?: {
                 [key: string]: string;

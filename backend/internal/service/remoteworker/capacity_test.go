@@ -172,3 +172,20 @@ func TestConcurrentRegistrationsNeverExceedTheCoordinatorCap(t *testing.T) {
 		t.Fatalf("registered %d links (stored %d), want 3", ok, len(store.stored))
 	}
 }
+
+func TestRegisterHonoursTheConfiguredLimits(t *testing.T) {
+	store := &fakeStore{sessions: capSessions(), stored: ownedLinks("c1", 1, 0)}
+	store.project = domain.ProjectRecord{ID: string(capProject), Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{MaxWorkersPerCoordinator: 1},
+	}}
+	in := validInput()
+	in.ParentSessionID = "c1"
+	_, err := capService(store, nil).Register(context.Background(), in)
+	if codeOf(err) != "COORDINATOR_WORKER_LIMIT_REACHED" {
+		t.Fatalf("err = %v, want COORDINATOR_WORKER_LIMIT_REACHED", err)
+	}
+	store.project.Config.Coordinators.MaxWorkersPerCoordinator = 0
+	if _, err := capService(store, nil).Register(context.Background(), in); err != nil {
+		t.Fatalf("the default of three admits the second link: %v", err)
+	}
+}

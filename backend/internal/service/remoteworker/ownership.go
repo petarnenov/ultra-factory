@@ -63,7 +63,11 @@ func (s *Service) AssignOwner(
 			if err != nil {
 				return domain.RemoteWorkerLink{}, err
 			}
-			if err := counts.CheckOwner(ownerID); err != nil {
+			gate, err := coordownership.LoadConfig(ctx, s.store, link.ProjectID)
+			if err != nil {
+				return domain.RemoteWorkerLink{}, err
+			}
+			if err := counts.CheckOwner(ownerID, gate.Limits()); err != nil {
 				return domain.RemoteWorkerLink{}, err
 			}
 		}

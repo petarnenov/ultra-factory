@@ -10,13 +10,39 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 )
 
-// Initial rollout limits from ADR 0010 section 8.
-const (
-	MaxCoordinators          = 2
-	MaxWorkersPerCoordinator = 3
-	MaxProjectWorkers        = 6
-	MaxScopeLength           = 200
-)
+// MaxScopeLength bounds a coordinator scope. The capacity limits are project
+// configuration (domain.CoordinatorsConfig), not constants.
+const MaxScopeLength = 200
+
+// ProjectReader reads a project's registration, including its config.
+type ProjectReader interface {
+	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
+}
+
+// LoadConfig returns the project's coordinator config. An unknown project has
+// the defaults: disabled, with the ADR limits.
+func LoadConfig(ctx context.Context, projects ProjectReader, project domain.ProjectID) (domain.CoordinatorsConfig, error) {
+	if projects == nil {
+		return domain.CoordinatorsConfig{}, nil
+	}
+	rec, found, err := projects.GetProject(ctx, string(project))
+	if err != nil {
+		return domain.CoordinatorsConfig{}, fmt.Errorf("load coordinator config for %s: %w", project, err)
+	}
+	if !found {
+		return domain.CoordinatorsConfig{}, nil
+	}
+	return rec.Config.Coordinators, nil
+}
+
+// RequireEnabled refuses a coordinator spawn while the feature is off.
+func RequireEnabled(cfg domain.CoordinatorsConfig, project domain.ProjectID) error {
+	if cfg.Enabled {
+		return nil
+	}
+	return apierr.Conflict("COORDINATORS_DISABLED", "Coordinators are disabled for this project",
+		map[string]any{"projectId": string(project)})
+}
 
 // RequireRootCaller accepts only the project's live root as the spawn caller
 // of a coordinator. An absent or unknown caller is refused too.
@@ -42,21 +68,21 @@ func NormalizeScope(scope string) (string, error) {
 }
 
 // CoordinatorLimitError reports the project's coordinator cap.
-func CoordinatorLimitError(project domain.ProjectID, current int) error {
+func CoordinatorLimitError(project domain.ProjectID, current, allowed int) error {
 	return apierr.Conflict("COORDINATOR_LIMIT_REACHED", "The project already has the maximum number of active coordinators",
-		map[string]any{"projectId": string(project), "current": current, "allowed": MaxCoordinators})
+		map[string]any{"projectId": string(project), "current": current, "allowed": allowed})
 }
 
 // CoordinatorWorkerLimitError reports one coordinator's worker cap.
-func CoordinatorWorkerLimitError(coordinator domain.SessionID, current int) error {
+func CoordinatorWorkerLimitError(coordinator domain.SessionID, current, allowed int) error {
 	return apierr.Conflict("COORDINATOR_WORKER_LIMIT_REACHED", "The coordinator already has the maximum number of active workers",
-		map[string]any{"coordinatorId": string(coordinator), "current": current, "allowed": MaxWorkersPerCoordinator})
+		map[string]any{"coordinatorId": string(coordinator), "current": current, "allowed": allowed})
 }
 
 // ProjectWorkerLimitError reports the project-wide worker cap.
-func ProjectWorkerLimitError(project domain.ProjectID, current int) error {
+func ProjectWorkerLimitError(project domain.ProjectID, current, allowed int) error {
 	return apierr.Conflict("PROJECT_WORKER_LIMIT_REACHED", "The project already has the maximum number of active workers",
-		map[string]any{"projectId": string(project), "current": current, "allowed": MaxProjectWorkers})
+		map[string]any{"projectId": string(project), "current": current, "allowed": allowed})
 }
 
 // Guard hands out one lock per project for every write that can add an active
@@ -139,25 +165,33 @@ func Count(ctx context.Context, sessions SessionLister, links LinkLister, projec
 	return counts, nil
 }
 
-// CheckOwner rejects a worker that would be the coordinator's fourth.
-func (c Counts) CheckOwner(owner *domain.SessionID) error {
-	if owner != nil && c.ByOwner[*owner] >= MaxWorkersPerCoordinator {
-		return CoordinatorWorkerLimitError(*owner, c.ByOwner[*owner])
+// CheckCoordinator rejects a coordinator beyond the configured cap.
+func (c Counts) CheckCoordinator(project domain.ProjectID, limits domain.CoordinatorLimits) error {
+	if c.Coordinators >= limits.Coordinators {
+		return CoordinatorLimitError(project, c.Coordinators, limits.Coordinators)
+	}
+	return nil
+}
+
+// CheckOwner rejects a worker beyond the coordinator's configured cap.
+func (c Counts) CheckOwner(owner *domain.SessionID, limits domain.CoordinatorLimits) error {
+	if owner != nil && c.ByOwner[*owner] >= limits.WorkersPerCoordinator {
+		return CoordinatorWorkerLimitError(*owner, c.ByOwner[*owner], limits.WorkersPerCoordinator)
 	}
 	return nil
 }
 
 // CheckNewWorker applies the owner cap and project total to one more worker.
 // The total binds only once a coordinator is active.
-func (c Counts) CheckNewWorker(project domain.ProjectID, owner *domain.SessionID) error {
+func (c Counts) CheckNewWorker(project domain.ProjectID, owner *domain.SessionID, limits domain.CoordinatorLimits) error {
 	if c.Coordinators == 0 {
 		return nil
 	}
-	if err := c.CheckOwner(owner); err != nil {
+	if err := c.CheckOwner(owner, limits); err != nil {
 		return err
 	}
-	if c.Workers >= MaxProjectWorkers {
-		return ProjectWorkerLimitError(project, c.Workers)
+	if c.Workers >= limits.Workers {
+		return ProjectWorkerLimitError(project, c.Workers, limits.Workers)
 	}
 	return nil
 }

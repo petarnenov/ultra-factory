@@ -89,7 +89,9 @@ func newCapFixture(t *testing.T) *capFixture {
 	t.Helper()
 	mu := &sync.Mutex{}
 	st := newFakeStore()
-	st.projects["ao"] = domain.ProjectRecord{ID: "ao"}
+	st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{Enabled: true},
+	}}
 	f := &capFixture{t: t, mu: mu, store: &capStore{fakeStore: st, mu: mu}}
 	f.seed(domain.SessionRecord{ID: "ao-root", ProjectID: "ao", Kind: domain.KindOrchestrator})
 	f.fc = &fakeCommander{}
@@ -104,6 +106,13 @@ func newCapFixture(t *testing.T) *capFixture {
 	}
 	f.svc = &Service{manager: &capCommander{fakeCommander: f.fc, f: f}, store: f.store}
 	return f
+}
+
+// configure replaces the project's coordinator gate and limits.
+func (f *capFixture) configure(cfg domain.CoordinatorsConfig) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.store.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: cfg}}
 }
 
 func (f *capFixture) seed(rec domain.SessionRecord) {
@@ -570,4 +579,73 @@ func wantConcurrentOutcome(t *testing.T, results []error, wantOK int, rejectCode
 	if ok != wantOK {
 		t.Fatalf("%d spawns succeeded, want %d", ok, wantOK)
 	}
+}
+
+func TestSpawnCoordinatorIsRefusedWhileCoordinatorsAreDisabled(t *testing.T) {
+	f := newCapFixture(t)
+	f.configure(domain.CoordinatorsConfig{})
+	err := f.spawnCoordinator("ao-root", "docs")
+	wantAPIError(t, err, "COORDINATORS_DISABLED", map[string]any{"projectId": "ao"})
+	var apiErr *apierr.Error
+	if errors.As(err, &apiErr) && apiErr.Kind != apierr.KindConflict {
+		t.Fatalf("kind = %v, want conflict", apiErr.Kind)
+	}
+	if f.fc.spawnCalls != 0 || len(f.store.sessions) != 1 {
+		t.Fatalf("a refused spawn created a session: calls=%d sessions=%d", f.fc.spawnCalls, len(f.store.sessions))
+	}
+}
+
+func TestSpawnCoordinatorHonoursTheConfiguredCoordinatorLimit(t *testing.T) {
+	f := newCapFixture(t)
+	f.configure(domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 1})
+	if err := f.spawnCoordinator("ao-root", "first"); err != nil {
+		t.Fatal(err)
+	}
+	err := f.spawnCoordinator("ao-root", "second")
+	wantAPIError(t, err, "COORDINATOR_LIMIT_REACHED", map[string]any{"projectId": "ao", "current": 1, "allowed": 1})
+
+	f.configure(domain.CoordinatorsConfig{Enabled: true})
+	if err := f.spawnCoordinator("ao-root", "second"); err != nil {
+		t.Fatalf("a limit back at the default admits the second: %v", err)
+	}
+	wantAPIError(t, f.spawnCoordinator("ao-root", "third"), "COORDINATOR_LIMIT_REACHED", map[string]any{"allowed": 2})
+}
+
+func TestDisabledProjectStillRefusesANonRootCaller(t *testing.T) {
+	f := newCapFixture(t)
+	f.configure(domain.CoordinatorsConfig{})
+	helper := f.coordinator("ao-c", false)
+	wantAPIError(t, f.spawnCoordinator(helper, "docs"), "COORDINATOR_ROOT_REQUIRED", nil)
+	if f.fc.spawnCalls != 0 {
+		t.Fatal("a refused spawn must not reach the manager")
+	}
+}
+
+func TestDisabledProjectStillRestoresACoordinatorWithinTheLimit(t *testing.T) {
+	f := newCapFixture(t)
+	f.configure(domain.CoordinatorsConfig{MaxCoordinators: 1})
+	f.coordinator("ao-c1", true)
+	release, err := f.svc.admitRestore(context.Background(), f.store.sessions["ao-c1"])
+	if err != nil {
+		t.Fatalf("restore stays allowed for recovery: %v", err)
+	}
+	release()
+	f.coordinator("ao-c2", false)
+	_, err = f.svc.admitRestore(context.Background(), f.store.sessions["ao-c1"])
+	wantAPIError(t, err, "COORDINATOR_LIMIT_REACHED", map[string]any{"allowed": 1})
+}
+
+func TestConfiguredWorkerLimitsReplaceTheFixedNumbers(t *testing.T) {
+	f := newCapFixture(t)
+	f.configure(domain.CoordinatorsConfig{Enabled: true, MaxWorkersPerCoordinator: 1, MaxWorkers: 2})
+	c1 := f.coordinator("ao-c1", false)
+	c2 := f.coordinator("ao-c2", false)
+	if err := f.spawnWorker(c1); err != nil {
+		t.Fatal(err)
+	}
+	wantAPIError(t, f.spawnWorker(c1), "COORDINATOR_WORKER_LIMIT_REACHED", map[string]any{"coordinatorId": string(c1), "current": 1, "allowed": 1})
+	if err := f.spawnWorker(c2); err != nil {
+		t.Fatal(err)
+	}
+	wantAPIError(t, f.spawnWorker("ao-root"), "PROJECT_WORKER_LIMIT_REACHED", map[string]any{"current": 2, "allowed": 2})
 }

@@ -22,6 +22,10 @@ type wiringRemoteStore struct {
 	listCalls int
 }
 
+func (s *wiringRemoteStore) GetProject(context.Context, string) (domain.ProjectRecord, bool, error) {
+	return domain.ProjectRecord{}, false, nil
+}
+
 func (s *wiringRemoteStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
 	return domain.SessionRecord{ID: id, ProjectID: "ultra-factory", Kind: domain.KindOrchestrator}, true, nil
 }
