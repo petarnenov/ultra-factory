@@ -4,6 +4,8 @@ import { SessionsBoardGridView } from "@aoagents/product-ui";
 import { LayoutDashboard } from "lucide-react";
 import { useRemoteWorkspaces, useWorkspaceQuery, useProjectIdentity } from "../hooks/useWorkspaceQuery";
 import { useRemoteHosts } from "../hooks/useRemoteHosts";
+import { useUiStore } from "../stores/ui-store";
+import { isWebBuild } from "../lib/platform";
 import { labelForHost } from "../lib/host-clients";
 import { LOCAL_HOST, refKey, sessionUiKey } from "../lib/hosts";
 import { boardKanbanColumnOrder, getKanbanColumnView } from "../lib/session-presentation";
@@ -16,6 +18,7 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 	const navigate = useNavigate();
 	const localQuery = useWorkspaceQuery();
 	const { hosts } = useRemoteHosts();
+	const remoteEnabled = useUiStore((state) => isWebBuild || (state.developerMode && state.remoteHosts));
 	const localProject = localQuery.data?.find((workspace) => workspace.id === projectId);
 	const localIdentity = useProjectIdentity(undefined, projectId);
 	const associations = localIdentity.data?.aggregateProjects ?? [];
@@ -39,6 +42,13 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 	].filter((session) => !session.isTerminated && session.status !== "terminated" && session.kanbanColumn !== "archive");
 	const partial = associated.filter((entry) => !entry.host || entry.host.status !== "connected" || entry.failed || (entry.loaded && !entry.project));
 	const loading = localQuery.isPending || localIdentity.isPending || associated.some((entry) => entry.host?.status === "connected" && !entry.loaded && !entry.failed);
+	const unavailableReason = (entry: (typeof associated)[number]) => {
+		if (!remoteEnabled) return t("shell.aggregateReasonRemoteDisabled");
+		if (!entry.host) return t("shell.aggregateReasonHostNotListed");
+		if (entry.host.status !== "connected") return t("shell.aggregateReasonHostNotConnected");
+		if (entry.failed) return t("shell.aggregateReasonRequestFailed");
+		return t("shell.aggregateReasonProjectMissing");
+	};
 	const columns = boardKanbanColumnOrder.map((column) => getKanbanColumnView(column, t));
 	const labels = sessionsBoardLabels(t);
 	const projectRoute = (hostId: string, targetProjectId: string, sessionId: string) => hostId === LOCAL_HOST
@@ -55,7 +65,7 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 			<p className="px-4 py-2 text-xs text-muted-foreground">{t("shell.aggregateKanbanDescription")}</p>
 			{partial.length ? <div className="border-y border-warning/40 bg-warning/10 px-4 py-2 text-xs" role="status">
 				<p>{t("shell.aggregatePartialHosts")}</p>
-				{partial.map((entry) => <p key={`${entry.hostId}:${entry.projectId}`}>{t("shell.aggregateUnavailableProject", { host: entry.host?.label || entry.hostId, project: entry.projectId })}</p>)}
+				{partial.map((entry) => <p key={`${entry.hostId}:${entry.projectId}`}>{t("shell.aggregateUnavailableProject", { host: entry.host?.label || entry.hostId, project: entry.projectId, reason: unavailableReason(entry) })}</p>)}
 			</div> : null}
 			{loading ? <p role="status" className="py-10 text-center text-sm text-muted-foreground">{t("shell.aggregateLoading")}</p>
 				: localQuery.isError || localIdentity.isError || !localProject ? <p role="alert" className="py-10 text-center text-sm text-destructive">{t("shell.couldNotLoadSessions")}</p>

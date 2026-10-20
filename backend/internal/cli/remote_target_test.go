@@ -141,6 +141,9 @@ type localDaemon struct {
 	linkCode string
 	// checkCode, when set, makes POST remote-worker-links/check answer 409.
 	checkCode string
+	// parentKind, when set, answers GET /api/v1/sessions/<parent> with a
+	// live session of that kind.
+	parentKind string
 }
 
 func (d *localDaemon) answerLinks(status int) {
@@ -204,6 +207,10 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 			}
 		}
 		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/sessions/") && d.parentKind != "":
+			writeTestJSON(w, http.StatusOK, map[string]any{"session": map[string]any{
+				"id": strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/"), "kind": d.parentKind, "isTerminated": false,
+			}})
 		case strings.HasPrefix(r.URL.Path, "/internal/"):
 			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/v1/identity":

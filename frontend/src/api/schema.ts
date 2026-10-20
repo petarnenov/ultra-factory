@@ -4625,6 +4625,7 @@ export interface components {
             escalationNote?: string;
             /** @enum {string} */
             escalationReason?: "overlapping_files" | "unclear_acceptance" | "worker_failed" | "scope_decision" | "other";
+            readyPRs?: components["schemas"]["ControllersReadyPRRequest"][];
             result?: string;
             scope?: string;
             /** @enum {string} */
@@ -4648,6 +4649,7 @@ export interface components {
             id: string;
             lastError?: string;
             projectId: string;
+            readyPRs: components["schemas"]["ControllersReadyPRResponse"][];
             result: string;
             scope: string;
             /** @enum {string} */
@@ -4663,6 +4665,16 @@ export interface components {
         };
         ControllersKillSessionRequest: {
             deleteArtifacts?: boolean;
+        };
+        ControllersReadyPRRequest: {
+            headSha: string;
+            number: number;
+            reviewRunId?: string;
+        };
+        ControllersReadyPRResponse: {
+            headSha: string;
+            number: number;
+            reviewRunId: string;
         };
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
@@ -6770,6 +6782,7 @@ export interface components {
             /** @enum {string} */
             approvalMode?: "default" | "accept-edits" | "auto" | "bypass-permissions";
             attachments?: components["schemas"]["AttachmentInput"][];
+            autoReview?: null | boolean;
             branch?: string;
             clientRequestId?: string;
             displayName?: string;

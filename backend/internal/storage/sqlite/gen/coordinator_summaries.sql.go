@@ -372,6 +372,30 @@ func (q *Queries) InsertCoordinatorSummary(ctx context.Context, arg InsertCoordi
 	return i, err
 }
 
+const insertCoordinatorSummaryReadyPR = `-- name: InsertCoordinatorSummaryReadyPR :exec
+INSERT INTO coordinator_summary_ready_prs (summary_id, pr_number, head_sha, review_run_id, position)
+VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertCoordinatorSummaryReadyPRParams struct {
+	SummaryID   string
+	PRNumber    int64
+	HeadSha     string
+	ReviewRunID string
+	Position    int64
+}
+
+func (q *Queries) InsertCoordinatorSummaryReadyPR(ctx context.Context, arg InsertCoordinatorSummaryReadyPRParams) error {
+	_, err := q.db.ExecContext(ctx, insertCoordinatorSummaryReadyPR,
+		arg.SummaryID,
+		arg.PRNumber,
+		arg.HeadSha,
+		arg.ReviewRunID,
+		arg.Position,
+	)
+	return err
+}
+
 const insertCoordinatorSummaryWorker = `-- name: InsertCoordinatorSummaryWorker :exec
 INSERT INTO coordinator_summary_workers (summary_id, worker_session_id, position)
 VALUES (?, ?, ?)
@@ -430,6 +454,41 @@ func (q *Queries) ListCoordinatorSummariesBySession(ctx context.Context, arg Lis
 			&i.AcknowledgedAt,
 			&i.LastError,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCoordinatorSummaryReadyPRs = `-- name: ListCoordinatorSummaryReadyPRs :many
+SELECT pr_number, head_sha, review_run_id FROM coordinator_summary_ready_prs
+WHERE summary_id = ?
+ORDER BY position
+`
+
+type ListCoordinatorSummaryReadyPRsRow struct {
+	PRNumber    int64
+	HeadSha     string
+	ReviewRunID string
+}
+
+func (q *Queries) ListCoordinatorSummaryReadyPRs(ctx context.Context, summaryID string) ([]ListCoordinatorSummaryReadyPRsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCoordinatorSummaryReadyPRs, summaryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCoordinatorSummaryReadyPRsRow{}
+	for rows.Next() {
+		var i ListCoordinatorSummaryReadyPRsRow
+		if err := rows.Scan(&i.PRNumber, &i.HeadSha, &i.ReviewRunID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -12295,3 +12295,31 @@ func TestSpawnCoordinatorPersistsItsOwnWorkerLimitAndPromptShowsTheEffectiveOne(
 		})
 	}
 }
+
+func TestSpawn_AutoReviewOverrideBeatsProjectConfig(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name    string
+		project bool
+		spawn   *bool
+		want    bool
+	}{
+		{"override on over project off", false, &on, true},
+		{"override off over project on", true, &off, false},
+		{"omitted inherits project", true, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, st, _, _ := newManager()
+			cfg := testRoleAgents()
+			cfg.AutoReview = tc.project
+			st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: "/repo/mer", Kind: domain.ProjectKindWorkspace, Config: cfg}
+			s, _, _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, AutoReview: tc.spawn})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := st.sessions[s.ID].AutoReviewEnabled; got != tc.want {
+				t.Fatalf("AutoReviewEnabled = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

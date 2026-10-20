@@ -118,7 +118,7 @@ commit and records which tree the verdict read. See
 | `ao session owner <id>`             | `GET /api/v1/sessions/{id}/ownership`         |
 | `ao session assign <worker> --owner <coordinator-id\|root>` | `PUT /api/v1/sessions/{id}/owner` |
 | `ao coordinator ls`                 | `GET /api/v1/projects/{id}/coordinators`      |
-| `ao coordinator report --state <state>` | `POST /api/v1/coordinator-summaries`      |
+| `ao coordinator report --state <state> [--ready-pr <n>@<sha>]` | `POST /api/v1/coordinator-summaries` with optional `readyPRs` |
 | `ao remote-worker ls`               | `GET /api/v1/remote-worker-links`             |
 | `ao remote-worker assign <host> <remote-session>` | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` |
 | `ao session input <id>`             | `GET /api/v1/sessions/{id}/conversation` to list pending structured questions; `POST /api/v1/sessions/{id}/conversation/inputs/{requestId}/resolve` with `--request-id` and `--action` to answer one |

@@ -319,3 +319,51 @@ func TestRemoteOrchestratorSpawnIsNotMarkedRemote(t *testing.T) {
 		t.Fatalf("orchestrator spawn body = %s, want no remoteSpawn", req.body)
 	}
 }
+
+// TestRemoteSpawnAutoReviewOverride asserts --auto-review reaches the peer
+// and that a live local coordinator parent defaults it on.
+func TestRemoteSpawnAutoReviewOverride(t *testing.T) {
+	cases := []struct {
+		name       string
+		parentKind string
+		args       []string
+		want       *bool
+	}{
+		{name: "explicit on", args: []string{"--auto-review"}, want: boolPtr(true)},
+		{name: "explicit off beats coordinator default", parentKind: "coordinator", args: []string{"--auto-review=false"}, want: boolPtr(false)},
+		{name: "coordinator parent defaults on", parentKind: "coordinator", want: boolPtr(true)},
+		{name: "root parent keeps today's behavior", parentKind: "orchestrator", want: nil},
+		{name: "no flag keeps today's behavior", want: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			t.Setenv("AO_SESSION_ID", "ao-7")
+			t.Setenv("AO_PROJECT_ID", "local-widgets")
+			local := startLocalDaemon(t, cfg, "host-local", map[string]projectDetails{
+				"local-widgets": {ID: "local-widgets", Repo: "git@github.com:Acme/Widgets.git"},
+			})
+			local.answerLinks(http.StatusCreated)
+			local.parentKind = tc.parentKind
+			remote := newFakeRemoteHost(t, "host-build", "s3cret")
+			serveRemoteSpawn(remote)
+			writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+			args := append([]string{"spawn", "--host", "build-box", "--name", "work", "--prompt", "do it", "--agent", "claude-code", "--skip-agent-check"}, tc.args...)
+			if _, errOut, err := executeCLI(t, aliveDeps(), args...); err != nil {
+				t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+			}
+			recorded, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+			if !ok {
+				t.Fatal("remote spawn request not recorded")
+			}
+			var spawned spawnRequest
+			if err := json.Unmarshal([]byte(recorded.body), &spawned); err != nil {
+				t.Fatal(err)
+			}
+			if (spawned.AutoReview == nil) != (tc.want == nil) || (tc.want != nil && *spawned.AutoReview != *tc.want) {
+				t.Fatalf("autoReview = %v, want %v", spawned.AutoReview, tc.want)
+			}
+		})
+	}
+}

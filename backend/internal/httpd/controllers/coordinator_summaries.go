@@ -32,30 +32,49 @@ type CoordinatorSummaryRequest struct {
 	Scope                string   `json:"scope,omitempty" maxLength:"200"`
 	State                string   `json:"state" enum:"planning,working,blocked,done"`
 	WorkerSessionIDs     []string `json:"workerSessionIds,omitempty" maxItems:"3"`
-	Result               string   `json:"result,omitempty" maxLength:"2000"`
-	EscalationReason     string   `json:"escalationReason,omitempty" enum:"overlapping_files,unclear_acceptance,worker_failed,scope_decision,other"`
-	EscalationNote       string   `json:"escalationNote,omitempty" maxLength:"500"`
+	// ReadyPRs hands PRs to the root as ready to merge. The daemon validates
+	// ownership, the current head, and an approved review run per entry.
+	ReadyPRs         []ReadyPRRequest `json:"readyPRs,omitempty" maxItems:"10"`
+	Result           string           `json:"result,omitempty" maxLength:"2000"`
+	EscalationReason string           `json:"escalationReason,omitempty" enum:"overlapping_files,unclear_acceptance,worker_failed,scope_decision,other"`
+	EscalationNote   string           `json:"escalationNote,omitempty" maxLength:"500"`
+}
+
+// ReadyPRRequest names a PR head a coordinator declares ready to merge.
+type ReadyPRRequest struct {
+	Number  int    `json:"number" minimum:"1"`
+	HeadSHA string `json:"headSha" minLength:"1" maxLength:"64"`
+	// ReviewRunID is optional; omitted resolves to the newest approved run.
+	ReviewRunID string `json:"reviewRunId,omitempty" maxLength:"200"`
+}
+
+// ReadyPRResponse is a stored ready PR with its approved review run.
+type ReadyPRResponse struct {
+	Number      int    `json:"number"`
+	HeadSHA     string `json:"headSha"`
+	ReviewRunID string `json:"reviewRunId"`
 }
 
 // CoordinatorSummaryResponse is one persisted coordinator summary and its
 // delivery state. It is distinct from a worker report.
 type CoordinatorSummaryResponse struct {
-	ID                   string     `json:"id"`
-	CoordinatorSessionID string     `json:"coordinatorSessionId"`
-	ProjectID            string     `json:"projectId"`
-	SubmissionKey        string     `json:"submissionKey"`
-	Scope                string     `json:"scope"`
-	State                string     `json:"state" enum:"planning,working,blocked,done"`
-	WorkerSessionIDs     []string   `json:"workerSessionIds"`
-	Result               string     `json:"result"`
-	EscalationReason     string     `json:"escalationReason,omitempty"`
-	EscalationNote       string     `json:"escalationNote,omitempty"`
-	Escalation           bool       `json:"escalation"`
-	CreatedAt            time.Time  `json:"createdAt"`
-	DeliveryState        string     `json:"deliveryState" enum:"pending,claimed,acknowledged"`
-	DeliveryAttempts     int64      `json:"deliveryAttempts"`
-	AcknowledgedAt       *time.Time `json:"acknowledgedAt,omitempty"`
-	LastError            string     `json:"lastError,omitempty"`
+	ID                   string            `json:"id"`
+	CoordinatorSessionID string            `json:"coordinatorSessionId"`
+	ProjectID            string            `json:"projectId"`
+	SubmissionKey        string            `json:"submissionKey"`
+	Scope                string            `json:"scope"`
+	State                string            `json:"state" enum:"planning,working,blocked,done"`
+	WorkerSessionIDs     []string          `json:"workerSessionIds"`
+	ReadyPRs             []ReadyPRResponse `json:"readyPRs"`
+	Result               string            `json:"result"`
+	EscalationReason     string            `json:"escalationReason,omitempty"`
+	EscalationNote       string            `json:"escalationNote,omitempty"`
+	Escalation           bool              `json:"escalation"`
+	CreatedAt            time.Time         `json:"createdAt"`
+	DeliveryState        string            `json:"deliveryState" enum:"pending,claimed,acknowledged"`
+	DeliveryAttempts     int64             `json:"deliveryAttempts"`
+	AcknowledgedAt       *time.Time        `json:"acknowledgedAt,omitempty"`
+	LastError            string            `json:"lastError,omitempty"`
 }
 
 // CoordinatorSummaryHistoryResponse lists summaries newest first.
@@ -97,9 +116,13 @@ func (c *CoordinatorSummariesController) submit(w http.ResponseWriter, r *http.R
 	for i, id := range req.WorkerSessionIDs {
 		workers[i] = domain.SessionID(id)
 	}
+	ready := make([]domain.ReadyPR, len(req.ReadyPRs))
+	for i, pr := range req.ReadyPRs {
+		ready[i] = domain.ReadyPR{Number: pr.Number, HeadSHA: pr.HeadSHA, ReviewRunID: pr.ReviewRunID}
+	}
 	rec, created, err := c.Svc.Submit(r.Context(), reportsvc.SummaryInput{
 		CoordinatorSessionID: domain.SessionID(req.CoordinatorSessionID), SubmissionKey: req.SubmissionKey,
-		Scope: req.Scope, State: domain.CoordinatorSummaryState(req.State), WorkerSessionIDs: workers,
+		Scope: req.Scope, State: domain.CoordinatorSummaryState(req.State), WorkerSessionIDs: workers, ReadyPRs: ready,
 		Result: req.Result, EscalationReason: domain.EscalationReason(req.EscalationReason), EscalationNote: req.EscalationNote,
 	})
 	if err != nil {
@@ -144,12 +167,16 @@ func coordinatorSummaryResponse(rec domain.CoordinatorSummary) CoordinatorSummar
 	for i, id := range rec.WorkerSessionIDs {
 		workers[i] = string(id)
 	}
+	readyPRs := make([]ReadyPRResponse, len(rec.ReadyPRs))
+	for i, pr := range rec.ReadyPRs {
+		readyPRs[i] = ReadyPRResponse{Number: pr.Number, HeadSHA: pr.HeadSHA, ReviewRunID: pr.ReviewRunID}
+	}
 	out := CoordinatorSummaryResponse{
 		ID: rec.ID, CoordinatorSessionID: string(rec.CoordinatorSessionID), ProjectID: string(rec.ProjectID),
 		SubmissionKey: rec.SubmissionKey, Scope: rec.Scope, State: string(rec.State), WorkerSessionIDs: workers,
 		Result: rec.Result, EscalationReason: string(rec.EscalationReason), EscalationNote: rec.EscalationNote,
 		Escalation: rec.IsEscalation(), CreatedAt: rec.CreatedAt, DeliveryState: string(rec.DeliveryState),
-		DeliveryAttempts: rec.DeliveryAttempts, LastError: rec.LastError,
+		DeliveryAttempts: rec.DeliveryAttempts, LastError: rec.LastError, ReadyPRs: readyPRs,
 	}
 	if !rec.AcknowledgedAt.IsZero() {
 		at := rec.AcknowledgedAt

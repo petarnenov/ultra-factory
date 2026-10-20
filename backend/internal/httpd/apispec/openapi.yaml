@@ -13904,6 +13904,11 @@ components:
           - scope_decision
           - other
           type: string
+        readyPRs:
+          items:
+            $ref: '#/components/schemas/ControllersReadyPRRequest'
+          maxItems: 10
+          type: array
         result:
           maxLength: 2000
           type: string
@@ -13964,6 +13969,10 @@ components:
           type: string
         projectId:
           type: string
+        readyPRs:
+          items:
+            $ref: '#/components/schemas/ControllersReadyPRResponse'
+          type: array
         result:
           type: string
         scope:
@@ -13989,6 +13998,7 @@ components:
       - scope
       - state
       - workerSessionIds
+      - readyPRs
       - result
       - escalation
       - createdAt
@@ -14015,6 +14025,35 @@ components:
       properties:
         deleteArtifacts:
           type: boolean
+      type: object
+    ControllersReadyPRRequest:
+      properties:
+        headSha:
+          maxLength: 64
+          minLength: 1
+          type: string
+        number:
+          minimum: 1
+          type: integer
+        reviewRunId:
+          maxLength: 200
+          type: string
+      required:
+      - number
+      - headSha
+      type: object
+    ControllersReadyPRResponse:
+      properties:
+        headSha:
+          type: string
+        number:
+          type: integer
+        reviewRunId:
+          type: string
+      required:
+      - number
+      - headSha
+      - reviewRunId
       type: object
     ControllersRemoteHostAccountTokenResponse:
       properties:
@@ -19530,6 +19569,10 @@ components:
           items:
             $ref: '#/components/schemas/AttachmentInput'
           type: array
+        autoReview:
+          type:
+          - "null"
+          - boolean
         branch:
           type: string
         clientRequestId:

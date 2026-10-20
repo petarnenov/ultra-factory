@@ -5252,17 +5252,17 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		},
 		RequestedOutput:    cfg.RequestedOutput,
 		OutputType:         domain.SessionOutputNone,
-		AutoReviewEnabled:  projectConfig.AutoReview,
-		CIGateActive:       projectConfig.CIGate.Active(projectConfig.AutoReview),
-		TerminateOnPRMerge: resolveTerminateOnPRMerge(cfg.TerminateOnPRMerge, projectConfig.TerminateOnPRMerge),
+		AutoReviewEnabled:  resolveSpawnBool(cfg.AutoReview, projectConfig.AutoReview),
+		CIGateActive:       projectConfig.CIGate.Active(resolveSpawnBool(cfg.AutoReview, projectConfig.AutoReview)),
+		TerminateOnPRMerge: resolveSpawnBool(cfg.TerminateOnPRMerge, projectConfig.TerminateOnPRMerge),
 		AutoInjectReview:   true,
 		AutoInjectCI:       true,
 	}
 }
 
-// resolveTerminateOnPRMerge chooses a spawn's explicit override when it is
-// present and falls back to the project default otherwise.
-func resolveTerminateOnPRMerge(override *bool, projectDefault bool) bool {
+// resolveSpawnBool chooses a spawn's explicit override when it is present and
+// falls back to the project default otherwise.
+func resolveSpawnBool(override *bool, projectDefault bool) bool {
 	if override != nil {
 		return *override
 	}

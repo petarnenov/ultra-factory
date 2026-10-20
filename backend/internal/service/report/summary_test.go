@@ -128,6 +128,8 @@ func (f *summaryFixture) history(coordinator domain.SessionID) []domain.Coordina
 	return recs
 }
 
+func errorsAs(err error, target any) bool { return errors.As(err, target) }
+
 func apiCode(err error) string {
 	var apiErr *apierr.Error
 	if errors.As(err, &apiErr) {
