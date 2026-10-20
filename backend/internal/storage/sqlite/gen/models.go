@@ -791,6 +791,7 @@ type Session struct {
 	RequestedOutput                  string
 	CoordinatorScope                 string
 	OwnerSessionID                   *domain.SessionID
+	CIGateActive                     bool
 }
 
 type SessionArtifactVersion struct {
@@ -860,6 +861,16 @@ type SessionOwnerEvent struct {
 	NewOwnerSessionID      *domain.SessionID
 	Reason                 domain.OwnershipEventReason
 	CreatedAt              time.Time
+}
+
+type SessionPRReadyEvent struct {
+	ID             int64
+	SessionID      domain.SessionID
+	ActorSessionID domain.SessionID
+	PRURL          string
+	HeadSha        string
+	Ready          bool
+	CreatedAt      time.Time
 }
 
 type SessionProgress struct {

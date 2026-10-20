@@ -225,6 +225,7 @@ ao report --done --note "Focused tests passed"
 | --- | --- |
 | `ao pr merge <pr-number>` | Request a merge through the owning SCM provider. Only the root orchestrator or a human merges: the calling session id is sent, and the daemon refuses a live coordinator or worker with `403 MERGE_ROOT_ONLY`. |
 | `ao pr resolve-comments <pr-number> [comment-id...]` | Resolve selected or eligible review comments. |
+| `ao pr ready [<session>] [--undo]` | Mark the session's open pull request ready for review, or back to a draft with `--undo`. Only the root orchestrator, the owning coordinator or a human may run it; a worker is refused with `403 CI_GATE_FORBIDDEN`. See [CI gate](/configuration/projects#ci-gate). |
 | `ao review ls [worker-session-id]` | List review state for a worker. Defaults to the calling session. |
 | `ao review trigger [worker-session-id]` | Start Orchestrator's reviewer on a worker's PR heads; defaults to the calling session. Fetches the PRs fresh from the provider first; `--pr <url>` reviews only that PR, attaching it if needed. Fails on a head that already has a review unless `--rerun`. `--agent`, `--model`, `--effort` pick the reviewer for one pass; `--no-inject` keeps auto-inject unchanged. Aliases: `execute`, `restart`. |
 | `ao review cancel [worker-session-id]` | Cancel every running reviewer. Defaults to the calling session. Alias: `stop`. |

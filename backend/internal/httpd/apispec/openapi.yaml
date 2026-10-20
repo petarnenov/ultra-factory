@@ -8628,6 +8628,63 @@ paths:
       summary: Claim an existing pull request for a session
       tags:
       - sessions
+  /api/v1/sessions/{sessionId}/pr/ready:
+    post:
+      operationId: setSessionPRReady
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPRReadyRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetPRReadyResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Mark a session's pull request ready for review or back to draft
+      tags:
+      - prs
   /api/v1/sessions/{sessionId}/preview:
     delete:
       operationId: clearSessionPreview
@@ -12632,6 +12689,19 @@ components:
       - connected
       - transport
       type: object
+    CIGateConfig:
+      properties:
+        mode:
+          enum:
+          - "off"
+          - review
+          type: string
+        withoutAutoReview:
+          enum:
+          - ready
+          - manual
+          type: string
+      type: object
     CancelReviewResponse:
       properties:
         reviewerHandleId:
@@ -13952,6 +14022,8 @@ components:
           $ref: '#/components/schemas/SessionBranchState'
         chatProviderPreserved:
           type: boolean
+        ciGateActive:
+          type: boolean
         coordinatorScope:
           type: string
         createdAt:
@@ -14178,6 +14250,7 @@ components:
       - id
       - kind
       - autoReviewEnabled
+      - ciGateActive
       - mode
       - activity
       - isTerminated
@@ -16897,6 +16970,8 @@ components:
           type: boolean
         canonicalRepoURL:
           type: string
+        ciGate:
+          $ref: '#/components/schemas/CIGateConfig'
         containerReap:
           $ref: '#/components/schemas/ContainerReapConfig'
         coordinators:
@@ -18552,6 +18627,37 @@ components:
           type: string
       required:
       - title
+      type: object
+    SetPRReadyRequest:
+      properties:
+        ready:
+          type: boolean
+        requestedBySessionId:
+          type: string
+      required:
+      - ready
+      type: object
+    SetPRReadyResponse:
+      properties:
+        changed:
+          type: boolean
+        headSha:
+          type: string
+        ok:
+          type: boolean
+        prNumber:
+          type: integer
+        prUrl:
+          type: string
+        ready:
+          type: boolean
+      required:
+      - ok
+      - prUrl
+      - prNumber
+      - headSha
+      - ready
+      - changed
       type: object
     SetProjectConfigInput:
       properties:

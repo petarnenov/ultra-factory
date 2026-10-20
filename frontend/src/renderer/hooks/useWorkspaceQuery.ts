@@ -140,6 +140,7 @@ export function toWorkspaceSession(
 				}
 			: undefined,
 		autoReviewEnabled: session.autoReviewEnabled ?? false,
+		ciGateActive: session.ciGateActive ?? false,
 		kind: session.kind === "orchestrator" ? "orchestrator" : session.kind === "worker" ? "worker" : undefined,
 		ownerSessionId: session.ownerSessionId,
 		coordinatorScope: session.coordinatorScope || undefined,
@@ -266,6 +267,7 @@ function toLocalWorkspaceSession(
 				}
 			: undefined,
 		autoReviewEnabled: session.autoReviewEnabled ?? false,
+		ciGateActive: session.ciGateActive ?? false,
 		kind: session.kind === "orchestrator" ? "orchestrator" : session.kind === "worker" ? "worker" : undefined,
 		ownerSessionId: session.ownerSessionId,
 		coordinatorScope: session.coordinatorScope || undefined,

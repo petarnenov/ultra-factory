@@ -5252,6 +5252,7 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		RequestedOutput:    cfg.RequestedOutput,
 		OutputType:         domain.SessionOutputNone,
 		AutoReviewEnabled:  projectConfig.AutoReview,
+		CIGateActive:       projectConfig.CIGate.Active(projectConfig.AutoReview),
 		TerminateOnPRMerge: resolveTerminateOnPRMerge(cfg.TerminateOnPRMerge, projectConfig.TerminateOnPRMerge),
 		AutoInjectReview:   true,
 		AutoInjectCI:       true,

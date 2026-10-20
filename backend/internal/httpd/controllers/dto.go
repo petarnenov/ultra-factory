@@ -2542,6 +2542,26 @@ type MergePRResponse struct {
 	Method   string `json:"method"`
 }
 
+// SetPRReadyRequest is the body of POST /api/v1/sessions/{sessionId}/pr/ready.
+type SetPRReadyRequest struct {
+	// Ready true marks the PR ready for review; false converts it to a draft.
+	Ready bool `json:"ready"`
+	// RequestedBySessionID optionally names the calling session. Anyone but
+	// the project root or the owning coordinator is refused with 403
+	// CI_GATE_FORBIDDEN.
+	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
+}
+
+// SetPRReadyResponse is the body of POST /api/v1/sessions/{sessionId}/pr/ready (200).
+type SetPRReadyResponse struct {
+	OK       bool   `json:"ok"`
+	PRURL    string `json:"prUrl"`
+	PRNumber int    `json:"prNumber"`
+	HeadSHA  string `json:"headSha"`
+	Ready    bool   `json:"ready"`
+	Changed  bool   `json:"changed"`
+}
+
 // ResolveCommentsRequest is the optional body of POST /api/v1/prs/{id}/resolve-comments.
 type ResolveCommentsRequest struct {
 	// CommentIDs accepts provider comment ids and review thread ids. Comment

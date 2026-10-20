@@ -27,6 +27,31 @@ type PRsController struct {
 func (c *PRsController) Register(r chi.Router) {
 	r.Post("/prs/{id}/merge", c.merge)
 	r.Post("/prs/{id}/resolve-comments", c.resolveComments)
+	r.Post("/sessions/{sessionId}/pr/ready", c.setReady)
+}
+
+func (c *PRsController) setReady(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/sessions/{sessionId}/pr/ready")
+		return
+	}
+	var in SetPRReadyRequest
+	if err := decodeJSON(r, &in); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	res, err := c.Svc.SetReady(r.Context(), prsvc.ReadyRequest{
+		SessionID:            domain.SessionID(chi.URLParam(r, "sessionId")),
+		Ready:                in.Ready,
+		RequestedBySessionID: domain.SessionID(strings.TrimSpace(in.RequestedBySessionID)),
+	})
+	if err != nil {
+		writePRError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, SetPRReadyResponse{
+		OK: true, PRURL: res.PRURL, PRNumber: res.PRNumber, HeadSHA: res.HeadSHA, Ready: res.Ready, Changed: res.Changed,
+	})
 }
 
 func (c *PRsController) merge(w http.ResponseWriter, r *http.Request) {

@@ -875,6 +875,78 @@ describe("ProjectSettingsForm", () => {
 		expect(request?.body.config.reviewers).toBeUndefined();
 	});
 
+	it("loads and saves the CI gate, showing the fallback select only after AO review", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "git@github.com:acme/project-one.git",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				orchestrator: { agent: "claude-code" },
+			},
+		});
+
+		renderSettings("proj-1", undefined, "general");
+
+		const gate = await screen.findByRole("button", { name: "CI gate" });
+		expect(gate).toHaveTextContent("Off");
+		expect(screen.queryByRole("button", { name: "Without auto-review" })).not.toBeInTheDocument();
+
+		await userEvent.click(gate);
+		await userEvent.click(screen.getByRole("menuitemradio", { name: "After AO review" }));
+		const fallback = await screen.findByRole("button", { name: "Without auto-review" });
+		expect(fallback).toHaveTextContent("Open ready PR");
+
+		await userEvent.click(fallback);
+		await userEvent.click(screen.getByRole("menuitemradio", { name: "Keep draft until marked ready" }));
+
+		submitSettings();
+
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		const request = putMock.mock.calls[0]?.[1];
+		expect(request?.body.config.ciGate).toEqual({ mode: "review", withoutAutoReview: "manual" });
+	});
+
+	it("stores the default CI gate as no block and keeps a saved one", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "git@github.com:acme/project-one.git",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				orchestrator: { agent: "claude-code" },
+				ciGate: { mode: "review", withoutAutoReview: "manual" },
+			},
+		});
+
+		renderSettings("proj-1", undefined, "general");
+
+		const gate = await screen.findByRole("button", { name: "CI gate" });
+		expect(gate).toHaveTextContent("After AO review");
+		expect(await screen.findByRole("button", { name: "Without auto-review" })).toHaveTextContent("Keep draft until marked ready");
+
+		await userEvent.click(gate);
+		await userEvent.click(screen.getByRole("menuitemradio", { name: "Off" }));
+		await userEvent.click(screen.getByRole("button", { name: "CI gate" }));
+		await userEvent.click(screen.getByRole("menuitemradio", { name: "After AO review" }));
+		const fallback = await screen.findByRole("button", { name: "Without auto-review" });
+		await userEvent.click(fallback);
+		await userEvent.click(screen.getByRole("menuitemradio", { name: "Open ready PR" }));
+		await userEvent.click(screen.getByRole("button", { name: "CI gate" }));
+		await userEvent.click(screen.getByRole("menuitemradio", { name: "Off" }));
+
+		submitSettings();
+
+		await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+		expect(putMock.mock.calls[0]?.[1]?.body.config.ciGate).toBeUndefined();
+	});
+
 	// With no reviewer configured the daemon reviews with the default worker
 	// agent and its model, so the reviewer row must show that model.
 	it("shows the default worker model as the inherited reviewer model", async () => {

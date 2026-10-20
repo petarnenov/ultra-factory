@@ -276,6 +276,7 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"DomainSessionHealth":             "SessionHealth",
 	"DomainSessionHealthState":        "SessionHealthState",
 	"DomainProjectConfig":             "ProjectConfig",
+	"DomainCIGateConfig":              "CIGateConfig",
 	"DomainAggregateProjectRef":       "AggregateProjectRef",
 	"DomainTrackerIntakeConfig":       "TrackerIntakeConfig",
 	"ControllersTriggerReviewRequest": "TriggerReviewRequest",
@@ -533,6 +534,8 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	// httpd/controllers — PR wire envelopes
 	"ControllersMergePRRequest":          "MergePRRequest",
 	"ControllersMergePRResponse":         "MergePRResponse",
+	"ControllersSetPRReadyRequest":       "SetPRReadyRequest",
+	"ControllersSetPRReadyResponse":      "SetPRReadyResponse",
 	"ControllersResolveCommentsRequest":  "ResolveCommentsRequest",
 	"ControllersResolveCommentsResponse": "ResolveCommentsResponse",
 	// httpd/controllers — review wire envelopes
@@ -3568,6 +3571,20 @@ func prOperations() []operation {
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusUnprocessableEntity, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/pr/ready", id: "setSessionPRReady", tag: "prs",
+			summary:    "Mark a session's pull request ready for review or back to draft",
+			pathParams: []any{controllers.SessionIDParam{}},
+			reqBody:    controllers.SetPRReadyRequest{},
+			resps: []respUnit{
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusOK, controllers.SetPRReadyResponse{}},
+				{http.StatusForbidden, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
 		},

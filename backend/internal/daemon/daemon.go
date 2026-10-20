@@ -911,8 +911,13 @@ func Run() error {
 	prReader := newMultiSCMProvider(cfg.GitLab, cfg.DataDir, log)
 	prMerger := newMultiSCMMerger(cfg.GitLab, cfg.DataDir, log)
 	if prReader != nil && prMerger != nil {
+		var prDraft ports.SCMDraftSetter
+		if setter := newMultiSCMDraftSetter(cfg.DataDir, log); setter != nil {
+			prDraft = setter
+		}
 		prActions = prsvc.NewActionService(prsvc.ActionDeps{
 			Store:        store,
+			Draft:        prDraft,
 			Merger:       prMerger,
 			Reader:       prReader,
 			Resolver:     prReader,

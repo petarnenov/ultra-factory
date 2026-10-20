@@ -197,26 +197,32 @@ export function ProjectWorkersRequestReviewToggle({ checked, onCheckedChange }: 
 	return <ProjectToggleRow id="project-workers-request-review" label={t("settings.project.workersRequestReviewToggle")} description={t("settings.project.workersRequestReviewDescription")} checked={checked} onCheckedChange={onCheckedChange} />;
 }
 
+function ProjectRowLabel({ label, description }: { label: string; description: string }) {
+	return (
+		<div className="flex shrink-0 items-center gap-1.5">
+			<span className="whitespace-nowrap text-sm leading-5 text-settings-label">{label}</span>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<button
+						type="button"
+						className="inline-flex size-5 items-center justify-center rounded-md text-settings-muted transition-colors hover:bg-settings-menu-selected hover:text-settings-label focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
+						aria-label={description}
+					>
+						<Info className="size-icon-sm" aria-hidden="true" />
+					</button>
+				</TooltipTrigger>
+				<TooltipContent className="max-w-72 leading-normal" side="top">
+					{description}
+				</TooltipContent>
+			</Tooltip>
+		</div>
+	);
+}
+
 function ProjectToggleRow({ id, label, description, checked, onCheckedChange }: { id: string; label: string; description: string; checked: boolean; onCheckedChange: (checked: boolean) => void }) {
 	return (
 		<div className="settings-row-bar">
-			<div className="flex shrink-0 items-center gap-1.5">
-				<span className="whitespace-nowrap text-sm leading-5 text-settings-label">{label}</span>
-				<Tooltip>
-					<TooltipTrigger asChild>
-						<button
-							type="button"
-							className="inline-flex size-5 items-center justify-center rounded-md text-settings-muted transition-colors hover:bg-settings-menu-selected hover:text-settings-label focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none"
-							aria-label={description}
-						>
-							<Info className="size-icon-sm" aria-hidden="true" />
-						</button>
-					</TooltipTrigger>
-					<TooltipContent className="max-w-72 leading-normal" side="top">
-						{description}
-					</TooltipContent>
-				</Tooltip>
-			</div>
+			<ProjectRowLabel label={label} description={description} />
 			<div className="flex min-w-0 flex-1 items-center justify-end">
 				<Switch
 					aria-label={label}
@@ -226,5 +232,54 @@ function ProjectToggleRow({ id, label, description, checked, onCheckedChange }: 
 				/>
 			</div>
 		</div>
+	);
+}
+
+export type CIGateMode = "off" | "review";
+export type CIGateWithoutAutoReview = "ready" | "manual";
+
+function ProjectSelectRow<T extends string>({ label, description, value, options, onChange }: { label: string; description: string; value: T; options: { value: T; label: string }[]; onChange: (value: T) => void }) {
+	return (
+		<div className="settings-row-bar">
+			<ProjectRowLabel label={label} description={description} />
+			<div className="flex min-w-0 flex-1 items-center justify-end">
+				<SettingsOptionMenu aria-label={label} value={value} options={options} onChange={onChange} triggerClassName="w-fit" />
+			</div>
+		</div>
+	);
+}
+
+export function ProjectCIGateControls({ mode, withoutAutoReview, onModeChange, onWithoutAutoReviewChange }: {
+	mode: CIGateMode;
+	withoutAutoReview: CIGateWithoutAutoReview;
+	onModeChange: (mode: CIGateMode) => void;
+	onWithoutAutoReviewChange: (value: CIGateWithoutAutoReview) => void;
+}) {
+	const { t } = useTranslation();
+	return (
+		<>
+			<ProjectSelectRow
+				label={t("settings.project.ciGate")}
+				description={t("settings.project.ciGateDescription")}
+				value={mode}
+				options={[
+					{ value: "off", label: t("settings.project.ciGateOff") },
+					{ value: "review", label: t("settings.project.ciGateReview") },
+				]}
+				onChange={onModeChange}
+			/>
+			{mode === "review" && (
+				<ProjectSelectRow
+					label={t("settings.project.ciGateWithoutAutoReview")}
+					description={t("settings.project.ciGateWithoutAutoReviewDescription")}
+					value={withoutAutoReview}
+					options={[
+						{ value: "ready", label: t("settings.project.ciGateWithoutReady") },
+						{ value: "manual", label: t("settings.project.ciGateWithoutManual") },
+					]}
+					onChange={onWithoutAutoReviewChange}
+				/>
+			)}
+		</>
 	);
 }

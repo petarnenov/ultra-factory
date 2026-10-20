@@ -43,6 +43,7 @@ ao project rm <project-id>
 | `autoReview` | Default automatic-review setting copied to new worker sessions. |
 | `terminateOnPrMerge` | Default auto-teardown for new worker sessions after all their PRs are terminal with at least one merged and the agent has quiesced. `ao spawn --terminate-on-pr-merge[=false]` overrides it per spawn. |
 | `workersRequestReview` | When `true`, new workers request an Orchestrator review of their own PR once it is ready, and again after each fix. When unset, workers ask the user or orchestrator before starting one. |
+| `ciGate` | Holds expensive pull request CI until AO review approves. `{ "mode": "off" \| "review", "withoutAutoReview": "ready" \| "manual" }`; a missing block means `off` / `ready`. See [CI gate](#ci-gate). |
 | `defaultBranch` | Base branch for new Git worktrees. Defaults to `auto`. |
 | `sessionPrefix` | Prefix for generated session identifiers. |
 | `env` | Extra environment variables passed to agent runtimes. |
@@ -153,6 +154,35 @@ These configuration fields choose a reviewer and enable automatic review for new
 ao review trigger <worker-session-id>
 ao review ls <worker-session-id>
 ```
+
+### CI gate
+
+`ciGate` decides whether a new worker opens its pull request as a draft so expensive CI waits for AO review.
+
+```json
+{
+  "autoReview": true,
+  "ciGate": { "mode": "review", "withoutAutoReview": "ready" }
+}
+```
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `mode` | `off` (default), `review` | `off` keeps today's behavior and never touches the draft flag. `review` activates the gate for a session as described below. |
+| `withoutAutoReview` | `ready` (default), `manual` | What `review` does for a session that has no auto-review. `ready` leaves the gate inactive and the worker opens a normal pull request. `manual` keeps the pull request a draft until it is marked ready. |
+
+`mode: "review"` only has an effect for a session that has auto-review on, or when `withoutAutoReview` is `manual`. With auto-review off and `withoutAutoReview: "ready"` the gate stays inactive for that session, so nothing is left stuck as a draft.
+
+The effective value is resolved once when a session is spawned and stored on it as the read-only `ciGateActive` flag, so changing the setting affects only new sessions. A remote worker uses the project config of the host it runs on, the same as `autoReview`. Unknown `mode` or `withoutAutoReview` values are rejected when the config is saved.
+
+To mark a gated pull request ready by hand, or convert it back to a draft:
+
+```bash
+ao pr ready [<session>]
+ao pr ready [<session>] --undo
+```
+
+Only the project's root orchestrator and the session's owning coordinator may run it, and a human can run it from a shell outside any session. A worker is refused with `403 CI_GATE_FORBIDDEN`, so the agent the gate holds back cannot lift it. The command fails with `NO_OPEN_PR` when the session has no open pull request, and does nothing when the pull request already has the requested state. It works with `--host`. Each change is recorded with the caller, the pull request and its head commit.
 
 ## Update from the CLI
 

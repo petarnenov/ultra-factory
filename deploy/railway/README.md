@@ -348,6 +348,37 @@ The user agreed this process on 2026-10-19. It decides where work may run.
 The orchestrator instructions that apply these rules are in
 [`docs/backlog/railway/orchestrator-prompt.md`](../../docs/backlog/railway/orchestrator-prompt.md).
 
+#### CI gate for worker pull requests
+
+The project setting `ciGate` makes workers open draft pull requests so the
+expensive CI waits for AO review. It is off by default.
+
+```bash
+# On the machine that runs the project (a remote worker reads its own host's
+# project config, the same as autoReview).
+ao project set-config <project-id> --config-json '{"autoReview":true,"ciGate":{"mode":"review","withoutAutoReview":"ready"}}'
+```
+
+`set-config` replaces the whole config, so start from `ao project get <id>
+--json` and add the `ciGate` block to it.
+
+- `mode`: `off` (default) or `review`.
+- `withoutAutoReview`: `ready` (default) or `manual`.
+- **`mode=review` only has an effect for a session with auto-review on, or
+  when `withoutAutoReview=manual`.** A session without auto-review and with
+  `withoutAutoReview=ready` opens a normal pull request, so nothing is left
+  stuck as a draft. With `manual`, the pull request stays a draft until an
+  `approved` verdict from a manual `ao review trigger`, or `ao pr ready`.
+- The value is resolved when a session is spawned and shown as `ciGateActive`
+  on the session, so a change affects only new sessions.
+- **Manual override.** `ao pr ready [<session>] [--undo]` marks the session's
+  pull request ready or back to draft; `--host` runs it on the machine that
+  owns the session. The root orchestrator and the owning coordinator may run
+  it; a worker is refused with `CI_GATE_FORBIDDEN`. The command needs the
+  daemon's GitHub account to be a user or app token, not `GITHUB_TOKEN`,
+  because the draft flip uses the GraphQL API. Each flip is recorded with the
+  caller, the pull request and its head commit.
+
 ### Orchestrator agent credentials
 
 An orchestrator started in the hub runs one of its agent CLIs: `claude` and

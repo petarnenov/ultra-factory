@@ -166,6 +166,8 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 		autoReview: config.autoReview ?? false,
 		terminateOnPrMerge: config.terminateOnPrMerge ?? false,
 		workersRequestReview: config.workersRequestReview ?? false,
+		ciGateMode: config.ciGate?.mode === "review" ? "review" : "off",
+		ciGateWithoutAutoReview: config.ciGate?.withoutAutoReview === "manual" ? "manual" : "ready",
 		intakeEnabled: intake.enabled ?? false,
 		intakeRepo: intake.repo ?? "",
 		intakeAssignee: intake.assignee ?? "",
@@ -258,6 +260,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 					autoReview: values.autoReview,
 					terminateOnPrMerge: values.terminateOnPrMerge,
 					workersRequestReview: values.workersRequestReview || undefined,
+					ciGate: buildCIGate(values),
 				};
 		const { error } = await (hostId ? clientForHost(hostId) : apiClient).PUT("/api/v1/projects/{id}", {
 			params: { path: { id: projectId } },
@@ -329,7 +332,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 		}
 	};
 	return <ProjectSettingsEditor initialValues={initialValues} section={section} disabled={!hostConnected}
-		capabilities={{ workflow: !isScratchProject, sessionPrefix: !isScratchProject, intake: intakeVisible, reviewer: !isScratchProject, requiredAgents: true, workersRequestReview: !isScratchProject }}
+		capabilities={{ workflow: !isScratchProject, sessionPrefix: !isScratchProject, intake: intakeVisible, reviewer: !isScratchProject, requiredAgents: true, workersRequestReview: !isScratchProject, ciGate: !isScratchProject }}
 		details={[{ label: t("settings.project.path"), value: project.path, href: hostId ? undefined : `file://${encodeURI(project.path)}` }, { label: t("settings.project.repo"), value: project.repo || "—", href: project.repo ? repositoryHref(project.repo) : undefined }]}
 		workspaceRepos={project.kind === "workspace" ? project.workspaceRepos ?? [] : undefined} repository={project.repo}
 		modelScope={() => projectId} defaultReviewer={(draft) => WORKER_DEFAULT_REVIEWERS[draft.workerAgent] ?? "claude-code"}
@@ -372,10 +375,18 @@ function scratchSupportedConfig(config: ProjectConfig): ProjectConfig {
 		autoReview: _legacyAutoReview,
 		terminateOnPrMerge: _legacyTerminateOnPRMerge,
 		workersRequestReview: _workersRequestReview,
+		ciGate: _ciGate,
 		trackerIntake: _trackerIntake,
 		...supported
 	} = config as ProjectConfig;
 	return supported;
+}
+
+// The default gate ({off, ready}) is stored as no block at all.
+function buildCIGate(values: ProjectSettingsDraft): components["schemas"]["CIGateConfig"] | undefined {
+	const mode = values.ciGateMode === "review" ? "review" : "off";
+	const withoutAutoReview = values.ciGateWithoutAutoReview === "manual" ? "manual" : "ready";
+	return mode === "off" && withoutAutoReview === "ready" ? undefined : { mode, withoutAutoReview };
 }
 
 function blankToUndefined<T extends object>(obj: T): T | undefined {

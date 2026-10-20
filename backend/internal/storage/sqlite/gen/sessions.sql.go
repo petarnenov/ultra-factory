@@ -174,7 +174,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -239,6 +239,7 @@ type GetSessionRow struct {
 	AutoInjectReview                 bool
 	AutoInjectCI                     bool
 	AutoReviewEnabled                bool
+	CIGateActive                     bool
 	Model                            string
 	Effort                           string
 	SessionPermissions               string
@@ -315,6 +316,7 @@ func (q *Queries) GetSession(ctx context.Context, id domain.SessionID) (GetSessi
 		&i.AutoInjectReview,
 		&i.AutoInjectCI,
 		&i.AutoReviewEnabled,
+		&i.CIGateActive,
 		&i.Model,
 		&i.Effort,
 		&i.SessionPermissions,
@@ -346,7 +348,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -411,6 +413,7 @@ type GetSessionByAutomationRunIDRow struct {
 	AutoInjectReview                 bool
 	AutoInjectCI                     bool
 	AutoReviewEnabled                bool
+	CIGateActive                     bool
 	Model                            string
 	Effort                           string
 	SessionPermissions               string
@@ -487,6 +490,7 @@ func (q *Queries) GetSessionByAutomationRunID(ctx context.Context, automationRun
 		&i.AutoInjectReview,
 		&i.AutoInjectCI,
 		&i.AutoReviewEnabled,
+		&i.CIGateActive,
 		&i.Model,
 		&i.Effort,
 		&i.SessionPermissions,
@@ -521,7 +525,7 @@ INSERT INTO sessions (
     requested_output,
     created_at, updated_at, is_pinned, pinned_at, auto_inject_review, auto_inject_ci,
     provision_state, provision_error, is_task_preparation, automation_run_id, automation_launch_completed,
-    client_request_id, client_request_hash, owner_session_id, coordinator_scope
+    client_request_id, client_request_hash, owner_session_id, coordinator_scope, ci_gate_active
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -529,7 +533,7 @@ INSERT INTO sessions (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?
 )
 `
 
@@ -599,6 +603,7 @@ type InsertSessionParams struct {
 	ClientRequestHash                string
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorScope                 string
+	CIGateActive                     bool
 }
 
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
@@ -668,6 +673,7 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 		arg.ClientRequestHash,
 		arg.OwnerSessionID,
 		arg.CoordinatorScope,
+		arg.CIGateActive,
 	)
 	return err
 }
@@ -685,7 +691,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -750,6 +756,7 @@ type ListAllSessionsRow struct {
 	AutoInjectReview                 bool
 	AutoInjectCI                     bool
 	AutoReviewEnabled                bool
+	CIGateActive                     bool
 	Model                            string
 	Effort                           string
 	SessionPermissions               string
@@ -832,6 +839,7 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]ListAllSessionsRow, er
 			&i.AutoInjectReview,
 			&i.AutoInjectCI,
 			&i.AutoReviewEnabled,
+			&i.CIGateActive,
 			&i.Model,
 			&i.Effort,
 			&i.SessionPermissions,
@@ -906,7 +914,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
     latest_user_prompt, latest_user_prompt_at, latest_interaction_at, latest_assistant_update, latest_assistant_update_at,
     conversation_checkpoint_state, conversation_checkpoint_generation, conversation_checkpoint_native_id,
     conversation_checkpoint_unsettled, conversation_checkpoint_turn_id, native_checkpoint_evidence,
-    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, model, effort, session_permissions,
+    native_transcript_path, auto_inject_review, auto_inject_ci, auto_review_enabled, ci_gate_active, model, effort, session_permissions,
     requested_output,
     provision_state, provision_error, provision_steps, branch_state, is_task_preparation, automation_run_id, automation_launch_completed,
     claude_activity_facts, codex_activity_facts,
@@ -971,6 +979,7 @@ type ListSessionsByProjectRow struct {
 	AutoInjectReview                 bool
 	AutoInjectCI                     bool
 	AutoReviewEnabled                bool
+	CIGateActive                     bool
 	Model                            string
 	Effort                           string
 	SessionPermissions               string
@@ -1053,6 +1062,7 @@ func (q *Queries) ListSessionsByProject(ctx context.Context, projectID *domain.P
 			&i.AutoInjectReview,
 			&i.AutoInjectCI,
 			&i.AutoReviewEnabled,
+			&i.CIGateActive,
 			&i.Model,
 			&i.Effort,
 			&i.SessionPermissions,
@@ -1111,26 +1121,27 @@ UPDATE sessions SET
     coordinator_scope = ?4,
     harness = ?5,
     auto_review_enabled = ?6,
-    terminate_on_pr_merge = ?7,
-    display_name = ?8,
-    activity_state = ?9,
-    activity_last_at = ?10,
+    ci_gate_active = ?7,
+    terminate_on_pr_merge = ?8,
+    display_name = ?9,
+    activity_state = ?10,
+    activity_last_at = ?11,
     is_terminated = 0,
-    session_mode = ?11,
-    model = ?12,
-    effort = ?13,
-    session_permissions = ?14,
-    requested_output = ?15,
-    created_at = ?16,
-    updated_at = ?17,
-    auto_inject_review = ?18,
-    auto_inject_ci = ?19,
-    provision_state = ?20,
+    session_mode = ?12,
+    model = ?13,
+    effort = ?14,
+    session_permissions = ?15,
+    requested_output = ?16,
+    created_at = ?17,
+    updated_at = ?18,
+    auto_inject_review = ?19,
+    auto_inject_ci = ?20,
+    provision_state = ?21,
     provision_error = '',
-    client_request_id = ?21,
-    client_request_hash = ?22,
+    client_request_id = ?22,
+    client_request_hash = ?23,
     is_task_preparation = 0
-WHERE id = ?23 AND is_task_preparation = 1
+WHERE id = ?24 AND is_task_preparation = 1
 `
 
 type PromoteTaskPreparationParams struct {
@@ -1140,6 +1151,7 @@ type PromoteTaskPreparationParams struct {
 	CoordinatorScope   string
 	Harness            domain.AgentHarness
 	AutoReviewEnabled  bool
+	CIGateActive       bool
 	TerminateOnPRMerge bool
 	DisplayName        string
 	ActivityState      domain.ActivityState
@@ -1169,6 +1181,7 @@ func (q *Queries) PromoteTaskPreparation(ctx context.Context, arg PromoteTaskPre
 		arg.CoordinatorScope,
 		arg.Harness,
 		arg.AutoReviewEnabled,
+		arg.CIGateActive,
 		arg.TerminateOnPRMerge,
 		arg.DisplayName,
 		arg.ActivityState,

@@ -48,6 +48,23 @@ func TestSeedRecordPreservesAutomationRunIdentity(t *testing.T) {
 	}
 }
 
+// The CI gate is resolved once, at spawn, from the project config.
+func TestSeedRecordResolvesCIGateActive(t *testing.T) {
+	now := time.Date(2026, time.October, 20, 9, 0, 0, 0, time.UTC)
+	for _, mode := range []domain.CIGateMode{domain.CIGateOff, domain.CIGateReview} {
+		for _, autoReview := range []bool{false, true} {
+			for _, without := range []domain.CIGateWithoutAutoReview{domain.CIGateWithoutReady, domain.CIGateWithoutManual} {
+				cfg := domain.ProjectConfig{AutoReview: autoReview, CIGate: domain.CIGateConfig{Mode: mode, WithoutAutoReview: without}}
+				want := mode == domain.CIGateReview && (autoReview || without == domain.CIGateWithoutManual)
+				rec := seedRecord(ports.SpawnConfig{ProjectID: "p", Kind: domain.KindWorker}, cfg, now)
+				if rec.CIGateActive != want {
+					t.Errorf("mode=%s autoReview=%v without=%s: CIGateActive = %v, want %v", mode, autoReview, without, rec.CIGateActive, want)
+				}
+			}
+		}
+	}
+}
+
 type fakeStore struct {
 	cleanupMu                          sync.Mutex
 	cleanupFacts                       map[domain.SessionID]domain.SessionCleanupRecord
