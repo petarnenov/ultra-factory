@@ -19,6 +19,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/session"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
+	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
 
 const project = domain.ProjectID("ao")
@@ -147,10 +148,10 @@ func (p *pilot) advance(d time.Duration) { p.clock.Add(int64(d)) }
 // this set over the same database.
 func (p *pilot) wire() {
 	p.svc = session.NewWithDeps(session.Deps{Manager: &manager{p: p}, Store: p.store, Clock: p.now})
-	p.rep = report.New(report.Deps{Store: p.store, Now: p.now, NewID: func() string { return fmt.Sprintf("rpt-%03d", p.nextID.Add(1)) }})
+	p.rep = report.New(report.Deps{Store: p.store, Now: p.now, OnCreated: func(domain.ReportRecord) { p.coord.Wake() }, NewID: func() string { return fmt.Sprintf("rpt-%03d", p.nextID.Add(1)) }})
 	p.sum = report.NewSummaryService(report.SummaryDeps{Store: p.store, Now: p.now, NewID: func() string { return fmt.Sprintf("csum-%03d", p.nextID.Add(1)) }})
 	p.coord = report.NewCoordinator(report.CoordinatorDeps{
-		Store: p.store, Delivery: p.deliv, Summaries: p.store, Now: p.now,
+		Store: p.store, Delivery: p.deliv, Summaries: p.store, Now: p.now, RetryDelay: 20 * time.Millisecond,
 		NewToken: func() string { return fmt.Sprintf("claim-%03d", p.nextID.Add(1)) },
 	})
 }
@@ -159,7 +160,7 @@ func newPilot(t *testing.T) *pilot {
 	t.Helper()
 	p := &pilot{t: t, dir: t.TempDir(), deliv: &delivery{}}
 	p.clock.Store(time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC).UnixNano())
-	store, err := sqlite.Open(p.dir)
+	store, err := sqlitetest.Open(p.dir)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -190,7 +191,7 @@ func (p *pilot) restart() (requeuedReports, requeuedSummaries int64) {
 	if err := p.store.Close(); err != nil {
 		p.t.Fatalf("close store: %v", err)
 	}
-	store, err := sqlite.Open(p.dir)
+	store, err := sqlite.OpenPreMigrated(p.dir)
 	if err != nil {
 		p.t.Fatalf("reopen store: %v", err)
 	}
