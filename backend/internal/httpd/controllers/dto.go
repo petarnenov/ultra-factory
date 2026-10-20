@@ -686,7 +686,7 @@ type SessionOwnershipResponse struct {
 	Capacity CoordinatorCapacity `json:"capacity"`
 	// Set for a coordinator. WorkerLimit is the stored limit (null: project
 	// value); EffectiveWorkerLimit is clamped to the project ceiling.
-	WorkerLimit          *int `json:"workerLimit,omitempty"`
+	WorkerLimit          *int `json:"workerLimit"`
 	EffectiveWorkerLimit *int `json:"effectiveWorkerLimit,omitempty"`
 	ActiveWorkerCount    *int `json:"activeWorkerCount,omitempty"`
 }

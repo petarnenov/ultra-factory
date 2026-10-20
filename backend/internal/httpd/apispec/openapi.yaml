@@ -18145,6 +18145,7 @@ components:
       - ownerSessionId
       - rootSessionId
       - capacity
+      - workerLimit
       type: object
     SessionPRCISummary:
       properties:

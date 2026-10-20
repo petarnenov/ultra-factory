@@ -6237,7 +6237,7 @@ export interface components {
             projectId?: string;
             rootSessionId: null | string;
             sessionId: string;
-            workerLimit?: null | number;
+            workerLimit: null | number;
         };
         SessionPRCISummary: {
             autoInjectCI: boolean;

@@ -476,6 +476,10 @@ func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
 			t.Fatalf("%s: status=%d body=%s", bad, status, body)
 		}
 	}
+	body, status = put(`{"requestedBySessionId":"` + string(f.otherCoord.ID) + `"}`)
+	if status != http.StatusForbidden || !reportContainsAll(body, "COORDINATOR_ROOT_REQUIRED") {
+		t.Fatalf("omitted workerLimit with a non-root caller status=%d body=%s", status, body)
+	}
 	body, status = put(`{"workerLimit":1,"unknown":true}`)
 	if status != http.StatusBadRequest || !reportContainsAll(body, "INVALID_JSON") {
 		t.Fatalf("unknown field status=%d body=%s", status, body)

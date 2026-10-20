@@ -462,3 +462,22 @@ func TestLimitUpdateSeesATerminationThatLandsBeforeTheLock(t *testing.T) {
 		t.Fatal("a refused update must write no audit row")
 	}
 }
+
+func TestUnauthorizedLimitCallerLearnsNothingAboutTheTarget(t *testing.T) {
+	f := newCapFixture(t)
+	live := f.coordinator("ao-c1", false)
+	dead := f.coordinator("ao-dead", true)
+	f.worker("ao-w", nil, false)
+	ctx := context.Background()
+	for _, target := range []domain.SessionID{live, dead, "ao-w", "ao-ghost"} {
+		for _, caller := range []domain.SessionID{live, "ao-w", "ao-ghost", ""} {
+			_, err := f.svc.SetCoordinatorWorkerLimit(ctx, target, nil, rootCaller(caller))
+			wantAPIError(t, err, "COORDINATOR_ROOT_REQUIRED", nil)
+		}
+	}
+	// The live root gets the real reason.
+	_, err := f.svc.SetCoordinatorWorkerLimit(ctx, dead, intp(1), rootCaller("ao-root"))
+	wantAPIError(t, err, "OWNER_TERMINATED", nil)
+	_, err = f.svc.SetCoordinatorWorkerLimit(ctx, "ao-ghost", intp(1), rootCaller("ao-root"))
+	wantAPIError(t, err, "SESSION_NOT_FOUND", nil)
+}

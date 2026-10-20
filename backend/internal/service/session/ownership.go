@@ -339,18 +339,19 @@ func (s *Service) applyCoordinatorWorkerLimit(
 	caller CoordinatorLimitsCaller,
 	origin string,
 ) (domain.SessionRecord, bool, error) {
-	coordinator, err := s.loadLiveCoordinator(ctx, coordinatorID)
+	// The project is fixed per session; state is checked under the lock,
+	// after the caller is authorized.
+	project, err := s.limitProject(ctx, coordinatorID, caller)
 	if err != nil {
 		return domain.SessionRecord{}, false, err
 	}
-	unlock := s.lockOrchestratorProject(coordinator.ProjectID)
+	unlock := s.lockOrchestratorProject(project)
 	defer unlock()
-	// The project is fixed for a session; everything else is read again
-	// under the lock so a racing update or termination is seen.
-	if coordinator, err = s.loadLiveCoordinator(ctx, coordinatorID); err != nil {
+	actor, err := s.limitActor(ctx, project, caller)
+	if err != nil {
 		return domain.SessionRecord{}, false, err
 	}
-	actor, err := s.limitActor(ctx, coordinator.ProjectID, caller)
+	coordinator, err := s.loadLiveCoordinator(ctx, coordinatorID)
 	if err != nil {
 		return domain.SessionRecord{}, false, err
 	}
@@ -441,4 +442,28 @@ func (s *Service) loadLiveCoordinator(ctx context.Context, id domain.SessionID) 
 		return domain.SessionRecord{}, apierr.Conflict("OWNER_TERMINATED", "The coordinator is terminated", map[string]any{"sessionId": string(rec.ID)})
 	}
 	return rec, nil
+}
+
+// limitProject finds the target's project. An unknown target is a 404 only
+// for a live root; any other caller is refused first.
+func (s *Service) limitProject(ctx context.Context, id domain.SessionID, caller CoordinatorLimitsCaller) (domain.ProjectID, error) {
+	rec, found, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("load coordinator %s: %w", id, err)
+	}
+	if found {
+		return rec.ProjectID, nil
+	}
+	if !caller.OperatorInitiated {
+		root, ok, err := s.store.GetSession(ctx, caller.RequestedBy)
+		if err != nil {
+			return "", fmt.Errorf("load limit caller %s: %w", caller.RequestedBy, err)
+		}
+		if !ok || !coordownership.IsLiveRoot(root, root.ProjectID) {
+			return "", apierr.New(apierr.KindForbidden, "COORDINATOR_ROOT_REQUIRED",
+				"Only the project root, or the operator on its behalf, may change coordinator limits",
+				map[string]any{"sessionId": string(caller.RequestedBy)})
+		}
+	}
+	return "", apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 }

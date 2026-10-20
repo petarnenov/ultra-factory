@@ -17,8 +17,8 @@ type SessionOwnerEvent struct {
 	CreatedAt              time.Time
 }
 
-// CoordinatorLimitEvent audits one worker-limit change. Origin is "root" or
-// the operator origin acting for the live root.
+// CoordinatorLimitEvent audits one worker-limit change. Origin is ui, cli
+// or api; the actor is always the live root.
 type CoordinatorLimitEvent struct {
 	ID             int64
 	SessionID      SessionID
