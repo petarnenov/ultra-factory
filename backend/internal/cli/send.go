@@ -158,9 +158,13 @@ func (c *commandContext) writeQueuedSend(session string, requestIDs []string) er
 			count, pluralS(count), session, unblocker); err != nil {
 			return err
 		}
+		hostArg := ""
+		if c.targetsRemote() {
+			hostArg = " --host " + shellQuote(strings.TrimSpace(c.hostSelector))
+		}
 		for _, requestID := range requestIDs {
-			if _, err := fmt.Fprintf(out, "  Answer with: ao session input %s --request-id %s --action accept\n",
-				shellQuote(session), shellQuote(requestID)); err != nil {
+			if _, err := fmt.Fprintf(out, "  Answer with: ao session input %s%s --request-id %s --action accept\n",
+				shellQuote(session), hostArg, shellQuote(requestID)); err != nil {
 				return err
 			}
 		}

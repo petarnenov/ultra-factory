@@ -123,6 +123,36 @@ func TestSend_ReportsWhenMessageOnlyQueues(t *testing.T) {
 	}
 }
 
+func TestSend_RemoteQueuedHintKeepsTheHost(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/send",
+		func(w http.ResponseWriter, _ *http.Request) {
+			writeTestJSON(w, http.StatusOK, map[string]any{
+				"ok": true, "sessionId": "widgets-3", "message": "hi",
+				"delivery": map[string]any{
+					"queued":                 true,
+					"pendingInputRequestIds": []string{"acp-request:build:4"},
+				},
+			})
+		})
+	writeRemotesFile(t, remoteEntry{
+		Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build",
+	})
+
+	out, errOut, err := executeCLI(t, aliveDeps(),
+		"send", "--session", "widgets-3", "--host", "build-box", "--message", "hi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	want := "ao session input widgets-3 --host build-box --request-id acp-request:build:4 --action accept"
+	if !strings.Contains(out, want) {
+		t.Fatalf("output = %q, want the answer hint to target the same host", out)
+	}
+}
+
 func TestSend_StaysSilentWhenDaemonReportsNoQueue(t *testing.T) {
 	// The daemon's accepted-send outcome is the only source of the queue claim:
 	// a delivered message stays silent even if the session looks blocked later.
