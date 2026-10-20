@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/agent/activitydispatch"
@@ -18,6 +19,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/container/dockerreap"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/reviewer"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/runtime/runtimeselect"
+	scmmulti "github.com/aoagents/agent-orchestrator/backend/internal/adapters/scm/multi"
 	"github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/gitworktree"
 	workspacerouter "github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/router"
 	scratchworkspace "github.com/aoagents/agent-orchestrator/backend/internal/adapters/workspace/scratch"
@@ -33,6 +35,7 @@ import (
 	reviewcore "github.com/aoagents/agent-orchestrator/backend/internal/review"
 	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
+	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 	reviewsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/review"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/scmsecret"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
@@ -420,6 +423,12 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 		)
 	}
 	reviewOpts = append(reviewOpts, reviewsvc.WithPRRefresher(reviewPRRefresher{sessions: sessionSvc}))
+	// One CI-gate reconciler serves the submit hook and the sweep so both share
+	// a lock and never flip the same PR draft state twice.
+	if ciGate := newCIGateService(store, cfg.DataDir, scmProvider, log); ciGate != nil {
+		reviewOpts = append(reviewOpts, reviewsvc.WithCIGate(ciGate))
+		go ciGate.SweepCIGates(ctx, ciGateSweepInterval)
+	}
 	reviewSvc := reviewsvc.New(reviewEngine, store, reviewOpts...)
 	mgr.SetReviewerTerminator(reviewSvc)
 	return sessionSvc, reviewSvc, mgr, nil
@@ -788,6 +797,22 @@ func (c chatLauncher) AbortChatHandoff(id domain.SessionID) {
 
 func (c chatLauncher) StopChat(ctx context.Context, id domain.SessionID) error {
 	return c.svc.StopChat(ctx, id)
+}
+
+// ciGateSweepInterval is the cadence that retries failed draft flips.
+const ciGateSweepInterval = time.Minute
+
+// newCIGateService builds the PR action service that applies verdicts to PR
+// draft state. It is nil when no SCM provider can flip draft state.
+func newCIGateService(store *sqlite.Store, dataDir string, reader *scmmulti.Provider, logger *slog.Logger) *prsvc.ActionService {
+	if reader == nil {
+		return nil
+	}
+	draft := newMultiSCMDraftSetter(dataDir, logger)
+	if draft == nil {
+		return nil
+	}
+	return prsvc.NewActionService(prsvc.ActionDeps{Store: store, Draft: draft, Reader: reader})
 }
 
 // reviewPRRefresher lets a review trigger fetch a worker's PR fresh from the
