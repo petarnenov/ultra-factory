@@ -235,14 +235,19 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 		return c.retryDelay, nil
 	}
 	schedule := pending
-	if stalledClaim {
-		// A claim that acknowledged nothing may have moved its batch later, for
-		// example a coalesced stuck report, so read the deadlines back.
+	if stalledClaim || delivered > 0 {
+		// A claim that acknowledged nothing may have moved its batch later, and
+		// a claim covers one batch only, so read the leftovers back.
 		fresh, err := c.store.ListPendingReportSchedule(ctx, reportScheduleScanLimit)
 		if err != nil {
 			return c.retryDelay, nil //nolint:nilerr // retry; the pass itself succeeded
 		}
 		schedule = fresh
+	}
+	if delivered > 0 && anyDue(schedule, now) {
+		// A due report outside the claimed batch would otherwise wait for the
+		// next wake-up or the idle timer.
+		return c.retryDelay, nil
 	}
 	if next, ok := nextPendingDelay(schedule, now); ok {
 		return next, nil
@@ -263,6 +268,16 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 func (c *Coordinator) terminatedWorker(ctx context.Context, id domain.SessionID) bool {
 	session, found, err := c.store.GetSession(ctx, id)
 	return err == nil && found && session.IsTerminated
+}
+
+// anyDue reports whether schedule holds a report already due at now.
+func anyDue(schedule []domain.ReportRecord, now time.Time) bool {
+	for _, report := range schedule {
+		if !report.AvailableAt.After(now) {
+			return true
+		}
+	}
+	return false
 }
 
 // nextPendingDelay returns the earliest future deadline in schedule order.
