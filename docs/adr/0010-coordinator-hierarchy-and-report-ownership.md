@@ -346,7 +346,10 @@ recipient(project, worker):
   owner := worker.owner_session_id          # local row, or link row
   if owner is not NULL:
     if owner is a live coordinator in project:
-      return owner
+      if owner.activity_state != 'exited':
+        return owner
+      # exited, not terminated: route to root, keep ownership (#387)
+      notify root once per exit; return live root of project
     # durable repair, not a silent reroute
     set owner := NULL; audit(owner_not_live_reconciled)
   return live root of project                # newest live kind='orchestrator'
@@ -558,7 +561,7 @@ Failure windows and their bound:
 | Delivery error after the prompt write, other than an acceptance timeout | The next pass writes the prompt again | At-least-once: a cancelled wait (`ctx.Err()`), a terminated target, or any other error releases the batch while the prompt may already be written |
 | Crash with claimed rows | Requeued at startup | No loss; the old claim is gone, so re-resolution may route to a new owner if ownership changed |
 | Reassignment during a claim (automatic only) | The claimed batch goes to the old owner; the new owner gets later reports | The old owner receives an ownership-removed notice; no duplicate |
-| Live-but-exited coordinator | Submit fails; the group keeps the same recipient | Defer with backoff; no reroute. The reaper's termination trigger later sets the owner to `NULL`, then resolution uses the root |
+| Live-but-exited coordinator | Resolution skips it as a recipient | Its workers' reports go to the live root and ownership is kept, so a restored coordinator resumes them. The root gets one recovery notice per exit. Termination later repairs the owner to `NULL` |
 | Coordinator terminated mid-submit | Submit fails; release; next pass resolves to the root | One retry; a failed submit is never acknowledged |
 | Remote record inserted, ack fails | Next pass skips delivery and retries the ack | Delivery record prevents duplicate work |
 | Remote record fails, ack succeeds | Nothing redelivered | Remote reports are no longer pending |
@@ -1142,10 +1145,10 @@ Costs and risks:
   ADR bounds what a summary may contain and how it is delivered; it does not
   impose a minimum cadence. The pilot should measure whether the batching
   window needs a daemon-enforced rate.
-- **Exited but not terminated owners.** This ADR waits for the reaper instead
-  of timing out a live-but-exited coordinator. If the pilot shows long waits,
-  CO-3 may add a bounded repair window; it would need its own decision because
-  it changes the "no silent reroute" rule.
+- **Exited but not terminated owners.** Resolved by #387: reports route to
+  the root while ownership is kept, with one recovery notice per exit. Open: if
+  the pilot shows coordinators staying exited for long, CO-3 may add a bounded
+  window after which ownership is repaired to the root.
 - **Scope uniqueness.** Two live coordinators may share a scope; disjoint
   scopes are an operating rule, not a database constraint. If the pilot shows
   overlap is common, a uniqueness rule can be added later.
