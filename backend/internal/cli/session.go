@@ -114,8 +114,10 @@ type sessionPRSummaryResponse struct {
 }
 
 type sessionPRSummaryDTO struct {
-	Number int `json:"number"`
-	CI     struct {
+	URL     string `json:"url"`
+	Number  int    `json:"number"`
+	HeadSHA string `json:"headSha"`
+	CI      struct {
 		State string `json:"state"`
 	} `json:"ci"`
 	Review struct {
