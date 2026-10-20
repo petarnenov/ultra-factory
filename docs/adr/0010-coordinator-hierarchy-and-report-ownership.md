@@ -1239,9 +1239,8 @@ coordinator and 12 workers per project**. The defaults stay 2 / 3 / 6.
   config validation and reported as `COORDINATOR_LIMITS_INVALID`.
 - The hard maximum is a constant in the backend. A deployment does not change
   it with an environment variable. The operator lowers the effective limits
-  through the project ceilings, which already work per project. This is the one
-  point the user did not decide explicitly; it is the proposal of this
-  amendment and is called out in the pull request for confirmation.
+  through the project ceilings, which already work per project. The user
+  confirmed this on 2026-10-20.
 - Lowering a project ceiling below the live count follows the section 8
   grandfather rule: running sessions are not killed, and new spawns, restores
   and reassignments are refused until the count is under the ceiling.
