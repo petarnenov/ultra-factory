@@ -585,8 +585,7 @@ func TestBuildSystemPrompt_RootCoordinatorSectionFollowsGate(t *testing.T) {
 	for _, want := range []string{
 		"## Coordinators",
 		"ao spawn --kind coordinator --scope <area>",
-		"--max-workers <n>",
-		"--hosts <host:slots,...>",
+		"It runs with the project's per-coordinator worker limit and allowed hosts.",
 		"Project limits: 3 live coordinators, 4 workers per coordinator and 8 workers per project.",
 		"The hard maximums are 4, 6 and 12.",
 		"five sections",

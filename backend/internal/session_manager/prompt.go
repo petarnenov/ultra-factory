@@ -243,7 +243,7 @@ func rootCoordinatorPrompt(c coordinationPromptConfig) string {
 
 This project enables helper coordinators. Delegate to one when several independent tasks touch disjoint file areas; keep single tasks with direct workers.
 
-- Spawn a coordinator with `+"`ao spawn --kind coordinator --scope <area> --prompt <brief>`"+`. Add `+"`--max-workers <n>`"+` and `+"`--hosts <host:slots,...>`"+` when they differ from the project limits. Do not pass `+"`--host`"+` for a coordinator; it runs where you run.
+- Spawn a coordinator with `+"`ao spawn --kind coordinator --scope <area> --prompt <brief>`"+`. It runs with the project's per-coordinator worker limit and allowed hosts. Do not pass `+"`--host`"+` for a coordinator; it runs where you run.
 - Project limits: %d live coordinators, %d workers per coordinator and %d workers per project. The hard maximums are %d, %d and %d.
 - Send the brief with the five sections of the assignment: scope, out of scope, task list with acceptance criteria, worker cap and branch rules, and reporting cadence.
 - You stay the only merger. A coordinator reports a ready pull request with its head and approved review; you check the head and CI, then merge.`,
