@@ -522,10 +522,17 @@ ao session claim-pr <session-id> <pr-ref> [flags]
 
 With one positional argument, `AO_SESSION_ID` supplies the session. This is the preferred form inside a worker. Pass both arguments from an orchestrator or external shell when targeting another session.
 
+`--host` records the claim on the daemon that owns the session, for a worker
+running on another paired machine. Session IDs are per daemon, so pass the
+session id explicitly: a remote claim never uses the local `AO_SESSION_ID`. A
+bare number resolves against the remote project's recorded repository; pass the
+full PR URL when that project has none.
+
 **Flags:**
 
 | Flag | Meaning | Default / Required |
 |---|---|---|
+| `--host string` | Run against a saved remote AO host (label, host ID, or URL listed by `ao host ls`) instead of this machine | - |
 | `--json` | Output as JSON | - |
 | `--no-takeover` | Refuse if another active session owns the PR | - |
 | `-p, --project string` | Project id to scope the lookup | - |
@@ -545,4 +552,9 @@ ao session claim-pr mer-3 88
 ```bash
 # Claim PR 88 for the current worker but refuse if another session owns it
 ao session claim-pr 88 --no-takeover
+```
+
+```bash
+# Claim PR 88 for a session on another machine
+ao session claim-pr mer-3 88 --host build-box
 ```

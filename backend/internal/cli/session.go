@@ -417,12 +417,16 @@ func newSessionClaimPRCommand(ctx *commandContext) *cobra.Command {
 		Use:   "claim-pr [<session-id>] <pr-ref>",
 		Short: "Attach an existing PR to a session",
 		Long: "Attach an existing PR to a session. When session-id is omitted, the current session is read from AO_SESSION_ID.\n\n" +
-			"Claiming updates PR ownership metadata only; it does not check out the PR branch. Verify the workspace branch and HEAD before editing.",
+			"Claiming updates PR ownership metadata only; it does not check out the PR branch. Verify the workspace branch and HEAD before editing.\n\n" +
+			"With --host the claim is recorded on the daemon that owns the session, so the reviewed pull request is registered there.",
 		Example: `  # From inside an AO worker session
   ao session claim-pr 88
 
   # Target a session explicitly
-  ao session claim-pr mer-3 88`,
+  ao session claim-pr mer-3 88
+
+  # Claim for a session on another machine
+  ao session claim-pr mer-3 88 --host build-box`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.RangeArgs(1, 2)(cmd, args); err != nil {
 				return usageError{err}
@@ -441,6 +445,7 @@ func newSessionClaimPRCommand(ctx *commandContext) *cobra.Command {
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
 	cmd.Flags().BoolVar(&opts.noTakeover, "no-takeover", false, "Refuse if another active session owns the PR")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 

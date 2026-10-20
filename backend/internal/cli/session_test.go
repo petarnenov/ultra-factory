@@ -951,6 +951,8 @@ func TestSessionClaimPR_HelpDocumentsCurrentSessionShorthand(t *testing.T) {
 		"current session is read from AO_SESSION_ID",
 		"ao session claim-pr 88",
 		"ao session claim-pr mer-3 88",
+		"ao session claim-pr mer-3 88 --host build-box",
+		"--host string",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q:\n%s", want, out)
@@ -1120,6 +1122,149 @@ func TestSessionClaimPR_GHFallbackWhenProjectRepoMissing(t *testing.T) {
 	}
 	if ghDir != "/repo/demo" || !strings.Contains(out, "claimed PR #142") {
 		t.Fatalf("ghDir=%q out=%s", ghDir, out)
+	}
+}
+
+// TestSessionClaimPR_RemoteHostClaimsOnTheOwningDaemon: --host records the
+// claim on the owning daemon and resolves a number from its project.
+func TestSessionClaimPR_RemoteHostClaimsOnTheOwningDaemon(t *testing.T) {
+	for _, tc := range []struct {
+		name, ref, wantPR string
+	}{
+		{name: "full PR URL", ref: "https://github.com/acme/widgets/pull/7", wantPR: "https://github.com/acme/widgets/pull/7"},
+		{name: "numeric ref", ref: "7", wantPR: "https://github.com/acme/widgets/pull/7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			local := startLocalDaemon(t, cfg, "host-local", nil)
+			remote := newFakeRemoteHost(t, "host-build", "pw")
+			remote.handle(http.MethodGet, "/api/v1/sessions/widgets-3", func(w http.ResponseWriter, _ *http.Request) {
+				writeTestJSON(w, http.StatusOK, map[string]any{
+					"session": json.RawMessage(sessionJSON("widgets-3", "widgets", "worker", "working", false)),
+				})
+			})
+			serveRemoteProjects(remote, projectDetails{ID: "widgets", Path: "/srv/widgets", Repo: "https://github.com/acme/widgets"})
+			remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/pr/claim", func(w http.ResponseWriter, _ *http.Request) {
+				writeTestJSON(w, http.StatusOK, map[string]any{
+					"ok":        true,
+					"sessionId": "widgets-3",
+					"prs": []map[string]any{{
+						"url": tc.wantPR, "number": 7, "state": "open", "ci": "pending",
+						"review": "none", "mergeability": "unknown", "reviewComments": false,
+						"updatedAt": "2026-10-20T06:00:00Z",
+					}},
+					"branchChanged": false,
+					"takenOverFrom": []string{},
+				})
+			})
+			writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+			ranGH := false
+			deps := aliveDeps()
+			deps.CommandOutputInDir = func(context.Context, string, string, ...string) ([]byte, error) {
+				ranGH = true
+				return nil, nil
+			}
+			out, errOut, err := executeCLI(t, deps, "session", "claim-pr", "widgets-3", tc.ref, "--host", "build-box")
+			if err != nil {
+				t.Fatalf("claim-pr --host failed: %v\nstderr=%s", err, errOut)
+			}
+			if !strings.Contains(out, "session widgets-3 claimed PR #7") {
+				t.Fatalf("unexpected output: %s", out)
+			}
+			if ranGH {
+				t.Fatal("ran gh locally for a remote session's project")
+			}
+			posted, ok := remote.find(http.MethodPost, "/api/v1/sessions/widgets-3/pr/claim")
+			if !ok {
+				t.Fatalf("claim never reached the remote host; saw %+v", remote.recorded())
+			}
+			var claimed claimPRRequest
+			if err := json.Unmarshal([]byte(posted.body), &claimed); err != nil {
+				t.Fatalf("claim body %q: %v", posted.body, err)
+			}
+			if claimed.PR != tc.wantPR {
+				t.Fatalf("claim request PR = %q, want %q", claimed.PR, tc.wantPR)
+			}
+			if posted.auth != "Bearer pw" || posted.expectedHost != "host-build" {
+				t.Fatalf("claim headers auth=%q expected=%q", posted.auth, posted.expectedHost)
+			}
+			if local.saw(http.MethodPost + " /api/v1/sessions/widgets-3/pr/claim") {
+				t.Fatal("claim also went to the local daemon")
+			}
+		})
+	}
+}
+
+// TestSessionClaimPR_RemoteDaemonErrorKeepsEnvelope: a remote refusal exits 1
+// and keeps the daemon's code and request ID.
+func TestSessionClaimPR_RemoteDaemonErrorKeepsEnvelope(t *testing.T) {
+	cfg := setConfigEnv(t)
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodGet, "/api/v1/sessions/widgets-3", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]any{
+			"session": json.RawMessage(sessionJSON("widgets-3", "widgets", "worker", "working", false)),
+		})
+	})
+	serveRemoteProjects(remote, projectDetails{ID: "widgets", Repo: "https://github.com/acme/widgets"})
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/pr/claim", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusConflict, map[string]string{
+			"message":   "the pull request is claimed by another active session",
+			"code":      "PR_CLAIMED_BY_ACTIVE_SESSION",
+			"requestId": "req-remote-7",
+		})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	_, errOut, err := executeCLI(t, aliveDeps(), "session", "claim-pr", "widgets-3", "7", "--host", "build-box")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := ExitCode(err); got != 1 {
+		t.Fatalf("exit code = %d, want 1", got)
+	}
+	for _, want := range []string{"PR_CLAIMED_BY_ACTIVE_SESSION", "req-remote-7"} {
+		if !strings.Contains(errOut+err.Error(), want) {
+			t.Fatalf("error should carry %q from the remote envelope: %v\n%s", want, err, errOut)
+		}
+	}
+}
+
+// TestSessionClaimPR_HostSelectionErrorsAreUsageErrors matches the other
+// --host commands: an unusable selector is misuse (exit 2) and sends no claim.
+func TestSessionClaimPR_HostSelectionErrorsAreUsageErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		entries  []remoteEntry
+		selector string
+		wantErr  string
+	}{
+		{name: "no saved hosts", selector: "build-box", wantErr: "no saved remote hosts"},
+		{
+			name:     "unknown label",
+			entries:  []remoteEntry{{Label: "build-box", URL: "http://10.0.0.5:3001", HostID: "host-build", Password: "pw"}},
+			selector: "nope",
+			wantErr:  `--host "nope" matches no saved host`,
+		},
+		{
+			name: "ambiguous label",
+			entries: []remoteEntry{
+				{Label: "Twin", URL: "http://10.0.0.7:3001", HostID: "host-a", Password: "pw"},
+				{Label: "twin", URL: "http://10.0.0.8:3001", HostID: "host-b", Password: "pw"},
+			},
+			selector: "twin",
+			wantErr:  "matches 2 saved hosts",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setConfigEnv(t)
+			writeRemotesFile(t, tc.entries...)
+			_, _, err := executeCLI(t, aliveDeps(), "session", "claim-pr", "widgets-3", "7", "--host", tc.selector)
+			if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want usage error containing %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 
