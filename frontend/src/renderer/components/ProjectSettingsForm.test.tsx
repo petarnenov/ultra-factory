@@ -595,6 +595,57 @@ describe("ProjectSettingsForm", () => {
 		);
 	});
 
+	describe("unset model", () => {
+		const opusCatalog = { agent: "claude-code", selectionMode: "catalog", allowCustom: false, models: [
+			{ id: "claude-opus-5-5", label: "Opus 5.5", isDefault: true, efforts: ["low", "medium", "high"] },
+			{ id: "claude-sonnet-5-5", label: "Sonnet 5.5", efforts: ["low", "medium", "high"] },
+		] };
+		function mockUnsetModel() {
+			getMock.mockImplementation(async (path: string) => {
+				if (path === "/api/v1/agents") return agentCatalogResponse;
+				if (path === "/api/v1/agents/{agent}/models") return { data: opusCatalog };
+				return { data: { status: "ok", project: {
+					id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one",
+					repo: "", defaultBranch: "main", config: {
+						worker: { agent: "claude-code" },
+						orchestrator: { agent: "claude-code" },
+						reviewers: [{ harness: "claude-code", agentConfig: { effort: "medium" } }],
+					},
+				} } };
+			});
+		}
+
+		it.each(["Worker model", "Orchestrator model", "Reviewer model"])("%s says it is unset instead of naming the catalog default", async (name) => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents");
+			const picker = await screen.findByRole("button", { name });
+			expect(picker).toHaveTextContent("Default");
+			expect(picker).not.toHaveTextContent("Opus 5.5");
+		});
+
+		it.each(["Opus 5.5", "Sonnet 5.5"])("persists %s when picked from an unset reviewer model", async (model) => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents");
+			await userEvent.click(await screen.findByRole("button", { name: "Reviewer model" }));
+			await userEvent.click(screen.getByRole("menuitem", { name: model }));
+			submitSettings();
+			await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+			expect(putMock.mock.calls[0][1].body.config.reviewers[0].agentConfig.model)
+				.toBe(model === "Opus 5.5" ? "claude-opus-5-5" : "claude-sonnet-5-5");
+		});
+
+		it("lets a stored model go back to unset", async () => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents");
+			await userEvent.click(await screen.findByRole("button", { name: "Reviewer model" }));
+			await userEvent.click(screen.getByRole("menuitem", { name: "Sonnet 5.5" }));
+			await userEvent.keyboard("{Escape}{Escape}");
+			await userEvent.click(screen.getByRole("button", { name: "Reviewer model" }));
+			await userEvent.click(screen.getByRole("menuitem", { name: "Default" }));
+			expect(screen.getByRole("button", { name: "Reviewer model" })).toHaveTextContent("Default");
+		});
+	});
+
 	it("shows Claude's permission setting and preserves saved permission modes", async () => {
 		mockProject({
 			id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one",
@@ -1206,7 +1257,7 @@ describe("ProjectSettingsForm", () => {
 		renderSettings("proj-1", undefined, "agents");
 
 		expect(await screen.findAllByText("model refresh unavailable")).toHaveLength(3);
-		expect(screen.getByRole("button", { name: "Worker model" })).toHaveTextContent("Select model");
+		expect(screen.getByRole("button", { name: "Worker model" })).toHaveTextContent("Default");
 	});
 
 	it("shows cached models immediately and deduplicates background revalidation", async () => {
@@ -1250,7 +1301,7 @@ describe("ProjectSettingsForm", () => {
 
 		renderSettings("proj-1", undefined, "agents");
 
-		expect(await screen.findByRole("button", { name: "Worker model" })).toHaveTextContent("Select model");
+		expect(await screen.findByRole("button", { name: "Worker model" })).toHaveTextContent("Default");
 		await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
 		expect(postMock).toHaveBeenCalledWith("/api/v1/agents/{agent}/models/refresh", {
 			params: {

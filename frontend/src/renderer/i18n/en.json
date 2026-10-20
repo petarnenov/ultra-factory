@@ -1507,6 +1507,7 @@
   "settings.models.cantFind": "Can’t find your model?",
   "settings.models.configureThenRefresh": "Configure the model in {{agent}}, then refresh.",
   "settings.models.currentDefaults": "Pinned models",
+  "settings.models.defaultModel": "Default",
   "settings.models.recent": "Recent",
   "settings.models.otherModels": "Other models",
   "settings.models.loadFailed": "Could not load models.",

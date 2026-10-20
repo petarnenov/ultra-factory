@@ -1296,6 +1296,7 @@
   "settings.models.cantFind": "モデルが見つかりませんか？",
   "settings.models.configureThenRefresh": "{{agent}} でモデルを設定してから更新してください。",
   "settings.models.currentDefaults": "ピン留めしたモデル",
+  "settings.models.defaultModel": "デフォルト",
   "settings.models.recent": "最近使用",
   "settings.models.otherModels": "その他のモデル",
   "settings.models.loadFailed": "モデルを読み込めませんでした。",
