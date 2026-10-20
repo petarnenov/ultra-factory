@@ -401,8 +401,10 @@ the root is unavailable. A root outage must not stop helper delivery.
 A **delivery group** is
 `(project_id, recipient_session_id, queue, coordinator_session_id)`. `queue`
 is `worker_reports` or `coordinator_summaries`. For `worker_reports`,
-`coordinator_session_id` is empty: all of a recipient's workers share one
-group. For `coordinator_summaries`, `coordinator_session_id` is the
+`coordinator_session_id` is empty, except for the exited-owner group (#387):
+the root's group for the workers of one exited, not terminated coordinator
+carries that coordinator as an exited-owner dimension. All other workers of a
+recipient share one group. For `coordinator_summaries`, `coordinator_session_id` is the
 coordinator, so each helper has its own group and its own cadence, and the
 recipient is always the root. All work in a group has the same recipient,
 queue, and coordinator dimension. A remote worker group is assembled across
@@ -420,9 +422,13 @@ Changes to the report row:
 
 Claims are group-scoped, and the predicate depends on the queue:
 
-- `worker_reports`: join `sessions` through `reports.session_id` and compare
-  `COALESCE(sessions.owner_session_id, <root id>)` with the resolved
-  recipient; `coordinator_session_id` is empty and adds no filter. The claim
+- `worker_reports`: join `sessions` through `reports.session_id`. A normal
+  group compares `COALESCE(sessions.owner_session_id, <root id>)` with the
+  resolved recipient. An exited-owner group instead matches only
+  `sessions.owner_session_id = <exited coordinator>` (`fallback_owner_id`),
+  never the root-owned workers, so one batch id cannot span the root group and
+  an exited-owner group. Its delivery id is `<batch id>:exited:<coordinator>`,
+  because both groups address the same root. The claim
   selects pending reports in the group, including reports not yet at
   `available_at`, preserving today's rule that a due, attention, or piggyback
   trigger includes earlier batch work for the same recipient.
