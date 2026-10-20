@@ -55,26 +55,26 @@ func (c *commandContext) savedHostLabels() map[string]string {
 
 // parseHostSlots reads host:slots pairs such as Linux:2,Z600:1. Hosts resolve
 // through the --host lookup; the daemon checks the slot total later.
-func parseHostSlots(flag, spec string, entries []remoteEntry) ([]hostSlotInput, error) {
+func parseHostSlots(spec string, entries []remoteEntry) ([]hostSlotInput, error) {
 	var slots []hostSlotInput
 	seen := map[string]bool{}
 	for _, part := range strings.Split(spec, ",") {
 		part = strings.TrimSpace(part)
 		cut := strings.LastIndex(part, ":")
 		if cut <= 0 || cut == len(part)-1 {
-			return nil, usageError{fmt.Errorf("%s: want <host>:<slots>[,<host>:<slots>...], got %q", flag, part)}
+			return nil, usageError{fmt.Errorf("--hosts: want <host>:<slots>[,<host>:<slots>...], got %q", part)}
 		}
 		selector := strings.TrimSpace(part[:cut])
 		count, err := strconv.Atoi(strings.TrimSpace(part[cut+1:]))
 		if err != nil || count < 1 {
-			return nil, usageError{fmt.Errorf("%s: slots for %q must be a whole number of at least 1", flag, selector)}
+			return nil, usageError{fmt.Errorf("--hosts: slots for %q must be a whole number of at least 1", selector)}
 		}
 		id, err := resolveSavedHostID(entries, selector)
 		if err != nil {
 			return nil, err
 		}
 		if seen[id] {
-			return nil, usageError{fmt.Errorf("%s: host %q is listed more than once", flag, selector)}
+			return nil, usageError{fmt.Errorf("--hosts: host %q is listed more than once", selector)}
 		}
 		seen[id] = true
 		slots = append(slots, hostSlotInput{HostID: id, Slots: count})
@@ -175,7 +175,7 @@ func newCoordinatorSetLimitsCommand(ctx *commandContext) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					if slots, err = parseHostSlots("--hosts", hosts, entries); err != nil {
+					if slots, err = parseHostSlots(hosts, entries); err != nil {
 						return err
 					}
 				}

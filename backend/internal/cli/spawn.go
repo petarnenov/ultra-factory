@@ -795,7 +795,7 @@ func spawnHostSlots(opts spawnOptions) ([]hostSlotInput, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseHostSlots("--hosts", opts.hosts, entries)
+	return parseHostSlots(opts.hosts, entries)
 }
 
 // coordinatorAgentSelections parses the two agent selection flags; both are

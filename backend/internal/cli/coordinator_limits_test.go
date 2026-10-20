@@ -28,7 +28,7 @@ func TestParseHostSlotsResolvesLabelsAndIDs(t *testing.T) {
 		{Label: "Linux", HostID: "host-linux-id"},
 		{Label: "Z600", HostID: "host-z600-id"},
 	}
-	got, err := parseHostSlots("--hosts", "Linux:2, host-z600-id:1", entries)
+	got, err := parseHostSlots("Linux:2, host-z600-id:1", entries)
 	if err != nil {
 		t.Fatalf("parseHostSlots: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestParseHostSlotsRejectsMalformedAndUnknownHosts(t *testing.T) {
 		{"unpaired host", "Unpaired:1", "must be paired again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := parseHostSlots("--hosts", tc.spec, entries)
+			_, err := parseHostSlots(tc.spec, entries)
 			var usage usageError
 			if !errors.As(err, &usage) || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want usage error containing %q", err, tc.want)
