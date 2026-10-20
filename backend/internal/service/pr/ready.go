@@ -48,7 +48,7 @@ func requireReadyAuthority(ctx context.Context, store readyStore, target domain.
 func (s *ActionService) SetReady(ctx context.Context, request ReadyRequest) (ReadyResult, error) {
 	store, ok := s.store.(readyStore)
 	if !ok || s.draft == nil || s.reader == nil {
-		return ReadyResult{}, errors.New("pr: ready action is not configured")
+		return ReadyResult{}, fmt.Errorf("%w: no draft control is configured", ErrCIGateUnsupported)
 	}
 	target, found, err := store.GetSession(ctx, request.SessionID)
 	if err != nil {
@@ -108,6 +108,9 @@ func (s *ActionService) SetReady(ctx context.Context, request ReadyRequest) (Rea
 	if err := s.draft.SetPullRequestDraft(ctx, ports.SCMDraftRequest{PR: ref, Draft: !request.Ready}); err != nil {
 		if errors.Is(err, ports.ErrSCMNotFound) {
 			return ReadyResult{}, fmt.Errorf("%w: %w", ErrPRNotFound, err)
+		}
+		if errors.Is(err, ports.ErrSCMUnsupported) {
+			return ReadyResult{}, fmt.Errorf("%w: %w", ErrCIGateUnsupported, err)
 		}
 		return ReadyResult{}, fmt.Errorf("set pull request draft state: %w", err)
 	}

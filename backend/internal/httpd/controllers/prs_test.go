@@ -14,6 +14,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 )
@@ -287,6 +288,14 @@ func TestPRsRoutes_Ready_ForbiddenEnvelope(t *testing.T) {
 
 	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/demo-1/pr/ready", `{"ready":true,"requestedBySessionId":"w"}`)
 	assertErrorCode(t, body, status, http.StatusForbidden, "CI_GATE_FORBIDDEN")
+}
+
+func TestPRsRoutes_Ready_UnsupportedProvider(t *testing.T) {
+	svc := &fakePRService{readyErr: fmt.Errorf("%w: %w", prsvc.ErrCIGateUnsupported, ports.ErrSCMUnsupported)}
+	srv := newPRTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/demo-1/pr/ready", `{"ready":true}`)
+	assertErrorCode(t, body, status, http.StatusUnprocessableEntity, "CI_GATE_UNSUPPORTED")
 }
 
 func TestPRsRoutes_NilService_ReadyReturns501(t *testing.T) {

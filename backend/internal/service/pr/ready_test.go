@@ -3,6 +3,7 @@ package pr
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -170,6 +171,23 @@ func TestSetReady_NoOpenPRFails(t *testing.T) {
 				t.Fatalf("flips = %d, want 0", len(setter.requests))
 			}
 		})
+	}
+}
+
+func TestSetReady_UnsupportedProvider(t *testing.T) {
+	store, _, setter, svc := readyFixture(true)
+	setter.err = fmt.Errorf("%w: draft state for provider \"gitlab\"", ports.ErrSCMUnsupported)
+	_, err := svc.SetReady(context.Background(), ReadyRequest{SessionID: "worker", Ready: true, RequestedBySessionID: "root"})
+	if !errors.Is(err, ErrCIGateUnsupported) {
+		t.Fatalf("err = %v, want ErrCIGateUnsupported", err)
+	}
+	if len(store.events) != 0 {
+		t.Fatalf("events = %d, want none", len(store.events))
+	}
+
+	unconfigured := NewActionService(ActionDeps{Store: store})
+	if _, err := unconfigured.SetReady(context.Background(), ReadyRequest{SessionID: "worker", Ready: true}); !errors.Is(err, ErrCIGateUnsupported) {
+		t.Fatalf("unconfigured err = %v, want ErrCIGateUnsupported", err)
 	}
 }
 

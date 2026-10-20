@@ -376,7 +376,9 @@ ao project set-config <project-id> --config-json '{"autoReview":true,"ciGate":{"
   owns the session. The root orchestrator and the owning coordinator may run
   it; a worker is refused with `CI_GATE_FORBIDDEN`. The command needs the
   daemon's GitHub account to be a user or app token, not `GITHUB_TOKEN`,
-  because the draft flip uses the GraphQL API. Each flip is recorded with the
+  because the draft flip uses the GraphQL API. On a non-GitHub provider, or a
+  daemon without GitHub credentials, it fails with `CI_GATE_UNSUPPORTED`. Each
+  flip is recorded with the
   caller, the pull request and its head commit.
 
 ### Orchestrator agent credentials
