@@ -1,6 +1,6 @@
 # CO-4.1.1 · Task: Run coordinator hierarchy end-to-end
 
-**Status:** ⬜ todo
+**Status:** ⛔ needs-human — the end-to-end test landed in [#339](https://github.com/petarnenov/ultra-factory/pull/339); the live pilot needs an operator and issue [#227](https://github.com/petarnenov/ultra-factory/issues/227) stays open.
 
 **Type:** integration and operations. **Estimate:** 1–2 pd. **Story:** CO-4.1.
 

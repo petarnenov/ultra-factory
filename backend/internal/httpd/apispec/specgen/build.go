@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	jsonschema "github.com/swaggest/jsonschema-go"
@@ -127,7 +128,19 @@ func Build() ([]byte, error) {
 			if op.contentTypes != nil && op.contentTypes[resp.status] != "" {
 				opts = append(opts, openapi.WithContentType(op.contentTypes[resp.status]))
 			}
+			if note := op.respNotes[resp.status]; note != "" {
+				opts = append(opts, func(cu *openapi.ContentUnit) { cu.Description = note })
+			}
 			oc.AddRespStructure(resp.body, opts...)
+		}
+		if len(op.errorCodes) > 0 {
+			if o, ok := oc.(interface{ Operation() *openapi31.Operation }); ok {
+				byStatus := map[string][]string{}
+				for status, codes := range op.errorCodes {
+					byStatus[strconv.Itoa(status)] = codes
+				}
+				o.Operation().WithMapOfAnythingItem("x-error-codes", byStatus)
+			}
 		}
 		if err := r.AddOperation(oc); err != nil {
 			return nil, fmt.Errorf("add operation %s %s: %w", op.method, op.path, err)
@@ -698,6 +711,10 @@ type operation struct {
 	optionalReqBody bool
 	resps           []respUnit
 	contentTypes    map[int]string // optional non-JSON response content types by status
+	respNotes       map[int]string // optional response descriptions by status
+
+	// errorCodes become the x-error-codes extension, keyed by status.
+	errorCodes map[int][]string
 }
 
 func operations() []operation {
@@ -869,7 +886,17 @@ func reportOperations() []operation {
 		},
 	}, {
 		method: http.MethodPut, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner", id: "assignRemoteWorkerOwner", tag: "reports",
-		summary:    "Assign or clear a linked remote worker's local owner",
+		summary: "Assign or clear a linked remote worker's local owner",
+		respNotes: map[int]string{
+			http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
+			http.StatusConflict:  "Conflict: see x-error-codes",
+		},
+		errorCodes: map[int][]string{
+			http.StatusConflict: {
+				"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
+				"COORDINATOR_WORKER_LIMIT_REACHED",
+			},
+		},
 		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}},
 		reqBody:    controllers.SessionOwnerRequest{},
 		resps: []respUnit{
@@ -2571,6 +2598,9 @@ func projectOperations() []operation {
 		{
 			method: http.MethodPost, path: "/api/v1/projects", id: "addProject", tag: "projects",
 			summary: "Register a new project from a git repository path",
+			respNotes: map[int]string{
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
+			},
 			reqBody: projectsvc.AddInput{},
 			resps: []respUnit{
 				{http.StatusCreated, controllers.ProjectResponse{}},
@@ -2582,6 +2612,9 @@ func projectOperations() []operation {
 		{
 			method: http.MethodPost, path: "/api/v1/projects/clone", id: "cloneProject", tag: "projects",
 			summary: "Clone and register a project from a git repository URL",
+			respNotes: map[int]string{
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
+			},
 			reqBody: projectsvc.CloneInput{},
 			resps: []respUnit{
 				{http.StatusCreated, controllers.ProjectResponse{}},
@@ -2593,6 +2626,9 @@ func projectOperations() []operation {
 		{
 			method: http.MethodPost, path: "/api/v1/projects/clone/prepare", id: "prepareCloneProject", tag: "projects",
 			summary: "Clone a project without registering it so Git setup can be completed",
+			respNotes: map[int]string{
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
+			},
 			reqBody: projectsvc.CloneInput{},
 			resps: []respUnit{
 				{http.StatusOK, projectsvc.ClonePreparationResult{}},
@@ -2633,7 +2669,10 @@ func projectOperations() []operation {
 		},
 		{
 			method: http.MethodPut, path: "/api/v1/projects/{id}", id: "updateProjectSettings", tag: "projects",
-			summary:    "Atomically replace a project's display name and config",
+			summary: "Atomically replace a project's display name and config",
+			respNotes: map[int]string{
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
+			},
 			pathParams: []any{controllers.ProjectIDParam{}},
 			reqBody:    projectsvc.UpdateSettingsInput{},
 			resps: []respUnit{
@@ -2645,7 +2684,10 @@ func projectOperations() []operation {
 		},
 		{
 			method: http.MethodPut, path: "/api/v1/projects/{id}/config", id: "setProjectConfig", tag: "projects",
-			summary:    "Replace a project's per-project config",
+			summary: "Replace a project's per-project config",
+			respNotes: map[int]string{
+				http.StatusBadRequest: "Bad Request: also COORDINATOR_LIMITS_INVALID",
+			},
 			pathParams: []any{controllers.ProjectIDParam{}},
 			reqBody:    projectsvc.SetConfigInput{},
 			resps: []respUnit{
@@ -2696,8 +2738,23 @@ func sessionOperations() []operation {
 		{
 			method: http.MethodPost, path: "/api/v1/sessions", id: "spawnSession", tag: "sessions",
 			summary: "Spawn a new agent session",
+			respNotes: map[int]string{
+				http.StatusBadRequest: "Bad Request: coordinator codes in x-error-codes",
+				http.StatusForbidden:  "Forbidden: COORDINATOR_ROOT_REQUIRED",
+				http.StatusConflict:   "Conflict: coordinator codes in x-error-codes",
+			},
+			errorCodes: map[int][]string{
+				http.StatusBadRequest: {"COORDINATOR_SCOPE_REQUIRED", "COORDINATOR_SCOPE_TOO_LONG", "REMOTE_SPAWN_WORKER_REQUIRED"},
+				http.StatusForbidden:  {"COORDINATOR_ROOT_REQUIRED"},
+				http.StatusConflict: {
+					"COORDINATORS_DISABLED", "COORDINATOR_LIMIT_REACHED",
+					"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED",
+				},
+			},
 			reqBody: controllers.SpawnSessionRequest{},
 			resps: []respUnit{
+				{http.StatusForbidden, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusCreated, controllers.SpawnSessionResponse{}},
 				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
@@ -3525,7 +3582,17 @@ func sessionOperations() []operation {
 		},
 		{
 			method: http.MethodPut, path: "/api/v1/sessions/{sessionId}/owner", id: "assignSessionOwner", tag: "sessions",
-			summary:    "Assign or clear a worker's coordinator owner (live root only)",
+			summary: "Assign or clear a worker's coordinator owner (live root only)",
+			respNotes: map[int]string{
+				http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
+				http.StatusConflict:  "Conflict: see x-error-codes",
+			},
+			errorCodes: map[int][]string{
+				http.StatusConflict: {
+					"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
+					"COORDINATOR_WORKER_LIMIT_REACHED", "OWNER_REASSIGNMENT_IN_FLIGHT",
+				},
+			},
 			pathParams: []any{controllers.SessionIDParam{}},
 			reqBody:    controllers.SessionOwnerRequest{},
 			resps: []respUnit{
@@ -3575,7 +3642,10 @@ func prOperations() []operation {
 	return []operation{
 		{
 			method: http.MethodPost, path: "/api/v1/prs/{id}/merge", id: "mergePR", tag: "prs",
-			summary:    "Squash-merge a pull request",
+			summary: "Squash-merge a pull request",
+			respNotes: map[int]string{
+				http.StatusForbidden: "Forbidden: MERGE_ROOT_ONLY",
+			},
 			pathParams: []any{controllers.PRIDParam{}},
 			reqBody:    controllers.MergePRRequest{},
 			resps: []respUnit{

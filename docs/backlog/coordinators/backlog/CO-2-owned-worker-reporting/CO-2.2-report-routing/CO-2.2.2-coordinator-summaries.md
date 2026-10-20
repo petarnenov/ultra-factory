@@ -1,6 +1,6 @@
 # CO-2.2.2 · Task: Deliver coordinator summaries and escalations to root
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#329](https://github.com/petarnenov/ultra-factory/pull/329); issue [#223](https://github.com/petarnenov/ultra-factory/issues/223) is closed.
 
 **Type:** backend and orchestration contract. **Estimate:** 1 pd.
 **Story:** CO-2.2.

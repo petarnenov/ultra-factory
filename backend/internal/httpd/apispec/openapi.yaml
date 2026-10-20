@@ -3038,7 +3038,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3153,7 +3153,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3198,7 +3198,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3586,7 +3586,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3650,7 +3650,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: also COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3738,7 +3738,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: MERGE_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4052,7 +4052,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4064,7 +4064,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -4080,6 +4080,12 @@ paths:
       summary: Assign or clear a linked remote worker's local owner
       tags:
       - reports
+      x-error-codes:
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -4956,13 +4962,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: coordinator codes in x-error-codes'
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: COORDINATOR_ROOT_REQUIRED'
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Conflict: coordinator codes in x-error-codes'
         "500":
           content:
             application/json:
@@ -4972,6 +4990,18 @@ paths:
       summary: Spawn a new agent session
       tags:
       - sessions
+      x-error-codes:
+        "400":
+        - COORDINATOR_SCOPE_REQUIRED
+        - COORDINATOR_SCOPE_TOO_LONG
+        - REMOTE_SPAWN_WORKER_REQUIRED
+        "403":
+        - COORDINATOR_ROOT_REQUIRED
+        "409":
+        - COORDINATORS_DISABLED
+        - COORDINATOR_LIMIT_REACHED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - PROJECT_WORKER_LIMIT_REACHED
   /api/v1/sessions/{sessionId}:
     get:
       operationId: getSession
@@ -8239,7 +8269,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -8251,7 +8281,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -8267,6 +8297,13 @@ paths:
       summary: Assign or clear a worker's coordinator owner (live root only)
       tags:
       - sessions
+      x-error-codes:
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - OWNER_REASSIGNMENT_IN_FLIGHT
   /api/v1/sessions/{sessionId}/ownership:
     get:
       operationId: getSessionOwnership

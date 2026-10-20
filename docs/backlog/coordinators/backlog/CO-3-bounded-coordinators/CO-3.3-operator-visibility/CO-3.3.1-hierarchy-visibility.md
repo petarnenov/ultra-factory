@@ -1,6 +1,6 @@
 # CO-3.3.1 · Task: Show coordinator ownership in session listings
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#335](https://github.com/petarnenov/ultra-factory/pull/335); issue [#226](https://github.com/petarnenov/ultra-factory/issues/226) is closed.
 
 **Type:** API, CLI, and UI. **Estimate:** 1 pd. **Story:** CO-3.3.
 

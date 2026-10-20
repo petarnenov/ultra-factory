@@ -1,6 +1,6 @@
 # CO-2.1.2 · Task: Expose ownership through daemon and CLI APIs
 
-**Status:** 👀 in review — open PR [#318](https://github.com/petarnenov/ultra-factory/pull/318) closes issue [#221](https://github.com/petarnenov/ultra-factory/issues/221).
+**Status:** ✅ done — merged in [#318](https://github.com/petarnenov/ultra-factory/pull/318); issue [#221](https://github.com/petarnenov/ultra-factory/issues/221) is closed.
 
 **Type:** API and CLI. **Estimate:** 1 pd. **Story:** CO-2.1.
 
