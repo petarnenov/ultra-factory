@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -79,7 +81,7 @@ func TestKillingCoordinatorWakesIdleReportLoop(t *testing.T) {
 
 	deliv := &recordingDelivery{}
 	coordinator := report.NewCoordinator(report.CoordinatorDeps{Store: store, Delivery: deliv, Summaries: store, RetryDelay: 50 * time.Millisecond})
-	defer wakeOnCoordinatorTermination(ctx, bcast, store, coordinator.Wake)()
+	defer wakeOnCoordinatorTermination(ctx, bcast, store, slog.Default(), coordinator.Wake)()
 	loopDone := coordinator.Start(ctx)
 	defer func() { cancel(); <-loopDone; <-pollDone }()
 	time.Sleep(100 * time.Millisecond) // let the loop go idle
@@ -124,10 +126,26 @@ func TestWorkerTerminationDoesNotWakeReportLoop(t *testing.T) {
 	}
 	bcast := cdc.NewBroadcaster()
 	woke := 0
-	defer wakeOnCoordinatorTermination(ctx, bcast, store, func() { woke++ })()
+	defer wakeOnCoordinatorTermination(ctx, bcast, store, slog.Default(), func() { woke++ })()
 	payload := []byte(`{"isTerminated":true}`)
 	bcast.Publish(cdc.Event{Type: cdc.EventSessionUpdated, SessionID: string(worker.ID), Payload: payload})
 	if woke != 0 {
 		t.Fatalf("worker termination woke the loop %d times", woke)
+	}
+}
+
+type failingKindStore struct{}
+
+func (failingKindStore) GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{}, false, errors.New("db busy")
+}
+
+func TestLookupFailureStillWakesReportLoop(t *testing.T) {
+	bcast := cdc.NewBroadcaster()
+	woke := 0
+	defer wakeOnCoordinatorTermination(context.Background(), bcast, failingKindStore{}, slog.Default(), func() { woke++ })()
+	bcast.Publish(cdc.Event{Type: cdc.EventSessionUpdated, SessionID: "ao-1", Payload: []byte(`{"isTerminated":true}`)})
+	if woke != 1 {
+		t.Fatalf("woke = %d, want 1", woke)
 	}
 }
