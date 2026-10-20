@@ -675,6 +675,28 @@ func TestLauncherSpawnLeavesNoOrphanDirectHostPane(t *testing.T) {
 	}
 }
 
+func TestLauncherSpawnFailsWithAgentOutputWhenReviewerExitsAtLaunch(t *testing.T) {
+	rt := &fakeRuntime{alive: false, output: "Error: Session ID abc is already in use."}
+	l := NewLauncher(fakeReviewerResolver{reviewer: &fakeReviewer{}, ok: true}, rt, t.TempDir(), WithLaunchExitCheck(time.Millisecond))
+
+	_, err := l.Spawn(context.Background(), launchSpec())
+	if err == nil || !strings.Contains(err.Error(), "exited at launch") || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("Spawn err = %v, want the agent's own error", err)
+	}
+	if rt.destroyed != "review-mer-1" {
+		t.Fatalf("destroyed = %q, want the dead pane removed", rt.destroyed)
+	}
+}
+
+func TestLauncherSpawnKeepsReviewerThatIsStillRunning(t *testing.T) {
+	rt := &fakeRuntime{alive: true}
+	l := NewLauncher(fakeReviewerResolver{reviewer: &fakeReviewer{}, ok: true}, rt, t.TempDir(), WithLaunchExitCheck(time.Millisecond))
+
+	if _, err := l.Spawn(context.Background(), launchSpec()); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+}
+
 func TestLauncherRestoreTerminalStartsIdlePane(t *testing.T) {
 	reviewer := &fakeReviewer{}
 	rt := &fakeRuntime{}
