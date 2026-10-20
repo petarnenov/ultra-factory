@@ -339,21 +339,17 @@ func (s *Service) applyCoordinatorWorkerLimit(
 	caller CoordinatorLimitsCaller,
 	origin string,
 ) (domain.SessionRecord, bool, error) {
-	coordinator, ok, err := s.store.GetSession(ctx, coordinatorID)
+	coordinator, err := s.loadLiveCoordinator(ctx, coordinatorID)
 	if err != nil {
-		return domain.SessionRecord{}, false, fmt.Errorf("load coordinator %s: %w", coordinatorID, err)
-	}
-	if !ok {
-		return domain.SessionRecord{}, false, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
-	}
-	if coordinator.Kind != domain.KindCoordinator {
-		return domain.SessionRecord{}, false, apierr.Conflict("OWNER_NOT_COORDINATOR", "The session is not a coordinator", map[string]any{"sessionId": string(coordinator.ID)})
-	}
-	if coordinator.IsTerminated {
-		return domain.SessionRecord{}, false, apierr.Conflict("OWNER_TERMINATED", "The coordinator is terminated", map[string]any{"sessionId": string(coordinator.ID)})
+		return domain.SessionRecord{}, false, err
 	}
 	unlock := s.lockOrchestratorProject(coordinator.ProjectID)
 	defer unlock()
+	// The project is fixed for a session; everything else is read again
+	// under the lock so a racing update or termination is seen.
+	if coordinator, err = s.loadLiveCoordinator(ctx, coordinatorID); err != nil {
+		return domain.SessionRecord{}, false, err
+	}
 	actor, err := s.limitActor(ctx, coordinator.ProjectID, caller)
 	if err != nil {
 		return domain.SessionRecord{}, false, err
@@ -427,4 +423,22 @@ func (s *Service) limitActor(ctx context.Context, project domain.ProjectID, call
 		return "", refuse(map[string]any{"sessionId": string(caller.RequestedBy)})
 	}
 	return rec.ID, nil
+}
+
+// loadLiveCoordinator reads a session and requires a live coordinator.
+func (s *Service) loadLiveCoordinator(ctx context.Context, id domain.SessionID) (domain.SessionRecord, error) {
+	rec, ok, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return domain.SessionRecord{}, fmt.Errorf("load coordinator %s: %w", id, err)
+	}
+	if !ok {
+		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	if rec.Kind != domain.KindCoordinator {
+		return domain.SessionRecord{}, apierr.Conflict("OWNER_NOT_COORDINATOR", "The session is not a coordinator", map[string]any{"sessionId": string(rec.ID)})
+	}
+	if rec.IsTerminated {
+		return domain.SessionRecord{}, apierr.Conflict("OWNER_TERMINATED", "The coordinator is terminated", map[string]any{"sessionId": string(rec.ID)})
+	}
+	return rec, nil
 }

@@ -425,3 +425,40 @@ func TestLoweredProjectCeilingClampsAStoredLimitWithoutRewritingIt(t *testing.T)
 		t.Fatalf("raising the ceiling restores the stored 5: %v", err)
 	}
 }
+
+func TestConcurrentSameValueUpdatesWriteOneAuditRowAndOneMessage(t *testing.T) {
+	f := newCapFixture(t)
+	c := f.coordinator("ao-c1", false)
+	results := runConcurrently(8, func(int) error {
+		_, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(2), rootCaller("ao-root"))
+		return err
+	})
+	for _, err := range results {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.store.limitEvents) != 1 || len(f.fc.sentMessages) != 1 {
+		t.Fatalf("audit rows = %d, messages = %d, want 1 and 1", len(f.store.limitEvents), len(f.fc.sentMessages))
+	}
+}
+
+func TestLimitUpdateSeesATerminationThatLandsBeforeTheLock(t *testing.T) {
+	f := newCapFixture(t)
+	c := f.coordinator("ao-c1", false)
+	unlock := f.svc.lockOrchestratorProject("ao")
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.svc.SetCoordinatorWorkerLimit(context.Background(), c, intp(2), rootCaller("ao-root"))
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	f.seed(domain.SessionRecord{ID: c, ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "c", IsTerminated: true})
+	unlock()
+	wantAPIError(t, <-done, "OWNER_TERMINATED", nil)
+	if len(f.store.limitEvents) != 0 {
+		t.Fatal("a refused update must write no audit row")
+	}
+}

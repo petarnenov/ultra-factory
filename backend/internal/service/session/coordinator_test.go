@@ -97,6 +97,12 @@ func (c *capCommander) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain
 	return c.fakeCommander.Spawn(ctx, cfg)
 }
 
+func (c *capCommander) Send(ctx context.Context, id domain.SessionID, message string, att *ports.SpawnAttachment) error {
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	return c.fakeCommander.Send(ctx, id, message, att)
+}
+
 func newCapFixture(t *testing.T) *capFixture {
 	t.Helper()
 	mu := &sync.Mutex{}
