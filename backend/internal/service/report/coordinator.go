@@ -30,7 +30,7 @@ type DeliveryStore interface {
 	ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error)
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
 	ListPendingReportSchedule(context.Context, int64) ([]domain.ReportRecord, error)
-	ClaimPendingReportBatch(context.Context, domain.ProjectID, domain.SessionID, domain.SessionID, string, time.Time) ([]domain.ReportRecord, error)
+	ClaimPendingReportBatch(context.Context, domain.ProjectID, domain.SessionID, domain.SessionID, string, time.Time, ...domain.SessionID) ([]domain.ReportRecord, error)
 	AcknowledgeReportBatch(context.Context, domain.ProjectID, string, time.Time) (int, error)
 	ReleaseReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error)
 	DeferReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error)
@@ -57,6 +57,8 @@ type Coordinator struct {
 	wake       chan struct{}
 	mu         sync.Mutex
 	summaries  SummaryDeliveryStore
+	// escalated holds exited coordinators the root was already told about.
+	escalated map[domain.SessionID]bool
 }
 
 // CoordinatorDeps configures durable scheduling and delivery.
@@ -81,7 +83,7 @@ func NewCoordinator(d CoordinatorDeps) *Coordinator {
 	if d.RetryDelay <= 0 {
 		d.RetryDelay = 5 * time.Second
 	}
-	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1), summaries: d.Summaries}
+	return &Coordinator{store: d.Store, delivery: d.Delivery, now: d.Now, newToken: d.NewToken, retryDelay: d.RetryDelay, wake: make(chan struct{}, 1), summaries: d.Summaries, escalated: map[domain.SessionID]bool{}}
 }
 
 // Wake asks the coordinator to inspect durable scheduling state.
@@ -193,7 +195,7 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 		if err != nil {
 			return c.retryDelay, err
 		}
-		key := string(report.ProjectID) + "\x00" + string(group.Recipient)
+		key := string(report.ProjectID) + "\x00" + string(group.Recipient) + "\x00" + string(group.ExitedOwner)
 		if !group.Found {
 			key = string(report.ProjectID) + "\x00"
 		}
@@ -296,7 +298,9 @@ func nextPendingDelay(pending []domain.ReportRecord, now time.Time) (time.Durati
 type recipientGroup struct {
 	Recipient domain.SessionID
 	Root      domain.SessionID
-	Found     bool
+	// ExitedOwner is an exited coordinator whose workers the root takes over.
+	ExitedOwner domain.SessionID
+	Found       bool
 }
 
 // recipientStore is the ownership and root lookup a recipient resolution
@@ -308,22 +312,41 @@ type recipientStore interface {
 
 // resolveOwnerRecipient applies ADR 0010 section 3: a live same-project
 // coordinator owner wins; otherwise the project's newest live root is used.
-func resolveOwnerRecipient(ctx context.Context, store recipientStore, projectID domain.ProjectID, owner *domain.SessionID) (ownerRec domain.SessionRecord, ownerValid bool, root domain.SessionRecord, rootFound bool, err error) {
+// An owner whose agent exited is not a recipient but keeps its ownership
+// (ownerExited), so the caller routes to root without repairing it.
+func resolveOwnerRecipient(ctx context.Context, store recipientStore, projectID domain.ProjectID, owner *domain.SessionID) (ownerRec domain.SessionRecord, ownerValid, ownerExited bool, root domain.SessionRecord, rootFound bool, err error) {
 	root, rootFound, err = liveRoot(ctx, store, projectID)
 	if err != nil {
-		return domain.SessionRecord{}, false, domain.SessionRecord{}, false, err
+		return domain.SessionRecord{}, false, false, domain.SessionRecord{}, false, err
 	}
 	if owner == nil {
-		return domain.SessionRecord{}, false, root, rootFound, nil
+		return domain.SessionRecord{}, false, false, root, rootFound, nil
 	}
 	ownerRec, found, err := store.GetSession(ctx, *owner)
 	if err != nil {
-		return domain.SessionRecord{}, false, root, rootFound, err
+		return domain.SessionRecord{}, false, false, root, rootFound, err
 	}
 	if found && coordownership.IsLiveCoordinator(ownerRec, projectID) {
-		return ownerRec, true, root, rootFound, nil
+		if ownerRec.Activity.State == domain.ActivityExited {
+			return ownerRec, false, true, root, rootFound, nil
+		}
+		return ownerRec, true, false, root, rootFound, nil
 	}
-	return domain.SessionRecord{}, false, root, rootFound, nil
+	return domain.SessionRecord{}, false, false, root, rootFound, nil
+}
+
+// escalateExitedOwner tells the root once per exit that a coordinator needs
+// recovery; a coordinator that is running again re-arms the notice.
+func (c *Coordinator) escalateExitedOwner(ctx context.Context, owner domain.SessionRecord, root domain.SessionRecord, rootFound bool) {
+	if !rootFound || c.delivery == nil || c.escalated[owner.ID] {
+		return
+	}
+	text := fmt.Sprintf("Coordinator %s exited and needs recovery. Its workers' reports are routed to you until it is restored or terminated; ownership is unchanged.", owner.ID)
+	if err := c.delivery.Submit(ctx, root.ID, text, "coordinator-exited:"+string(owner.ID)); err != nil {
+		slog.Warn("coordinator recovery notice failed", "coordinator", owner.ID, "root", root.ID, "err", err)
+		return
+	}
+	c.escalated[owner.ID] = true
 }
 
 // ownerRepairAttempts bounds the re-resolve loop after a lost compare-and-set.
@@ -339,7 +362,7 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 		} else if found {
 			owner = worker.OwnerSessionID
 		}
-		ownerRec, ownerValid, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
+		ownerRec, ownerValid, ownerExited, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, report.ProjectID, owner)
 		if err != nil {
 			return recipientGroup{}, err
 		}
@@ -348,10 +371,14 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 			group.Root = root.ID
 		}
 		if ownerValid {
+			delete(c.escalated, ownerRec.ID)
 			group.Recipient, group.Found = ownerRec.ID, true
 			return group, nil
 		}
-		if owner != nil {
+		if ownerExited {
+			c.escalateExitedOwner(ctx, ownerRec, root, rootFound)
+			group.ExitedOwner = ownerRec.ID
+		} else if owner != nil {
 			_, cleared, err := c.store.ClearSessionOwnerIf(ctx, report.SessionID, *owner, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC())
 			if err != nil {
 				return recipientGroup{}, err
@@ -374,7 +401,7 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 // deliverGroup reports whether it claimed a batch and whether it acknowledged
 // one; only an acknowledged batch has finished its delivery.
 func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.ProjectID, group recipientGroup) (claimed, acknowledged bool, err error) {
-	batch, err := c.claim(ctx, projectID, group.Recipient, group.Root)
+	batch, err := c.claim(ctx, projectID, group.Recipient, group.Root, group.ExitedOwner)
 	if err != nil || len(batch.Reports) == 0 {
 		return false, false, err
 	}
@@ -449,14 +476,17 @@ func (c *Coordinator) ResolveRemoteRecipient(ctx context.Context, link domain.Re
 			current = link
 			current.OwnerSessionID = nil
 		}
-		owner, ownerValid, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, current.ProjectID, current.OwnerSessionID)
+		owner, ownerValid, ownerExited, root, rootFound, err := resolveOwnerRecipient(ctx, c.store, current.ProjectID, current.OwnerSessionID)
 		if err != nil {
 			return domain.SessionRecord{}, false, err
 		}
 		if ownerValid {
+			delete(c.escalated, owner.ID)
 			return owner, true, nil
 		}
-		if current.OwnerSessionID != nil {
+		if ownerExited {
+			c.escalateExitedOwner(ctx, owner, root, rootFound)
+		} else if current.OwnerSessionID != nil {
 			_, cleared, err := c.store.ClearRemoteWorkerOwnerIf(ctx, current.HostID, current.RemoteSessionID, *current.OwnerSessionID, domain.OwnershipOwnerNotLiveReconciled, c.now().UTC())
 			if err != nil {
 				return domain.SessionRecord{}, false, err
@@ -490,7 +520,7 @@ func (c *Coordinator) DeliverExternal(ctx context.Context, projectID domain.Proj
 	}
 	if !found || rec.IsTerminated || rec.ProjectID != projectID ||
 		(rec.Kind != domain.KindOrchestrator && rec.Kind != domain.KindCoordinator) ||
-		(rec.Kind == domain.KindOrchestrator && rec.Activity.State == domain.ActivityExited) {
+		rec.Activity.State == domain.ActivityExited {
 		return fmt.Errorf("%w: %s", ErrRecipientUnavailable, recipient)
 	}
 	batch := PreparedBatch{ProjectID: projectID, Reports: reports}
@@ -528,9 +558,9 @@ type PreparedBatch struct {
 	Reports   []domain.ReportRecord
 }
 
-func (c *Coordinator) claim(ctx context.Context, projectID domain.ProjectID, recipient, root domain.SessionID) (PreparedBatch, error) {
+func (c *Coordinator) claim(ctx context.Context, projectID domain.ProjectID, recipient, root, exitedOwner domain.SessionID) (PreparedBatch, error) {
 	token := c.newToken()
-	reports, err := c.store.ClaimPendingReportBatch(ctx, projectID, recipient, root, token, c.now().UTC())
+	reports, err := c.store.ClaimPendingReportBatch(ctx, projectID, recipient, root, token, c.now().UTC(), exitedOwner)
 	for i := range reports {
 		session, found, lookupErr := c.store.GetSession(ctx, reports[i].SessionID)
 		if lookupErr == nil && found {
@@ -567,7 +597,7 @@ func (c *Coordinator) PreparePiggyback(ctx context.Context, target domain.Sessio
 			root = live.ID
 		}
 	}
-	return c.claim(ctx, rec.ProjectID, rec.ID, root)
+	return c.claim(ctx, rec.ProjectID, rec.ID, root, "")
 }
 
 // AcceptPiggyback acknowledges reports after the combined user turn is accepted.

@@ -144,6 +144,7 @@ WHERE reports.project_id = ?2 AND reports.delivery_state = 'pending'
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE COALESCE(owner_session_id, ?3) = ?4
+         OR owner_session_id = ?5
   )
 `
 
@@ -152,6 +153,7 @@ type AssignPendingReportsToRecipientParams struct {
 	ProjectID          string
 	RootSessionID      *domain.SessionID
 	RecipientSessionID *domain.SessionID
+	FallbackOwnerID    *domain.SessionID
 }
 
 func (q *Queries) AssignPendingReportsToRecipient(ctx context.Context, arg AssignPendingReportsToRecipientParams) error {
@@ -160,6 +162,7 @@ func (q *Queries) AssignPendingReportsToRecipient(ctx context.Context, arg Assig
 		arg.ProjectID,
 		arg.RootSessionID,
 		arg.RecipientSessionID,
+		arg.FallbackOwnerID,
 	)
 	return err
 }
@@ -174,6 +177,7 @@ WHERE reports.project_id = ?4 AND reports.delivery_state = 'pending'
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE COALESCE(owner_session_id, ?6) = ?3
+         OR owner_session_id = ?7
   )
 RETURNING id, session_id, project_id, state, note, message, created_at, delivery_state, available_at, settlement_deadline, repeat_count, claim_token, claimed_at, delivery_attempts, acknowledged_at, last_error, delivery_batch_id, delivery_owner_id
 `
@@ -185,6 +189,7 @@ type ClaimPendingReportsByRecipientParams struct {
 	ProjectID          string
 	DeliveryBatchID    string
 	RootSessionID      *domain.SessionID
+	FallbackOwnerID    *domain.SessionID
 }
 
 func (q *Queries) ClaimPendingReportsByRecipient(ctx context.Context, arg ClaimPendingReportsByRecipientParams) ([]Report, error) {
@@ -195,6 +200,7 @@ func (q *Queries) ClaimPendingReportsByRecipient(ctx context.Context, arg ClaimP
 		arg.ProjectID,
 		arg.DeliveryBatchID,
 		arg.RootSessionID,
+		arg.FallbackOwnerID,
 	)
 	if err != nil {
 		return nil, err
@@ -575,15 +581,17 @@ SELECT r.id, r.session_id, r.project_id, r.state, r.note, r.message, r.created_a
 FROM reports r
 JOIN sessions s ON s.id = r.session_id
 WHERE r.project_id = ?1 AND r.delivery_state = 'pending'
-  AND COALESCE(s.owner_session_id, ?2) = ?3
+  AND (COALESCE(s.owner_session_id, ?2) = ?3
+       OR s.owner_session_id = ?4)
 ORDER BY r.available_at, r.created_at, r.id
-LIMIT ?4
+LIMIT ?5
 `
 
 type ListPendingReportsByRecipientScheduleParams struct {
 	ProjectID          string
 	RootSessionID      *domain.SessionID
 	RecipientSessionID *domain.SessionID
+	FallbackOwnerID    *domain.SessionID
 	Limit              int64
 }
 
@@ -592,6 +600,7 @@ func (q *Queries) ListPendingReportsByRecipientSchedule(ctx context.Context, arg
 		arg.ProjectID,
 		arg.RootSessionID,
 		arg.RecipientSessionID,
+		arg.FallbackOwnerID,
 		arg.Limit,
 	)
 	if err != nil {

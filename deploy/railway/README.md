@@ -1204,9 +1204,10 @@ ao session ls -p <project>
 
 A coordinator that is terminated is not a live helper: its workers are returned
 to the root and its slot is free. A coordinator that is live but whose agent has
-exited is **not** rerouted by design; its reports retry against the same owner
-until the reaper terminates it or the ownership is repaired. Treat a long-lived
-`exited` coordinator with pending summaries as a rollback trigger. Session
+exited keeps its slot and its ownership, but is not a live recipient: its
+workers' reports go to the root, which gets one "needs recovery" notice per
+exit. Restore it (`resume-agent`) to resume its reports, or terminate it.
+Treat a long-lived `exited` coordinator as a rollback trigger. Session
 health states and thresholds are in
 [session health and stall runbook](../../docs/runbooks/session-health-stalls.md).
 
@@ -1437,7 +1438,8 @@ summary delivered, and **no** coordinator, worker, report, or summary deleted.
 7. **Verify pending reports and summaries reach the root.** Check the summary
    history (`deliveryState`, `lastError`) and the report-table query above; the
    root's conversation must show the handback. A live-but-exited coordinator
-   blocks delivery until termination, so finish step 6 first.
+   no longer blocks its workers' reports (they go to the root), but restore or
+   terminate it in step 6 first.
 8. **Verify nothing was deleted.** Coordinators still appear with
    `--include-terminated`; worker sessions, worktrees, reports, and summaries
    are intact; no `needsRecovery`; `ao session cleanup` has not run.

@@ -354,10 +354,14 @@ recipient(project, worker):
 
 "Live" means `is_terminated = 0`. The root selector also skips
 `activity_state='exited'`, as `activeOrchestrator` does today. A coordinator
-whose row is live but whose agent exited is **not** rerouted: delivery retries
-the same owner until termination or repair, using the deferred backoff in
-section 4 rather than an immediate release. That keeps routing predictable and
-leaves the failure visible, instead of silently moving work.
+whose row is live but whose agent exited (amended for #387) is not a live
+recipient: its workers' reports go to the live root **without clearing the
+ownership**, because a crashed coordinator may be restored and then resumes
+receiving them. The root is told once per exit that the coordinator needs
+recovery; the notice re-arms when the coordinator runs again. Capacity counting
+is unchanged: the exited, not-terminated coordinator keeps its slot. Delivery to
+an exited coordinator therefore never retries in a loop; `DeliverExternal`
+rejects it like an exited root.
 
 Resolution table:
 
@@ -366,9 +370,11 @@ Resolution table:
 | Local worker | `NULL` | Project root |
 | Local worker | Live coordinator C | C |
 | Local worker | Terminated coordinator C | Root, after repair to `NULL` |
+| Local worker | Exited, not terminated coordinator C | Root, owner kept, one recovery notice |
 | Remote link | `NULL` | Project root |
 | Remote link | Live coordinator C | C |
 | Remote link | Invalid or terminated owner | Root, after repair to `NULL` |
+| Remote link | Exited, not terminated coordinator C | Root, owner kept, one recovery notice |
 | Coordinator summary | Not applicable | Project root, always |
 | Root-owned direct worker | `NULL` | Project root (unchanged behavior) |
 | Standalone worker | Not applicable | No project, no report (existing rejection) |
@@ -463,8 +469,7 @@ Scheduler loop, replacing `RunDue`'s project loop:
 5. Acknowledge after the turn is accepted. An acceptance timeout is returned
    only after the prompt was written, so acknowledge that group; deferring it
    re-sends the same batch, which is the duplicate this rule exists to
-   prevent. On other transient failures - a live-but-exited owner or an
-   unavailable semantic target - defer **that group** with a backoff and
+   prevent. On other transient failures - an unavailable semantic target - defer **that group** with a backoff and
    continue with the next group, up to a bounded number of groups per pass. On
    a terminal recipient failure - the owner row is terminated or no longer
    exists - release it so the next pass re-resolves to the root. A failing

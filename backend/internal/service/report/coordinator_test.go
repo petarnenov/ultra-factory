@@ -386,7 +386,12 @@ func (s *coordinatorStore) effectiveOwner(sessionID domain.SessionID, root domai
 	return root
 }
 
-func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project domain.ProjectID, recipient, root domain.SessionID, token string, at time.Time) ([]domain.ReportRecord, error) {
+func (s *coordinatorStore) claimable(sessionID, root, recipient domain.SessionID, exited []domain.SessionID) bool {
+	owner := s.effectiveOwner(sessionID, root)
+	return owner == recipient || (len(exited) > 0 && exited[0] != "" && owner == exited[0])
+}
+
+func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project domain.ProjectID, recipient, root domain.SessionID, token string, at time.Time, exited ...domain.SessionID) ([]domain.ReportRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.claims++
@@ -396,7 +401,7 @@ func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project do
 	batchID, fresh := "", false
 	for i := range s.reports {
 		rec := &s.reports[i]
-		if rec.ProjectID == project && rec.DeliveryState == domain.ReportPending && s.effectiveOwner(rec.SessionID, root) == recipient {
+		if rec.ProjectID == project && rec.DeliveryState == domain.ReportPending && s.claimable(rec.SessionID, root, recipient, exited) {
 			batchID = rec.DeliveryBatchID
 			if batchID == "" {
 				batchID, fresh = "report-batch:"+rec.ID, true
@@ -410,7 +415,7 @@ func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project do
 	var claimed []domain.ReportRecord
 	for i := range s.reports {
 		rec := &s.reports[i]
-		if rec.ProjectID != project || rec.DeliveryState != domain.ReportPending || s.effectiveOwner(rec.SessionID, root) != recipient {
+		if rec.ProjectID != project || rec.DeliveryState != domain.ReportPending || !s.claimable(rec.SessionID, root, recipient, exited) {
 			continue
 		}
 		// Like the durable store, only unbatched reports join a fresh batch.

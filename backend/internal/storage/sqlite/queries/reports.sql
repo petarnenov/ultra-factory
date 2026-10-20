@@ -42,7 +42,8 @@ SELECT r.id, r.session_id, r.project_id, r.state, r.note, r.message, r.created_a
 FROM reports r
 JOIN sessions s ON s.id = r.session_id
 WHERE r.project_id = sqlc.arg(project_id) AND r.delivery_state = 'pending'
-  AND COALESCE(s.owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+  AND (COALESCE(s.owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+       OR s.owner_session_id = sqlc.arg(fallback_owner_id))
 ORDER BY r.available_at, r.created_at, r.id
 LIMIT sqlc.arg(limit);
 
@@ -54,6 +55,7 @@ WHERE reports.project_id = sqlc.arg(project_id) AND reports.delivery_state = 'pe
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE COALESCE(owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+         OR owner_session_id = sqlc.arg(fallback_owner_id)
   );
 
 -- name: ClaimPendingReportsByRecipient :many
@@ -66,6 +68,7 @@ WHERE reports.project_id = sqlc.arg(project_id) AND reports.delivery_state = 'pe
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE COALESCE(owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id)
+         OR owner_session_id = sqlc.arg(fallback_owner_id)
   )
 RETURNING *;
 
