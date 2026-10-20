@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 type sendOptions struct {
@@ -52,7 +54,11 @@ func newSendCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "send",
 		Short: "Send a message to a running agent session",
-		Args:  noArgs,
+		Long: "Deliver a message to a session's agent. A message that arrives while the " +
+			"agent is mid-turn is queued and read when that turn ends. When the session " +
+			"is waiting on a structured question, answer it first with `ao session input`: " +
+			"the message stays queued until that question is answered.",
+		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return ctx.sendMessage(cmd.Context(), opts)
 		},
@@ -102,9 +108,83 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 	// from sanitized issue refs; keep the URL well-formed regardless.
 	path := "sessions/" + url.PathEscape(session)
 	if !opts.steer {
-		return c.postJSON(ctx, path+"/send", sendAPIRequest{Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored}, nil)
+		return c.plainSend(ctx, path, session, message, senderSessionID, userAuthored)
 	}
 	return c.steerMessage(ctx, path, message, senderSessionID, strings.TrimSpace(opts.clientMessageID), opts.recoverOnly)
+}
+
+// sendTarget is what the daemon showed about the session just before the
+// message was accepted.
+type sendTarget struct {
+	pendingInputs []pendingSessionInput
+	busy          bool
+}
+
+// plainSend sends the message, then explains what the target can read now.
+// A failed state read never changes whether the send itself succeeded.
+func (c *commandContext) plainSend(
+	ctx context.Context,
+	path, session, message, senderSessionID string,
+	userAuthored bool,
+) error {
+	target := c.sendTargetState(ctx, session)
+	if err := c.postJSON(ctx, path+"/send", sendAPIRequest{
+		Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored,
+	}, nil); err != nil {
+		return err
+	}
+	return c.writeSendTarget(session, target)
+}
+
+// sendTargetState reads the two facts that decide whether a message can reach
+// the agent now: unanswered structured inputs, and a turn already running.
+func (c *commandContext) sendTargetState(ctx context.Context, session string) sendTarget {
+	var snapshot conversationInputSnapshotDTO
+	if err := c.getJSON(ctx, "sessions/"+url.PathEscape(session)+"/conversation", &snapshot); err == nil {
+		return sendTarget{
+			pendingInputs: pendingInputsFromActivities(snapshot.Activities),
+			busy:          snapshot.Controller == "busy",
+		}
+	}
+	// A terminal-mode session has no conversation; its activity carries the
+	// same answer.
+	var res sessionResponse
+	if err := c.getJSON(ctx, "sessions/"+url.PathEscape(session), &res); err != nil {
+		return sendTarget{}
+	}
+	return sendTarget{busy: res.Session.Activity.State == string(domain.ActivityActive)}
+}
+
+// writeSendTarget reports what the caller's message is waiting behind. A send
+// the agent can read immediately stays silent, as it always has.
+func (c *commandContext) writeSendTarget(session string, target sendTarget) error {
+	out := c.deps.Out
+	if len(target.pendingInputs) > 0 {
+		count := len(target.pendingInputs)
+		unblocker := "the question is"
+		if count > 1 {
+			unblocker = "the questions are"
+		}
+		if _, err := fmt.Fprintf(out,
+			"Message accepted and queued behind %d unanswered structured input%s on session %s.\n"+
+				"The agent will not read it until %s answered.\n",
+			count, pluralS(count), session, unblocker); err != nil {
+			return err
+		}
+		for _, input := range target.pendingInputs {
+			if _, err := fmt.Fprintf(out, "  %s\n", c.sessionInputAnswerHint(session, input)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if target.busy {
+		_, err := fmt.Fprintf(out,
+			"Message accepted and queued behind the turn already running on session %s;"+
+				" the agent reads it when that turn ends.\n", session)
+		return err
+	}
+	return nil
 }
 
 func (c *commandContext) steerMessage(

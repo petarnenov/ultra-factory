@@ -59,6 +59,155 @@ func sendServer(t *testing.T, status int, respBody string) (*httptest.Server, *s
 	return srv, capture
 }
 
+// sendTargetServer answers the reads plain send makes before POSTing, so a
+// test can describe the session state the message joined.
+func sendTargetServer(
+	t *testing.T,
+	conversationStatus int,
+	conversationBody string,
+	sessionBody string,
+	sendStatus int,
+	sendBody string,
+) (*httptest.Server, *sendCapture) {
+	t.Helper()
+	capture := &sendCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/send"):
+			body, _ := io.ReadAll(r.Body)
+			capture.body = string(body)
+			capture.path = r.URL.Path
+			w.WriteHeader(sendStatus)
+			_, _ = io.WriteString(w, sendBody)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/conversation"):
+			w.WriteHeader(conversationStatus)
+			_, _ = io.WriteString(w, conversationBody)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/sessions/"):
+			_, _ = io.WriteString(w, sessionBody)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, capture
+}
+
+const sendParkedSnapshotJSON = `{
+  "sessionId": "demo-1",
+  "controller": "busy",
+  "activities": [
+    {
+      "activityKind": "user_input",
+      "status": "pending",
+      "summary": "Should I run the review?",
+      "requestId": "acp-request:host:1",
+      "detail": {"inputMode": "form", "message": "Should I run the review?"}
+    }
+  ]
+}`
+
+const sendBusySnapshotJSON = `{"sessionId":"demo-1","controller":"busy","activities":[]}`
+const sendIdleSnapshotJSON = `{"sessionId":"demo-1","controller":"ready","activities":[]}`
+
+func TestSend_ReportsWhenMessageOnlyQueues(t *testing.T) {
+	const terminalModeBody = `{"error":"conflict","code":"SESSION_MODE_MISMATCH","message":"not a chat session"}`
+	const terminalBusySessionBody = `{"session":{"id":"demo-1","activity":{"state":"active"}}}`
+	const okSendBody = `{"ok":true,"sessionId":"demo-1","message":"hi"}`
+	cases := []struct {
+		name               string
+		conversationStatus int
+		conversationBody   string
+		sessionBody        string
+		wantOut            []string
+		wantSilent         bool
+	}{
+		{
+			name:               "parked on a structured input",
+			conversationStatus: http.StatusOK,
+			conversationBody:   sendParkedSnapshotJSON,
+			wantOut: []string{
+				"queued behind 1 unanswered structured input",
+				"will not read it until the question is answered",
+				"ao session input demo-1 --request-id acp-request:host:1 --action accept",
+			},
+		},
+		{
+			name:               "busy with a running turn",
+			conversationStatus: http.StatusOK,
+			conversationBody:   sendBusySnapshotJSON,
+			wantOut: []string{
+				"queued behind the turn already running on session demo-1",
+				"reads it when that turn ends",
+			},
+		},
+		{
+			name:               "terminal session mid-turn",
+			conversationStatus: http.StatusConflict,
+			conversationBody:   terminalModeBody,
+			sessionBody:        terminalBusySessionBody,
+			wantOut:            []string{"queued behind the turn already running on session demo-1"},
+		},
+		{
+			name:               "idle session",
+			conversationStatus: http.StatusOK,
+			conversationBody:   sendIdleSnapshotJSON,
+			wantSilent:         true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AO_SESSION_ID", "")
+			cfg := setConfigEnv(t)
+			srv, capture := sendTargetServer(t, tc.conversationStatus, tc.conversationBody,
+				tc.sessionBody, http.StatusOK, okSendBody)
+			writeRunFileFor(t, cfg, srv)
+
+			out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
+			if err != nil {
+				t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+			}
+			if capture.path != "/api/v1/sessions/demo-1/send" {
+				t.Fatalf("path = %q, want the send route", capture.path)
+			}
+			if tc.wantSilent {
+				if out != "" {
+					t.Fatalf("output = %q, want no output for a message the agent reads now", out)
+				}
+				return
+			}
+			for _, want := range tc.wantOut {
+				if !strings.Contains(out, want) {
+					t.Errorf("output = %q, want it to contain %q", out, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSend_FailureKeepsErrorEnvelopeAndReportsNoQueue(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	srv, _ := sendTargetServer(t, http.StatusOK, sendParkedSnapshotJSON, "",
+		http.StatusInternalServerError,
+		`{"error":"internal","code":"SESSION_OPERATION_FAILED","message":"Session operation failed"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
+	if err == nil {
+		t.Fatal("expected runtime error from 500")
+	}
+	if got := ExitCode(err); got != 1 {
+		t.Fatalf("exit code = %d, want 1", got)
+	}
+	if !strings.Contains(err.Error(), "SESSION_OPERATION_FAILED") && !strings.Contains(errOut, "SESSION_OPERATION_FAILED") {
+		t.Fatalf("error did not surface the server error envelope: %v\nstderr=%s", err, errOut)
+	}
+	if strings.Contains(out, "queued") {
+		t.Fatalf("output = %q, a failed send must not report delivery", out)
+	}
+}
+
 func TestSend_Success(t *testing.T) {
 	t.Setenv("AO_SESSION_ID", "")
 	cfg := setConfigEnv(t)
