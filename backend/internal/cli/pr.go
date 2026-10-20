@@ -20,9 +20,8 @@ type mergePRResponse struct {
 	Method   string `json:"method"`
 }
 
-// mergePRRequest is the body the merge route requires: the pull request URL
-// and the head commit to merge. The requester is optional: the daemon refuses
-// a live coordinator or worker (ADR 0010).
+// mergePRRequest is the merge body: PR URL and head to merge, plus the
+// optional requester the daemon checks for merge authority (ADR 0010).
 type mergePRRequest struct {
 	PRURL           string `json:"prUrl"`
 	ExpectedHeadSHA string `json:"expectedHeadSha"`
