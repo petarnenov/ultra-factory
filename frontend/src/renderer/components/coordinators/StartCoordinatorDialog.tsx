@@ -54,7 +54,7 @@ const initialForm = (): SpawnCoordinatorForm => ({
 	brief: COORDINATOR_BRIEF_TEMPLATE,
 });
 
-/** Starts a coordinator on behalf of the live root, with the operator origin audited. */
+/** Starts a coordinator for the live root; the start is audited. */
 export function StartCoordinatorDialog({
 	open,
 	onOpenChange,

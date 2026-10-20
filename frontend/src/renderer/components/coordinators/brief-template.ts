@@ -1,4 +1,4 @@
-/** Five-section assignment brief from docs/coordinators/operating-contract.md. */
+/** Five-section assignment brief from the operating contract doc. */
 export const COORDINATOR_BRIEF_TEMPLATE = `Assignment for <coordinator name>.
 
 Scope: <one bounded area, at most 200 characters; same text as --scope>

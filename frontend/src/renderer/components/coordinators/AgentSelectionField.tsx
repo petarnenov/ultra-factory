@@ -12,7 +12,7 @@ const MODE_LABEL_KEYS = {
 
 export const profileLabel = (profile: Pick<ProfileForm, "id" | "label">) => profile.label.trim() || profile.id;
 
-/** Inherit, a fixed profile, or random over a subset of the project profiles. */
+/** Inherit, a fixed profile, or random over some project profiles. */
 export function AgentSelectionField({
 	id,
 	label,

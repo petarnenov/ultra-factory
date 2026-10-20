@@ -23,7 +23,7 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
 
-/** The Coordinators project settings section: limits, hosts, agents and the roster. */
+/** Coordinators project settings: limits, hosts, agents and roster. */
 export function CoordinatorsSettingsForm({
 	projectId,
 	projectName,
@@ -49,7 +49,7 @@ export function CoordinatorsSettingsForm({
 	const errors = validateCoordinatorsForm(form);
 	const hasErrors = Object.keys(errors).length > 0;
 	const dirty = JSON.stringify(form) !== JSON.stringify(initial);
-	// Reports dirty and save progress so closing the dialog asks before dropping edits.
+	// Reports dirty and save state, so closing asks before losing edits.
 	useEffect(() => {
 		onSaveState?.({
 			phase: saving ? "saving" : saveError ? "failed" : saved ? "saved" : "idle",

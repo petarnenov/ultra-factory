@@ -27,7 +27,7 @@ import { StartCoordinatorDialog } from "./StartCoordinatorDialog";
 
 const ROOT_TARGET = "__root__";
 
-/** A readable message for a daemon refusal; unknown codes keep the daemon's text. */
+/** Readable text for a daemon refusal, else the daemon's own text. */
 function useErrorMessage() {
 	const { t } = useTranslation();
 	return (error: unknown, fallback: string): string => {
@@ -36,7 +36,7 @@ function useErrorMessage() {
 	};
 }
 
-/** Root, coordinators and workers for one project, with the operator's actions. */
+/** Root, coordinators and workers, with the operator's actions. */
 export function CoordinatorRoster({ projectId, hostId, config }: { projectId: string; hostId?: string; config: ProjectConfig }) {
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
@@ -400,7 +400,7 @@ function StopDialog({
 	);
 }
 
-/** Sessions of the project keyed by id, for each coordinator's agent and worker details. */
+/** Sessions by id, for each coordinator's agent and worker details. */
 function useProjectSessions(projectId: string, hostId?: string) {
 	const workspaceQuery = useQuery({ ...workspaceQueryOptions, enabled: !hostId });
 	const remoteProjectQuery = useRemoteProjectQuery(hostId ?? "", projectId);
