@@ -278,20 +278,28 @@ func TestSummarySurvivesCoordinatorTerminationAndRootAbsence(t *testing.T) {
 	if delay, err := f.coord.RunDue(ctx); !errors.Is(err, reportsvc.ErrNoActiveOrchestrator) || delay != time.Second {
 		t.Fatalf("no root: delay=%v err=%v, want retry with ErrNoActiveOrchestrator", delay, err)
 	}
-	// Termination also wrote the root escalation; both wait for a root.
-	// Both rows can share created_at, so the order between them is not fixed.
+	// Termination also wrote the root escalation; both wait for a root. The two
+	// rows share an instant, so their relative order is not part of the contract.
 	hist := f.history(f.coordA.ID)
-	escalations := 0
-	for _, h := range hist {
-		if h.EscalationReason == domain.EscalationCoordinatorTerminated {
-			escalations++
+	if len(hist) != 2 {
+		t.Fatalf("history = %+v, want the termination escalation and the submitted summary", hist)
+	}
+	var submitted, escalation *domain.CoordinatorSummary
+	for i := range hist {
+		switch {
+		case hist[i].SubmissionKey == "k1":
+			submitted = &hist[i]
+		case hist[i].EscalationReason == domain.EscalationCoordinatorTerminated:
+			escalation = &hist[i]
 		}
 	}
-	if len(hist) != 2 || escalations != 1 {
+	if submitted == nil || escalation == nil {
 		t.Fatalf("history = %+v, want the termination escalation and the submitted summary", hist)
 	}
 	for _, h := range hist {
-		if h.DeliveryState != domain.ReportPending || h.DeliveryAttempts != 0 {
+		if h.DeliveryState != domain.ReportPending || h.DeliveryAttempts != 0 ||
+			h.ClaimToken != "" || h.DeliveryOwnerID != "" ||
+			!h.ClaimedAt.IsZero() || !h.AcknowledgedAt.IsZero() {
 			t.Fatalf("history = %+v, want pending, unclaimed summaries", hist)
 		}
 	}
