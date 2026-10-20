@@ -385,6 +385,16 @@ type ConversationTurn struct {
 	HandledByReviewID    sql.NullString
 }
 
+type CoordinatorAgentEvent struct {
+	ID                int64
+	SessionID         string
+	PreviousSelection sql.NullString
+	NewSelection      string
+	ActorSessionID    string
+	Origin            string
+	CreatedAt         time.Time
+}
+
 type CoordinatorLimitEvent struct {
 	ID             int64
 	SessionID      string
@@ -802,6 +812,8 @@ type Session struct {
 	CoordinatorScope                 string
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorWorkerLimit           sql.NullInt64
+	AgentProfileID                   sql.NullString
+	CoordinatorWorkerAgent           sql.NullString
 }
 
 type SessionArtifactVersion struct {

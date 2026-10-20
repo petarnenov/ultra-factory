@@ -305,6 +305,12 @@ type SessionRecord struct {
 	// CoordinatorWorkerLimit is a coordinator's own worker limit. Nil means
 	// the project's maxWorkersPerCoordinator applies.
 	CoordinatorWorkerLimit *int `json:"-"`
+	// AgentProfileID is the project agent profile that picked this session's
+	// harness, model and effort. Empty when no profile did.
+	AgentProfileID string `json:"-"`
+	// CoordinatorWorkerAgent is a coordinator's own worker agent selection.
+	// Nil means the project's coordinators.workerAgent applies.
+	CoordinatorWorkerAgent *AgentSelection `json:"-"`
 	// ReviewerHarness is this session's preferred reviewer. Empty delegates to
 	// the project configuration.
 	ReviewerHarness   ReviewerHarness `json:"reviewerHarness,omitempty" enum:"claude-code,codex,copilot,cursor,kilocode,opencode,opencode-v2,kiro,pi,agy,devin,droid,kimi,kimchi,muse,amp,aider,grok,crush,auggie,cline,autohand"`

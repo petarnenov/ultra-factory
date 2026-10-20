@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -351,6 +352,103 @@ func (s *Store) ListCoordinatorLimitEvents(ctx context.Context, id domain.Sessio
 			PreviousLimit: intPtr(row.PreviousLimit), NewLimit: int(row.NewLimit),
 			ActorSessionID: domain.SessionID(row.ActorSessionID),
 			Origin:         row.Origin, CreatedAt: row.CreatedAt,
+		}
+	}
+	return events, nil
+}
+
+func nullString(v string) sql.NullString {
+	return sql.NullString{String: v, Valid: v != ""}
+}
+
+// nullSelection stores a selection as JSON; nil is NULL.
+func nullSelection(sel *domain.AgentSelection) sql.NullString {
+	if sel == nil {
+		return sql.NullString{}
+	}
+	raw, err := json.Marshal(sel)
+	if err != nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(raw), Valid: true}
+}
+
+// selectionPtr reads a stored selection; a malformed value reads as unset so
+// the project default applies.
+func selectionPtr(v sql.NullString) *domain.AgentSelection {
+	if !v.Valid {
+		return nil
+	}
+	var sel domain.AgentSelection
+	if err := json.Unmarshal([]byte(v.String), &sel); err != nil {
+		return nil
+	}
+	return &sel
+}
+
+// SetCoordinatorWorkerAgent sets a live coordinator's worker agent selection
+// and appends audit in one tx. It reports the previous selection.
+func (s *Store) SetCoordinatorWorkerAgent(
+	ctx context.Context,
+	id domain.SessionID,
+	selection domain.AgentSelection,
+	event domain.CoordinatorAgentEvent,
+	at time.Time,
+) (previous *domain.AgentSelection, err error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	err = s.inTx(ctx, "set coordinator worker agent", func(q *gen.Queries) error {
+		row, err := q.GetSession(ctx, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ports.ErrSessionNotFound
+		}
+		if err != nil {
+			return err
+		}
+		previous = selectionPtr(row.CoordinatorWorkerAgent)
+		rows, err := q.SetCoordinatorWorkerAgent(ctx, gen.SetCoordinatorWorkerAgentParams{
+			CoordinatorWorkerAgent: nullSelection(&selection),
+			UpdatedAt:              at,
+			ID:                     id,
+		})
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return fmt.Errorf("session %s is not a live coordinator", id)
+		}
+		return q.InsertCoordinatorAgentEvent(ctx, gen.InsertCoordinatorAgentEventParams{
+			SessionID:         string(id),
+			PreviousSelection: nullSelection(previous),
+			NewSelection:      nullSelection(&selection).String,
+			ActorSessionID:    string(event.ActorSessionID),
+			Origin:            event.Origin,
+			CreatedAt:         at,
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set coordinator worker agent %s: %w", id, err)
+	}
+	return previous, nil
+}
+
+// ListCoordinatorAgentEvents returns one coordinator's agent selection history.
+func (s *Store) ListCoordinatorAgentEvents(ctx context.Context, id domain.SessionID) ([]domain.CoordinatorAgentEvent, error) {
+	rows, err := s.qr.ListCoordinatorAgentEvents(ctx, string(id))
+	if err != nil {
+		return nil, fmt.Errorf("list coordinator agent events %s: %w", id, err)
+	}
+	events := make([]domain.CoordinatorAgentEvent, len(rows))
+	for i, row := range rows {
+		next := selectionPtr(sql.NullString{String: row.NewSelection, Valid: true})
+		events[i] = domain.CoordinatorAgentEvent{
+			ID: row.ID, SessionID: domain.SessionID(row.SessionID),
+			PreviousSelection: selectionPtr(row.PreviousSelection),
+			ActorSessionID:    domain.SessionID(row.ActorSessionID),
+			Origin:            row.Origin, CreatedAt: row.CreatedAt,
+		}
+		if next != nil {
+			events[i].NewSelection = *next
 		}
 	}
 	return events, nil

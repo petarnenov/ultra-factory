@@ -137,6 +137,7 @@ var legacyActorlessUserCLICommands = map[string]struct{}{
 	"ao coordinator":            {},
 	"ao coordinator ls":         {},
 	"ao coordinator report":     {},
+	"ao coordinator set":        {},
 	"ao cue":                    {},
 	"ao cue create":             {},
 	"ao cue list":               {},

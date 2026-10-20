@@ -7867,6 +7867,69 @@ paths:
       summary: Change a live coordinator's worker limit
       tags:
       - sessions
+  /api/v1/sessions/{sessionId}/coordinator-worker-agent:
+    put:
+      operationId: setCoordinatorWorkerAgent
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ControllersCoordinatorWorkerAgentRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionOwnershipResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Forbidden
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Change a live coordinator's worker agent selection
+      tags:
+      - sessions
   /api/v1/sessions/{sessionId}/exit-agent:
     post:
       operationId: exitAgent
@@ -13767,6 +13830,18 @@ components:
         disabled:
           type: boolean
       type: object
+    ControllersCoordinatorRosterWorker:
+      properties:
+        agentProfileId:
+          type:
+          - "null"
+          - string
+        sessionId:
+          type: string
+      required:
+      - sessionId
+      - agentProfileId
+      type: object
     ControllersCoordinatorSummaryHistoryResponse:
       properties:
         summaries:
@@ -13881,6 +13956,24 @@ components:
       - createdAt
       - deliveryState
       - deliveryAttempts
+      type: object
+    ControllersCoordinatorWorkerAgentRequest:
+      properties:
+        operatorInitiated:
+          description: Operator acts for the live root; needs origin.
+          type: boolean
+        origin:
+          enum:
+          - ui
+          - cli
+          - api
+          type: string
+        requestedBySessionId:
+          type: string
+        workerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
+      required:
+      - workerAgent
       type: object
     ControllersKeepAwakeStatus:
       properties:
@@ -13999,6 +14092,10 @@ components:
           $ref: '#/components/schemas/DomainActivity'
         agentConfigMachine:
           type: string
+        agentProfileId:
+          type:
+          - "null"
+          - string
         artifactFiles:
           items:
             $ref: '#/components/schemas/SessionArtifact'
@@ -14229,6 +14326,8 @@ components:
         updatedAt:
           format: date-time
           type: string
+        workerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
         workspaceCleanup:
           enum:
           - pending
@@ -14260,6 +14359,7 @@ components:
       - lastEventAt
       - prs
       - ownerSessionId
+      - agentProfileId
       type: object
     ControllersSetKeepAwakeRequest:
       properties:
@@ -15048,6 +15148,10 @@ components:
       properties:
         activeWorkerCount:
           type: integer
+        agentProfileId:
+          type:
+          - "null"
+          - string
         coordinatorScope:
           type: string
         coordinatorSessionId:
@@ -15063,6 +15167,8 @@ components:
             type: object
         needsRecovery:
           type: boolean
+        workerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
         workerCount:
           type: integer
         workerLimit:
@@ -15073,12 +15179,18 @@ components:
           items:
             type: string
           type: array
+        workers:
+          items:
+            $ref: '#/components/schemas/ControllersCoordinatorRosterWorker'
+          type: array
       required:
       - coordinatorSessionId
       - coordinatorScope
       - isTerminated
       - workerSessionIds
       - workerCount
+      - workers
+      - agentProfileId
       - workerLimit
       - effectiveWorkerLimit
       - activeWorkerCount
@@ -15480,8 +15592,45 @@ components:
       - state
       - lastActivityAt
       type: object
+    DomainAgentProfile:
+      properties:
+        effort:
+          type: string
+        harness:
+          type: string
+        id:
+          type: string
+        label:
+          type: string
+        model:
+          type: string
+        weight:
+          type: integer
+      required:
+      - id
+      - harness
+      - model
+      - effort
+      type: object
+    DomainAgentSelection:
+      properties:
+        mode:
+          type: string
+        profileId:
+          type: string
+        profileIds:
+          items:
+            type: string
+          type: array
+      type: object
     DomainCoordinatorsConfig:
       properties:
+        agentProfiles:
+          items:
+            $ref: '#/components/schemas/DomainAgentProfile'
+          type: array
+        coordinatorAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
         enabled:
           type: boolean
         maxCoordinators:
@@ -15490,6 +15639,10 @@ components:
           type: integer
         maxWorkersPerCoordinator:
           type: integer
+        rootWorkerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
+        workerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
       type: object
     DomainGitHubSCMConfig:
       properties:
@@ -18101,6 +18254,10 @@ components:
           type:
           - "null"
           - integer
+        agentProfileId:
+          type:
+          - "null"
+          - string
         capacity:
           $ref: '#/components/schemas/CoordinatorCapacity'
         coordinatorScope:
@@ -18135,6 +18292,8 @@ components:
           - string
         sessionId:
           type: string
+        workerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
         workerLimit:
           type:
           - "null"
@@ -18146,6 +18305,7 @@ components:
       - rootSessionId
       - capacity
       - workerLimit
+      - agentProfileId
       type: object
     SessionPRCISummary:
       properties:
@@ -19386,6 +19546,8 @@ components:
         clientRequestId:
           maxLength: 128
           type: string
+        coordinatorAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
         displayName:
           maxLength: 100
           type: string
@@ -19476,6 +19638,8 @@ components:
           - github
           - gitlab
           type: string
+        workerAgent:
+          $ref: '#/components/schemas/DomainAgentSelection'
         workerLimit:
           minimum: 1
           type:

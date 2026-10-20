@@ -29,6 +29,12 @@ type SessionOwnershipService interface {
 		limit *int,
 		caller sessionsvc.CoordinatorLimitsCaller,
 	) (domain.SessionRecord, error)
+	SetCoordinatorWorkerAgent(
+		ctx context.Context,
+		coordinatorID domain.SessionID,
+		selection domain.AgentSelection,
+		caller sessionsvc.CoordinatorAgentCaller,
+	) (domain.SessionRecord, error)
 	Ownership(ctx context.Context, id domain.SessionID) (sessionsvc.Ownership, error)
 	CoordinatorRoster(
 		ctx context.Context,
@@ -119,6 +125,39 @@ func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http
 	envelope.WriteJSON(w, http.StatusOK, sessionOwnershipResponse(view))
 }
 
+// setCoordinatorWorkerAgent changes a live coordinator's worker agent
+// selection. The service enforces the caller rules and the project profiles.
+func (c *SessionsController) setCoordinatorWorkerAgent(w http.ResponseWriter, r *http.Request) {
+	svc, ok := c.Svc.(SessionOwnershipService)
+	if !ok {
+		apispec.NotImplemented(w, r, "PUT", "/api/v1/sessions/{sessionId}/coordinator-worker-agent")
+		return
+	}
+	var req CoordinatorWorkerAgentRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	id := domain.SessionID(chi.URLParam(r, "sessionId"))
+	caller := sessionsvc.CoordinatorAgentCaller{
+		RequestedBy:       domain.SessionID(req.RequestedBySessionID),
+		OperatorInitiated: req.OperatorInitiated,
+		Origin:            req.Origin,
+	}
+	if _, err := svc.SetCoordinatorWorkerAgent(r.Context(), id, req.WorkerAgent, caller); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	view, err := svc.Ownership(r.Context(), id)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, sessionOwnershipResponse(view))
+}
+
 // listCoordinators reads a project's coordinator roster and owned workers.
 func (c *SessionsController) listCoordinators(w http.ResponseWriter, r *http.Request) {
 	svc, ok := c.Svc.(SessionOwnershipService)
@@ -167,6 +206,8 @@ func sessionOwnershipResponse(view sessionsvc.Ownership) SessionOwnershipRespons
 		CoordinatorScope: view.Session.CoordinatorScope,
 		RootSessionID:    sessionIDString(view.RootSessionID),
 		Capacity:         capacityResponse(view.Capacity),
+		AgentProfileID:   profileIDString(view.Session.AgentProfileID),
+		WorkerAgent:      view.Session.CoordinatorWorkerAgent,
 	}
 	if view.Session.Kind == domain.KindCoordinator {
 		limit, active := view.Capacity.WorkerLimit, view.Capacity.CoordinatorWorkers
@@ -197,8 +238,10 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 	}
 	for _, entry := range roster.Coordinators {
 		workers := make([]string, 0, len(entry.Workers))
+		profiles := make([]CoordinatorRosterWorker, 0, len(entry.Workers))
 		for _, worker := range entry.Workers {
 			workers = append(workers, string(worker.ID))
+			profiles = append(profiles, CoordinatorRosterWorker{SessionID: string(worker.ID), AgentProfileID: profileIDString(worker.AgentProfileID)})
 		}
 		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
 			CoordinatorSessionID: string(entry.Coordinator.ID),
@@ -206,6 +249,9 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 			IsTerminated:         entry.Coordinator.IsTerminated,
 			WorkerSessionIDs:     workers,
 			WorkerCount:          len(workers),
+			Workers:              profiles,
+			AgentProfileID:       profileIDString(entry.Coordinator.AgentProfileID),
+			WorkerAgent:          entry.Coordinator.CoordinatorWorkerAgent,
 			WorkerLimit:          entry.Coordinator.CoordinatorWorkerLimit,
 			EffectiveWorkerLimit: entry.WorkerLimit,
 			ActiveWorkerCount:    entry.ActiveWorkers,
@@ -225,4 +271,12 @@ func sessionIDString(id *domain.SessionID) *string {
 	}
 	value := string(*id)
 	return &value
+}
+
+// profileIDString converts an optional profile ID to its wire form.
+func profileIDString(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
 }

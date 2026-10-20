@@ -163,6 +163,7 @@ func newCoordinatorCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.AddCommand(newCoordinatorListCommand(ctx))
 	cmd.AddCommand(newCoordinatorReportCommand(ctx))
+	cmd.AddCommand(newCoordinatorSetCommand(ctx))
 	return cmd
 }
 

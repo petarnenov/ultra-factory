@@ -163,6 +163,7 @@ func (q *Queries) GetClientRequestSession(ctx context.Context, clientRequestID s
 
 const getSession = `-- name: GetSession :one
 SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+    agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
     created_at, updated_at, revision, display_name, first_signal_at, preview_url,
@@ -192,6 +193,8 @@ type GetSessionRow struct {
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorScope                 string
 	CoordinatorWorkerLimit           sql.NullInt64
+	AgentProfileID                   sql.NullString
+	CoordinatorWorkerAgent           sql.NullString
 	ActivityState                    domain.ActivityState
 	ActivityLastAt                   time.Time
 	IsTerminated                     bool
@@ -269,6 +272,8 @@ func (q *Queries) GetSession(ctx context.Context, id domain.SessionID) (GetSessi
 		&i.OwnerSessionID,
 		&i.CoordinatorScope,
 		&i.CoordinatorWorkerLimit,
+		&i.AgentProfileID,
+		&i.CoordinatorWorkerAgent,
 		&i.ActivityState,
 		&i.ActivityLastAt,
 		&i.IsTerminated,
@@ -337,6 +342,7 @@ func (q *Queries) GetSession(ctx context.Context, id domain.SessionID) (GetSessi
 
 const getSessionByAutomationRunID = `-- name: GetSessionByAutomationRunID :one
 SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+    agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
     created_at, updated_at, revision, display_name, first_signal_at, preview_url,
@@ -366,6 +372,8 @@ type GetSessionByAutomationRunIDRow struct {
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorScope                 string
 	CoordinatorWorkerLimit           sql.NullInt64
+	AgentProfileID                   sql.NullString
+	CoordinatorWorkerAgent           sql.NullString
 	ActivityState                    domain.ActivityState
 	ActivityLastAt                   time.Time
 	IsTerminated                     bool
@@ -443,6 +451,8 @@ func (q *Queries) GetSessionByAutomationRunID(ctx context.Context, automationRun
 		&i.OwnerSessionID,
 		&i.CoordinatorScope,
 		&i.CoordinatorWorkerLimit,
+		&i.AgentProfileID,
+		&i.CoordinatorWorkerAgent,
 		&i.ActivityState,
 		&i.ActivityLastAt,
 		&i.IsTerminated,
@@ -525,7 +535,8 @@ INSERT INTO sessions (
     requested_output,
     created_at, updated_at, is_pinned, pinned_at, auto_inject_review, auto_inject_ci,
     provision_state, provision_error, is_task_preparation, automation_run_id, automation_launch_completed,
-    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit
+    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit,
+    agent_profile_id, coordinator_worker_agent
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -533,7 +544,7 @@ INSERT INTO sessions (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?
 )
 `
 
@@ -604,6 +615,8 @@ type InsertSessionParams struct {
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorScope                 string
 	CoordinatorWorkerLimit           sql.NullInt64
+	AgentProfileID                   sql.NullString
+	CoordinatorWorkerAgent           sql.NullString
 }
 
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
@@ -674,12 +687,15 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 		arg.OwnerSessionID,
 		arg.CoordinatorScope,
 		arg.CoordinatorWorkerLimit,
+		arg.AgentProfileID,
+		arg.CoordinatorWorkerAgent,
 	)
 	return err
 }
 
 const listAllSessions = `-- name: ListAllSessions :many
 SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+    agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
     created_at, updated_at, revision, display_name, first_signal_at, preview_url,
@@ -709,6 +725,8 @@ type ListAllSessionsRow struct {
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorScope                 string
 	CoordinatorWorkerLimit           sql.NullInt64
+	AgentProfileID                   sql.NullString
+	CoordinatorWorkerAgent           sql.NullString
 	ActivityState                    domain.ActivityState
 	ActivityLastAt                   time.Time
 	IsTerminated                     bool
@@ -792,6 +810,8 @@ func (q *Queries) ListAllSessions(ctx context.Context) ([]ListAllSessionsRow, er
 			&i.OwnerSessionID,
 			&i.CoordinatorScope,
 			&i.CoordinatorWorkerLimit,
+			&i.AgentProfileID,
+			&i.CoordinatorWorkerAgent,
 			&i.ActivityState,
 			&i.ActivityLastAt,
 			&i.IsTerminated,
@@ -903,6 +923,7 @@ func (q *Queries) ListChatHibernationCandidates(ctx context.Context) ([]domain.S
 
 const listSessionsByProject = `-- name: ListSessionsByProject :many
 SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+    agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
     created_at, updated_at, revision, display_name, first_signal_at, preview_url,
@@ -932,6 +953,8 @@ type ListSessionsByProjectRow struct {
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorScope                 string
 	CoordinatorWorkerLimit           sql.NullInt64
+	AgentProfileID                   sql.NullString
+	CoordinatorWorkerAgent           sql.NullString
 	ActivityState                    domain.ActivityState
 	ActivityLastAt                   time.Time
 	IsTerminated                     bool
@@ -1015,6 +1038,8 @@ func (q *Queries) ListSessionsByProject(ctx context.Context, projectID *domain.P
 			&i.OwnerSessionID,
 			&i.CoordinatorScope,
 			&i.CoordinatorWorkerLimit,
+			&i.AgentProfileID,
+			&i.CoordinatorWorkerAgent,
 			&i.ActivityState,
 			&i.ActivityLastAt,
 			&i.IsTerminated,
@@ -1120,28 +1145,30 @@ UPDATE sessions SET
     owner_session_id = ?3,
     coordinator_scope = ?4,
     coordinator_worker_limit = ?5,
-    harness = ?6,
-    auto_review_enabled = ?7,
-    terminate_on_pr_merge = ?8,
-    display_name = ?9,
-    activity_state = ?10,
-    activity_last_at = ?11,
+    agent_profile_id = ?6,
+    coordinator_worker_agent = ?7,
+    harness = ?8,
+    auto_review_enabled = ?9,
+    terminate_on_pr_merge = ?10,
+    display_name = ?11,
+    activity_state = ?12,
+    activity_last_at = ?13,
     is_terminated = 0,
-    session_mode = ?12,
-    model = ?13,
-    effort = ?14,
-    session_permissions = ?15,
-    requested_output = ?16,
-    created_at = ?17,
-    updated_at = ?18,
-    auto_inject_review = ?19,
-    auto_inject_ci = ?20,
-    provision_state = ?21,
+    session_mode = ?14,
+    model = ?15,
+    effort = ?16,
+    session_permissions = ?17,
+    requested_output = ?18,
+    created_at = ?19,
+    updated_at = ?20,
+    auto_inject_review = ?21,
+    auto_inject_ci = ?22,
+    provision_state = ?23,
     provision_error = '',
-    client_request_id = ?22,
-    client_request_hash = ?23,
+    client_request_id = ?24,
+    client_request_hash = ?25,
     is_task_preparation = 0
-WHERE id = ?24 AND is_task_preparation = 1
+WHERE id = ?26 AND is_task_preparation = 1
 `
 
 type PromoteTaskPreparationParams struct {
@@ -1150,6 +1177,8 @@ type PromoteTaskPreparationParams struct {
 	OwnerSessionID         *domain.SessionID
 	CoordinatorScope       string
 	CoordinatorWorkerLimit sql.NullInt64
+	AgentProfileID         sql.NullString
+	CoordinatorWorkerAgent sql.NullString
 	Harness                domain.AgentHarness
 	AutoReviewEnabled      bool
 	TerminateOnPRMerge     bool
@@ -1180,6 +1209,8 @@ func (q *Queries) PromoteTaskPreparation(ctx context.Context, arg PromoteTaskPre
 		arg.OwnerSessionID,
 		arg.CoordinatorScope,
 		arg.CoordinatorWorkerLimit,
+		arg.AgentProfileID,
+		arg.CoordinatorWorkerAgent,
 		arg.Harness,
 		arg.AutoReviewEnabled,
 		arg.TerminateOnPRMerge,

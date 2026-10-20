@@ -259,3 +259,58 @@ func TestCoordinatorWorkerLimitMigrationDownDropsTheColumnAndAudit(t *testing.T)
 		t.Fatalf("column missing after re-applying: %v", err)
 	}
 }
+
+func TestAgentProfilesMigrationKeepsExistingSessionsOnTheirAgent(t *testing.T) {
+	db := openMigratedDatabaseCopy(t, 218)
+	if _, err := db.Exec(`
+INSERT INTO projects (id, path, registered_at) VALUES ('ao', '/repo/ao', '2026-10-19T10:00:00Z');
+INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, harness, activity_last_at, created_at, updated_at)
+VALUES ('ao-1', 'ao', 1, 'coordinator', 'auth area', 'claude-code', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z');
+`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(db); err != nil {
+		t.Fatalf("migrate a database with a coordinator: %v", err)
+	}
+	var profile, selection sql.NullString
+	if err := db.QueryRow(`SELECT agent_profile_id, coordinator_worker_agent FROM sessions WHERE id = 'ao-1'`).Scan(&profile, &selection); err != nil || profile.Valid || selection.Valid {
+		t.Fatalf("existing session profile = %v selection = %v err=%v, want NULL", profile, selection, err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET agent_profile_id = 'a', coordinator_worker_agent = '{"mode":"fixed","profileId":"a"}' WHERE id = 'ao-1'`); err != nil {
+		t.Fatalf("set profile: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET coordinator_worker_agent = 'not json' WHERE id = 'ao-1'`); err == nil {
+		t.Fatal("a malformed selection must be rejected by the column check")
+	}
+	if _, err := db.Exec(`UPDATE sessions SET agent_profile_id = '' WHERE id = 'ao-1'`); err == nil {
+		t.Fatal("an empty profile id must be rejected")
+	}
+	if _, err := db.Exec(`
+INSERT INTO coordinator_agent_events (session_id, previous_selection, new_selection, actor_session_id, origin, created_at)
+VALUES ('ao-1', NULL, '{"mode":"inherit"}', 'ao-root', 'cli', '2026-10-20T10:00:00Z')`); err != nil {
+		t.Fatalf("audit row: %v", err)
+	}
+	if _, err := db.Exec(`
+INSERT INTO coordinator_agent_events (session_id, previous_selection, new_selection, actor_session_id, origin, created_at)
+VALUES ('ao-1', NULL, '{"mode":"inherit"}', 'ao-root', '', '2026-10-20T10:00:00Z')`); err == nil {
+		t.Fatal("an empty origin must be rejected")
+	}
+}
+
+func TestAgentProfilesMigrationDownDropsTheColumnsAndAudit(t *testing.T) {
+	db := openMigratedTestDB(t)
+	if err := goose.DownTo(db, "migrations", 218); err != nil {
+		t.Fatalf("down migration: %v", err)
+	}
+	for _, q := range []string{`SELECT agent_profile_id FROM sessions`, `SELECT coordinator_worker_agent FROM sessions`, `SELECT 1 FROM coordinator_agent_events`} {
+		if _, err := db.Exec(q); err == nil {
+			t.Fatalf("%q still works after the down migration", q)
+		}
+	}
+	if err := migrate(db); err != nil {
+		t.Fatalf("up again after down: %v", err)
+	}
+	if _, err := db.Exec(`SELECT agent_profile_id, coordinator_worker_agent FROM sessions`); err != nil {
+		t.Fatalf("columns missing after re-applying: %v", err)
+	}
+}

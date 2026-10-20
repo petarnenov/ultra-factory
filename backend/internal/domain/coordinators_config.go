@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // CoordinatorLimits are the effective capacity limits of one project.
 type CoordinatorLimits struct {
@@ -29,6 +32,15 @@ type CoordinatorsConfig struct {
 	// MaxWorkers bounds live workers per project once a coordinator exists
 	// (default 6).
 	MaxWorkers int `json:"maxWorkers,omitempty"`
+	// AgentProfiles is the shared list of agent choices (ADR 0010,
+	// amendment 1, decision 8).
+	AgentProfiles []AgentProfile `json:"agentProfiles,omitempty"`
+	// CoordinatorAgent is the project default for a new coordinator's own
+	// agent; WorkerAgent is the default for the workers of a coordinator
+	// that sets none; RootWorkerAgent applies to root-owned direct workers.
+	CoordinatorAgent AgentSelection `json:"coordinatorAgent,omitempty"`
+	WorkerAgent      AgentSelection `json:"workerAgent,omitempty"`
+	RootWorkerAgent  AgentSelection `json:"rootWorkerAgent,omitempty"`
 }
 
 // Limits resolves the effective limits, filling unset values with defaults.
@@ -76,5 +88,25 @@ func (c CoordinatorsConfig) Validate() error {
 	if eff := c.Limits(); eff.WorkersPerCoordinator > eff.Workers {
 		return &CoordinatorLimitsError{Field: "maxWorkersPerCoordinator", Max: eff.Workers}
 	}
-	return nil
+	return c.validateAgents()
+}
+
+// validateAgents checks the profile list and the three selections. An
+// unknown profile in coordinatorAgent is COORDINATOR_PROFILE_NOT_ALLOWED;
+// every other violation is WORKER_PROFILE_INVALID.
+func (c CoordinatorsConfig) validateAgents() error {
+	if err := ValidateAgentProfiles(c.AgentProfiles); err != nil {
+		return err
+	}
+	if err := ValidateAgentSelection("coordinators.coordinatorAgent", c.CoordinatorAgent, c.AgentProfiles); err != nil {
+		var perr *AgentProfileError
+		if errors.As(err, &perr) && perr.UnknownProfileID != "" {
+			return &CoordinatorProfileNotAllowedError{ProfileID: perr.UnknownProfileID}
+		}
+		return err
+	}
+	if err := ValidateAgentSelection("coordinators.workerAgent", c.WorkerAgent, c.AgentProfiles); err != nil {
+		return err
+	}
+	return ValidateAgentSelection("coordinators.rootWorkerAgent", c.RootWorkerAgent, c.AgentProfiles)
 }

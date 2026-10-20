@@ -125,6 +125,9 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	if err := counts.CheckCoordinator(cfg.ProjectID, limits); err != nil {
 		return domain.Session{}, 0, 0, err
 	}
+	if cfg, err = s.resolveCoordinatorAgent(ctx, cfg, gate); err != nil {
+		return domain.Session{}, 0, 0, err
+	}
 	return s.spawn(ctx, cfg)
 }
 

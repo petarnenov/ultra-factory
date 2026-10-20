@@ -2681,6 +2681,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/coordinator-worker-agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change a live coordinator's worker agent selection */
+        put: operations["setCoordinatorWorkerAgent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{sessionId}/exit-agent": {
         parameters: {
             query?: never;
@@ -4594,6 +4611,10 @@ export interface components {
         ContainerReapConfig: {
             disabled?: boolean;
         };
+        ControllersCoordinatorRosterWorker: {
+            agentProfileId: null | string;
+            sessionId: string;
+        };
         ControllersCoordinatorSummaryHistoryResponse: {
             summaries: components["schemas"]["ControllersCoordinatorSummaryResponse"][];
         };
@@ -4631,6 +4652,14 @@ export interface components {
             state: "planning" | "working" | "blocked" | "done";
             submissionKey: string;
             workerSessionIds: string[];
+        };
+        ControllersCoordinatorWorkerAgentRequest: {
+            /** @description Operator acts for the live root; needs origin. */
+            operatorInitiated?: boolean;
+            /** @enum {string} */
+            origin?: "ui" | "cli" | "api";
+            requestedBySessionId?: string;
+            workerAgent: components["schemas"]["DomainAgentSelection"];
         };
         ControllersKeepAwakeStatus: {
             active: boolean;
@@ -4682,6 +4711,7 @@ export interface components {
             activeAgentSwitch?: components["schemas"]["AgentSwitch"];
             activity: components["schemas"]["DomainActivity"];
             agentConfigMachine?: string;
+            agentProfileId: null | string;
             artifactFiles?: components["schemas"]["SessionArtifact"][];
             autoInjectCI: boolean;
             autoInjectReview: boolean;
@@ -4752,6 +4782,7 @@ export interface components {
             terminateOnPrMerge: boolean;
             /** Format: date-time */
             updatedAt: string;
+            workerAgent?: components["schemas"]["DomainAgentSelection"];
             /** @enum {string} */
             workspaceCleanup?: "pending" | "removed" | "preserved_dirty" | "failed" | "not_applicable";
         };
@@ -5061,15 +5092,18 @@ export interface components {
         };
         CoordinatorRosterEntry: {
             activeWorkerCount: number;
+            agentProfileId: null | string;
             coordinatorScope: string;
             coordinatorSessionId: string;
             effectiveWorkerLimit: number;
             isTerminated: boolean;
             latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
             needsRecovery: boolean;
+            workerAgent?: components["schemas"]["DomainAgentSelection"];
             workerCount: number;
             workerLimit: null | number;
             workerSessionIds: string[];
+            workers: components["schemas"]["ControllersCoordinatorRosterWorker"][];
         };
         CoordinatorRosterResponse: {
             capacity: components["schemas"]["CoordinatorCapacity"];
@@ -5206,11 +5240,28 @@ export interface components {
             lastActivityAt: string;
             state: string;
         };
+        DomainAgentProfile: {
+            effort: string;
+            harness: string;
+            id: string;
+            label?: string;
+            model: string;
+            weight?: number;
+        };
+        DomainAgentSelection: {
+            mode?: string;
+            profileId?: string;
+            profileIds?: string[];
+        };
         DomainCoordinatorsConfig: {
+            agentProfiles?: components["schemas"]["DomainAgentProfile"][];
+            coordinatorAgent?: components["schemas"]["DomainAgentSelection"];
             enabled?: boolean;
             maxCoordinators?: number;
             maxWorkers?: number;
             maxWorkersPerCoordinator?: number;
+            rootWorkerAgent?: components["schemas"]["DomainAgentSelection"];
+            workerAgent?: components["schemas"]["DomainAgentSelection"];
         };
         DomainGitHubSCMConfig: {
             account?: string;
@@ -6225,6 +6276,7 @@ export interface components {
         };
         SessionOwnershipResponse: {
             activeWorkerCount?: null | number;
+            agentProfileId: null | string;
             capacity: components["schemas"]["CoordinatorCapacity"];
             coordinatorScope?: string;
             effectiveWorkerLimit?: null | number;
@@ -6237,6 +6289,7 @@ export interface components {
             projectId?: string;
             rootSessionId: null | string;
             sessionId: string;
+            workerAgent?: components["schemas"]["DomainAgentSelection"];
             workerLimit: null | number;
         };
         SessionPRCISummary: {
@@ -6735,6 +6788,7 @@ export interface components {
             attachments?: components["schemas"]["AttachmentInput"][];
             branch?: string;
             clientRequestId?: string;
+            coordinatorAgent?: components["schemas"]["DomainAgentSelection"];
             displayName?: string;
             effort?: string;
             /** @enum {string} */
@@ -6756,6 +6810,7 @@ export interface components {
             terminateOnPrMerge?: null | boolean;
             /** @enum {string} */
             trackerProvider?: "github" | "gitlab";
+            workerAgent?: components["schemas"]["DomainAgentSelection"];
             workerLimit?: null | number;
         };
         SpawnSessionResponse: {
@@ -16933,6 +16988,87 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CoordinatorLimitsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOwnershipResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    setCoordinatorWorkerAgent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllersCoordinatorWorkerAgentRequest"];
             };
         };
         responses: {

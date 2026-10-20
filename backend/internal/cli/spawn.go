@@ -41,6 +41,8 @@ type spawnOptions struct {
 	trackerProvider    string
 	terminateOnPRMerge bool
 	scope              string
+	workerAgent        string
+	coordinatorAgent   string
 }
 
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
@@ -52,8 +54,12 @@ type spawnRequest struct {
 	TrackerProvider string `json:"trackerProvider,omitempty"`
 	Kind            string `json:"kind,omitempty"`
 	Scope           string `json:"scope,omitempty"`
-	Mode            string `json:"mode,omitempty"`
-	Harness         string `json:"harness,omitempty"`
+	// WorkerAgent and CoordinatorAgent are the agent selections of a
+	// coordinator spawn.
+	WorkerAgent      *agentSelection `json:"workerAgent,omitempty"`
+	CoordinatorAgent *agentSelection `json:"coordinatorAgent,omitempty"`
+	Mode             string          `json:"mode,omitempty"`
+	Harness          string          `json:"harness,omitempty"`
 	// HarnessExplicit distinguishes a caller-named harness from one resolved
 	// from Project Settings or the machine default.
 	HarnessExplicit    *bool  `json:"harnessExplicit,omitempty"`
@@ -177,7 +183,10 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				}
 			}
 
-			if !opts.skipAgentCheck {
+			// With agent profiles the daemon picks the agent for a coordinator's
+			// or the root's spawn, so the CLI default is not what will launch.
+			profilesPick := explicitHarness == "" && project.Config != nil && len(project.Config.Coordinators.AgentProfiles) > 0
+			if !opts.skipAgentCheck && !profilesPick {
 				if err := ctx.preflightSpawnAgentAuth(cmd.Context(), cmd, opts.harness); err != nil {
 					return err
 				}
@@ -197,6 +206,10 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if ctx.targetsRemote() {
 				parentSessionID = ""
 			}
+			workerAgent, coordinatorAgent, err := coordinatorAgentSelections(opts)
+			if err != nil {
+				return err
+			}
 			var terminateOnPRMerge *bool
 			if cmd.Flags().Changed("terminate-on-pr-merge") {
 				value := opts.terminateOnPRMerge
@@ -209,6 +222,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				TrackerProvider:    opts.trackerProvider,
 				Kind:               opts.kind,
 				Scope:              opts.scope,
+				WorkerAgent:        workerAgent,
+				CoordinatorAgent:   coordinatorAgent,
 				Harness:            opts.harness,
 				HarnessExplicit:    spawnBoolPtr(explicitHarness != ""),
 				Mode:               opts.mode,
@@ -302,6 +317,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.harness, "harness", "", "Agent harness / --agent: claude-code, codex, aider, opencode, opencode-v2, grok, droid, amp, agy, crush, cursor, qwen, gemini, copilot, goose, auggie, continue, devin, cline, kimi, muse, kiro, kilocode, vibe, pi, kimchi, prime-agent, autohand, omp, fx, unreal-agent, mimo-code, deepseek-harness, openhands, command-code (default: project worker.agent; orchestrator spawns default to project orchestrator.agent; required if the project has none)")
 	f.StringVar(&opts.kind, "kind", "", "Session role: worker, orchestrator, or coordinator (default: worker). A coordinator is spawned by the live root and needs --scope")
 	f.StringVar(&opts.scope, "scope", "", "Bounded area of work for --kind coordinator (required, max 200 characters)")
+	f.StringVar(&opts.workerAgent, "worker-agent", "", "Agent selection for the coordinator's workers (--kind coordinator): inherit, fixed:<profile-id> or random[:<profile-id>,...] over the project's agent profiles")
+	f.StringVar(&opts.coordinatorAgent, "coordinator-agent", "", "Agent selection for the coordinator itself (--kind coordinator): inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.StringVar(&opts.mode, "mode", "", "Initial session interface: chat (structured agent connection) or tui (the agent's native terminal). Omitted uses the daemon default; compatible sessions can switch later.")
 	f.StringVar(&opts.branch, "branch", "", "Branch for git project sessions (default: ao/<session-id>/root; unsupported for standalone or Scratch sessions)")
 	f.StringVar(&opts.prompt, "prompt", "", "Initial prompt for the agent")
@@ -571,6 +588,9 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 		if scope != "" {
 			return usageError{fmt.Errorf("--scope is supported with --kind coordinator only")}
 		}
+		if strings.TrimSpace(opts.workerAgent) != "" || strings.TrimSpace(opts.coordinatorAgent) != "" {
+			return usageError{fmt.Errorf("--worker-agent and --coordinator-agent are supported with --kind coordinator only")}
+		}
 		return nil
 	}
 	if scope == "" {
@@ -586,6 +606,22 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 		return usageError{fmt.Errorf("--claim-pr is supported for worker sessions only")}
 	}
 	return nil
+}
+
+// coordinatorAgentSelections parses the two agent selection flags; both are
+// nil unless set.
+func coordinatorAgentSelections(opts spawnOptions) (worker, coordinator *agentSelection, err error) {
+	if v := strings.TrimSpace(opts.workerAgent); v != "" {
+		if worker, err = parseAgentSelection("--worker-agent", v); err != nil {
+			return nil, nil, err
+		}
+	}
+	if v := strings.TrimSpace(opts.coordinatorAgent); v != "" {
+		if coordinator, err = parseAgentSelection("--coordinator-agent", v); err != nil {
+			return nil, nil, err
+		}
+	}
+	return worker, coordinator, nil
 }
 
 func spawnBoolPtr(value bool) *bool { return &value }

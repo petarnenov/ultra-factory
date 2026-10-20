@@ -3554,6 +3554,21 @@ func sessionOperations() []operation {
 			},
 		},
 		{
+			method: http.MethodPut, path: "/api/v1/sessions/{sessionId}/coordinator-worker-agent", id: "setCoordinatorWorkerAgent", tag: "sessions",
+			summary:    "Change a live coordinator's worker agent selection",
+			pathParams: []any{controllers.SessionIDParam{}},
+			reqBody:    controllers.CoordinatorWorkerAgentRequest{},
+			resps: []respUnit{
+				{http.StatusOK, controllers.SessionOwnershipResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusForbidden, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
 			method: http.MethodGet, path: "/api/v1/projects/{id}/coordinators", id: "listProjectCoordinators", tag: "sessions",
 			summary:    "List a project's coordinators and owned workers",
 			pathParams: []any{controllers.ProjectIDParam{}, controllers.ListCoordinatorsQuery{}},

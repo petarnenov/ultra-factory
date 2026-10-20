@@ -215,6 +215,7 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Get("/sessions/{sessionId}/ownership", c.getOwnership)
 	r.Put("/sessions/{sessionId}/owner", c.assignOwner)
 	r.Put("/sessions/{sessionId}/coordinator-limits", c.setCoordinatorLimits)
+	r.Put("/sessions/{sessionId}/coordinator-worker-agent", c.setCoordinatorWorkerAgent)
 	r.Get("/projects/{id}/coordinators", c.listCoordinators)
 	r.Get("/sessions/{sessionId}/preview", c.preview)
 	r.Post("/sessions/{sessionId}/preview", c.setPreview)
@@ -369,7 +370,7 @@ func (c *SessionsController) spawn(w http.ResponseWriter, r *http.Request) {
 	if harnessExplicitSet {
 		harnessExplicit = *in.HarnessExplicit
 	}
-	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, ParentSessionID: in.ParentSessionID, TrackerProvider: in.TrackerProvider, Kind: in.Kind, CoordinatorScope: in.Scope, CoordinatorWorkerLimit: in.WorkerLimit, Harness: in.Harness, HarnessExplicit: harnessExplicit, HarnessExplicitSet: harnessExplicitSet, Branch: in.Branch, RequestedMode: in.Mode, Prompt: in.Prompt, RequestedOutput: in.RequestedOutput, DisplayName: displayName, Attachments: attachments, AgentConfig: ports.AgentConfig{Model: in.Model, Effort: in.Effort, Permissions: in.ApprovalMode}, EffortOverride: in.Effort != "", ClientRequestID: in.ClientRequestID, ClientRequestHash: requestHash, RemoteSpawned: in.RemoteSpawn, TerminateOnPRMerge: in.TerminateOnPRMerge})
+	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, ParentSessionID: in.ParentSessionID, TrackerProvider: in.TrackerProvider, Kind: in.Kind, CoordinatorScope: in.Scope, CoordinatorWorkerLimit: in.WorkerLimit, CoordinatorWorkerAgent: in.WorkerAgent, CoordinatorAgent: in.CoordinatorAgent, Harness: in.Harness, HarnessExplicit: harnessExplicit, HarnessExplicitSet: harnessExplicitSet, Branch: in.Branch, RequestedMode: in.Mode, Prompt: in.Prompt, RequestedOutput: in.RequestedOutput, DisplayName: displayName, Attachments: attachments, AgentConfig: ports.AgentConfig{Model: in.Model, Effort: in.Effort, Permissions: in.ApprovalMode}, EffortOverride: in.Effort != "", ClientRequestID: in.ClientRequestID, ClientRequestHash: requestHash, RemoteSpawned: in.RemoteSpawn, TerminateOnPRMerge: in.TerminateOnPRMerge})
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
@@ -2715,6 +2716,8 @@ func sessionView(r *http.Request, s domain.Session) SessionView {
 		PRs:              sessionPRFacts(s.PRs),
 		OwnerSessionID:   sessionIDString(s.OwnerSessionID),
 		CoordinatorScope: s.CoordinatorScope,
+		AgentProfileID:   profileIDString(s.AgentProfileID),
+		WorkerAgent:      s.CoordinatorWorkerAgent,
 		ArtifactFiles:    sessionArtifactFiles(r, s),
 	}
 	if s.ActiveAgentSwitch != nil {

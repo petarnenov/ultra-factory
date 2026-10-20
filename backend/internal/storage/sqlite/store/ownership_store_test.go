@@ -675,3 +675,86 @@ func TestSetCoordinatorWorkerLimitRefusesNonCoordinatorsAndTerminatedOnes(t *tes
 		t.Fatalf("a refused write left audit rows: %+v", events)
 	}
 }
+
+func TestCoordinatorWorkerAgentAndProfileSurviveRestartAndAreAudited(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProject(t, s, "ao")
+	rec := coordinatorRecord("ao", "auth area")
+	rec.AgentProfileID = "a"
+	rec.CoordinatorWorkerAgent = &domain.AgentSelection{Mode: domain.AgentSelectionFixed, ProfileID: "a"}
+	coordinator, err := s.CreateSession(ctx, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker := sampleRecord("ao")
+	worker.AgentProfileID = "b"
+	workerRec, err := s.CreateSession(ctx, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := s.CreateSession(ctx, coordinatorRecord("ao", "docs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.AgentProfileID != "" || plain.CoordinatorWorkerAgent != nil {
+		t.Fatalf("unset values read back as %q / %+v", plain.AgentProfileID, plain.CoordinatorWorkerAgent)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	next := domain.AgentSelection{Mode: domain.AgentSelectionRandom, ProfileIDs: []string{"a", "b"}}
+	previous, err := s.SetCoordinatorWorkerAgent(ctx, coordinator.ID, next, domain.CoordinatorAgentEvent{ActorSessionID: "ao-root", Origin: "cli"}, now)
+	if err != nil || previous == nil || previous.ProfileID != "a" {
+		t.Fatalf("previous = %+v err=%v", previous, err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	got, _, err := reopened.GetSession(ctx, coordinator.ID)
+	if err != nil || got.AgentProfileID != "a" || got.CoordinatorWorkerAgent == nil || got.CoordinatorWorkerAgent.Mode != domain.AgentSelectionRandom || len(got.CoordinatorWorkerAgent.ProfileIDs) != 2 {
+		t.Fatalf("coordinator after restart = %+v err=%v", got, err)
+	}
+	if w, _, _ := reopened.GetSession(ctx, workerRec.ID); w.AgentProfileID != "b" {
+		t.Fatalf("worker profile after restart = %q, want b", w.AgentProfileID)
+	}
+	events, err := reopened.ListCoordinatorAgentEvents(ctx, coordinator.ID)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events = %+v err=%v", events, err)
+	}
+	if e := events[0]; e.NewSelection.Mode != domain.AgentSelectionRandom || e.PreviousSelection == nil || e.PreviousSelection.ProfileID != "a" || e.ActorSessionID != "ao-root" || e.Origin != "cli" {
+		t.Fatalf("audit row = %+v", e)
+	}
+}
+
+func TestSetCoordinatorWorkerAgentRefusesNonCoordinators(t *testing.T) {
+	ctx := context.Background()
+	s, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	seedProject(t, s, "ao")
+	worker, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := domain.CoordinatorAgentEvent{ActorSessionID: "ao-root", Origin: "cli"}
+	sel := domain.AgentSelection{Mode: domain.AgentSelectionInherit}
+	if _, err := s.SetCoordinatorWorkerAgent(ctx, worker.ID, sel, event, time.Now().UTC()); err == nil {
+		t.Fatal("a worker has no worker agent selection")
+	}
+	if _, err := s.SetCoordinatorWorkerAgent(ctx, "ao-ghost", sel, event, time.Now().UTC()); !errors.Is(err, ports.ErrSessionNotFound) {
+		t.Fatalf("unknown session err = %v", err)
+	}
+	if events, _ := s.ListCoordinatorAgentEvents(ctx, worker.ID); len(events) != 0 {
+		t.Fatalf("a refused write left audit rows: %+v", events)
+	}
+}

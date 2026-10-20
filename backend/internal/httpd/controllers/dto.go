@@ -537,7 +537,13 @@ type SessionView struct {
 	// worker is root-owned; a root and a coordinator are never owned.
 	OwnerSessionID *string `json:"ownerSessionId"`
 	// CoordinatorScope bounds a coordinator's work. Set only for a coordinator.
-	CoordinatorScope  string                `json:"coordinatorScope,omitempty"`
+	CoordinatorScope string `json:"coordinatorScope,omitempty"`
+	// AgentProfileID is the project agent profile that picked this session's
+	// agent. Null when none did.
+	AgentProfileID *string `json:"agentProfileId"`
+	// WorkerAgent is a coordinator's own worker agent selection. Null: the
+	// project default applies.
+	WorkerAgent       *domain.AgentSelection `json:"workerAgent,omitempty"`
 	ArtifactFiles     []SessionArtifactView `json:"artifactFiles,omitempty"`
 	ActiveAgentSwitch *AgentSwitchView      `json:"activeAgentSwitch,omitempty"`
 }
@@ -583,7 +589,13 @@ type SpawnSessionRequest struct {
 	Scope string `json:"scope,omitempty" maxLength:"200"`
 	// WorkerLimit is the coordinator's own live worker limit, at most the
 	// project's maxWorkersPerCoordinator. Omitted uses the project value.
-	WorkerLimit *int                `json:"workerLimit,omitempty" minimum:"1"`
+	WorkerLimit *int `json:"workerLimit,omitempty" minimum:"1"`
+	// WorkerAgent is the coordinator's own worker agent selection, over the
+	// project's agentProfiles. Omitted uses the project's workerAgent.
+	WorkerAgent *domain.AgentSelection `json:"workerAgent,omitempty"`
+	// CoordinatorAgent overrides the project's coordinatorAgent for this
+	// coordinator.
+	CoordinatorAgent *domain.AgentSelection `json:"coordinatorAgent,omitempty"`
 	Harness     domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
@@ -662,6 +674,15 @@ type CoordinatorLimitsRequest struct {
 	Origin               string `json:"origin,omitempty" enum:"ui,cli,api"`
 }
 
+// CoordinatorWorkerAgentRequest is the PUT coordinator-worker-agent body.
+// Send requestedBySessionId (live root) or operatorInitiated with origin.
+type CoordinatorWorkerAgentRequest struct {
+	WorkerAgent          domain.AgentSelection `json:"workerAgent"`
+	RequestedBySessionID string                `json:"requestedBySessionId,omitempty"`
+	OperatorInitiated    bool                  `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
+	Origin               string                `json:"origin,omitempty" enum:"ui,cli,api"`
+}
+
 // CoordinatorCapacity is a project's effective limits and live census.
 type CoordinatorCapacity struct {
 	MaxCoordinators          int `json:"maxCoordinators"`
@@ -689,6 +710,11 @@ type SessionOwnershipResponse struct {
 	WorkerLimit          *int `json:"workerLimit"`
 	EffectiveWorkerLimit *int `json:"effectiveWorkerLimit,omitempty"`
 	ActiveWorkerCount    *int `json:"activeWorkerCount,omitempty"`
+	// AgentProfileID is the profile that picked this session's agent; for a
+	// coordinator, WorkerAgent is its stored worker selection (null: the
+	// project default).
+	AgentProfileID *string                `json:"agentProfileId"`
+	WorkerAgent    *domain.AgentSelection `json:"workerAgent,omitempty"`
 }
 
 // CoordinatorRosterResponse is a project's local ownership hierarchy. Remote
@@ -710,6 +736,14 @@ type CoordinatorRosterEntry struct {
 	IsTerminated         bool     `json:"isTerminated"`
 	WorkerSessionIDs     []string `json:"workerSessionIds"`
 	WorkerCount          int      `json:"workerCount"`
+	// Workers lists each live local worker with the profile that picked its
+	// agent.
+	Workers []CoordinatorRosterWorker `json:"workers"`
+	// AgentProfileID is the profile that picked the coordinator's own agent
+	// (null: none did). WorkerAgent is its stored worker selection (null: the
+	// project default applies).
+	AgentProfileID *string                `json:"agentProfileId"`
+	WorkerAgent    *domain.AgentSelection `json:"workerAgent,omitempty"`
 	// WorkerLimit is stored (null: project value); the effective one is
 	// clamped. ActiveWorkerCount includes remote workers.
 	WorkerLimit          *int `json:"workerLimit"`
@@ -720,6 +754,12 @@ type CoordinatorRosterEntry struct {
 	NeedsRecovery bool `json:"needsRecovery"`
 	// LatestSummary is the newest persisted summary or escalation, or null.
 	LatestSummary *CoordinatorSummaryResponse `json:"latestSummary"`
+}
+
+// CoordinatorRosterWorker is one live worker of a coordinator.
+type CoordinatorRosterWorker struct {
+	SessionID      string  `json:"sessionId"`
+	AgentProfileID *string `json:"agentProfileId"`
 }
 
 // ListCoordinatorsQuery scopes the coordinator roster read.
