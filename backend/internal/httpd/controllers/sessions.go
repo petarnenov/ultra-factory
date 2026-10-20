@@ -196,6 +196,10 @@ type SessionsController struct {
 	PreviewServer            ManagedPreviewServer
 	Capabilities             SessionCapabilityValidator
 	ShellPreviewCapabilities ShellPreviewCapabilityValidator
+	// Summaries supplies each coordinator's latest summary to the roster.
+	Summaries interface {
+		List(context.Context, domain.SessionID, int) ([]domain.CoordinatorSummary, error)
+	}
 }
 
 // Register mounts the session routes on the supplied router.
@@ -204,6 +208,9 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Post("/sessions", c.spawn)
 	r.Post("/sessions/cleanup", c.cleanup)
 	r.Get("/sessions/{sessionId}", c.get)
+	r.Get("/sessions/{sessionId}/ownership", c.getOwnership)
+	r.Put("/sessions/{sessionId}/owner", c.assignOwner)
+	r.Get("/projects/{id}/coordinators", c.listCoordinators)
 	r.Get("/sessions/{sessionId}/preview", c.preview)
 	r.Post("/sessions/{sessionId}/preview", c.setPreview)
 	r.Delete("/sessions/{sessionId}/preview", c.clearPreview)
@@ -357,7 +364,7 @@ func (c *SessionsController) spawn(w http.ResponseWriter, r *http.Request) {
 	if harnessExplicitSet {
 		harnessExplicit = *in.HarnessExplicit
 	}
-	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, ParentSessionID: in.ParentSessionID, TrackerProvider: in.TrackerProvider, Kind: in.Kind, Harness: in.Harness, HarnessExplicit: harnessExplicit, HarnessExplicitSet: harnessExplicitSet, Branch: in.Branch, RequestedMode: in.Mode, Prompt: in.Prompt, RequestedOutput: in.RequestedOutput, DisplayName: displayName, Attachments: attachments, AgentConfig: ports.AgentConfig{Model: in.Model, Effort: in.Effort, Permissions: in.ApprovalMode}, EffortOverride: in.Effort != "", ClientRequestID: in.ClientRequestID, ClientRequestHash: requestHash, RemoteSpawned: in.RemoteSpawn, TerminateOnPRMerge: in.TerminateOnPRMerge})
+	sess, promptBytes, systemPromptBytes, err := c.Svc.Spawn(r.Context(), ports.SpawnConfig{ProjectID: in.ProjectID, IssueID: in.IssueID, ParentSessionID: in.ParentSessionID, TrackerProvider: in.TrackerProvider, Kind: in.Kind, CoordinatorScope: in.Scope, Harness: in.Harness, HarnessExplicit: harnessExplicit, HarnessExplicitSet: harnessExplicitSet, Branch: in.Branch, RequestedMode: in.Mode, Prompt: in.Prompt, RequestedOutput: in.RequestedOutput, DisplayName: displayName, Attachments: attachments, AgentConfig: ports.AgentConfig{Model: in.Model, Effort: in.Effort, Permissions: in.ApprovalMode}, EffortOverride: in.Effort != "", ClientRequestID: in.ClientRequestID, ClientRequestHash: requestHash, RemoteSpawned: in.RemoteSpawn, TerminateOnPRMerge: in.TerminateOnPRMerge})
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
@@ -2689,9 +2696,11 @@ func sessionView(r *http.Request, s domain.Session) SessionView {
 			}
 			return &at
 		}(),
-		LastEventAt:   s.LastEventAt(),
-		PRs:           sessionPRFacts(s.PRs),
-		ArtifactFiles: sessionArtifactFiles(r, s),
+		LastEventAt:      s.LastEventAt(),
+		PRs:              sessionPRFacts(s.PRs),
+		OwnerSessionID:   sessionIDString(s.OwnerSessionID),
+		CoordinatorScope: s.CoordinatorScope,
+		ArtifactFiles:    sessionArtifactFiles(r, s),
 	}
 	if s.ActiveAgentSwitch != nil {
 		active := agentSwitchView(*s.ActiveAgentSwitch)

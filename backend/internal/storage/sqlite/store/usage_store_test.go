@@ -137,6 +137,38 @@ func TestActiveKimiBindingRemainsDiscoverable(t *testing.T) {
 	}
 }
 
+// TestActiveOpencodeV2BindingRemainsDiscoverable catches a closed harness
+// filter that hides an OpenCode 2 binding from reconciliation.
+func TestActiveOpencodeV2BindingRemainsDiscoverable(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	sess := seedUsageSession(t, s, domain.HarnessOpenCodeV2)
+	now := time.Unix(1700000000, 0).UTC()
+	binding := mustUpsertUsageBinding(t, s, sess, now, domain.UsageBindingRecord{
+		NativeRootID: "ses_opencode",
+		State:        domain.UsageBindingActive,
+	})
+	mustInsertUsageSource(t, s, now, domain.UsageSourceRecord{
+		BindingID:       binding.ID,
+		Kind:            domain.UsageSourceOpencodeV2,
+		NativeSessionID: binding.NativeRootID,
+		ArtifactPath:    "/tmp/opencode/opencode.db",
+		FileIdentity:    "opencode-store",
+		State:           domain.UsageSourceActive,
+	})
+
+	pending, err := s.HasPendingUsageDiscovery(ctx)
+	mustNoError(t, err)
+	if !pending {
+		t.Fatal("active OpenCode 2 binding did not request discovery")
+	}
+	discovery, err := s.ListUsageDiscoveryBindings(ctx, 8)
+	mustNoError(t, err)
+	if len(discovery) != 1 || discovery[0].ID != binding.ID {
+		t.Fatalf("discovery bindings = %+v, want OpenCode 2 binding %d", discovery, binding.ID)
+	}
+}
+
 func TestListLatestRetiredCodexReplacementClaimsByPath(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

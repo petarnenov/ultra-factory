@@ -263,8 +263,8 @@ func decodeReportCursor(raw string) (time.Time, string, string, string, error) {
 	return createdAt.UTC(), hostID, sessionID, id, nil
 }
 
-// ListDuePending returns one worker's pending, due reports.
-// It preserves batching and never mutates delivery state.
+// ListDuePending returns one worker's pending, due reports. A terminated
+// worker's queue is due at once; batching holds, delivery state is unchanged.
 func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID) (due []domain.ReportRecord, morePending bool, err error) {
 	if s == nil || s.store == nil {
 		return nil, false, errors.New("report: store is required")
@@ -295,7 +295,9 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 	if err != nil {
 		return nil, false, err
 	}
+	terminated := false
 	if session, found, lookupErr := s.store.GetSession(ctx, sessionID); lookupErr == nil && found {
+		terminated = session.IsTerminated
 		for i := range reports {
 			reports[i].Agent = string(session.Harness)
 			reports[i].SessionDisplayName = strings.TrimSpace(session.DisplayName)
@@ -309,7 +311,7 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 		if report.DeliveryState != domain.ReportPending {
 			continue
 		}
-		if report.AvailableAt.After(now) {
+		if report.AvailableAt.After(now) && !terminated {
 			morePending = true
 			continue
 		}
@@ -397,6 +399,11 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	}
 	if session.Kind != domain.KindWorker {
 		return domain.ReportRecord{}, apierr.Invalid("REPORT_WORKER_REQUIRED", "Reports can only be created by worker sessions", nil)
+	}
+	// A terminated worker will never be read again, so accepting its report
+	// would only queue one more delivery into a closed session stream.
+	if session.IsTerminated {
+		return domain.ReportRecord{}, apierr.Conflict("SESSION_TERMINATED", "Reports cannot be created by a terminated session", nil)
 	}
 	// A report is delivered to its project's orchestrator. A standalone worker
 	// has no project, so it is rejected as invalid input, not an internal error.

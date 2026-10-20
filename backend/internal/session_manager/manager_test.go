@@ -11963,6 +11963,114 @@ func TestSpawnBlocksSettingsModelInvalidForExplicitHarness(t *testing.T) {
 	}
 }
 
+// TestSpawnExplicitHarnessValidatesSettingsModelForSelectedCatalog reproduces
+// #266 and proves the blocked path creates no session, workspace, or worktree.
+func TestSpawnExplicitHarnessValidatesSettingsModelForSelectedCatalog(t *testing.T) {
+	const (
+		harnessModel = "opencode-v2/deepseek-v4.1-flash"
+		roleModel    = "gpt-6-luna"
+	)
+	cases := []struct {
+		name       string
+		role       domain.RoleOverride
+		explicit   ports.AgentConfig
+		wantErr    bool
+		wantModel  string
+		wantSource domain.AgentConfigSource
+	}{
+		{
+			name: "role model from another harness blocks",
+			role: domain.RoleOverride{
+				Harness:     domain.HarnessCodex,
+				AgentConfig: domain.AgentConfig{Model: roleModel, Effort: "low"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "explicit valid model wins",
+			role: domain.RoleOverride{
+				Harness:     domain.HarnessCodex,
+				AgentConfig: domain.AgentConfig{Model: roleModel, Effort: "low"},
+			},
+			explicit:   ports.AgentConfig{Model: harnessModel},
+			wantModel:  harnessModel,
+			wantSource: domain.AgentConfigSourceExplicit,
+		},
+		{
+			name: "matching role harness spawns",
+			role: domain.RoleOverride{
+				Harness:     domain.HarnessOpenCodeV2,
+				AgentConfig: domain.AgentConfig{Model: harnessModel, Effort: "low"},
+			},
+			wantModel:  harnessModel,
+			wantSource: domain.AgentConfigSourceSettings,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{Worker: tc.role}}
+			agent := &recordingAgent{}
+			workspace := &fakeWorkspace{}
+			m := New(Deps{
+				Runtime: &fakeRuntime{}, Agents: singleAgent{agent: agent}, Workspace: workspace,
+				Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+				LookPath:     func(string) (string, error) { return "/bin/true", nil },
+				MachineLabel: "build-box",
+			})
+			m.SetModelCatalog(tuningCatalog{catalog: ports.AgentModelCatalog{
+				AllowCustom: true,
+				Models: []ports.AgentModelInfo{
+					{ID: "opencode-v2/machine-default", IsDefault: true},
+					{ID: harnessModel, Label: "DeepSeek V4.1 Flash", Efforts: []string{"low", "high"}},
+				},
+			}})
+
+			rec, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+				ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessOpenCodeV2,
+				HarnessExplicit: true, AgentConfig: tc.explicit,
+			})
+			if tc.wantErr {
+				var resolutionErr *agentlaunch.Error
+				if !errors.As(err, &resolutionErr) {
+					t.Fatalf("err = %v, want a resolution error", err)
+				}
+				if resolutionErr.Field != "model" || resolutionErr.Machine != "build-box" ||
+					resolutionErr.Harness != domain.HarnessOpenCodeV2 {
+					t.Fatalf("error = %#v, want a model block on build-box for opencode-v2", resolutionErr)
+				}
+				if len(resolutionErr.Models) != 2 {
+					t.Fatalf("valid models = %v, want the selected harness's catalog list", resolutionErr.Models)
+				}
+				for _, want := range []string{
+					"Project Settings", "worker", "codex", roleModel, harnessModel, "opencode-v2/machine-default",
+				} {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf("message %q missing %q", err.Error(), want)
+					}
+				}
+				if len(st.sessions) != 0 || len(st.worktrees) != 0 || workspace.createCount != 0 ||
+					agent.launchCalls != 0 {
+					t.Fatalf("blocked spawn left sessions=%d worktrees=%d workspaces=%d launches=%d",
+						len(st.sessions), len(st.worktrees), workspace.createCount, agent.launchCalls)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("spawn: %v", err)
+			}
+			if rec.Metadata.Model != tc.wantModel || rec.Metadata.ModelSource != tc.wantSource {
+				t.Fatalf("model = %q/%q, want %q/%q",
+					rec.Metadata.Model, rec.Metadata.ModelSource, tc.wantModel, tc.wantSource)
+			}
+			if len(st.sessions) != 1 || workspace.createCount == 0 || agent.launchCalls != 1 {
+				t.Fatalf("spawn left sessions=%d workspaces=%d launches=%d, want one of each",
+					len(st.sessions), workspace.createCount, agent.launchCalls)
+			}
+		})
+	}
+}
+
 // TestSpawnRecordsPrecedenceSources asserts the resolved configuration records
 // which precedence level and machine supplied each value.
 func TestSpawnRecordsPrecedenceSources(t *testing.T) {

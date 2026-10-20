@@ -2471,3 +2471,34 @@ func TestProjectGitHubAccountIsPerMachine(t *testing.T) {
 		t.Fatalf("machine B account = %q, want untouched", gotB.Project.Config.GitHubAccount())
 	}
 }
+
+func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheRolloutCap(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlitetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	m := project.NewWithDeps(project.Deps{Store: store})
+	created, err := m.Add(ctx, project.AddInput{Path: gitRepo(t)})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	_, err = m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 3},
+	}})
+	var apiErr *apierr.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "COORDINATOR_LIMITS_INVALID" ||
+		apiErr.Details["field"] != "maxCoordinators" || apiErr.Details["max"] != 2 {
+		t.Fatalf("err = %v, want COORDINATOR_LIMITS_INVALID for maxCoordinators", err)
+	}
+	updated, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 1},
+	}})
+	if err != nil {
+		t.Fatalf("lowered limits are valid: %v", err)
+	}
+	if updated.Config == nil || !updated.Config.Coordinators.Enabled || updated.Config.Coordinators.MaxCoordinators != 1 {
+		t.Fatalf("stored config = %#v", updated.Config)
+	}
+}

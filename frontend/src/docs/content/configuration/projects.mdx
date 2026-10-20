@@ -41,6 +41,7 @@ ao project rm <project-id>
 | --- | --- |
 | `canonicalRepoURL` | Trusted upstream for numeric PR claims. It does not change where Orchestrator checks out or pushes. |
 | `autoReview` | Default automatic-review setting copied to new worker sessions. |
+| `terminateOnPrMerge` | Default auto-teardown for new worker sessions after all their PRs are terminal with at least one merged and the agent has quiesced. `ao spawn --terminate-on-pr-merge[=false]` overrides it per spawn. |
 | `workersRequestReview` | When `true`, new workers request an Orchestrator review of their own PR once it is ready, and again after each fix. When unset, workers ask the user or orchestrator before starting one. |
 | `defaultBranch` | Base branch for new Git worktrees. Defaults to `auto`. |
 | `sessionPrefix` | Prefix for generated session identifiers. |
@@ -56,9 +57,12 @@ ao project rm <project-id>
 | `orchestratorRules` | Standing instructions for orchestrators. |
 | `reviewers` | Harnesses used for Orchestrator review runs. |
 | `trackerIntake` | Opt-in, read-only issue intake that can start workers. Also requires `AO_TRACKER_INTAKE=on` in the daemon environment. |
+| `coordinators` | Gate and limits for the coordinator hierarchy: `enabled` (default `false`), `maxCoordinators` (default and maximum 2), `maxWorkersPerCoordinator` (default and maximum 3), `maxWorkers` (default and maximum 6). While disabled, `ao spawn --kind coordinator` is refused with `COORDINATORS_DISABLED`; restoring a terminated coordinator and existing ownership are unaffected. Values above the maximums are refused with `COORDINATOR_LIMITS_INVALID`. Set it with `ao project set-config --coordinators` and the `--max-*` flags, or the API. |
 | `containerReap` | Project-wide opt-out from Orchestrator's session-container cleanup. |
 
 `symlinks` and `agentRulesFile` must stay inside the repository. Orchestrator rejects absolute paths and paths that traverse outside it. Scratch projects do not support Git-only fields such as `defaultBranch` or `symlinks`.
+
+`terminateOnPrMerge` sets the default auto-teardown for new workers. Override it for one spawn with `ao spawn --terminate-on-pr-merge` or `--terminate-on-pr-merge=false`; the flag also travels with `ao spawn --host`. The session inspector toggle changes the stored value for a live session. Teardown waits until every PR of the session is merged or closed, at least one is merged, and the agent is not active. A dirty worktree is preserved.
 
 ### Choose a base branch
 

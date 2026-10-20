@@ -250,18 +250,19 @@ func (s *Store) ListPendingReportSchedule(ctx context.Context, limit int64) ([]d
 	return s.reportsWithOutputs(ctx, rows)
 }
 
-// ClaimPendingReportBatch atomically claims every pending report for a project.
-// A due, attention, or piggyback trigger therefore includes earlier batch work.
-func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.ProjectID, token string, at time.Time) ([]domain.ReportRecord, error) {
-	if projectID == "" || token == "" || at.IsZero() {
+// ClaimPendingReportBatch atomically claims one recipient group's pending
+// reports: the project plus the resolved coordinator owner or root.
+func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.ProjectID, recipientID, rootID domain.SessionID, token string, at time.Time) ([]domain.ReportRecord, error) {
+	if projectID == "" || recipientID == "" || token == "" || at.IsZero() {
 		return nil, domain.ErrInvalidReport
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var rows []gen.Report
-	err := s.inTx(ctx, "claim project report batch", func(q *gen.Queries) error {
-		scheduled, err := q.ListPendingReportsByProjectSchedule(ctx, gen.ListPendingReportsByProjectScheduleParams{
-			ProjectID: string(projectID), Limit: 1,
+	err := s.inTx(ctx, "claim recipient report batch", func(q *gen.Queries) error {
+		scheduled, err := q.ListPendingReportsByRecipientSchedule(ctx, gen.ListPendingReportsByRecipientScheduleParams{
+			ProjectID: string(projectID), RootSessionID: nullableSessionID(rootID),
+			RecipientSessionID: nullableSessionID(recipientID), Limit: 1,
 		})
 		if err != nil || len(scheduled) == 0 {
 			return err
@@ -269,20 +270,22 @@ func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.Pr
 		batchID := scheduled[0].DeliveryBatchID
 		if batchID == "" {
 			batchID = "report-batch:" + scheduled[0].ID
-			if err := q.AssignPendingReportsToBatch(ctx, gen.AssignPendingReportsToBatchParams{
+			if err := q.AssignPendingReportsToRecipient(ctx, gen.AssignPendingReportsToRecipientParams{
 				DeliveryBatchID: batchID, ProjectID: string(projectID),
+				RootSessionID: nullableSessionID(rootID), RecipientSessionID: nullableSessionID(recipientID),
 			}); err != nil {
 				return err
 			}
 		}
-		rows, err = q.ClaimPendingReportsByBatch(ctx, gen.ClaimPendingReportsByBatchParams{
+		rows, err = q.ClaimPendingReportsByRecipient(ctx, gen.ClaimPendingReportsByRecipientParams{
 			ProjectID: string(projectID), DeliveryBatchID: batchID,
+			RootSessionID: nullableSessionID(rootID), RecipientSessionID: string(recipientID),
 			ClaimToken: token, ClaimedAt: nullTime(at),
 		})
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("claim project report batch: %w", err)
+		return nil, fmt.Errorf("claim recipient report batch: %w", err)
 	}
 	return s.reportsWithOutputs(ctx, orderedReportRows(rows))
 }
@@ -498,6 +501,15 @@ func reportFromGen(r gen.Report) domain.ReportRecord {
 		SettlementDeadline: timeFromNull(r.SettlementDeadline), RepeatCount: r.RepeatCount,
 		ClaimToken: r.ClaimToken, ClaimedAt: timeFromNull(r.ClaimedAt), DeliveryAttempts: r.DeliveryAttempts,
 		AcknowledgedAt: timeFromNull(r.AcknowledgedAt), LastError: r.LastError,
-		DeliveryBatchID: r.DeliveryBatchID,
+		DeliveryBatchID: r.DeliveryBatchID, DeliveryOwnerID: r.DeliveryOwnerID,
 	}
+}
+
+// nullableSessionID keeps an empty root ID as SQL NULL so COALESCE can anchor
+// NULL owners without treating them as a real session.
+func nullableSessionID(id domain.SessionID) *domain.SessionID {
+	if id == "" {
+		return nil
+	}
+	return &id
 }

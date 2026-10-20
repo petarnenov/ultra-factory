@@ -39,6 +39,7 @@ type APIDeps struct {
 	Reviews            reviewsvc.Manager
 	Notifications      controllers.NotificationService
 	Reports            controllers.ReportService
+	Summaries          controllers.CoordinatorSummaryService
 	RemoteWorkerLinks  controllers.RemoteWorkerLinkService
 	CompletedTasks     controllers.CompletedTaskService
 	NotificationStream controllers.NotificationStream
@@ -133,6 +134,7 @@ type API struct {
 	reviews       *controllers.ReviewsController
 	notifications *controllers.NotificationsController
 	reports       *controllers.ReportsController
+	summaries     *controllers.CoordinatorSummariesController
 	remoteWorkers *controllers.RemoteWorkerLinksController
 	completed     *controllers.CompletedTasksController
 	push          *controllers.PushController
@@ -186,6 +188,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 			PreviewServer:            deps.PreviewServer,
 			Capabilities:             deps.SessionCapabilities,
 			ShellPreviewCapabilities: deps.ShellPreviewCapabilities,
+			Summaries:                deps.Summaries,
 		},
 		automations:   &controllers.AutomationsController{Svc: deps.Automations},
 		desktop:       &controllers.DesktopWorkspaceController{Svc: deps.DesktopWorkspaces},
@@ -194,6 +197,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		reviews:       &controllers.ReviewsController{Svc: deps.Reviews},
 		notifications: &controllers.NotificationsController{Svc: deps.Notifications, Stream: deps.NotificationStream},
 		reports:       &controllers.ReportsController{Svc: deps.Reports},
+		summaries:     &controllers.CoordinatorSummariesController{Svc: deps.Summaries},
 		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks},
 		completed:     &controllers.CompletedTasksController{Svc: deps.CompletedTasks, HostID: deps.HostID},
 		push:          &controllers.PushController{Registry: deps.Push},
@@ -257,6 +261,7 @@ func (a *API) Register(root chi.Router) {
 			a.reviews.Register(r)
 			a.notifications.Register(r)
 			a.reports.Register(r)
+			a.summaries.Register(r)
 			a.remoteWorkers.Register(r)
 			a.completed.Register(r)
 			a.push.Register(r)

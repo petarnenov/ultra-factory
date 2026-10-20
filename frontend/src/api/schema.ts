@@ -552,6 +552,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/coordinator-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a coordinator summary or escalation to the project root */
+        post: operations["submitCoordinatorSummary"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cues/{cueId}": {
         parameters: {
             query?: never;
@@ -1192,6 +1209,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/coordinators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a project's coordinators and owned workers */
+        get: operations["listProjectCoordinators"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/permissions": {
         parameters: {
             query?: never;
@@ -1455,10 +1489,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List linked remote workers with their local owner */
+        get: operations["listRemoteWorkerLinks"];
         put?: never;
         /** Link a worker on a saved remote host so this daemon pulls its reports (loopback only) */
         post: operations["createRemoteWorkerLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign or clear a linked remote worker's local owner */
+        put: operations["assignRemoteWorkerOwner"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2665,6 +2717,40 @@ export interface paths {
         patch: operations["setSessionMergePolicy"];
         trace?: never;
     };
+    "/api/v1/sessions/{sessionId}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign or clear a worker's coordinator owner (live root only) */
+        put: operations["assignSessionOwner"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/ownership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one session's owner, coordinator scope, and root */
+        get: operations["getSessionOwnership"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions/{sessionId}/pin": {
         parameters: {
             query?: never;
@@ -3145,6 +3231,23 @@ export interface paths {
         put?: never;
         /** Send a message to a running session's agent */
         post: operations["sendSessionMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sessions/{sessionId}/summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a coordinator's summaries newest first with delivery state */
+        get: operations["listCoordinatorSummaries"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4434,6 +4537,44 @@ export interface components {
         ContainerReapConfig: {
             disabled?: boolean;
         };
+        ControllersCoordinatorSummaryHistoryResponse: {
+            summaries: components["schemas"]["ControllersCoordinatorSummaryResponse"][];
+        };
+        ControllersCoordinatorSummaryRequest: {
+            coordinatorSessionId: string;
+            escalationNote?: string;
+            /** @enum {string} */
+            escalationReason?: "overlapping_files" | "unclear_acceptance" | "worker_failed" | "scope_decision" | "coordinator_terminated" | "other";
+            result?: string;
+            scope?: string;
+            /** @enum {string} */
+            state: "planning" | "working" | "blocked" | "done";
+            submissionKey: string;
+            workerSessionIds?: string[];
+        };
+        ControllersCoordinatorSummaryResponse: {
+            /** Format: date-time */
+            acknowledgedAt?: null | string;
+            coordinatorSessionId: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            deliveryAttempts: number;
+            /** @enum {string} */
+            deliveryState: "pending" | "claimed" | "acknowledged";
+            escalation: boolean;
+            escalationNote?: string;
+            escalationReason?: string;
+            id: string;
+            lastError?: string;
+            projectId: string;
+            result: string;
+            scope: string;
+            /** @enum {string} */
+            state: "planning" | "working" | "blocked" | "done";
+            submissionKey: string;
+            workerSessionIds: string[];
+        };
         ControllersKeepAwakeStatus: {
             active: boolean;
             enabled: boolean;
@@ -4491,6 +4632,7 @@ export interface components {
             branch?: string;
             branchState?: components["schemas"]["SessionBranchState"];
             chatProviderPreserved: boolean;
+            coordinatorScope?: string;
             /** Format: date-time */
             createdAt: string;
             displayName?: string;
@@ -4525,6 +4667,7 @@ export interface components {
             modelSource?: "explicit" | "settings" | "machine-default";
             /** @enum {string} */
             outputType: "none" | "pr" | "artifact" | "pr_artifact";
+            ownerSessionId: null | string;
             /** Format: date-time */
             pinnedAt?: null | string;
             /** Format: int64 */
@@ -4840,6 +4983,21 @@ export interface components {
             /** Format: int64 */
             totalTokens: number;
         };
+        CoordinatorRosterEntry: {
+            coordinatorScope: string;
+            coordinatorSessionId: string;
+            isTerminated: boolean;
+            latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
+            needsRecovery: boolean;
+            workerCount: number;
+            workerSessionIds: string[];
+        };
+        CoordinatorRosterResponse: {
+            coordinators: components["schemas"]["CoordinatorRosterEntry"][];
+            projectId: string;
+            rootSessionId: null | string;
+            rootWorkerSessionIds: string[];
+        };
         CreateAutomationRequest: {
             cron?: string;
             displayName: string;
@@ -4967,6 +5125,12 @@ export interface components {
             /** Format: date-time */
             lastActivityAt: string;
             state: string;
+        };
+        DomainCoordinatorsConfig: {
+            enabled?: boolean;
+            maxCoordinators?: number;
+            maxWorkers?: number;
+            maxWorkersPerCoordinator?: number;
         };
         DomainGitHubSCMConfig: {
             account?: string;
@@ -5291,6 +5455,9 @@ export interface components {
         ListProjectsResponse: {
             projects: components["schemas"]["ProjectSummary"][];
         };
+        ListRemoteWorkerLinksResponse: {
+            links: components["schemas"]["RemoteWorkerLinkResponse"][];
+        };
         ListReportsResponse: {
             nextCursor?: string;
             reports: components["schemas"]["ReportResponse"][];
@@ -5375,6 +5542,7 @@ export interface components {
         MergePRRequest: {
             expectedHeadSha: string;
             prUrl: string;
+            requestedBySessionId?: string;
         };
         MergePRResponse: {
             method: string;
@@ -5541,6 +5709,7 @@ export interface components {
             autoReview?: boolean;
             canonicalRepoURL?: string;
             containerReap?: components["schemas"]["ContainerReapConfig"];
+            coordinators?: components["schemas"]["DomainCoordinatorsConfig"];
             defaultBranch?: string;
             env?: {
                 [key: string]: string;
@@ -5647,6 +5816,7 @@ export interface components {
             displayName?: string;
             hostId: string;
             hostLabel: string;
+            ownerSessionId: null | string;
             projectId: string;
             pullBlocked?: string;
             remoteProjectId: string;
@@ -5962,6 +6132,22 @@ export interface components {
             rssBytes: number;
             /** Format: date-time */
             sampledAt: string;
+            sessionId: string;
+        };
+        SessionOwnerRequest: {
+            ownerSessionId: null | string;
+            requestedBySessionId: string;
+        };
+        SessionOwnershipResponse: {
+            coordinatorScope?: string;
+            /** @enum {string} */
+            kind: "worker" | "orchestrator" | "coordinator";
+            /** @enum {string} */
+            ownerKind?: "worker" | "orchestrator" | "coordinator";
+            ownerScope?: string;
+            ownerSessionId: null | string;
+            projectId?: string;
+            rootSessionId: null | string;
             sessionId: string;
         };
         SessionPRCISummary: {
@@ -6467,7 +6653,7 @@ export interface components {
             harnessExplicit?: null | boolean;
             issueId?: string;
             /** @enum {string} */
-            kind?: "worker" | "orchestrator";
+            kind?: "worker" | "orchestrator" | "coordinator";
             /** @enum {string} */
             mode?: "chat" | "tui";
             model?: string;
@@ -6477,6 +6663,7 @@ export interface components {
             remoteSpawn?: boolean;
             /** @enum {string} */
             requestedOutput?: "artifact";
+            scope?: string;
             terminateOnPrMerge?: null | boolean;
             /** @enum {string} */
             trackerProvider?: "github" | "gitlab";
@@ -8829,6 +9016,93 @@ export interface operations {
             };
         };
     };
+    submitCoordinatorSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ControllersCoordinatorSummaryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCoordinatorSummaryResponse"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCoordinatorSummaryResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     getCue: {
         parameters: {
             query?: never;
@@ -11084,6 +11358,68 @@ export interface operations {
             };
         };
     };
+    listProjectCoordinators: {
+        parameters: {
+            query?: {
+                /** @description Include terminated coordinators and workers. */
+                includeTerminated?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description Project identifier (registry key). */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoordinatorRosterResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     setProjectPermissions: {
         parameters: {
             query?: never;
@@ -11664,6 +12000,15 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -11912,6 +12257,56 @@ export interface operations {
             };
         };
     };
+    listRemoteWorkerLinks: {
+        parameters: {
+            query?: {
+                /** @description Only links owned by this local project. */
+                project?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListRemoteWorkerLinksResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     createRemoteWorkerLink: {
         parameters: {
             query?: never;
@@ -11936,6 +12331,89 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    assignRemoteWorkerOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Linked remote host identifier. */
+                hostId: string;
+                /** @description Session identifier on the remote host. */
+                remoteSessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteWorkerLinkResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12068,6 +12546,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16613,6 +17100,137 @@ export interface operations {
             };
         };
     };
+    assignSessionOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getSessionOwnership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOwnershipResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     pinSession: {
         parameters: {
             query?: never;
@@ -18811,6 +19429,68 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listCoordinatorSummaries: {
+        parameters: {
+            query?: {
+                /** @description Maximum summaries to return, newest first. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersCoordinatorSummaryHistoryResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
                 headers: {
                     [name: string]: unknown;
                 };

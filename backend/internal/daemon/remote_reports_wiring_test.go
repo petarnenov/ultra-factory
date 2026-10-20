@@ -22,8 +22,16 @@ type wiringRemoteStore struct {
 	listCalls int
 }
 
+func (s *wiringRemoteStore) GetProject(context.Context, string) (domain.ProjectRecord, bool, error) {
+	return domain.ProjectRecord{}, false, nil
+}
+
 func (s *wiringRemoteStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
 	return domain.SessionRecord{ID: id, ProjectID: "ultra-factory", Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (s *wiringRemoteStore) ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error) {
+	return nil, nil
 }
 
 func (s *wiringRemoteStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
@@ -38,6 +46,29 @@ func (s *wiringRemoteStore) UpsertRemoteWorkerLink(_ context.Context, link domai
 	defer s.mu.Unlock()
 	s.links = append(s.links, link)
 	return nil
+}
+
+func (s *wiringRemoteStore) GetRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, link := range s.links {
+		if link.HostID == hostID && link.RemoteSessionID == remoteSessionID {
+			return link, true, nil
+		}
+	}
+	return domain.RemoteWorkerLink{}, false, nil
+}
+
+func (s *wiringRemoteStore) SetRemoteWorkerOwner(_ context.Context, hostID string, remoteSessionID domain.SessionID, owner *domain.SessionID, _ domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, link := range s.links {
+		if link.HostID == hostID && link.RemoteSessionID == remoteSessionID {
+			s.links[i].OwnerSessionID = owner
+			return s.links[i], true, nil
+		}
+	}
+	return domain.RemoteWorkerLink{}, false, nil
 }
 
 func (s *wiringRemoteStore) DeleteRemoteWorkerLink(context.Context, string, domain.SessionID) error {
@@ -64,7 +95,11 @@ func (s *wiringRemoteStore) polls() int {
 
 type wiringDeliverer struct{}
 
-func (wiringDeliverer) DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error {
+func (wiringDeliverer) ResolveRemoteRecipient(context.Context, domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{ID: "orchestrator", Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (wiringDeliverer) DeliverExternal(context.Context, domain.ProjectID, domain.SessionID, []domain.ReportRecord) error {
 	return nil
 }
 
@@ -93,7 +128,7 @@ func TestRemoteReportsWiringSharesTheHostIdentityAndWakesOnLink(t *testing.T) {
 	t.Setenv("AO_REMOTES_FILE", remotes)
 	store := &wiringRemoteStore{links: []domain.RemoteWorkerLink{{HostID: "host-local", RemoteSessionID: "w-1"}}}
 	var logs syncBuffer
-	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", slog.New(slog.NewTextHandler(&logs, nil)))
+	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", nil, slog.New(slog.NewTextHandler(&logs, nil)))
 
 	// The link service refuses this machine.
 	_, err := links.Register(context.Background(), remoteworker.RegisterInput{

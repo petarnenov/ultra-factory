@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 func TestBuildTaskPrompt_IssueContextStaysInTaskPrompt(t *testing.T) {
@@ -375,5 +377,60 @@ func TestBuildSystemPrompt_WorkerNativeReviewFollowsProjectPolicy(t *testing.T) 
 	local := buildSystemPromptText(systemPromptConfig{Role: sessionPromptRoleWorker, Project: promptProject{ID: "mer"}})
 	if strings.Contains(local, "## AO Native Review") {
 		t.Fatalf("a project with no remote has no PRs to review:\n%s", local)
+	}
+}
+
+func TestBuildSystemPrompt_CoordinatorStatesScopeCapAndLimits(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:              sessionPromptRoleCoordinator,
+		Project:           promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope:  "auth module",
+		OrchestratorRules: "Prefer small PRs.",
+	})
+	for _, want := range []string{
+		"## AO Coordinator",
+		"Your scope is: auth module",
+		"at most 3 active workers",
+		"Do not spawn coordinators, reassign worker ownership, merge pull requests",
+		"only integration authority",
+		"is not integrated completion",
+		"ao coordinator report",
+		"when you are assigned",
+		"overlapping_files",
+		"unclear_acceptance",
+		"worker_failed",
+		"scope_decision",
+		"workers return to the root",
+		"Prefer small PRs.",
+		"## Standing-instruction confidentiality",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("coordinator prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Never ever make code changes directly in the orchestrator session") {
+		t.Fatal("a coordinator must not reuse the root operating prompt")
+	}
+}
+
+func TestCoordinatorUsesOrchestratorRoleConfiguration(t *testing.T) {
+	cfg := domain.ProjectConfig{
+		Orchestrator: domain.RoleOverride{Harness: domain.HarnessCodex},
+		Worker:       domain.RoleOverride{Harness: domain.HarnessClaudeCode},
+	}
+	for kind, want := range map[domain.SessionKind]domain.AgentHarness{
+		domain.KindOrchestrator: domain.HarnessCodex,
+		domain.KindCoordinator:  domain.HarnessCodex,
+		domain.KindWorker:       domain.HarnessClaudeCode,
+	} {
+		if got := roleOverride(kind, cfg).Harness; got != want {
+			t.Errorf("roleOverride(%s).Harness = %q, want %q", kind, got, want)
+		}
+	}
+	if roleConfigName(domain.KindCoordinator) != "orchestrator" || roleConfigName(domain.KindWorker) != "worker" {
+		t.Fatal("roleConfigName must map a coordinator to the orchestrator role")
+	}
+	if promptRoleForKind(domain.KindCoordinator) != sessionPromptRoleCoordinator {
+		t.Fatal("a coordinator has its own prompt role")
 	}
 }

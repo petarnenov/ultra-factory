@@ -85,6 +85,9 @@ func newStartCommand(ctx *commandContext) *cobra.Command {
 // it if absent, open it, then print the deprecation notice. It never blocks or
 // supervises the launched app.
 func (c *commandContext) runStart(ctx context.Context, cmd *cobra.Command, opts startOptions) error {
+	if err := refuseDaemonControlInAgentSession("start"); err != nil {
+		return err
+	}
 	out := cmd.OutOrStdout()
 	res := startResult{}
 

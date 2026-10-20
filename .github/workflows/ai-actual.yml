@@ -1,0 +1,80 @@
+name: AI actual time
+
+# Records the measured AI tool time for one issue on the CO project board.
+# The measurement runs locally, where the session logs live.
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to record
+        required: true
+      blocks:
+        description: Measured time in 4-hour blocks
+        required: true
+      summary:
+        description: Per-session measurement, for the run log
+        required: false
+      evidence:
+        description: Markdown evidence posted as an issue comment
+        required: false
+  pull_request:
+    paths:
+      - scripts/ai-actual/**
+      - .github/workflows/ai-actual.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-actual-${{ github.event.pull_request.number || github.event.inputs.issue }}
+  # Never cancel: a cancelled run can leave the roll-up half written.
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test the measurement helpers
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      # The live cases skip themselves without a token, which is why the
+      # pull request run only covers the pure helpers.
+      - run: node --disable-warning=ExperimentalWarning --test scripts/ai-actual/lib.test.mjs scripts/ai-actual/sessions.test.mjs scripts/ai-actual/record.test.mjs
+
+  record:
+    name: Record actual AI time
+    needs: test
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The evidence comment goes out with the workflow token, so this job
+    # needs issues: write; the pull request test job does not.
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+
+      - name: Record the value and roll it up
+        env:
+          # A classic PAT with the project scope: the workflow token cannot
+          # write to a project owned by a user account.
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ISSUES_TOKEN: ${{ github.token }}
+          PROJECT_OWNER: petarnenov
+          PROJECT_NUMBER: "2"
+          INPUT_ISSUE: ${{ github.event.inputs.issue }}
+          INPUT_BLOCKS: ${{ github.event.inputs.blocks }}
+          INPUT_SUMMARY: ${{ github.event.inputs.summary }}
+          INPUT_EVIDENCE: ${{ github.event.inputs.evidence }}
+        run: node scripts/ai-actual/record.mjs

@@ -129,6 +129,132 @@ func TestSessionTop_SurfacesDaemonError(t *testing.T) {
 	}
 }
 
+// TestSessionTopRemoteHostReadsTheRemoteDaemon: --host routes both reads to
+// the paired host and keeps the local table and JSON shape.
+func TestSessionTopRemoteHostReadsTheRemoteDaemon(t *testing.T) {
+	cfg := setConfigEnv(t)
+	local := startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodGet, "/api/v1/sessions", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("active"); got != "true" {
+			t.Errorf("remote sessions active = %q, want true", got)
+		}
+		if got := r.URL.Query().Get("project"); got != "widgets" {
+			t.Errorf("remote sessions project = %q, want widgets", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"sessions":[`+
+			sessionJSON("demo-1", "widgets", "worker", "working", false)+`,`+
+			sessionJSON("demo-2", "widgets", "worker", "idle", false)+`,`+
+			sessionJSON("demo-3", "widgets", "worker", "idle", false)+`]}`)
+	})
+	remote.handle(http.MethodGet, "/api/v1/usage/sessions/memory", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("projectId"); got != "widgets" {
+			t.Errorf("remote memory projectId = %q, want widgets", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, topMemoryBody)
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "session", "top", "--host", "build-box", "--project", "widgets")
+	if err != nil {
+		t.Fatalf("session top --host failed: %v\nstderr=%s", err, errOut)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("expected the local table shape (header, 3 rows, total), got:\n%s", out)
+	}
+	if !strings.HasPrefix(lines[1], "demo-2") || !strings.Contains(lines[1], "2.1 GB") {
+		t.Fatalf("largest remote session should lead:\n%s", out)
+	}
+	if !strings.HasPrefix(lines[4], "TOTAL") || !strings.Contains(lines[4], "2.7 GB") {
+		t.Fatalf("total row wrong:\n%s", out)
+	}
+	for _, path := range []string{"/api/v1/sessions", "/api/v1/usage/sessions/memory"} {
+		req, ok := remote.find(http.MethodGet, path)
+		if !ok {
+			t.Fatalf("%s never reached the remote host; saw %+v", path, remote.recorded())
+		}
+		if req.auth != "Bearer pw" || req.expectedHost != "host-build" {
+			t.Fatalf("%s headers auth=%q expected=%q", path, req.auth, req.expectedHost)
+		}
+		if local.saw("GET " + path) {
+			t.Fatalf("%s also went to the local daemon", path)
+		}
+	}
+}
+
+// TestSessionTopRemoteDaemonErrorKeepsEnvelope: a remote route failure must
+// exit 1 and still render the daemon's code and request ID.
+func TestSessionTopRemoteDaemonErrorKeepsEnvelope(t *testing.T) {
+	cfg := setConfigEnv(t)
+	startLocalDaemon(t, cfg, "host-local", nil)
+	remote := newFakeRemoteHost(t, "host-build", "pw")
+	remote.handle(http.MethodGet, "/api/v1/sessions", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"sessions":[]}`)
+	})
+	remote.handle(http.MethodGet, "/api/v1/usage/sessions/memory", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusNotImplemented, map[string]string{
+			"message":   "procmem: process memory is not supported on windows",
+			"code":      "MEMORY_UNSUPPORTED",
+			"requestId": "req-remote-7",
+		})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "pw", HostID: "host-build"})
+
+	_, errOut, err := executeCLI(t, aliveDeps(), "session", "top", "--host", "build-box")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := ExitCode(err); got != 1 {
+		t.Fatalf("exit code = %d, want 1", got)
+	}
+	for _, want := range []string{"MEMORY_UNSUPPORTED", "req-remote-7"} {
+		if !strings.Contains(errOut+err.Error(), want) {
+			t.Fatalf("error should carry %q from the remote envelope: %v\n%s", want, err, errOut)
+		}
+	}
+}
+
+// TestSessionTopHostSelectionErrorsAreUsageErrors matches the other --host
+// commands: an unusable selector is misuse (exit 2) and sends no request.
+func TestSessionTopHostSelectionErrorsAreUsageErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		entries  []remoteEntry
+		selector string
+		wantErr  string
+	}{
+		{name: "no saved hosts", selector: "build-box", wantErr: "no saved remote hosts"},
+		{
+			name:     "unknown label",
+			entries:  []remoteEntry{{Label: "build-box", URL: "http://10.0.0.5:3001", HostID: "host-build", Password: "pw"}},
+			selector: "nope",
+			wantErr:  `--host "nope" matches no saved host`,
+		},
+		{
+			name: "ambiguous label",
+			entries: []remoteEntry{
+				{Label: "Twin", URL: "http://10.0.0.7:3001", HostID: "host-a", Password: "pw"},
+				{Label: "twin", URL: "http://10.0.0.8:3001", HostID: "host-b", Password: "pw"},
+			},
+			selector: "twin",
+			wantErr:  "matches 2 saved hosts",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setConfigEnv(t)
+			writeRemotesFile(t, tc.entries...)
+			_, _, err := executeCLI(t, aliveDeps(), "session", "top", "--host", tc.selector)
+			if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want usage error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := map[uint64]string{0: "0 B", 1023: "1023 B", 1024: "1.0 KB", 1536: "1.5 KB", 641728512: "612.0 MB", 2254857830: "2.1 GB"}
 	for in, want := range cases {

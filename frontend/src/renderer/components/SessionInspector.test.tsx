@@ -1482,6 +1482,33 @@ describe("SessionInspector completion controls", () => {
       }),
     ).not.toBeInTheDocument();
   });
+
+  it("offers an orchestrator the same kill confirmation and mutation as a worker", async () => {
+    postMock.mockReturnValue(new Promise(() => {}));
+    renderWithQuery(
+      <SessionInspector session={session([], { kind: "orchestrator" })} />,
+    );
+
+    expect(screen.getByText("Kill")).toBeInTheDocument();
+    expect(screen.queryByText("Archive")).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Kill orchestrator" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Kill this orchestrator?",
+    });
+    expect(dialog).toHaveTextContent("ao session restore <id>");
+
+    await userEvent.click(
+      within(dialog).getByRole("button", {
+        name: "Confirm, kill orchestrator",
+      }),
+    );
+
+    expect(postMock).toHaveBeenCalledWith("/api/v1/sessions/{sessionId}/kill", {
+      params: { path: { sessionId: "sess-1" } },
+    });
+  });
 });
 
 describe("SessionInspector Activity section", () => {

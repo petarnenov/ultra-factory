@@ -34,9 +34,20 @@ function isHashSource(file) {
     || path.basename(file).toLowerCase().startsWith('dockerfile.');
 }
 
+export const python3MissingMessage = 'comment-policy: python3 was not found on PATH. '
+  + 'It is required to scan Python, shell and Dockerfile comments '
+  + '(scripts/comment-policy/scan_comments.py). Install Python 3 and retry; '
+  + 'these languages are not skipped because that would hide violations.';
+
 export function scanHashLanguage(source, language) {
-  const output = execFileSync('python3', [scanCommentsPath, language, '--stdin'],
-    { input: source, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  let output;
+  try {
+    output = execFileSync('python3', [scanCommentsPath, language, '--stdin'],
+      { input: source, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  } catch (error) {
+    if (error?.code === 'ENOENT') throw new Error(python3MissingMessage, { cause: error });
+    throw error;
+  }
   return JSON.parse(output);
 }
 
@@ -265,7 +276,7 @@ export function mapDeletedCommentRanges(oldComments, deletions) {
   return ranges;
 }
 
-if (isMain) {
+async function main() {
   const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
   const sourceFiles = tracked.filter((file) => existsSync(file) && !excludedPath(file)
     && (extensions.has(path.extname(file)) || isHashSource(file)));
@@ -331,6 +342,16 @@ if (isMain) {
   }
   if (diagnostics.size) {
     for (const messages of diagnostics.values()) for (const message of messages) console.error(message);
+    process.exitCode = 1;
+  }
+}
+
+if (isMain) {
+  try {
+    await main();
+  } catch (error) {
+    if (error?.message !== python3MissingMessage) throw error;
+    console.error(error.message);
     process.exitCode = 1;
   }
 }

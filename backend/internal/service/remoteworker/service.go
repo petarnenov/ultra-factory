@@ -14,13 +14,18 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
 // Store is the link persistence and parent-session boundary.
 type Store interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
+	GetProject(context.Context, string) (domain.ProjectRecord, bool, error)
+	ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error)
 	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
+	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
+	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
 }
 
 // MaxLinks bounds how many remote workers this daemon polls; every link costs
@@ -57,6 +62,9 @@ type Deps struct {
 	Lookup     func(hostID string) (remotehost.Entry, bool, error)
 	Now        func() time.Time
 	OnLinked   func()
+	// Capacity is shared with the session service so link writes and local
+	// spawns serialise per project. Nil gives this service its own guard.
+	Capacity *coordownership.Guard
 }
 
 // Service validates and stores remote worker links.
@@ -66,6 +74,7 @@ type Service struct {
 	lookup     func(string) (remotehost.Entry, bool, error)
 	now        func() time.Time
 	onLinked   func()
+	capacity   *coordownership.Guard
 	// mu makes the link-limit check and the insert one step.
 	mu sync.Mutex
 }
@@ -78,7 +87,10 @@ func New(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked}
+	if d.Capacity == nil {
+		d.Capacity = &coordownership.Guard{}
+	}
+	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked, capacity: d.Capacity}
 }
 
 // MaxDisplayNameLength matches the spawn display-name limit.
@@ -129,24 +141,57 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	link := domain.RemoteWorkerLink{
 		HostID: in.HostID, HostLabel: strings.TrimSpace(entry.Label),
 		RemoteSessionID: in.RemoteSessionID, RemoteProjectID: in.RemoteProjectID,
-		ProjectID: parent.ProjectID, DisplayName: in.DisplayName, CreatedAt: s.now().UTC(),
+		ProjectID: parent.ProjectID, DisplayName: in.DisplayName,
+		OwnerSessionID: coordownership.SpawnOwner(parent, parent.ProjectID),
+		CreatedAt:      s.now().UTC(),
 	}
+	projectLock := s.capacity.Project(link.ProjectID)
+	projectLock.Lock()
+	defer projectLock.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, err := s.store.ListRemoteWorkerLinks(ctx)
 	if err != nil {
 		return Registration{}, err
 	}
+	if current, found := findLink(existing, link); found {
+		// A link's local project and owner are fixed at creation; moving the
+		// project would strand a non-NULL owner outside it and violate I4.
+		if current.ProjectID != link.ProjectID {
+			return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_PROJECT_CONFLICT",
+				"The remote worker link already belongs to a different project",
+				map[string]any{"hostId": in.HostID, "remoteSessionId": string(in.RemoteSessionID), "projectId": string(link.ProjectID)})
+		}
+	}
 	if len(existing) >= MaxLinks && !hasLink(existing, link) {
 		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
+	}
+	if !hasLink(existing, link) {
+		counts, err := coordownership.Count(ctx, s.store, s.store, link.ProjectID)
+		if err != nil {
+			return Registration{}, err
+		}
+		gate, err := coordownership.LoadConfig(ctx, s.store, link.ProjectID)
+		if err != nil {
+			return Registration{}, err
+		}
+		if err := counts.CheckNewWorker(link.ProjectID, link.OwnerSessionID, gate.Limits()); err != nil {
+			return Registration{}, err
+		}
 	}
 	if err := s.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
 		return Registration{}, err
 	}
+	stored := link
+	if current, found, err := s.store.GetRemoteWorkerLink(ctx, link.HostID, link.RemoteSessionID); err != nil {
+		return Registration{}, err
+	} else if found {
+		stored = current
+	}
 	if s.onLinked != nil {
 		s.onLinked()
 	}
-	registration := Registration{Link: link}
+	registration := Registration{Link: stored}
 	base, err := remotehost.BaseURL(entry.URL)
 	if err == nil {
 		err = remotehost.UnattendedTransportAllowed(base)
@@ -158,10 +203,15 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 }
 
 func hasLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) bool {
+	_, found := findLink(links, link)
+	return found
+}
+
+func findLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) (domain.RemoteWorkerLink, bool) {
 	for _, existing := range links {
 		if existing.HostID == link.HostID && existing.RemoteSessionID == link.RemoteSessionID {
-			return true
+			return existing, true
 		}
 	}
-	return false
+	return domain.RemoteWorkerLink{}, false
 }

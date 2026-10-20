@@ -34,10 +34,126 @@ func TestGreenPRThresholdAndChecks(t *testing.T) {
 		"no checks":          {pr("MERGEABLE"), false},
 		"no completion time": {pr("MERGEABLE", Check{Result: "SUCCESS"}), false},
 	} {
-		got := len(greenPRsLeftOpen(cfg, tc.facts.GitHub, now)) == 1
+		got := len(greenPRsLeftOpen(cfg, tc.facts, now)) == 1
 		if got != tc.want {
 			t.Errorf("%s: violation = %v, want %v", name, got, tc.want)
 		}
+	}
+}
+
+func TestGreenPRViolationMatchesReviewState(t *testing.T) {
+	cfg := DefaultConfig()
+	greenFacts := func(mutate func(*PullRequest, *Worker)) Facts {
+		pr := PullRequest{
+			Number: 201, Head: "rw/x", HeadSHA: head("201"),
+			Mergeable: "MERGEABLE", ReviewDecision: "APPROVED",
+			Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-20 * time.Minute)}},
+		}
+		worker := Worker{ID: "uf-1", Branch: "rw/x", Reviews: []WorkerReview{
+			{PRNumber: 201, TargetSHA: pr.HeadSHA, Status: "up_to_date"},
+		}}
+		if mutate != nil {
+			mutate(&pr, &worker)
+		}
+		return Facts{
+			GitHub: &GitHubState{OpenPRs: []PullRequest{pr}},
+			Hosts:  []HostSessions{{Host: "Linux", Sessions: []Worker{worker}}},
+		}
+	}
+	const base = `#201 (rw/x) has been green and mergeable for 20 min → review it per "Review and merge"`
+	cases := map[string]struct {
+		mutate func(*PullRequest, *Worker)
+		want   []string
+	}{
+		"approved": {nil, []string{base + " and merge it"}},
+		"AO review running": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].Status = "running"
+		}, []string{base + "; AO review is running"}},
+		"AO review timed out": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].Status = "needs_review"
+		}, []string{base + "; AO review is needs_review"}},
+		"no AO review for this head": {func(_ *PullRequest, w *Worker) {
+			w.Reviews = nil
+		}, []string{base + "; no current-head AO native approval"}},
+		"stale AO review for another head": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].TargetSHA = head("stale")
+		}, []string{base + "; no current-head AO native approval"}},
+		"provider approval required": {func(pr *PullRequest, _ *Worker) {
+			pr.ReviewDecision = "REVIEW_REQUIRED"
+		}, []string{base + "; review approval required"}},
+		"AO changes requested": {func(_ *PullRequest, w *Worker) {
+			w.Reviews[0].Status = "changes_requested"
+		}, []string{}},
+		"provider changes requested": {func(pr *PullRequest, _ *Worker) {
+			pr.ReviewDecision = "CHANGES_REQUESTED"
+		}, []string{}},
+		"unresolved review thread": {func(pr *PullRequest, _ *Worker) {
+			pr.Threads = []ReviewThread{{Body: "fix this"}}
+		}, []string{}},
+		"failing checks": {func(pr *PullRequest, _ *Worker) {
+			pr.Checks = []Check{{Result: "FAILURE", CompletedAt: now.Add(-20 * time.Minute)}}
+		}, []string{}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := texts(greenPRsLeftOpen(cfg, greenFacts(tc.mutate), now))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGreenPRHoldLabelIsNotAMergeViolation(t *testing.T) {
+	cfg := DefaultConfig()
+	facts := func(labels []string, reviewDecision string, reviews []WorkerReview) Facts {
+		pr := PullRequest{
+			Number: 354, Head: "fix/daemon-tunnel-comment-policy", HeadSHA: head("354"),
+			Mergeable: "MERGEABLE", Labels: labels, ReviewDecision: reviewDecision,
+			Checks: []Check{{Result: "SUCCESS", CompletedAt: now.Add(-30 * time.Minute)}},
+		}
+		return Facts{
+			GitHub: &GitHubState{OpenPRs: []PullRequest{pr}},
+			Hosts: []HostSessions{{Host: "Linux", Sessions: []Worker{
+				{ID: "uf-1", Branch: "fix/daemon-tunnel-comment-policy", Reviews: reviews},
+			}}},
+		}
+	}
+	const base = `#354 (fix/daemon-tunnel-comment-policy) has been green and mergeable for 30 min → review it per "Review and merge"`
+	currentHead := []WorkerReview{{PRNumber: 354, TargetSHA: head("354"), Status: "up_to_date"}}
+	cases := map[string]struct {
+		labels         []string
+		reviewDecision string
+		reviews        []WorkerReview
+		want           []string
+	}{
+		"no AO review with needs-human": {labels: []string{"needs-human"}, want: []string{}},
+		"approved with needs-human": {
+			labels: []string{"needs-human"}, reviewDecision: "APPROVED", reviews: currentHead,
+			want: []string{},
+		},
+		"status:blocked is also a hold": {labels: []string{"status:blocked"}, want: []string{}},
+		"do-not-merge is also a hold":   {labels: []string{"do-not-merge"}, want: []string{}},
+		"hold label match ignores case": {labels: []string{"NEEDS-HUMAN"}, want: []string{}},
+		"no hold label keeps the review wording": {
+			want: []string{base + "; no current-head AO native approval"},
+		},
+		"running review is the review wording": {
+			reviews: []WorkerReview{{PRNumber: 354, TargetSHA: head("354"), Status: "running"}},
+			want:    []string{base + "; AO review is running"},
+		},
+		"approved without a hold label instructs the merge": {
+			reviewDecision: "APPROVED", reviews: currentHead,
+			want: []string{base + " and merge it"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := texts(greenPRsLeftOpen(cfg, facts(tc.labels, tc.reviewDecision, tc.reviews), now))
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

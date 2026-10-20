@@ -35,6 +35,12 @@ Every product command resolves to a daemon HTTP route. Run `ao <command>
 | `ao daemon`                   | Run the daemon in the foreground (normally supervised by the desktop app or an OS service manager).                               |
 | `ao remote-host status/enable/disable` | Inspect or toggle this machine's authenticated remote listener through the local daemon. |
 
+`ao start`, `ao stop`, and `ao daemon` are refused inside an AO agent session
+(`AO_SESSION_ID` is set): they control the daemon that runs the session. A
+daemon started by a host supervisor (the Railway hub sets `AO_SUPERVISED=1`)
+also refuses loopback `POST /shutdown`, so stopping it requires a service
+restart from the platform.
+
 For a self-hosted machine, use the [host setup command](../self-hosted-remote.md)
 to install the daemon with its Claude Chat runtime and start the OS user
 service. It calls `ao remote-host enable` and prints the host ID, address, and
@@ -52,9 +58,10 @@ addresses change on restart.
 
 ### Remote host target (`--host`)
 
-`spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`,
-`project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`
-accept `--host <label | host ID | URL>`.
+`spawn`, `send`, and
+`session ls|get|top|owner|assign|input|kill|restore|rename|exit-agent|resume-agent|claim-pr`,
+`project ls|get`, `coordinator ls`, `orchestrator ls`, `agent ls`, and
+`review trigger|ls|cancel` accept `--host <label | host ID | URL>`.
 With it, the same daemon route is called on a paired remote host's
 authenticated remote listener instead of the loopback daemon. The saved
 credential comes from the desktop's `remotes.json`; it is sent only after
@@ -98,8 +105,17 @@ commit and records which tree the verdict read. See
 | `ao automation create/list/get/update/delete/runs` | `POST/GET/PATCH/DELETE /api/v1/automations` |
 | `ao cue create/list`                | `POST/GET /api/v1/projects/{id}/cues`         |
 | `ao spawn`                          | Targeted launch ensure, then `POST /api/v1/sessions` |
+| `ao spawn --kind coordinator --scope <text>` | `POST /api/v1/sessions` with `kind=coordinator`, `scope`, and the calling root as `parentSessionId` |
 | `ao session ls`                     | `GET /api/v1/sessions` plus per-session PR summaries; shows branch, PR, CI, review, unresolved threads, activity, and age. |
 | `ao session get <id>`               | `GET /api/v1/sessions/{id}`                    |
+| `ao session top`                    | `GET /api/v1/sessions` and `GET /api/v1/usage/sessions/memory`; per-session RSS and process count, largest first. |
+| `ao session owner <id>`             | `GET /api/v1/sessions/{id}/ownership`         |
+| `ao session assign <worker> --owner <coordinator-id\|root>` | `PUT /api/v1/sessions/{id}/owner` |
+| `ao coordinator ls`                 | `GET /api/v1/projects/{id}/coordinators`      |
+| `ao coordinator report --state <state>` | `POST /api/v1/coordinator-summaries`      |
+| `ao remote-worker ls`               | `GET /api/v1/remote-worker-links`             |
+| `ao remote-worker assign <host> <remote-session>` | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` |
+| `ao session input <id>`             | `GET /api/v1/sessions/{id}/conversation` to list pending structured questions; `POST /api/v1/sessions/{id}/conversation/inputs/{requestId}/resolve` with `--request-id` and `--action` to answer one |
 | `ao session kill <id>`              | `POST /api/v1/sessions/{id}/kill`              |
 | `ao session restore <id>`           | `POST /api/v1/sessions/{id}/restore`           |
 | `ao session exit-agent <id>`        | `POST /api/v1/sessions/{id}/exit-agent`        |
@@ -118,6 +134,48 @@ commit and records which tree the verdict read. See
 | `ao preview start/status/stop`      | `POST/GET/DELETE /api/v1/sessions/{id}/preview/server` |
 | `ao browser ...`                    | `GET /api/v1/browser/status`, `POST /api/v1/browser/commands` |
 | `ao hooks <agent> <event>`          | `POST /api/v1/sessions/{id}/activity` (hidden) |
+
+### Session ownership
+
+Coordinator ownership is durable daemon state. `ao session ls` shows an
+`OWNER` column, `ao session get` shows the owner and coordinator scope, and
+`ao session owner <id>` reads the full relation: the session's kind, its owner
+(a worker's coordinator, or `root` when unowned), the owner's scope, and the
+project's live root. `ao coordinator ls` prints the project hierarchy with each
+coordinator's scope and the workers it owns; `-p/--project` defaults to
+`AO_PROJECT_ID`. The roster also carries each coordinator's latest summary
+and a derived `needsRecovery` flag (a terminated coordinator that still owns a
+live worker); a flagged coordinator is listed even without
+`--include-terminated`. `ao session ls --tree` renders the same hierarchy per
+project (`--json` returns the rosters), and `ao session get <coordinator>`
+adds its workers, recovery flag, and latest summary. Without a live root, the
+root-owned workers print as `unassigned`.
+
+Only the project's live root may write ownership. The CLI sends the caller from
+`AO_SESSION_ID`; pass `--requested-by` when the caller is not the current
+session, and always pass it with `--host` because a local session ID is never
+forwarded to another daemon. `--owner root` clears a worker's owner and returns
+it to direct root delegation:
+
+```bash
+ao session assign mer-3 --owner mer-2
+ao session assign mer-3 --owner root
+ao coordinator ls --project mercury
+```
+
+Linked remote workers use the same owner values. Their link identity is the
+remote host ID plus the remote session ID:
+
+```bash
+ao remote-worker ls --project mercury
+ao remote-worker assign build-box widgets-3 --owner mer-2
+```
+
+Ownership writes return the ADR 0010 error codes (`OWNERSHIP_ROOT_ONLY`,
+`OWNER_NOT_COORDINATOR`, `OWNER_CROSS_PROJECT`, `OWNER_TERMINATED`,
+`OWNER_REASSIGNMENT_IN_FLIGHT`) in the standard API envelope with a request ID;
+the CLI prints the code and exits 1. CLI misuse such as a missing `--owner` or
+an unresolved caller exits 2.
 
 `ao agent ls` asks the daemon to ensure display readiness, then prints the
 existing table or legacy JSON projection. The daemon alone decides whether a
@@ -171,6 +229,32 @@ native history and compaction.
 explicitly with `ao session claim-pr <session-id> <pr-ref>`. The explicit form
 remains supported for backward compatibility and cross-session coordination.
 
+`ao session claim-pr <session-id> <pr-ref> --host <host>` records the
+association on the daemon that owns the session, so the PR shows up in that
+host's session and review registry. Session IDs are per daemon, so the target
+session is always passed explicitly and the local `AO_SESSION_ID` is never used
+for a remote host. A bare number resolves against the remote project's recorded
+repository; pass the full PR URL when it has none.
+
+A chat-mode worker that asks a structured question parks its turn until someone
+answers. `ao session input <session-id>` lists each pending request id, the
+question, and the form fields. Resolve one with `--request-id` and `--action`:
+
+```bash
+ao session input mer-3
+ao session input mer-3 --request-id 'acp-request:host:1' \
+  --action accept --answer q0="No, leave it for the orchestrator"
+ao session input mer-3 --request-id 'acp-request:host:1' --action decline
+```
+
+`--answer` is repeatable and accepts only with `--action accept`. A value that
+is valid JSON keeps its type, so `--answer q0=true` sends a boolean and
+`--answer q0='["a","b"]'` sends an array; quote a string when it would otherwise
+parse as JSON. Accepting a URL-mode request records consent but does not open
+the URL. The command uses the same route and behavior with `--host`, and it
+does not depend on `--steer`, which some harnesses (including `opencode-v2`) do
+not support.
+
 Both `ao session claim-pr` and `ao spawn --claim-pr` claim ownership metadata
 only. The claim step does not check out a branch or change HEAD, so
 `branchChanged: false` renders as `checkout: not performed; workspace unchanged`
@@ -188,13 +272,20 @@ immediately without interrupting current orchestrator work. `--stuck` requests
 an interrupt at most once per worker every three minutes and coalesces equal
 repeats. Reports route to the active project orchestrator at each attempt and
 remain pending when none is active. AO never spawns an orchestrator to deliver
-a report.
+a report. A terminated worker's queued reports are delivered once and then the
+stream ends: `ao report` for a terminated session fails with
+`409 SESSION_TERMINATED`, and a report still queued in the CLI outbox for such
+a session is discarded when its replay is rejected.
 
 Scheduled delivery and exact same-turn user-message piggyback use Chat's
-durable semantic message boundary. Supported TUIs acknowledge delivery only
-after their native prompt hook reports acceptance of the exact durable batch
-identity. A successful terminal write is never acknowledgement. Reports remain
-pending for TUI adapters that cannot expose this semantic boundary.
+durable semantic message boundary. Supported TUIs confirm delivery through
+their native prompt hook reporting acceptance of the exact durable batch
+identity. A successful terminal write alone is not confirmation: when the hook
+does not arrive within the acceptance wait, the batch is nevertheless
+acknowledged and never re-sent. That is a deliberate loss window, because the
+prompt was already written and a retry would paste it again: a prompt the
+harness never submitted is not recovered. Reports remain pending for TUI
+adapters that cannot expose this semantic boundary.
 
 `GET /api/v1/reports?projectId=<id>` is the read-only persisted report
 projection. Consumers such as Project Summary can read ordered report facts
@@ -277,6 +368,17 @@ PR actions are available through `ao pr merge` and
 `ao pr resolve-comments`. Review actions are available through `ao review ls`,
 `ao review trigger` (also `execute` and `restart`), `ao review cancel` (also
 `stop`), and `ao review submit`.
+
+`ao pr merge <pr-number>` merges a pull request that an AO session tracks. It
+looks up the pull request's URL and current head commit from the owning
+session and asks the daemon to merge exactly that head. `--head <sha>` pins the
+commit you reviewed instead, and `--project <id>` disambiguates a PR number that
+exists in several projects.
+
+`ao pr merge` sends `AO_SESSION_ID` as `requestedBySessionId` (ADR 0010). The
+daemon refuses a live coordinator or worker with `403 MERGE_ROOT_ONLY`; the
+root, a human, and any caller that omits or does not match a live session
+proceed as before.
 
 ## Configuration
 

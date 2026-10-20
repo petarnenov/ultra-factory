@@ -225,6 +225,8 @@ func NewRootCommand(deps Deps) *cobra.Command {
 	root.AddCommand(newProjectCommand(ctx))
 	root.AddCommand(newSecretCommand(ctx))
 	root.AddCommand(newSessionCommand(ctx))
+	root.AddCommand(newCoordinatorCommand(ctx))
+	root.AddCommand(newRemoteWorkerCommand(ctx))
 	root.AddCommand(newOrchestratorCommand(ctx))
 	root.AddCommand(newPRCommand(ctx))
 	root.AddCommand(newReviewCommand(ctx))
@@ -357,6 +359,9 @@ func newDaemonCommand() *cobra.Command {
 		Hidden: true,
 		Args:   noArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseDaemonControlInAgentSession("daemon"); err != nil {
+				return err
+			}
 			return daemon.Run()
 		},
 	}

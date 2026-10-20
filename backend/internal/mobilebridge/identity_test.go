@@ -206,3 +206,20 @@ func TestEnsureIdentityIsStableWithoutHardwareAddresses(t *testing.T) {
 		t.Fatalf("host id churned with no interfaces: %q -> %q", first.HostID, second.HostID)
 	}
 }
+
+// Session ids append this token so two machines cannot allocate the same id
+// for one project. It must be stable per HostID and differ across HostIDs.
+func TestHostTokenIsStableAndDistinct(t *testing.T) {
+	a := HostToken("h_11111111-1111-4111-8111-111111111111")
+	b := HostToken("h_22222222-2222-4222-8222-222222222222")
+
+	if a == "" || len(a) != 7 || a != HostToken("h_11111111-1111-4111-8111-111111111111") {
+		t.Fatalf("HostToken is not a stable seven-character token: %q", a)
+	}
+	if a == b {
+		t.Fatalf("two hosts share the token %q", a)
+	}
+	if got := HostToken(""); got != "" {
+		t.Fatalf("HostToken(\"\") = %q, want empty for the legacy format", got)
+	}
+}

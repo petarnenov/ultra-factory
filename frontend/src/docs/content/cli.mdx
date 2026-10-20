@@ -39,7 +39,7 @@ This reference omits internal commands such as `daemon`, `hooks`, `launch`, `age
 
 ### `ao start`
 
-Opens the installed desktop app. If the app is missing, the legacy launcher can download the latest release first. The desktop app starts and supervises the daemon.
+Opens the installed desktop app. If the app is missing, the legacy launcher can download the latest release first. The desktop app starts and supervises the daemon. This command is operator-only and is refused inside an AO agent session (`AO_SESSION_ID` is set).
 
 | Flag | Purpose |
 | --- | --- |
@@ -49,7 +49,7 @@ For a new installation, download the desktop app from the [installation guide](/
 
 ### `ao stop`
 
-Asks the loopback daemon to shut down after checking that the run file identifies Orchestrator.
+Asks the loopback daemon to shut down after checking that the run file identifies Orchestrator. It is refused inside an AO agent session (`AO_SESSION_ID` is set), and a daemon started by a host supervisor such as the Railway hub refuses the shutdown; restart the hosted service from the platform instead.
 
 | Flag | Purpose |
 | --- | --- |
@@ -120,13 +120,15 @@ Important flags include:
 | `--name <name>` | Required sidebar name, at most 100 characters. |
 | `--project <id>` | Project to use. Otherwise Orchestrator resolves environment and current directory context. |
 | `--agent`, `--harness <name>` | Override the project's agent. The two names are aliases. The configured role model and effort still apply and are validated for this harness. |
-| `--kind worker\|orchestrator` | Select the session role. |
+| `--kind worker\|orchestrator\|coordinator` | Select the session role. A coordinator is spawned from the project's live root session, runs on the root's machine (no `--host`), requires `--scope`, and needs the project to enable coordinators (`ao project set-config <id> --coordinators`; otherwise `COORDINATORS_DISABLED`). |
+| `--scope <text>` | Bounded area of work for `--kind coordinator`, at most 200 characters. |
 | `--mode chat\|tui` | Select structured Chat or the agent's native terminal UI. |
 | `--branch <name>` | Branch for Git projects. Scratch projects do not support it. |
 | `--prompt <text>` | Initial prompt. |
 | `--standalone` | Projectless worker; requires an explicit agent and excludes project, branch, issue, PR, and orchestrator options. |
 | `--model <model>` | Override the selected provider model for this spawn. The daemon validates it against the resolved harness and blocks the spawn when it is invalid. |
 | `--effort <level>` | Override the reasoning effort for this spawn. It must be a level the selected model advertises, or the spawn is blocked. |
+| `--terminate-on-pr-merge[=false]` | Override the project's `terminateOnPrMerge` default for this spawn. Also sent with `--host`. |
 | `--tracker-provider github\|gitlab` | Select the issue provider for `--issue`. |
 | `--issue <id>` | Associate a tracker issue. |
 | `--claim-pr <ref>` | Claim an existing pull request after spawning. |
@@ -141,6 +143,7 @@ Orchestrator chooses a project in this order: `--project`, `AO_PROJECT_ID`, the 
 | --- | --- |
 | `ao session ls` | List active worker sessions. Use `--all` for orchestrators and `--include-terminated` for history. |
 | `ao session get <id>` | Show one session. |
+| `ao session top` | Show resident memory and process count per live session, largest first. Use `--all` for orchestrators and `--json` for machine output; with `--host` it samples that machine's daemon. |
 | `ao session kill <id>` | Terminate a session. Dirty workspaces are preserved. |
 | `ao session restore <id>` | Relaunch a terminated session when recovery is supported. |
 | `ao session exit-agent <id>` | Stop the controller while retaining the session. |
@@ -189,7 +192,7 @@ ao session ls --host build-box
 ao send --host build-box --session widgets-3 --message "CI failed on lint; fix it."
 ```
 
-These commands accept `--host`: `spawn`, `send`, `session ls|get|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`. Other commands reject it.
+These commands accept `--host`: `spawn`, `send`, `session ls|get|top|kill|restore|rename|exit-agent|resume-agent`, `project ls|get`, `orchestrator ls`, `agent ls`, and `review trigger|ls|cancel`. Other commands reject it.
 
 - **Reviews run on the worker's host:** `review trigger|ls|cancel --host` call the owning daemon's review routes. Pass the worker id explicitly, because session ids are per machine. Only that daemon launches the reviewer, so its checkout, read-only policy, verdict, and comment delivery stay on the host that owns the worker; the requesting machine never reviews its own checkout as a fallback. See the [review loop](/guides/review-loop#reviewing-a-worker-on-another-machine) for the verified-checkout behavior.
 
@@ -220,7 +223,7 @@ ao report --done --note "Focused tests passed"
 
 | Command | Purpose |
 | --- | --- |
-| `ao pr merge <pr-number>` | Request a merge through the owning SCM provider. |
+| `ao pr merge <pr-number>` | Request a merge through the owning SCM provider. Only the root orchestrator or a human merges: the calling session id is sent, and the daemon refuses a live coordinator or worker with `403 MERGE_ROOT_ONLY`. |
 | `ao pr resolve-comments <pr-number> [comment-id...]` | Resolve selected or eligible review comments. |
 | `ao review ls [worker-session-id]` | List review state for a worker. Defaults to the calling session. |
 | `ao review trigger [worker-session-id]` | Start Orchestrator's reviewer on a worker's PR heads; defaults to the calling session. Fetches the PRs fresh from the provider first; `--pr <url>` reviews only that PR, attaching it if needed. Fails on a head that already has a review unless `--rerun`. `--agent`, `--model`, `--effort` pick the reviewer for one pass; `--no-inject` keeps auto-inject unchanged. Aliases: `execute`, `restart`. |

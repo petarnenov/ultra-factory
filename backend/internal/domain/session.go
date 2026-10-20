@@ -16,13 +16,29 @@ type (
 	IssueID string
 )
 
-// SessionKind distinguishes a worker session from an orchestrator session.
+// SessionKind distinguishes a worker session from an orchestrator session and
+// a helper coordinator session.
 type SessionKind string
 
 // Session kinds.
 const (
 	KindWorker       SessionKind = "worker"
 	KindOrchestrator SessionKind = "orchestrator"
+	// KindCoordinator is a helper that owns workers for the project's root.
+	KindCoordinator SessionKind = "coordinator"
+)
+
+// OwnershipEventReason explains one durable worker-ownership transition. The
+// set is bounded so the audit tables reject anything outside the ADR.
+type OwnershipEventReason string
+
+// Ownership event reasons.
+const (
+	OwnershipSpawnParent            OwnershipEventReason = "spawn_parent"
+	OwnershipExplicitAssignment     OwnershipEventReason = "explicit_assignment"
+	OwnershipExplicitReassignment   OwnershipEventReason = "explicit_reassignment"
+	OwnershipCoordinatorTerminated  OwnershipEventReason = "coordinator_terminated"
+	OwnershipOwnerNotLiveReconciled OwnershipEventReason = "owner_not_live_reconciled"
 )
 
 // ConversationCheckpointState records which main-turn boundaries AO has
@@ -280,6 +296,12 @@ type SessionRecord struct {
 	IssueID                IssueID      `json:"issueId,omitempty"`
 	Kind                   SessionKind  `json:"kind"`
 	Harness                AgentHarness `json:"harness,omitempty"`
+	// OwnerSessionID is the worker's durable coordinator owner. Nil means the
+	// worker is root-owned and resolves to the project's live root.
+	OwnerSessionID *SessionID `json:"-"`
+	// CoordinatorScope bounds a coordinator's work. Required for KindCoordinator,
+	// empty otherwise, and immutable once written.
+	CoordinatorScope string `json:"-"`
 	// ReviewerHarness is this session's preferred reviewer. Empty delegates to
 	// the project configuration.
 	ReviewerHarness   ReviewerHarness `json:"reviewerHarness,omitempty" enum:"claude-code,codex,copilot,cursor,kilocode,opencode,opencode-v2,kiro,pi,agy,devin,droid,kimi,kimchi,muse,amp,aider,grok,crush,auggie,cline,autohand"`

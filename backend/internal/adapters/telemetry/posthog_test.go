@@ -285,6 +285,7 @@ func TestReviewPayloadAllowlistCoversTheReviewFunnel(t *testing.T) {
 		"ao.review.triggered":      {"harness", "created_runs", "reused", "trigger", "rerun"},
 		"ao.review.trigger_failed": {"error_kind", "trigger"},
 		"ao.review.submitted":      {"harness", "verdict", "duration_ms", "posted_to_provider", "trigger", "body_bytes", "auto_inject"},
+		"ao.review.publish_failed": {"harness", "intended_verdict", "posted_to_provider", "trigger", "body_bytes", "auto_inject"},
 		"ao.review.cancelled":      {"cancelled_runs"},
 	}
 	for name, keys := range want {

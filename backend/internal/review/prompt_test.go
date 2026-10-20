@@ -27,9 +27,13 @@ func TestReviewTextsIncludesMultiPRQueue(t *testing.T) {
 		"Do not ask the user whether to continue to the next PR",
 		"* 1. https://github.com/o/r/pull/1 (head commit sha1, run run-1)",
 		"* 2. https://github.com/o/r/pull/2 (head commit sha2, run run-2)",
-		"After every PR has its own GitHub review from step 1",
+		"After step 1 for every PR, record AO's bookkeeping",
 		"printf '%s'",
 		"do not use a heredoc",
+		`gh api --paginate repos/{owner}/{repo}/pulls/{number}/reviews`,
+		`map(select(.state == "PENDING"))[]?.id`,
+		"gh api --method DELETE repos/{owner}/{repo}/pulls/{number}/reviews/<id>",
+		"every later POST fails with 422",
 		"ao review submit --session mer-1 --reviews -",
 		`"reviews": [`,
 	} {
@@ -81,5 +85,25 @@ func TestReviewPromptRequiresInlineCommentsForRequiredChanges(t *testing.T) {
 	}
 	if strings.Contains(prompt, "omit the field for a review with no inline comments") {
 		t.Fatalf("review prompt still makes inline comments optional:\n%s", prompt)
+	}
+}
+
+// Kimchi hard-denies every api DELETE before it evaluates allow rules, so the
+// shared task must not ask its reviewers to run the pending-review delete.
+func TestReviewTextsOmitsPendingCleanupWhenHarnessCannotDelete(t *testing.T) {
+	spec := launchSpec()
+	spec.Harness = domain.ReviewerKimchi
+
+	prompt, _ := reviewTexts(spec)
+	for _, unwanted := range []string{"PENDING", "--method DELETE", "--paginate"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Fatalf("Kimchi prompt advertises an un-runnable cleanup step (%q):\n%s", unwanted, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "post a separate review on that pull request") {
+		t.Fatalf("Kimchi prompt lost the review POST step:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "AO records the pass as failed") {
+		t.Fatalf("Kimchi prompt lost the failed-publish contract:\n%s", prompt)
 	}
 }

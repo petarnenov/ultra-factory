@@ -15,14 +15,32 @@ import (
 )
 
 type fakeStore struct {
-	mu       sync.Mutex
-	sessions map[domain.SessionID]domain.SessionRecord
-	stored   []domain.RemoteWorkerLink
+	mu          sync.Mutex
+	sessions    map[domain.SessionID]domain.SessionRecord
+	stored      []domain.RemoteWorkerLink
+	ownerEvents []domain.RemoteWorkerOwnerEvent
+	project     domain.ProjectRecord
 }
 
 func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
 	rec, ok := f.sessions[id]
 	return rec, ok, nil
+}
+
+func (f *fakeStore) GetProject(context.Context, string) (domain.ProjectRecord, bool, error) {
+	return f.project, f.project.ID != "", nil
+}
+
+func (f *fakeStore) ListSessions(_ context.Context, project domain.ProjectID) ([]domain.SessionRecord, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []domain.SessionRecord
+	for _, rec := range f.sessions {
+		if rec.ProjectID == project {
+			out = append(out, rec)
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
@@ -38,6 +56,47 @@ func (f *fakeStore) UpsertRemoteWorkerLink(_ context.Context, link domain.Remote
 	defer f.mu.Unlock()
 	f.stored = append(f.stored, link)
 	return nil
+}
+
+func (f *fakeStore) GetRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, link := range f.stored {
+		if link.HostID == hostID && link.RemoteSessionID == remoteSessionID {
+			return link, true, nil
+		}
+	}
+	return domain.RemoteWorkerLink{}, false, nil
+}
+
+func (f *fakeStore) SetRemoteWorkerOwner(_ context.Context, hostID string, remoteSessionID domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time) (domain.RemoteWorkerLink, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, link := range f.stored {
+		if link.HostID != hostID || link.RemoteSessionID != remoteSessionID {
+			continue
+		}
+		if sameOwnerID(link.OwnerSessionID, owner) {
+			return link, false, nil
+		}
+		f.ownerEvents = append(f.ownerEvents, domain.RemoteWorkerOwnerEvent{
+			HostID: hostID, RemoteSessionID: remoteSessionID,
+			PreviousOwnerSessionID: link.OwnerSessionID,
+			NewOwnerSessionID:      owner,
+			Reason:                 reason,
+			CreatedAt:              at,
+		})
+		f.stored[i].OwnerSessionID = owner
+		return f.stored[i], true, nil
+	}
+	return domain.RemoteWorkerLink{}, false, apierr.NotFound("REMOTE_WORKER_LINK_NOT_FOUND", "Unknown remote worker link")
+}
+
+func sameOwnerID(a, b *domain.SessionID) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func savedHosts(entries ...remotehost.Entry) func(string) (remotehost.Entry, bool, error) {
@@ -135,7 +194,7 @@ func TestRegisterRefusals(t *testing.T) {
 func TestRegisterCapsLinksButRefreshesAnExistingOne(t *testing.T) {
 	store := &fakeStore{sessions: map[domain.SessionID]domain.SessionRecord{"ao-1": {ID: "ao-1", ProjectID: "ultra-factory"}}}
 	for i := 0; i < MaxLinks; i++ {
-		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("w-%d", i))})
+		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("w-%d", i)), ProjectID: "ultra-factory"})
 	}
 	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
 	if _, err := svc.Register(context.Background(), validInput()); codeOf(err) != "REMOTE_WORKER_LINK_LIMIT" {
@@ -168,7 +227,7 @@ func TestRegisterExplainsWhyAPlainHTTPHostIsNotPolled(t *testing.T) {
 func TestConcurrentRegistrationsCannotExceedTheLinkLimit(t *testing.T) {
 	store := &fakeStore{sessions: map[domain.SessionID]domain.SessionRecord{"ao-1": {ID: "ao-1", ProjectID: "ultra-factory"}}}
 	for i := 0; i < MaxLinks-1; i++ {
-		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("w-%d", i))})
+		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("w-%d", i)), ProjectID: "ultra-factory"})
 	}
 	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "b", URL: "https://b", HostID: "host-build"})})
 	var wg sync.WaitGroup

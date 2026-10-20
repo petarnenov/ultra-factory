@@ -18,7 +18,15 @@ ARG AO_COMMIT=${RAILWAY_GIT_COMMIT_SHA}
 WORKDIR /src/backend
 
 COPY backend/go.mod backend/go.sum ./
-RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,target=/go/pkg/mod go mod download
+# `go mod download` does not retry a proxy 5xx itself, and CI has failed here
+# on a stream INTERNAL_ERROR; retry with backoff, reusing the module cache.
+RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,target=/go/pkg/mod \
+    for attempt in 1 2 3 4; do \
+      if go mod download; then exit 0; fi; \
+      if [ "$attempt" = 4 ]; then exit 1; fi; \
+      echo "go mod download failed; retrying in $((attempt * 15))s ($attempt/4)"; \
+      sleep $((attempt * 15)); \
+    done
 
 COPY backend ./
 # Pure-Go SQLite (modernc) builds with CGO disabled -> a static binary.
@@ -33,6 +41,11 @@ RUN --mount=type=cache,id=s/0e7ebe89-bf3a-492c-a8f2-1a9ea22bc14c-/go/pkg/mod,tar
 # Platform-independent JS, built with the desktop's script and patches.
 FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS acp
 WORKDIR /src/frontend
+# npm retries transient fetch errors itself; CI has seen ECONNRESET outlive the
+# default budget, so the adapter's install gets a larger retry count.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 COPY frontend/acp-runtime ./acp-runtime
 COPY frontend/scripts/build-acp-runtime.mjs frontend/scripts/build-acp-runtime-helpers.mjs ./scripts/
 RUN node scripts/build-acp-runtime.mjs && \
@@ -49,6 +62,12 @@ ARG SKIP_AGENT_INSTALL=0
 # Optional; build with --build-arg CURSOR_AGENT_VERSION= to leave it out.
 ARG CURSOR_AGENT_VERSION=2026.08.11-e8db854
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Same npm retry budget for the global installs below; the hub stage, which is
+# FROM this stage, inherits it for its own agent installs.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000
 
 # gh comes from GitHub's official apt repository, which only serves the latest
 # release, so its version follows the build date rather than a pin.

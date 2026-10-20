@@ -17,6 +17,7 @@ in [gemini-cli.md](gemini-cli.md).
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | [documentation-map.md](documentation-map.md)           | Human-facing docs vs the machine-readable contract layer, source of truth per concern, and the CI gates that hold it. |
 | [issue-policy.md](issue-policy.md)                     | Issue type and priority labels, the pull request check that enforces them, and its two narrow exemptions.            |
+| [ai-actual.md](ai-actual.md)                           | Measuring real AI tool time per issue from local coding-agent logs and recording it on the CO project board.          |
 | [documentation-coverage.md](documentation-coverage.md) | Stable-release baseline, covered user paths, and hands-on verification still needed. |
 | [Public manual sources](../frontend/src/docs/content/index.mdx) | Existing user guides, configuration, capability catalog, CLI reference, and mobile access pages. |
 | [architecture.md](architecture.md)                     | Current backend model, package layout, status derivation, persistence/CDC, and load-bearing rules.                    |
@@ -29,12 +30,14 @@ in [gemini-cli.md](gemini-cli.md).
 | [self-hosted-remote.md](self-hosted-remote.md)         | Experimental multi-host setup, client workflow, security boundary, and current limits.                                  |
 | [railway/architecture.md](railway/architecture.md)     | AO on Railway: hub/worker/BFF components, login, REST, SSE, WebSocket and Railway API flows, and what does not work on the web. |
 | [railway/threat-model.md](railway/threat-model.md)     | Railway hub threat model: assets, attackers, mitigations, and residual risk. |
-| [Railway runbook](../deploy/railway/README.md)         | Deploying and operating the Railway hub and workers: variables, credentials, backup, drain, limits, local e2e, and the live validation record. |
+| [Railway runbook](../deploy/railway/README.md)         | Deploying and operating the Railway hub and workers: variables, credentials, backup, drain, limits, coordinator rollout and rollback, local e2e, and the live validation record. |
+| [Railway resource baseline](../deploy/railway/resource-baseline.md) | Read-only capture protocol, workload definition, and comparison template for the per-process hub and worker memory baseline (#218).                 |
 | [development.md](development.md)                       | Prerequisites, build steps, running tests, and troubleshooting for local development.                                 |
 | [harnesses/unreal-agent.md](harnesses/unreal-agent.md) | Built-in Unreal Agent Chat setup, provider environment, persistence, and current limits.                              |
 | [harnesses/mimo-code.md](harnesses/mimo-code.md)       | MiMo Code TUI setup, permissions, activity hooks, exact restore, and current limits.                                 |
 | [harnesses/deepseek-harness.md](harnesses/deepseek-harness.md) | DeepSeek Harness Chat over ACP, headless task mode, credentials, and current limits.                        |
 | [harnesses/command-code.md](harnesses/command-code.md)   | Command Code TUI setup, activity hooks, Chat over `cmd acp`, exact restore, and current limits.                 |
+| [coordinators/operating-contract.md](coordinators/operating-contract.md) | Operating contract between the project root and helper coordinators: assignment brief, summaries, escalation, merge prohibition, reassignment and replacement. |
 | [backlog/README.md](backlog/README.md)                 | Analysis reports and epic/story/task breakdowns for planned initiatives (currently: Railway hosting).                 |
 | [STATUS.md](STATUS.md)                                 | What is shipped on `main` today and what is still in flight.                                                          |
 | [stack.md](stack.md)                                   | Accepted library/runtime choices, pending stack decisions, and dependencies explicitly avoided for V1.                |

@@ -117,5 +117,17 @@ document the evidence here and narrow the exemption rather than widening it.
 Local run, against a real repository:
 
 ```bash
-GH_TOKEN=$(gh auth token) GITHUB_REPOSITORY=owner/repo npm run issue:check -- --pr 412
+make ci-check ARGS="--only issue"
+```
+
+That command resolves the same inputs the workflow sets: `GITHUB_REPOSITORY`
+from `origin`, `PR_NUMBER` from the current branch's pull request, and
+`GH_TOKEN` from the environment or `gh auth token`. The check reads the live
+title, body, and labels, so it needs an open pull request and GitHub API
+access; before the pull request exists there is nothing to check. The
+equivalent manual invocation is:
+
+```bash
+GH_TOKEN=$(gh auth token) GITHUB_REPOSITORY=owner/repo \
+  node scripts/issue-policy/check.mjs --pr 412
 ```

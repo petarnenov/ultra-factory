@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { APP_LOCALES, coerceLocale, DEFAULT_LOCALE } from "./locales";
 import { createAppI18n as createBaseAppI18n, createLazyAppI18n, loadLocaleCatalog, type TranslationCatalogs } from "./instance";
 import { createFullAppI18n as createAppI18n } from "./all-messages";
+import { chatRoleLabelKey } from "../lib/chat-role";
 import {
 	deMessages,
 	enMessages,
@@ -63,6 +64,42 @@ describe("app i18next instance", () => {
 			for (const key of ["agentSelector.manage", "agentSelector.noneReady", "agentSelector.needsSetup"]) {
 				expect(catalog[key], `${locale} is missing ${key}`).toBeTruthy();
 			}
+		}
+	});
+
+	it("maps chat roles to the established labels", () => {
+		expect(chatRoleLabelKey("orchestrator")).toBe("shell.orchestrator");
+		expect(chatRoleLabelKey("worker")).toBe("settings.models.workerRole");
+		expect(chatRoleLabelKey("reviewer")).toBe("terminal.reviewer");
+	});
+
+	it("keeps zh-CN orchestrator kill copy on the established term", () => {
+		const chinese = createAppI18n("zh-CN");
+		for (const key of [
+			"chat.killOrchestrator.aria",
+			"archive.killOrchestratorTitle",
+			"archive.killOrchestratorBody",
+			"archive.killOrchestratorConfirmAria",
+		] as const) {
+			expect(chinese.t(key), key).toContain("编排器");
+		}
+	});
+
+	it("translates the aggregate-Kanban cluster in every non-English catalog", () => {
+		const keys = [
+			"shell.openAggregateKanban",
+			"shell.aggregateKanban",
+			"shell.aggregateKanbanDescription",
+		] as const;
+		for (const locale of APP_LOCALES) {
+			if (locale === "en") continue;
+			const catalog = allCatalogs[locale] as unknown as Record<string, string>;
+			for (const key of keys) {
+				expect(catalog[key], `${locale} still uses English for ${key}`).not.toBe(enMessages[key]);
+			}
+			expect(catalog["shell.aggregateKanban"], `${locale} does not reuse its Kanban term`).toContain(
+				catalog["shell.kanban"],
+			);
 		}
 	});
 

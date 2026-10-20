@@ -90,6 +90,7 @@ type Service struct {
 	telemetry          ports.EventSink
 	codexOperationGate ports.CodexOperationGate
 	notifications      reviewNotificationSink
+	workerDelivery     ports.AgentMessenger
 	prRefresher        PRRefresher
 	checkouts          reviewcore.CheckoutReleaser
 	// engineTrigger indirects the engine's source-tagged trigger so the
@@ -181,6 +182,12 @@ func WithTelemetry(sink ports.EventSink) Option {
 // reached complete. The run id is the dedupe key, so submit retries are safe.
 func WithNotificationSink(sink reviewNotificationSink) Option {
 	return func(s *Service) { s.notifications = sink }
+}
+
+// WithWorkerDelivery sends findings to the worker when a review never reached
+// the pull request. The run is still recorded as failed.
+func WithWorkerDelivery(delivery ports.AgentMessenger) Option {
+	return func(s *Service) { s.workerDelivery = delivery }
 }
 
 // WithCodexAccountOperationGate prevents new Codex reviewer controllers from
@@ -827,7 +834,7 @@ func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, revi
 	runID := review.RunID
 	verdict := review.Verdict
 	body := review.Body
-	githubReviewID := review.GithubReviewID
+	githubReviewID := strings.TrimSpace(review.GithubReviewID)
 	if runID == "" {
 		return domain.ReviewRun{}, fmt.Errorf("%w: review run id is required", ErrInvalid)
 	}
@@ -856,6 +863,9 @@ func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, revi
 		}
 		if !found {
 			return domain.ReviewRun{}, fmt.Errorf("%w: worker session %q", ErrNotFound, workerID)
+		}
+		if strings.TrimSpace(githubReviewID) == "" {
+			return s.recordUnpublishedReview(ctx, run, session, verdict, body)
 		}
 		updated, err := s.store.UpdateReviewRunResult(ctx, run.ID, domain.ReviewRunComplete, verdict, body, githubReviewID, session.AutoInjectReview)
 		if err != nil {
@@ -901,11 +911,84 @@ func (s *Service) submitOne(ctx context.Context, workerID domain.SessionID, revi
 		}
 	case domain.ReviewRunDelivered:
 		return run, nil
+	case domain.ReviewRunFailed:
+		// A retry after a dropped connection may replay the identical failed
+		// submission. Return the recorded run instead of reporting it superseded.
+		if githubReviewID == "" && run.Body == unpublishedReviewRecordBody(verdict, body) {
+			return run, nil
+		}
+		return domain.ReviewRun{}, fmt.Errorf("%w: review run %q is not running", errRunSuperseded, runID)
 	default:
 		return domain.ReviewRun{}, fmt.Errorf("%w: review run %q is not running", errRunSuperseded, runID)
 	}
 	s.emitReviewNotification(ctx, run)
 	return run, nil
+}
+
+// recordUnpublishedReview turns a result that never reached the provider into
+// an explicit failed pass: an empty provider id means the POST did not land.
+func (s *Service) recordUnpublishedReview(ctx context.Context, run domain.ReviewRun, session domain.SessionRecord, verdict domain.ReviewVerdict, body string) (domain.ReviewRun, error) {
+	recorded := unpublishedReviewRecordBody(verdict, body)
+	updated, err := s.store.UpdateReviewRunResult(ctx, run.ID, domain.ReviewRunFailed, domain.VerdictNone, recorded, "", session.AutoInjectReview)
+	if err != nil {
+		return domain.ReviewRun{}, err
+	}
+	if !updated {
+		return domain.ReviewRun{}, fmt.Errorf("%w: review run %q is not running", errRunSuperseded, run.ID)
+	}
+	run.Status = domain.ReviewRunFailed
+	run.Verdict = domain.VerdictNone
+	run.Body = recorded
+	run.GithubReviewID = ""
+	run.AutoInjectReview = session.AutoInjectReview
+	s.emit(ctx, "ao.review.publish_failed", run.SessionID, map[string]any{
+		"harness":            string(run.Harness),
+		"trigger":            string(run.TriggerSource),
+		"intended_verdict":   string(verdict),
+		"posted_to_provider": false,
+		"body_bytes":         len(body),
+		"auto_inject":        session.AutoInjectReview,
+	})
+	s.deliverUnpublishedReview(ctx, run, verdict, body)
+	return run, nil
+}
+
+const unpublishedReviewRecordNote = "AO could not publish this review on the pull request: the reviewer returned no GitHub review id, so the review did not land. This pass is recorded as failed; re-run `ao review trigger` after clearing any pending draft review."
+
+func unpublishedReviewRecordBody(verdict domain.ReviewVerdict, body string) string {
+	note := fmt.Sprintf("%s The reviewer reported %q.", unpublishedReviewRecordNote, verdict)
+	if strings.TrimSpace(body) == "" {
+		return note
+	}
+	return note + "\n\nReviewer findings:\n" + body
+}
+
+// deliverUnpublishedReview sends findings straight to the worker when policy
+// allows it. The failed run is already durable, so delivery is best effort.
+func (s *Service) deliverUnpublishedReview(ctx context.Context, run domain.ReviewRun, verdict domain.ReviewVerdict, body string) {
+	if s.workerDelivery == nil || !run.AutoInjectReview {
+		return
+	}
+	deliverCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), unpublishedReviewDeliveryTimeout)
+	defer cancel()
+	if err := s.workerDelivery.Send(deliverCtx, run.SessionID, unpublishedReviewMessage(run, verdict, body)); err != nil {
+		slog.Default().WarnContext(ctx, "unpublished review delivery failed", "session", run.SessionID, "run", run.ID, "err", err)
+	}
+}
+
+const unpublishedReviewDeliveryTimeout = 10 * time.Second
+
+func unpublishedReviewMessage(run domain.ReviewRun, verdict domain.ReviewVerdict, body string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "AO could not publish the reviewer's review on %s. The review did not land: the pull request shows no review, and AO recorded this pass as failed rather than a %s verdict.\n",
+		domain.SanitizeControlChars(run.PRURL), verdict)
+	if strings.TrimSpace(body) != "" {
+		b.WriteString("\nReviewer findings:\n")
+		b.WriteString(domain.SanitizeControlChars(body))
+		b.WriteString("\n")
+	}
+	b.WriteString("\nRecovery: run `ao review trigger` again. If the provider still rejects the review, discard the pending draft review on the pull request before retrying.")
+	return b.String()
 }
 
 func (s *Service) emitReviewNotification(ctx context.Context, run domain.ReviewRun) {

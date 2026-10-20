@@ -121,23 +121,49 @@ func (m *memStore) linkCount() int {
 }
 
 type delivery struct {
-	project domain.ProjectID
-	reports []domain.ReportRecord
+	project   domain.ProjectID
+	recipient domain.SessionID
+	reports   []domain.ReportRecord
 }
 
 type fakeDeliverer struct {
-	mu    sync.Mutex
-	calls []delivery
-	err   error
+	mu          sync.Mutex
+	calls       []delivery
+	err         error
+	root        domain.SessionID
+	noRecipient bool
+	owners      map[domain.SessionID]domain.SessionRecord
+	resolveErr  error
 }
 
-func (f *fakeDeliverer) DeliverExternal(_ context.Context, project domain.ProjectID, reports []domain.ReportRecord) error {
+func (f *fakeDeliverer) ResolveRemoteRecipient(_ context.Context, link domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.resolveErr != nil {
+		return domain.SessionRecord{}, false, f.resolveErr
+	}
+	if link.OwnerSessionID != nil {
+		if rec, ok := f.owners[*link.OwnerSessionID]; ok && !rec.IsTerminated && rec.Kind == domain.KindCoordinator && rec.ProjectID == link.ProjectID {
+			return rec, true, nil
+		}
+	}
+	if f.noRecipient {
+		return domain.SessionRecord{}, false, nil
+	}
+	root := f.root
+	if root == "" {
+		root = "orchestrator"
+	}
+	return domain.SessionRecord{ID: root, ProjectID: link.ProjectID, Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (f *fakeDeliverer) DeliverExternal(_ context.Context, project domain.ProjectID, recipient domain.SessionID, reports []domain.ReportRecord) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
-	f.calls = append(f.calls, delivery{project, reports})
+	f.calls = append(f.calls, delivery{project, recipient, reports})
 	return nil
 }
 
@@ -1071,33 +1097,143 @@ func TestAnOfflineHostDoesNotBlockTheOthersAndCatchesUpWhenItReturns(t *testing.
 	}
 }
 
+func TestPollRoutesEachRemoteLinkToItsOwnersGroup(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 30, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-a", now))
+	host.pending["widgets-4"] = reportsJSON(needsInput("rpt-b", now))
+	ownerA, ownerB := domain.SessionID("coord-a"), domain.SessionID("coord-b")
+	linkA, linkB := link("host-build", "widgets-3"), link("host-build", "widgets-4")
+	linkA.OwnerSessionID, linkB.OwnerSessionID = &ownerA, &ownerB
+	store := newMemStore(linkA, linkB)
+	deliverer := &fakeDeliverer{owners: map[domain.SessionID]domain.SessionRecord{
+		ownerA: {ID: ownerA, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+		ownerB: {ID: ownerB, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+	}}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 2 {
+		t.Fatalf("deliveries = %+v, want one turn per owner", deliverer.calls)
+	}
+	byRecipient := map[domain.SessionID]delivery{}
+	for _, call := range deliverer.calls {
+		byRecipient[call.recipient] = call
+	}
+	if got := byRecipient[ownerA]; len(got.reports) != 1 || got.reports[0].ID != "rpt-a" {
+		t.Fatalf("coordinator A call = %+v", got)
+	}
+	if got := byRecipient[ownerB]; len(got.reports) != 1 || got.reports[0].ID != "rpt-b" {
+		t.Fatalf("coordinator B call = %+v", got)
+	}
+	if acks := host.acks(); len(acks) != 2 {
+		t.Fatalf("acks = %v, want one per link", acks)
+	}
+}
+
+func TestPollGroupsRemoteLinksThatShareAnOwnerIntoOneTurn(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 40, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-a", now))
+	host.pending["widgets-4"] = reportsJSON(needsInput("rpt-b", now.Add(time.Second)))
+	owner := domain.SessionID("coord-a")
+	linkA, linkB := link("host-build", "widgets-3"), link("host-build", "widgets-4")
+	linkA.OwnerSessionID, linkB.OwnerSessionID = &owner, &owner
+	store := newMemStore(linkA, linkB)
+	deliverer := &fakeDeliverer{owners: map[domain.SessionID]domain.SessionRecord{
+		owner: {ID: owner, ProjectID: "ultra-factory", Kind: domain.KindCoordinator},
+	}}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 || deliverer.calls[0].recipient != owner || len(deliverer.calls[0].reports) != 2 {
+		t.Fatalf("delivery = %+v, want one turn for the shared owner", deliverer.calls)
+	}
+	if acks := host.acks(); len(acks) != 2 {
+		t.Fatalf("acks = %v, want one per link", acks)
+	}
+}
+
+func TestPollRoutesAStaleRemoteOwnerToTheRoot(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 45, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt-gone", now))
+	owner := domain.SessionID("coord-gone")
+	linked := link("host-build", "widgets-3")
+	linked.OwnerSessionID = &owner
+	store := newMemStore(linked)
+	deliverer := &fakeDeliverer{
+		root: "root",
+		owners: map[domain.SessionID]domain.SessionRecord{
+			owner: {ID: owner, ProjectID: "ultra-factory", Kind: domain.KindCoordinator, IsTerminated: true},
+		},
+	}
+
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 || deliverer.calls[0].recipient != "root" || deliverer.calls[0].reports[0].ID != "rpt-gone" {
+		t.Fatalf("delivery = %+v, want the root fallback", deliverer.calls)
+	}
+	if acks := host.acks(); len(acks) != 1 {
+		t.Fatalf("acks = %v", acks)
+	}
+}
+
 type timeoutDeliverer struct{ attempts int }
 
-func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, []domain.ReportRecord) error {
+func (d *timeoutDeliverer) ResolveRemoteRecipient(context.Context, domain.RemoteWorkerLink) (domain.SessionRecord, bool, error) {
+	return domain.SessionRecord{ID: "orchestrator", Kind: domain.KindOrchestrator}, true, nil
+}
+
+func (d *timeoutDeliverer) DeliverExternal(context.Context, domain.ProjectID, domain.SessionID, []domain.ReportRecord) error {
 	d.attempts++
 	return domain.ErrSemanticAcceptanceTimeout
 }
 
-func TestSettleAcceptanceTimeoutBacksOff(t *testing.T) {
-	now := time.Now()
+// An acceptance timeout follows a written prompt: the batch is settled once,
+// so neither later passes nor a restarted daemon deliver it again.
+func TestPollSettlesAnUnconfirmedDeliveryAndDoesNotReplayIt(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt_1", now))
+	// The remote acknowledgement keeps failing, so the report stays listed.
+	host.failAck = true
+	store := newMemStore(link("host-build", "widgets-3"))
 	d := &timeoutDeliverer{}
-	store := newMemStore()
 	var logs bytes.Buffer
-	o := New(Deps{Store: store, Deliverer: d, Now: func() time.Time { return now }, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
-	items := []*pulled{{fresh: []domain.ReportRecord{{ID: "report-1", CreatedAt: now}}}}
-	for i := 0; i < 20; i++ {
-		o.settle(context.Background(), "p", items, newSettlePass())
-		now = now.Add(time.Second)
+	newObserver := func() *Observer {
+		return New(Deps{
+			Store: store, Deliverer: d, SelfHostID: "host-local",
+			Lookup: func(id string) (remotehost.Entry, bool, error) {
+				entry := remotehost.Entry{Label: "label-host-build", URL: host.srv.URL, Password: host.password, HostID: host.identity}
+				return entry, id == host.identity, nil
+			},
+			Now:    func() time.Time { return now },
+			Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		})
 	}
-	if d.attempts != 1 || len(store.recorded) != 0 {
-		t.Fatalf("attempts=%d recorded=%v", d.attempts, store.recorded)
+
+	if err := newObserver().Poll(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	now = now.Add(domain.ReportAcceptanceRetryDelay)
-	o.settle(context.Background(), "p", items, newSettlePass())
-	if d.attempts != 2 {
-		t.Fatalf("attempts=%d, want delayed retry", d.attempts)
+	if d.attempts != 1 || len(store.recorded) != 1 || store.recorded[0] != "rpt_1" {
+		t.Fatalf("attempts=%d recorded=%v, want one settled delivery", d.attempts, store.recorded)
 	}
-	if strings.Count(logs.String(), "remote report delivery failed") != 2 || !strings.Contains(logs.String(), "delivery_id=report-batch:") {
-		t.Fatalf("repeat failures not visible: %s", logs.String())
+	if !strings.Contains(logs.String(), "remote report delivery unconfirmed; batch settled") || !strings.Contains(logs.String(), "delivery_id=report-batch:") {
+		t.Fatalf("unconfirmed delivery not visible: %s", logs.String())
+	}
+
+	// A restarted daemon over the same store must not deliver it again.
+	if err := newObserver().Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d.attempts != 1 || len(store.recorded) != 1 {
+		t.Fatalf("attempts=%d recorded=%v, want no replay of a settled batch", d.attempts, store.recorded)
+	}
+	if acks := host.acks(); len(acks) != 2 || acks[1][0] != "rpt_1" {
+		t.Fatalf("acks = %v, want the failed acknowledgement retried", acks)
 	}
 }

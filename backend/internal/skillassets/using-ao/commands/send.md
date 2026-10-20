@@ -46,6 +46,23 @@ original id lets the daemon return the durable steering receipt or normal turn
 without delivering the message twice. Recovery confirms the recorded delivery
 outcome, not that the agent acted on the guidance.
 
+## Pending structured questions
+
+A session parked on an agent question (`health.inFlightTool: "question"`,
+status `needs_input`) is waiting for a structured answer, not a chat message.
+A normal `ao send` queues behind that turn, and `--steer` fails with
+`CHAT_STEER_UNSUPPORTED` on harnesses that cannot take mid-turn guidance,
+including `opencode-v2`. Do not retry steering. List the request and answer it
+with [session input](session.md#ao-session-input):
+
+```bash
+ao session input mer-3
+ao session input mer-3 --request-id 'acp-request:host:1' \
+  --action accept --answer q0="No, leave it for the orchestrator"
+```
+
+The command also works with `--host` against a worker on another machine.
+
 ## Examples
 
 ```bash

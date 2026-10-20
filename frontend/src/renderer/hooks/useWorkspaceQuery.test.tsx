@@ -731,6 +731,31 @@ describe("useWorkspaceQuery", () => {
 	});
 });
 
+describe("useWorkspaceQuery coordinator ownership", () => {
+	it("carries the owner, an explicit root-owned null, and the coordinator scope", async () => {
+		respondWith({
+			projects: { data: { projects: [{ id: "proj-1", name: "my-app", path: "/p" }] }, error: undefined },
+			sessions: {
+				data: {
+					sessions: [
+						{ id: "owned", projectId: "proj-1", kind: "worker", ownerSessionId: "coord-1", status: "working" },
+						{ id: "root-owned", projectId: "proj-1", kind: "worker", ownerSessionId: null, status: "working" },
+						{ id: "coord-1", projectId: "proj-1", kind: "coordinator", coordinatorScope: "auth", ownerSessionId: null, status: "working" },
+					],
+				},
+				error: undefined,
+			},
+		});
+
+		const { result } = renderHook(() => useWorkspaceQuery(), { wrapper });
+		await waitFor(() => expect(result.current.data?.[0]?.sessions).toHaveLength(3));
+		const byId = Object.fromEntries((result.current.data?.[0]?.sessions ?? []).map((s) => [s.id, s]));
+		expect(byId.owned?.ownerSessionId).toBe("coord-1");
+		expect(byId["root-owned"]?.ownerSessionId).toBeNull();
+		expect(byId["coord-1"]).toMatchObject({ coordinatorScope: "auth", kind: undefined });
+	});
+});
+
 describe("useWorkspaceScope board presentation", () => {
 	it("reads a hosted session without contacting the laptop or AO Cloud", async () => {
 		cloudState.ready = true;

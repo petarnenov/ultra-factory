@@ -29,6 +29,10 @@ type Store struct {
 	agentSwitchFailureEventMetadata *domain.AgentSwitchEventMetadata
 	agentSwitchFailureEventEncoder  ports.AgentSwitchFailureEventEncoder
 	agentSwitchFailureCommit        func(*sql.Tx) error
+
+	// sessionIDHostToken scopes generated session ids to this machine. Empty
+	// keeps the legacy format used by sessions already on disk and by tests.
+	sessionIDHostToken string
 }
 
 type contextMutex struct {
@@ -97,6 +101,14 @@ func NewStore(writeDB, readDB *sql.DB) *Store {
 		writeMu:                  newContextMutex(),
 		agentSwitchFailureCommit: func(tx *sql.Tx) error { return tx.Commit() },
 	}
+}
+
+// SetSessionIDHostToken scopes newly allocated session ids to this host. Set it
+// before any session can be allocated; empty keeps the legacy id format.
+func (s *Store) SetSessionIDHostToken(token string) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.sessionIDHostToken = token
 }
 
 // Close closes both pools.

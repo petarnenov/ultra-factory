@@ -91,6 +91,8 @@ func TestReviewCommandAppliesFinalReadOnlyAgentPermissions(t *testing.T) {
 		"ao review submit --run run-1",
 		"gh api --method POST repos/o/r/pulls/1/reviews --input -",
 		"gh api --method POST repos/o/r/pulls/1/reviews --input - --jq '.id'",
+		`gh api --paginate repos/o/r/pulls/1/reviews --jq 'map(select(.state == "PENDING"))[]?.id'`,
+		"gh api --method DELETE repos/o/r/pulls/1/reviews/5576898552",
 		"printf '%s' '{ \"event\": \"COMMENT\", \"body\": \"a > b\", \"comments\": [] }'",
 		"printf '%s' '{ \"reviews\": [] }'",
 		"ao review submit --session ao-1 --reviews -",
@@ -99,7 +101,7 @@ func TestReviewCommandAppliesFinalReadOnlyAgentPermissions(t *testing.T) {
 			t.Errorf("allowed shell command %q was denied", command)
 		}
 	}
-	for _, command := range []string{"printf '%s' '{}' > README.md", "gh api --method POST repos/o/r/pulls/1/reviews --input - --jq '.id' > f", "gh api --method PUT repos/o/r/pulls/1/merge", "gh api -fbody=x repos/o/r/issues/1/comments", "gh api repos/o/r/issues/1/comments -Fbody=x", "gh api repos/o/r/pulls/1 --method=PUT", "gh api repos/o/r/pulls/1; gh pr merge 1", "gh api graphql", "gh api -XPUT repos/o/r/pulls/1/merge", "gh api repos/o/r/issues/1/comments -f body=x", "printf x | gh api --method PUT repos/o/r/pulls/1/merge --input -", "git diff --output=x.txt HEAD", "git show HEAD > README.md", "gh api repos/o/r/pulls/1 > README.md", "gh api repos/o/r/pulls/1 >README.md", "git diff HEAD >README.md", "git log | tee f", "git show HEAD; rm -rf x", "ao review submit --run r > f", "printf x | ao review submit --reviews - > f", "printf x | gh api --method POST repos/o/r/pulls/1/reviews --input - > f", "git show --output=x HEAD", "git push origin main", "rm -rf /", "gh pr merge 1", "ao session kill worker-1"} {
+	for _, command := range []string{"printf '%s' '{}' > README.md", "gh api --method POST repos/o/r/pulls/1/reviews --input - --jq '.id' > f", "gh api --method PUT repos/o/r/pulls/1/merge", "gh api --method DELETE repos/o/r/issues/1", "gh api --method DELETE repos/o/r/git/refs/heads/main", "gh api --method DELETE repos/o/r/pulls/1/reviews/1; rm -rf /", "gh api --method DELETE repos/o/r/pulls/1/reviews/1 > README.md", "gh api --method DELETE repos/o/r/pulls/1/reviews/1 | tee f", "gh api --method DELETE repos/o/r/pulls/1/reviews/1 && rm -rf /", "gh api --method DELETE repos/o/r/pulls/1/reviews/1 `id`", "gh api --method DELETE repos/o/r/pulls/1/reviews/1 $(id)", "gh api -fbody=x repos/o/r/issues/1/comments", "gh api repos/o/r/issues/1/comments -Fbody=x", "gh api repos/o/r/pulls/1 --method=PUT", "gh api repos/o/r/pulls/1; gh pr merge 1", "gh api graphql", "gh api -XPUT repos/o/r/pulls/1/merge", "gh api repos/o/r/issues/1/comments -f body=x", "printf x | gh api --method PUT repos/o/r/pulls/1/merge --input -", "git diff --output=x.txt HEAD", "git show HEAD > README.md", "gh api repos/o/r/pulls/1 > README.md", "gh api repos/o/r/pulls/1 >README.md", "git diff HEAD >README.md", "git log | tee f", "git show HEAD; rm -rf x", "ao review submit --run r > f", "printf x | ao review submit --reviews - > f", "printf x | gh api --method POST repos/o/r/pulls/1/reviews --input - > f", "git show --output=x HEAD", "git push origin main", "rm -rf /", "gh pr merge 1", "ao session kill worker-1"} {
 		if permissionEffect(agent.Permissions, "shell", command) != "deny" {
 			t.Errorf("unlisted shell command %q was allowed", command)
 		}
@@ -199,6 +201,10 @@ func fakeOpenCode(t *testing.T, version string) (string, string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+"/usr/bin:/bin")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("VOLTA_HOME", t.TempDir())
+	t.Setenv("FNM_DIR", t.TempDir())
 	restore := opencode.UnixInstallPathsForTest(nil)
 	t.Cleanup(restore)
 	return binary, logPath

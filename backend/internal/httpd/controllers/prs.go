@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
@@ -42,11 +44,14 @@ func (c *PRsController) merge(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
 		return
 	}
-	if strings.TrimSpace(in.PRURL) == "" || strings.TrimSpace(in.ExpectedHeadSHA) == "" {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_PR", "PR URL and expected head SHA are required", nil)
-		return
-	}
-	res, err := c.Svc.Merge(r.Context(), prsvc.MergeRequest{PRID: prID, PRURL: in.PRURL, ExpectedHeadSHA: in.ExpectedHeadSHA})
+	// Blank URL or head SHA is rejected by the service as INVALID_PR, after
+	// the merge-authority check, so a refused requester always sees 403.
+	res, err := c.Svc.Merge(r.Context(), prsvc.MergeRequest{
+		PRID:                 prID,
+		PRURL:                in.PRURL,
+		ExpectedHeadSHA:      in.ExpectedHeadSHA,
+		RequestedBySessionID: domain.SessionID(strings.TrimSpace(in.RequestedBySessionID)),
+	})
 	if err != nil {
 		writePRError(w, r, err)
 		return
@@ -83,7 +88,10 @@ func (c *PRsController) resolveComments(w http.ResponseWriter, r *http.Request) 
 // writePRError maps PR sentinel errors to their locked HTTP envelopes,
 // falling back to 500 for unexpected failures.
 func writePRError(w http.ResponseWriter, r *http.Request, err error) {
+	var apiErr *apierr.Error
 	switch {
+	case errors.As(err, &apiErr):
+		envelope.WriteError(w, r, err)
 	case errors.Is(err, prsvc.ErrInvalidPR):
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_PR", "Invalid PR", nil)
 	case errors.Is(err, prsvc.ErrPRNotFound):

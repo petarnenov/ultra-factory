@@ -254,6 +254,14 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersListAutomationsResponse":                   "ListAutomationsResponse",
 	"ControllersAutomationRunResponse":                     "AutomationRunResponse",
 	"ControllersListAutomationRunsResponse":                "ListAutomationRunsResponse",
+	"ControllersSessionOwnerRequest":                       "SessionOwnerRequest",
+	"ControllersSessionOwnershipResponse":                  "SessionOwnershipResponse",
+	"ControllersCoordinatorRosterResponse":                 "CoordinatorRosterResponse",
+	"ControllersCoordinatorRosterEntry":                    "CoordinatorRosterEntry",
+	"ControllersListCoordinatorsQuery":                     "ListCoordinatorsQuery",
+	"ControllersListRemoteWorkerLinksQuery":                "ListRemoteWorkerLinksQuery",
+	"ControllersListRemoteWorkerLinksResponse":             "ListRemoteWorkerLinksResponse",
+	"ControllersRemoteWorkerLinkOwnerParam":                "RemoteWorkerLinkOwnerParam",
 	// httpd/envelope
 	"EnvelopeAPIError": "APIError",
 	// observe/ownership
@@ -697,6 +705,7 @@ func operations() []operation {
 	ops = append(ops, reviewOperations()...)
 	ops = append(ops, notificationOperations()...)
 	ops = append(ops, reportOperations()...)
+	ops = append(ops, coordinatorSummaryOperations()...)
 	ops = append(ops, completedTaskOperations()...)
 	ops = append(ops, usageOperations()...)
 	ops = append(ops, pushOperations()...)
@@ -832,11 +841,66 @@ func reportOperations() []operation {
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},
 	}, {
+		method: http.MethodGet, path: "/api/v1/remote-worker-links", id: "listRemoteWorkerLinks", tag: "reports",
+		summary:    "List linked remote workers with their local owner",
+		pathParams: []any{controllers.ListRemoteWorkerLinksQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.ListRemoteWorkerLinksResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodPut, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner", id: "assignRemoteWorkerOwner", tag: "reports",
+		summary:    "Assign or clear a linked remote worker's local owner",
+		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}},
+		reqBody:    controllers.SessionOwnerRequest{},
+		resps: []respUnit{
+			{http.StatusOK, controllers.RemoteWorkerLinkResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusForbidden, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
 		method: http.MethodPost, path: "/api/v1/reports", id: "createReport", tag: "reports",
 		summary: "Persist a worker report for later orchestrator delivery",
 		reqBody: controllers.CreateReportRequest{},
 		resps: []respUnit{
 			{http.StatusCreated, controllers.CreateReportResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}}
+}
+
+// coordinatorSummaryOperations declares the coordinator-to-root summary routes.
+func coordinatorSummaryOperations() []operation {
+	return []operation{{
+		method: http.MethodPost, path: "/api/v1/coordinator-summaries", id: "submitCoordinatorSummary", tag: "reports",
+		summary: "Submit a coordinator summary or escalation to the project root",
+		reqBody: controllers.CoordinatorSummaryRequest{},
+		resps: []respUnit{
+			{http.StatusCreated, controllers.CoordinatorSummaryResponse{}},
+			{http.StatusOK, controllers.CoordinatorSummaryResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusForbidden, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodGet, path: "/api/v1/sessions/{sessionId}/summaries", id: "listCoordinatorSummaries", tag: "reports",
+		summary:    "List a coordinator's summaries newest first with delivery state",
+		pathParams: []any{controllers.SessionIDParam{}, controllers.CoordinatorSummaryHistoryQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.CoordinatorSummaryHistoryResponse{}},
 			{http.StatusBadRequest, envelope.APIError{}},
 			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusInternalServerError, envelope.APIError{}},
@@ -3412,6 +3476,44 @@ func sessionOperations() []operation {
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
 		},
+		{
+			method: http.MethodGet, path: "/api/v1/sessions/{sessionId}/ownership", id: "getSessionOwnership", tag: "sessions",
+			summary:    "Read one session's owner, coordinator scope, and root",
+			pathParams: []any{controllers.SessionIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.SessionOwnershipResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPut, path: "/api/v1/sessions/{sessionId}/owner", id: "assignSessionOwner", tag: "sessions",
+			summary:    "Assign or clear a worker's coordinator owner (live root only)",
+			pathParams: []any{controllers.SessionIDParam{}},
+			reqBody:    controllers.SessionOwnerRequest{},
+			resps: []respUnit{
+				{http.StatusOK, controllers.SessionResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusForbidden, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/projects/{id}/coordinators", id: "listProjectCoordinators", tag: "sessions",
+			summary:    "List a project's coordinators and owned workers",
+			pathParams: []any{controllers.ProjectIDParam{}, controllers.ListCoordinatorsQuery{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.CoordinatorRosterResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
 	}
 }
 
@@ -3428,6 +3530,7 @@ func prOperations() []operation {
 			resps: []respUnit{
 				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusOK, controllers.MergePRResponse{}},
+				{http.StatusForbidden, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusConflict, envelope.APIError{}},
 				{http.StatusUnprocessableEntity, envelope.APIError{}},

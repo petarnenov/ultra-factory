@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -231,6 +232,37 @@ func (f *serveFixture) waitDone(t *testing.T) {
 	case <-f.done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Serve did not return in time")
+	}
+}
+
+// waitListenerClosed waits up to 2s for the fixture listener to stop
+// accepting, and fails the test if it never does.
+func (f *serveFixture) waitListenerClosed(t *testing.T) {
+	t.Helper()
+	ln, ok := f.ln.(*net.TCPListener)
+	if !ok {
+		t.Fatalf("listener type = %T, want *net.TCPListener", f.ln)
+	}
+	if err := ln.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
+		t.Fatalf("set listener deadline: %v", err)
+	}
+	for {
+		conn, err := ln.Accept()
+		if err == nil {
+			_ = conn.Close() // still accepting; keep waiting for the close
+			continue
+		}
+		if errors.Is(err, net.ErrClosed) {
+			return
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			t.Fatal("listener still accepting connections after kill")
+		}
+		t.Fatalf("accept on listener: %v", err)
 	}
 }
 
@@ -827,12 +859,9 @@ func TestKillReq(t *testing.T) {
 		t.Fatal("expected pty.Close() to be called on kill")
 	}
 
-	// Listener should be closed: new dial must fail.
-	conn, err := net.DialTimeout("tcp", f.addr, 200*time.Millisecond)
-	if err == nil {
-		_ = conn.Close()
-		t.Fatal("expected listener to be closed after kill, but Dial succeeded")
-	}
+	// Listener must stop accepting: check the listener itself, not a dial to
+	// f.addr, which can succeed once the port is released (#342).
+	f.waitListenerClosed(t)
 
 	c.close()
 }

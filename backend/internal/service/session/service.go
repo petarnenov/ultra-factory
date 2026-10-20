@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
@@ -47,6 +48,9 @@ type Store interface {
 	SetSessionPinned(ctx context.Context, id domain.SessionID, isPinned bool, pinnedAt *time.Time, updatedAt time.Time) (bool, error)
 	SetSessionReviewerConfig(ctx context.Context, id domain.SessionID, harness domain.ReviewerHarness, config domain.AgentConfig, updatedAt time.Time) (bool, error)
 	SetSessionAutoReview(ctx context.Context, id domain.SessionID, enabled bool, updatedAt time.Time) (bool, error)
+	// SetSessionOwner writes owner + audit atomically. skipClaimGuard=false
+	// enforces the claimed-report guard; only automatic repair may pass true.
+	SetSessionOwner(ctx context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, skipClaimGuard bool) (domain.SessionRecord, bool, error)
 	GetDisplayPRFactsForSession(ctx context.Context, id domain.SessionID) (domain.PRFacts, bool, error)
 	ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error)
 	ListPRFactsForSessions(ctx context.Context, ids []domain.SessionID) (map[domain.SessionID][]domain.PRFacts, error)
@@ -68,7 +72,10 @@ type ListFilter struct {
 	ProjectID        domain.ProjectID
 	Active           *bool
 	OrchestratorOnly bool
-	Fresh            bool
+	// OrchestratorRoles also matches coordinators, which hold orchestrator-role
+	// sessions for machine-role rules.
+	OrchestratorRoles bool
+	Fresh             bool
 }
 
 // commander is the command-side surface Service delegates to: the
@@ -191,23 +198,23 @@ type outputTypeReconciler interface {
 // session operations to the internal sessionmanager.Manager and owns read-model
 // assembly, including user-facing display status derivation.
 type Service struct {
-	manager             commander
-	store               Store
-	prClaimer           ports.PRClaimer
-	scm                 scmProvider
-	tracker             ports.Tracker
-	clock               func() time.Time
-	dataDir             string
-	telemetry           ports.EventSink
-	logger              *slog.Logger
-	backgroundContext   context.Context
-	agentReadiness      ports.AgentReadinessProvider
-	runBackground       func(func())
-	orchestratorLocksMu sync.Mutex
-	orchestratorLocks   map[domain.ProjectID]*sync.Mutex
-	workspaceCache      *workspaceCache
-	workspaceManifests  *workspaceManifestIndex
-	workspaceEditsMu    sync.Mutex
+	manager            commander
+	store              Store
+	prClaimer          ports.PRClaimer
+	scm                scmProvider
+	tracker            ports.Tracker
+	clock              func() time.Time
+	dataDir            string
+	telemetry          ports.EventSink
+	logger             *slog.Logger
+	backgroundContext  context.Context
+	agentReadiness     ports.AgentReadinessProvider
+	runBackground      func(func())
+	capacityGuardMu    sync.Mutex
+	capacityGuard      *coordownership.Guard
+	workspaceCache     *workspaceCache
+	workspaceManifests *workspaceManifestIndex
+	workspaceEditsMu   sync.Mutex
 	// workspaceGroup coalesces concurrent cache-miss compare/status lookups
 	// for the same (session, root): "Expand All" on many files fires that
 	// many GetWorkspaceFile calls at once, and without this each one would
@@ -291,7 +298,7 @@ func (s *Service) refuseOrchestratorForRemoteWorkers(ctx context.Context) error 
 // coordinates, since the local orchestrator would claim that worker's reports.
 func (s *Service) refuseRemoteWorkerForLocalOrchestrators(ctx context.Context) error {
 	active := true
-	orchestrators, err := s.List(ctx, ListFilter{Active: &active, OrchestratorOnly: true})
+	orchestrators, err := s.List(ctx, ListFilter{Active: &active, OrchestratorRoles: true})
 	if err != nil {
 		return err
 	}
@@ -304,7 +311,7 @@ func (s *Service) refuseRemoteWorkerForLocalOrchestrators(ctx context.Context) e
 	}
 	return apierr.Conflict(
 		"LOCAL_ORCHESTRATOR_ACTIVE",
-		"This machine runs its own orchestrator, which would claim the reports of a worker started from another machine. Stop it before starting remote workers here: "+strings.Join(names, ", "),
+		"This machine runs its own orchestrator or coordinator, which would claim the reports of a worker started from another machine. Stop it before starting remote workers here: "+strings.Join(names, ", "),
 		map[string]any{"sessionIds": names},
 	)
 }
@@ -393,14 +400,28 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		sess, err := s.toSession(ctx, rec)
 		return sess, 0, 0, err
 	}
-	if cfg.ClientRequestID != "" && cfg.Kind != domain.KindWorker {
-		return domain.Session{}, 0, 0, apierr.Invalid("CLIENT_REQUEST_WORKER_REQUIRED", "clientRequestId is supported for worker sessions only", nil)
+	if cfg.ClientRequestID != "" && cfg.Kind != domain.KindWorker && cfg.Kind != domain.KindCoordinator {
+		return domain.Session{}, 0, 0, apierr.Invalid("CLIENT_REQUEST_WORKER_REQUIRED", "clientRequestId is supported for worker and coordinator sessions only", nil)
 	}
 	if cfg.ProjectID == "" && cfg.Kind != domain.KindWorker {
 		return domain.Session{}, 0, 0, apierr.Invalid("STANDALONE_WORKER_REQUIRED", "Standalone sessions must be workers", nil)
 	}
 	if cfg.RemoteSpawned && cfg.Kind != domain.KindWorker {
 		return domain.Session{}, 0, 0, apierr.Invalid("REMOTE_SPAWN_WORKER_REQUIRED", "remoteSpawn is supported for worker sessions only", nil)
+	}
+	if cfg.Kind == domain.KindCoordinator {
+		return s.spawnCoordinator(ctx, cfg)
+	}
+	if cfg.Kind == domain.KindWorker && cfg.ProjectID != "" && s.store != nil {
+		owner, err := s.spawnOwner(ctx, cfg)
+		if err != nil {
+			return domain.Session{}, 0, 0, err
+		}
+		release, err := s.admitWorker(ctx, cfg.ProjectID, owner)
+		if err != nil {
+			return domain.Session{}, 0, 0, err
+		}
+		defer release()
 	}
 	if cfg.Kind == domain.KindOrchestrator {
 		cfg.Async = true
@@ -446,7 +467,7 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 			return domain.Session{}, 0, 0, apierr.Invalid("HARNESS_REQUIRED", "harness is required for a standalone session", nil)
 		}
 	}
-	if cfg.Kind == domain.KindOrchestrator {
+	if cfg.Kind == domain.KindOrchestrator || cfg.Kind == domain.KindCoordinator {
 		if err := s.refuseOrchestratorForRemoteWorkers(ctx); err != nil {
 			return domain.Session{}, 0, 0, err
 		}
@@ -476,6 +497,10 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.Session{}, 0, 0, fmt.Errorf("count sessions: %w", err)
 	}
 	cfg = s.withIssueContext(ctx, cfg, project)
+	cfg.OwnerSessionID, err = s.spawnOwner(ctx, cfg)
+	if err != nil {
+		return domain.Session{}, 0, 0, err
+	}
 	rec, promptBytes, systemPromptBytes, err := s.manager.Spawn(ctx, cfg)
 	if err != nil {
 		s.invalidateAgentReadinessAfterLaunchFailure(cfg.Harness, err)
@@ -790,32 +815,49 @@ func sessionNewer(a, b domain.SessionRecord) bool {
 }
 
 func (s *Service) lockOrchestratorProject(projectID domain.ProjectID) func() {
-	s.orchestratorLocksMu.Lock()
-	if s.orchestratorLocks == nil {
-		s.orchestratorLocks = make(map[domain.ProjectID]*sync.Mutex)
-	}
-	mu := s.orchestratorLocks[projectID]
-	if mu == nil {
-		mu = &sync.Mutex{}
-		s.orchestratorLocks[projectID] = mu
-	}
-	s.orchestratorLocksMu.Unlock()
-
+	mu := s.projectLock(projectID)
 	mu.Lock()
 	return mu.Unlock
 }
 
+// projectLock is the per-project lock behind root spawn, coordinator spawn,
+// and every spawn or ownership write that is checked against capacity.
+func (s *Service) projectLock(projectID domain.ProjectID) *sync.RWMutex {
+	s.capacityGuardMu.Lock()
+	if s.capacityGuard == nil {
+		s.capacityGuard = &coordownership.Guard{}
+	}
+	guard := s.capacityGuard
+	s.capacityGuardMu.Unlock()
+	return guard.Project(projectID)
+}
+
+// SetCapacityGuard shares the project capacity locks with the remote worker
+// service, so link writes serialise with spawns.
+func (s *Service) SetCapacityGuard(guard *coordownership.Guard) {
+	s.capacityGuardMu.Lock()
+	s.capacityGuard = guard
+	s.capacityGuardMu.Unlock()
+}
+
 // Restore relaunches a terminated session and returns the API-facing read model.
 func (s *Service) Restore(ctx context.Context, id domain.SessionID) (RestoreOutcome, error) {
-	if s.remoteSpawned != nil {
+	if s.store != nil {
 		rec, found, err := s.store.GetSession(ctx, id)
 		if err != nil {
 			return RestoreOutcome{}, err
 		}
-		if found && rec.Kind == domain.KindOrchestrator {
+		if found && s.remoteSpawned != nil && (rec.Kind == domain.KindOrchestrator || rec.Kind == domain.KindCoordinator) {
 			if err := s.refuseOrchestratorForRemoteWorkers(ctx); err != nil {
 				return RestoreOutcome{}, err
 			}
+		}
+		if found && rec.IsTerminated && rec.ProjectID != "" {
+			release, err := s.admitRestore(ctx, rec)
+			if err != nil {
+				return RestoreOutcome{}, err
+			}
+			defer release()
 		}
 	}
 	res, err := s.manager.RestoreWithMode(ctx, id)
@@ -1358,6 +1400,9 @@ func matchesSessionFilter(rec domain.SessionRecord, filter ListFilter) bool {
 		return false
 	}
 	if filter.OrchestratorOnly && rec.Kind != domain.KindOrchestrator {
+		return false
+	}
+	if filter.OrchestratorRoles && rec.Kind != domain.KindOrchestrator && rec.Kind != domain.KindCoordinator {
 		return false
 	}
 	if filter.Fresh && rec.IsTerminated {

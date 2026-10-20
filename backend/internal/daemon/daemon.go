@@ -65,6 +65,7 @@ import (
 	importsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/importer"
 	linkpreviewsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/linkpreview"
 	notificationsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/notification"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
@@ -238,9 +239,21 @@ func Run() error {
 	if _, err := store.RequeueClaimedReports(context.Background()); err != nil {
 		return fmt.Errorf("recover report delivery claims: %w", err)
 	}
+	if _, err := store.RequeueClaimedCoordinatorSummaries(context.Background()); err != nil {
+		return fmt.Errorf("recover coordinator summary delivery claims: %w", err)
+	}
 	if err := store.ConfigureAgentSwitchFailureEventEncoder(context.Background(), sentryobs.AgentSwitchEventEncoder{}); err != nil {
 		return fmt.Errorf("configure agent switch failure event encoder: %w", err)
 	}
+	// Resolve host identity before any observer can allocate a session. Failure
+	// is not fatal: the probe answers 501 and phones pair without verification.
+	hostIdentity, identityErr := mobilebridge.EnsureLocalIdentity(cfg.DataDir)
+	if identityErr != nil {
+		log.Warn("could not establish host identity; /api/v1/identity will report unimplemented", "error", identityErr)
+	}
+	// Session ids embed a host token so two machines in one project cannot
+	// allocate the same id, which would collide branches, PRs and reviews.
+	store.SetSessionIDHostToken(mobilebridge.HostToken(hostIdentity.HostID))
 
 	// Consent and event metadata are established before any reporting surface or
 	// recovery enrollment exists. SQLite is forced off first on every boot so a
@@ -608,7 +621,7 @@ func Run() error {
 
 	persistentHostsReconciled := make(chan struct{})
 	reviewerChatsRecovered := make(chan struct{})
-	sessionSvc, reviewSvc, wiredSessMgr, err := startSession(ctx, cfg, runtimeAdapter, store, lcStack.LCM, lcStack.ArtifactVersions, messenger, telemetrySink, notificationWriter, agents, agentSvc, managedPreview, browserBroker, browserAuthority, chatLauncher{svc: chatSvc, persistentHostReconcileDone: persistentHostsReconciled}, reviewerChatsRecovered, settingsSvc, policyCoordinator, tracker, codexOperationGate, log)
+	sessionSvc, reviewSvc, wiredSessMgr, err := startSession(ctx, cfg, runtimeAdapter, store, lcStack.LCM, lcStack.ArtifactVersions, messenger, lifecycleMessenger, telemetrySink, notificationWriter, agents, agentSvc, managedPreview, browserBroker, browserAuthority, chatLauncher{svc: chatSvc, persistentHostReconcileDone: persistentHostsReconciled}, reviewerChatsRecovered, settingsSvc, policyCoordinator, tracker, codexOperationGate, log)
 	if err != nil {
 		stop()
 		lcStack.Stop()
@@ -619,6 +632,8 @@ func Run() error {
 	}
 	sessionSvc.SetChatProviderPreserver(chatSvc.PreservesProviderOnRestart)
 	sessionSvc.SetRemoteSpawnedStore(store)
+	capacityGuard := &coordownership.Guard{}
+	sessionSvc.SetCapacityGuard(capacityGuard)
 	memoryReader := usagesvc.NewMemoryReader(usagesvc.MemoryReaderDeps{
 		Store: store, Runtime: runtimeAdapter, Reviewers: store, CacheTTL: 2 * time.Second,
 		ChatHostPID: func(id domain.SessionID) (int, bool) {
@@ -695,9 +710,13 @@ func Run() error {
 		}
 	}})
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
-		Store:    store,
-		Delivery: reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
+		Store:     store,
+		Delivery:  reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
+		Summaries: store,
 	})
+	summarySvc := reportsvc.NewSummaryService(reportsvc.SummaryDeps{Store: store, OnCreated: func(domain.CoordinatorSummary) {
+		reportCoordinator.Wake()
+	}})
 	chatSvc.SetReportCoordinator(reportCoordinator)
 	reportDeliveryDone := reportCoordinator.Start(ctx)
 	defer func() {
@@ -977,10 +996,8 @@ func Run() error {
 			Binary: res.Path, PIDPath: tunnelPID, Log: log,
 		})
 	}
-	// A system cloudflared is version-checked by running it (30-120ms, up to a
-	// 5s timeout), so resolve off the boot path. Status reads and anything that
-	// needs a connector, such as restoring an enabled bridge, wait for this
-	// lookup rather than racing it.
+	// Checking a system cloudflared's version can take up to 5s, so resolve it
+	// off the boot path; status reads and bridge restores wait for the lookup.
 	bs.ResolveTunnelInBackground(func() controllers.TunnelController {
 		res := mobilebridge.ResolveCloudflared(mobilebridge.LocalCloudflaredLookup(cfg.DataDir))
 		if res.NeedsInstall {
@@ -997,14 +1014,7 @@ func Run() error {
 	})
 
 	// Stable, machine-bound host identity, served by the unauthenticated
-	// GET /api/v1/identity probe. A failure here is not fatal: the probe then
-	// answers 501 and the phone falls back to pairing without identity
-	// verification, which is how it behaved before the probe existed.
-	hostIdentity, identityErr := mobilebridge.EnsureLocalIdentity(cfg.DataDir)
-	if identityErr != nil {
-		log.Warn("could not establish host identity; /api/v1/identity will report unimplemented", "error", identityErr)
-	}
-
+	// GET /api/v1/identity probe. Resolved above, before observers start.
 	bs.HostID = hostIdentity.HostID
 	reportSvc.SetSelfHostID(hostIdentity.HostID)
 	if hostname := reportSourceHostName(); hostname != "" {
@@ -1019,7 +1029,7 @@ func Run() error {
 	if mobilebridge.KeepAwakeSupported() {
 		bs.KeepAwake = mobilebridge.NewKeepAwake(os.Getpid())
 	}
-	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, log)
+	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, capacityGuard, log)
 	remoteReportsDone := remoteReports.Start(ctx)
 	defer func() {
 		stop()
@@ -1050,6 +1060,7 @@ func Run() error {
 		Reviews:            reviewSvc,
 		Notifications:      notifier,
 		Reports:            reportSvc,
+		Summaries:          summarySvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
 		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),
 		NotificationStream: notificationHub,

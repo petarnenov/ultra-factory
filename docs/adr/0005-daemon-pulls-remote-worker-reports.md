@@ -42,7 +42,8 @@ outbound HTTP to hosts the user has already paired in the desktop app.
    reports with `GET /api/v1/reports/pending?sessionId=` (at most 200 reports and
    2 MiB of encoded JSON per pull, never reordered, while report creation is capped at 256 KiB per request;
    `morePending` says more are waiting or still inside their batching or
-   done-settlement delay, judged by the remote clock). Reports that break the
+   done-settlement delay, judged by the remote clock, and a terminated worker's
+   queue is due at once). Reports that break the
    content contract or the size limits (ID 128 bytes, output reference 2048 and
    label 200 characters) are acknowledged without delivery so they cannot pin
    the link. A 401 or 429 stops all requests to that host until its saved
@@ -57,16 +58,22 @@ outbound HTTP to hosts the user has already paired in the desktop app.
    orchestrator receives them as well. The reports are attributed as
    `name (session S on host H)` rather than with an `ao://` link, which would
    name a local session that does not exist.
-4. **Acknowledge.** After a successful delivery, the observer records the
-   remote report IDs in `remote_worker_report_deliveries`. It then calls
+4. **Acknowledge.** After a delivery whose prompt write succeeded - a nil
+   return, or the acceptance timeout that follows a written prompt - the
+   observer records the remote report IDs in
+   `remote_worker_report_deliveries`. A timeout means the write landed, not
+   that the orchestrator received the prompt: it can still sit unsubmitted.
+   The observer then calls
    `POST /api/v1/reports/acknowledge` on the remote host. That call moves only
    that worker's still-pending reports to `acknowledged` with a `pulled:`
    token, and leaves alone any report the remote daemon already claimed for an
    orchestrator of its own. If the acknowledgement fails, the next pass
-   acknowledges the same reports again but does not deliver them twice. If the
-   delivery fails, for example because no orchestrator is active, the
-   observer acknowledges nothing and the reports stay pending on the remote
-   host.
+   acknowledges the same reports again but does not deliver them twice. After
+   any other delivery error - no active orchestrator, a refused target, or a
+   wait that was cancelled once the write succeeded, such as `ctx.Err()` -
+   the observer acknowledges nothing and the reports stay pending on the
+   remote host, so the next pass writes the prompt again. That is
+   at-least-once and can duplicate a prompt that was already written.
 5. **Retire.** When a worker has nothing pending at all (due or not) and the
    remote daemon reports its session terminated, or it answers
    `SESSION_NOT_FOUND`, the observer deletes the link, and the delivery history

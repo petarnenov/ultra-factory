@@ -19,6 +19,7 @@ Natural-language-to-command mappings for common AO tasks.
 | Capture the page | `ao browser screenshot [path]` |
 | Spawn a worker on issue N | `ao spawn --project <p> --issue N --name "<=100 chars>" --prompt "..."` |
 | Message a running agent | `ao send --session <id> --message "..."` |
+| Answer a worker's pending structured question | `ao session input <id>`, then `--request-id <request-id> --action accept --answer <field>=<value>` |
 | Kill a session | `ao session kill <id>` |
 | List sessions | `ao session ls` |
 | Register a repo as a project | `ao project add --path <abs-path> --name <name>` |
@@ -30,14 +31,21 @@ Natural-language-to-command mappings for common AO tasks.
 | Clean up terminated sessions | `ao session cleanup` |
 | Make a Docker container this session starts survive AO cleanup | `docker run --label ao.session=$AO_SESSION_ID --label ao.spare=true ...` |
 | See a session's details | `ao session get <id>` |
-| Open the desktop app | `ao start` |
+| See which live sessions use the most memory | `ao session top` (`--host <host>` to sample a paired machine) |
+| See a session's owner, coordinator scope, and project root | `ao session owner <id>` |
+| Assign, reassign, or clear a worker's coordinator owner | `ao session assign <worker> --owner <coordinator-id\|root>` (live root only) |
+| List a project's coordinators and the workers they own | `ao coordinator ls --project <id>` |
+| Send the root a status summary or escalation (coordinator only) | `ao coordinator report --state <planning\|working\|blocked\|done> [--worker <id>]... [--escalate <reason>]` |
+| List linked remote workers and their local owner | `ao remote-worker ls [--project <id>]` |
+| Assign or clear a linked remote worker's owner | `ao remote-worker assign <host-id> <remote-session-id> --owner <coordinator-id\|root>` |
+| Open the desktop app (operator-only; refused inside AO sessions) | `ao start` |
 | Check the daemon is up | `ao status` |
 | Run health checks | `ao doctor` |
 | Clear the preview panel | `ao preview clear` |
 | List orchestrator sessions | `ao orchestrator ls` |
 | Claim an existing PR for the current session | `ao session claim-pr <pr-ref>` (`AO_SESSION_ID`) |
 | Claim an existing PR for another session | `ao session claim-pr <id> <pr-ref>` |
-| Merge a pull request | `ao pr merge <pr-number>` |
+| Merge a pull request (root only; a coordinator or worker is refused with `MERGE_ROOT_ONLY`) | `ao pr merge <pr-number>` |
 | Resolve pull-request review threads | `ao pr resolve-comments <pr-number> [comment-id...]` |
 | Submit a code review verdict | `ao review submit <session-id> --run <run-id> --verdict approved` |
 | Get an independent / adversarial review of an AO worker's implementation PR | `ao review trigger` (inside the owning worker), or `ao review trigger <worker-session-id>` |

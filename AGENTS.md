@@ -22,15 +22,22 @@ This applies even when you talk to the user in another language: conversation ca
 
 ## Commands
 
-From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`):
+From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`, `make ci-check`):
 
 ```bash
+make ci-check                        # CI comment policy, issue policy, and lint job
 npm run lint                         # backend go test -p 2 + golangci-lint v2.14.0
 npm run frontend:typecheck           # frontend TypeScript check
 npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
 npm run api                          # regenerate OpenAPI spec + frontend TS types (see API contract changes below)
 npx @redwoodjs/agent-ci run --all    # local workflow validation; requires Docker socket
 ```
+
+`make ci-check` is the documented way to reproduce the policy jobs. It resolves
+the pull request's comparison base, forces `GOTOOLCHAIN` to `backend/go.mod`'s
+version, and supplies the environment the policy scripts read. The raw
+`npm run comment:check` defaults to `origin/main`, which is not the base of a
+`dev`-targeted pull request.
 
 **Local validation on a shared machine runs one heavy check at a time.** Do not
 start a second compiler, linter, or test suite from another shell while one is
@@ -131,7 +138,7 @@ For code entry points:
 
 - Keep each code comment to at most two physical lines and 80 characters per line, including indentation and delimiters. Adjacent `//` lines form one comment. Markdown prose is not subject to this limit.
 - The automated check tokenizes Go and TypeScript/TSX/JavaScript with Go's standard parser and the existing TypeScript compiler. Generated files, Go build/compiler directives, TypeScript tooling directives, narrow formatter/linter directives, and SPDX/copyright notices are preserved and narrowly excluded. Other handwritten formats are not yet covered by automated enforcement; the rule still applies to their comments.
-- The committed `scripts/comment-policy/baseline.json` records existing Go and TypeScript-family violations per file. It prevents the recorded debt from growing; it does not mean existing violations are compliant or remediated. Run `npm run comment:check` and `npm run comment:test` when changing comments.
+- The committed `scripts/comment-policy/baseline.json` records existing Go and TypeScript-family violations per file. It prevents the recorded debt from growing; it does not mean existing violations are compliant or remediated. Run `make ci-check ARGS="--only comment"` when changing comments; it uses the pull request's base and the pinned toolchain. `npm run comment:check` and `npm run comment:test` remain the raw checks.
 - Keep every change surgical and directly tied to the task. Avoid drive-by cleanup, broad renames, formatting churn, speculative abstractions, and architectural refactors unless the task explicitly asks for them.
 - Follow existing Go package boundaries. CLI code should call daemon HTTP routes through shared CLI client helpers; it should not open SQLite, spawn runtimes, or call adapters directly.
 - Keep Cobra commands in the relevant command file and table-test them in the style of `backend/internal/cli/*_test.go`.
@@ -214,7 +221,7 @@ Commit `openapi.yaml` and `frontend/src/api/schema.ts` together with the Go chan
 2. **Open the PR against `dev`.** One issue per PR. Keep the repo's conventional prefixes (`feat/`, `fix/`, `docs/`, `test/`, `chore/`, `ci/`).
 3. **Merge the task branch into `dev`** once the full CI job set is green on its final commit. Green CI alone is not the promotion bar.
 4. **Promote `dev` to `main`** when the batch is ready: every CI job green on the latest `dev` commit, plus a manual smoke check of the touched surface (for UI, `ao preview` or the desktop lab). The promotion is a PR into `main`, so it is also where the `main`-only checks run for the batch. `dev` never publishes on its own; the `main`-only workflows (`hub-image`, `worker-image`, `deploy-docs`, the release guards) stay the only path to a release.
-5. **Sync `main` back into `dev` immediately after promoting.** `version-bump` commits a semver bump and a CHANGELOG entry to `main` on every push, so `dev` is stale the moment the promotion lands. Merge `main` into `dev` before starting the next task, or the next promotion conflicts in `frontend/package.json` and `CHANGELOG.md`.
+5. **Sync `main` back into `dev` immediately after promoting.** `version-bump` commits a semver bump and a CHANGELOG entry to `main` when the promoted batch touches release inputs, so `dev` is usually stale the moment the promotion lands; a docs-only batch gets no bump, so pass `--skip-wait`. `make promote-sync` does this: it waits for the bump commit, merges `main` into `dev`, and pushes `dev`. Merge `main` into `dev` before starting the next task, or the next promotion conflicts in `frontend/package.json` and `CHANGELOG.md`.
 6. **Clean up the worktree** after the merge (`git worktree remove <dir>`, then delete the branch). Never force-remove a dirty worktree.
 
 `pricing-catalog-validate.yml` only runs on pull requests whose base is `main`, so a task PR touching `pricing/**` is first validated at promotion; run that job locally in the task worktree instead of waiting.
@@ -243,7 +250,7 @@ and the automated agent-pin refresh on `chore/agent-cli-pins`.
 
 - When creating or updating a PR, follow `.agents/skills/pr-description/SKILL.md` so the published description starts with verified category change counts.
 
-- Before creating or handing over a PR, run all CI validation jobs locally using the workflow commands, pinned runtimes, and CI environment (including complete suites, not only focused tests). Fix failures and rerun the affected full suites before sharing the PR. A local pass is not a guarantee: verify the remote checks too. If a job cannot run locally (for example, an unavailable native OS runner, Docker, or required credentials), explicitly report the exact gap and verify that job in CI; never label it locally passed. Do not execute publishing or production deployment as a validation step.
+- Before creating or handing over a PR, run all CI validation jobs locally using the workflow commands, pinned runtimes, and CI environment (including complete suites, not only focused tests). Run `make ci-check` for the comment policy, issue policy, and lint job; it supplies their CI inputs. Fix failures and rerun the affected full suites before sharing the PR. A local pass is not a guarantee: verify the remote checks too. If a job cannot run locally (for example, an unavailable native OS runner, Docker, or required credentials), explicitly report the exact gap and verify that job in CI; never label it locally passed. Do not execute publishing or production deployment as a validation step.
 
 - Branch from `dev` and target the PR at `dev`, unless explicitly continuing an existing PR. Only a `dev` promotion merges into `main`; see [Git flow](#git-flow).
 - Keep one issue per PR. If asked for separate work, create a separate branch and PR.

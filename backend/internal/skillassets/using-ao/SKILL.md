@@ -11,9 +11,11 @@ trigger: "Using the ao CLI in an AO workspace: creating Cues, spawning workers, 
 | Command | What it does | When to use | Details |
 |---|---|---|---|
 | `spawn` | Spawn a project worker, orchestrator, or projectless standalone worker | Starting a new task or issue | [commands/spawn.md](commands/spawn.md) |
-| `session` | Manage agent sessions (list, kill, rename, restore, etc.) | Inspecting or controlling running/terminated sessions | [commands/session.md](commands/session.md) |
+| `session` | Manage agent sessions (list, memory usage, kill, rename, restore, assign ownership, answer pending questions, etc.) | Inspecting or controlling running/terminated sessions, or assigning a worker's coordinator owner | [commands/session.md](commands/session.md) |
+| `coordinator` | List a project's coordinators, scopes, and the workers they own | Understanding project ownership before delegating or recovering a helper | [commands/coordinator.md](commands/coordinator.md) |
+| `remote-worker` | List linked remote workers and assign or clear their local owner | Inspecting or reassigning ownership of `ao spawn --host` workers | [commands/remote-worker.md](commands/remote-worker.md) |
 | `agent` | Inspect installed harnesses and launch readiness | Choosing or diagnosing an agent harness | `ao agent ls --refresh` |
-| `pr` | Merge a PR or resolve its review threads | Completing a reviewed change | `ao pr merge` / `ao pr resolve-comments` |
+| `pr` | Merge a PR or resolve its review threads | Completing a reviewed change; only the root merges (a coordinator or worker gets `MERGE_ROOT_ONLY`) | [commands/pr.md](commands/pr.md) |
 | `project` | Register, inspect, configure, or remove projects | Setting up or managing repos AO knows about | [commands/project.md](commands/project.md) |
 | `automation` | Manage durable recurring session automations | Creating, editing, disabling, deleting, and inspecting scheduled runs | [commands/automation.md](commands/automation.md) |
 | `cue` | Create or list reusable project Cues | Saving a repetitive command or agent task at the user's request | [commands/cue.md](commands/cue.md) |
@@ -25,18 +27,29 @@ trigger: "Using the ao CLI in an AO workspace: creating Cues, spawning workers, 
 | `preview` | Start a session-owned app or open an exact URL/file | Running and showing the worker's relevant app, Markdown, HTML, PDF, or image | [commands/preview.md](commands/preview.md) |
 | `render` | Show a self-contained HTML page inline in a chat thread | Answering with a chart, table, diagram, or mockup | [commands/render.md](commands/render.md) |
 | `browser` | Inspect and control the session's shared live browser | Verifying a web app through snapshots, interactions, waits, screenshots, console, and errors | [commands/browser.md](commands/browser.md) |
-| `start` | Fetch (if needed) and open the AO desktop app | Launching the app | [commands/start.md](commands/start.md) |
-| `stop` | Stop the AO daemon | Shutting down AO | [commands/stop.md](commands/stop.md) |
+| `start` | Fetch (if needed) and open the AO desktop app (operator-only) | Launching the app from a user shell | [commands/start.md](commands/start.md) |
+| `stop` | Stop the AO daemon (operator-only) | Stopping a local daemon from a user shell | [commands/stop.md](commands/stop.md) |
 | `status` | Show daemon status | Verifying the daemon is up and healthy | [commands/status.md](commands/status.md) |
 | `doctor` | Run local health checks | Diagnosing AO setup problems | [commands/doctor.md](commands/doctor.md) |
 | `import` | Import projects from a legacy AO install | Migrating from the old flat-file store | [commands/import.md](commands/import.md) |
 | `version` | Print version information | Checking installed version | - |
 | `completion` | Generate shell completion scripts | Setting up tab completion | - |
 
+`ao start`, `ao stop`, and `ao daemon` are operator-only. They are refused
+inside an AO agent session (`AO_SESSION_ID` is set), and a daemon started by a
+host supervisor (for example the Railway hub) also refuses `ao stop`. Never run
+them from an agent session; ask the operator to restart the daemon or hosted
+service instead.
+
 ## Conventions
 
 - Most read commands accept `--json` for machine-readable output.
 - `-p / --project` scopes session subcommand lookups to one project.
+- `ao session ls` shows a worker's durable owner. `ao session owner <id>`
+  reads the full relation (owner kind, coordinator scope, live root).
+  `ao session assign <worker> --owner <coordinator-id|root>` writes ownership
+  and only the project's live root may do so. `--owner root` clears the owner.
+  `ao session ls --tree` shows root, coordinators, and their workers.
 - Session and project ids are shown by `ao session ls` and `ao project ls`.
 - To refer to a session in AO Chat or the AO terminal, use the canonical in-app
   link `ao://sessions/{project-id}/{session-id}`. Read

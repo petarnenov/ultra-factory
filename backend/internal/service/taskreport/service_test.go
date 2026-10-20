@@ -74,6 +74,9 @@ func TestClassifyOutcomes(t *testing.T) {
 	unfinished := worker("ao-4", t0)
 	unfinished.IsTerminated = true
 	unfinished.PRs = []domain.PRFacts{{URL: "u5"}}
+	mergedAndOpen := worker("ao-8", t0)
+	mergedAndOpen.IsTerminated = true
+	mergedAndOpen.PRs = []domain.PRFacts{{URL: "u6", Merged: true}, {URL: "u7"}}
 	noPR := worker("ao-7", t0)
 	noPR.IsTerminated = true
 	failed := worker("ao-5", t0)
@@ -90,6 +93,7 @@ func TestClassifyOutcomes(t *testing.T) {
 		{closed, OutcomeClosed, true},
 		{openLive, "", false},
 		{unfinished, OutcomeUnfinished, true},
+		{mergedAndOpen, OutcomeUnfinished, true},
 		{noPR, OutcomeNoPR, true},
 		{failed, OutcomeFailed, true},
 		{live, "", false},

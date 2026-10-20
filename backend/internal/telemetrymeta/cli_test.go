@@ -84,6 +84,7 @@ func TestCLIActorTypeKeepsConservativeFallback(t *testing.T) {
 		{actorType: "system", commandPath: "ao spawn", want: "system"},
 		{commandPath: "ao daemon", want: "system"},
 		{commandPath: "ao spawn", want: "user"},
+		{commandPath: "ao session input", want: "user"},
 		{commandPath: "ao surprise", want: "system"},
 	} {
 		if got := CLIActorType(tc.actorType, tc.commandPath); got != tc.want {

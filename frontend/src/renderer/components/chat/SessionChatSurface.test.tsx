@@ -9,6 +9,7 @@ import type { AgentSwitchSummary, WorkspaceSession } from "../../types/workspace
 import { useUiStore } from "../../stores/ui-store";
 import { workspaceQueryKey } from "../../hooks/useWorkspaceQuery";
 import { useConversationConfigOptions, useConversationModels, useConversationSkills } from "../../hooks/useConversation";
+import { TooltipProvider } from "../ui/tooltip";
 
 const LINK = "http://localhost:5173";
 const REPORT_LINK = "reports/new-report.html";
@@ -217,7 +218,11 @@ const session = {
 } satisfies WorkspaceSession;
 
 function Wrapper({ client, children }: { client: QueryClient; children: ReactNode }) {
-	return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+	return (
+		<QueryClientProvider client={client}>
+			<TooltipProvider>{children}</TooltipProvider>
+		</QueryClientProvider>
+	);
 }
 
 beforeEach(() => {
@@ -1452,5 +1457,31 @@ describe("side command routing", () => {
 		expect(sideMocks.create).not.toHaveBeenCalled();
 		expect(mainSend).toHaveBeenCalledWith(expect.objectContaining({ text: `/${command} question` }));
 		delete (conversationCommandState as { send?: unknown }).send;
+	});
+});
+
+describe("SessionChatSurface orchestrator actions", () => {
+	it("offers Kill only in the orchestrator chat header", () => {
+		conversationState.snapshot = snapshotFor(session.id);
+		const client = new QueryClient({
+			defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+		});
+		const view = render(
+			<Wrapper client={client}>
+				<SessionChatSurface session={session} />
+			</Wrapper>,
+		);
+		expect(
+			screen.queryByRole("button", { name: "Kill orchestrator" }),
+		).not.toBeInTheDocument();
+
+		view.rerender(
+			<Wrapper client={client}>
+				<SessionChatSurface session={{ ...session, kind: "orchestrator" }} />
+			</Wrapper>,
+		);
+		expect(
+			screen.getByRole("button", { name: "Kill orchestrator" }),
+		).toBeInTheDocument();
 	});
 });

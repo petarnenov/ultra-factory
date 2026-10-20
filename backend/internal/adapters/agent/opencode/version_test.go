@@ -130,6 +130,7 @@ func TestResolveBinaryForMajorMissing(t *testing.T) {
 	}
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("VOLTA_HOME", t.TempDir())
 	t.Setenv("FNM_DIR", t.TempDir())
 	old := opencodeUnixPaths
@@ -196,6 +197,10 @@ func TestResolveBinaryForMajorPrefersMismatchOverEarlierProbeFailure(t *testing.
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", broken+string(os.PathListSeparator)+mismatch)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("VOLTA_HOME", t.TempDir())
+	t.Setenv("FNM_DIR", t.TempDir())
 	old := opencodeUnixPaths
 	opencodeUnixPaths = nil
 	t.Cleanup(func() { opencodeUnixPaths = old })

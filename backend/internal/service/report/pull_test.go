@@ -65,6 +65,21 @@ func TestListDuePendingReturnsOnlyPendingReportsThatAreDue(t *testing.T) {
 	}
 }
 
+func TestListDuePendingFlushesATerminatedWorkersQueue(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	st := &pullStore{fakeStore: fakeStore{ok: true, session: domain.SessionRecord{ID: "w", Kind: domain.KindWorker, IsTerminated: true}}}
+	st.bySession = []domain.ReportRecord{{ID: "final", DeliveryState: domain.ReportPending, AvailableAt: now.Add(time.Hour)}}
+	got, more, err := New(Deps{Store: st, Now: func() time.Time { return now }}).ListDuePending(context.Background(), "w")
+	if err != nil || len(got) != 1 || got[0].ID != "final" || more {
+		t.Fatalf("terminated queue = %+v more=%v err=%v", got, more, err)
+	}
+
+	st.session.IsTerminated = false
+	if got, more, err := New(Deps{Store: st, Now: func() time.Time { return now }}).ListDuePending(context.Background(), "w"); err != nil || len(got) != 0 || !more {
+		t.Fatalf("live queue = %+v more=%v err=%v", got, more, err)
+	}
+}
+
 func TestListDuePendingCapsOnePullAtOneAcknowledgement(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	st := &pullStore{fakeStore: fakeStore{ok: true, session: domain.SessionRecord{ID: "w", Kind: domain.KindWorker}}}
@@ -140,8 +155,10 @@ func TestDeliverExternalSubmitsToTheActiveOrchestratorWithHostAttribution(t *tes
 		Outputs: []domain.ReportOutput{{Kind: domain.ReportOutputPRCreated, Reference: "https://github.com/o/r/pull/9"}},
 	}}
 
-	if err := c.DeliverExternal(context.Background(), "p", reports); !errors.Is(err, ErrNoActiveOrchestrator) {
-		t.Fatalf("without an orchestrator err = %v", err)
+	if _, ok, err := c.ResolveRemoteRecipient(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host-build", RemoteSessionID: "widgets-3", RemoteProjectID: "widgets", ProjectID: "p", CreatedAt: now,
+	}); err != nil || ok {
+		t.Fatalf("without an orchestrator ok=%v err=%v", ok, err)
 	}
 	if len(delivery.submissions) != 0 {
 		t.Fatal("submitted without an orchestrator")
@@ -151,7 +168,7 @@ func TestDeliverExternalSubmitsToTheActiveOrchestratorWithHostAttribution(t *tes
 		{ID: "old", ProjectID: "p", Kind: domain.KindOrchestrator, IsTerminated: true, CreatedAt: now},
 		{ID: "respawned", ProjectID: "p", Kind: domain.KindOrchestrator, CreatedAt: now.Add(time.Second)},
 	}
-	if err := c.DeliverExternal(context.Background(), "p", reports); err != nil {
+	if err := c.DeliverExternal(context.Background(), "p", "respawned", reports); err != nil {
 		t.Fatal(err)
 	}
 	if len(delivery.submissions) != 1 || delivery.submissions[0].target != "respawned" {
@@ -167,7 +184,7 @@ func TestDeliverExternalSubmitsToTheActiveOrchestratorWithHostAttribution(t *tes
 	}
 
 	delivery.submitErr = errors.New("busy")
-	if err := c.DeliverExternal(context.Background(), "p", reports); err == nil {
+	if err := c.DeliverExternal(context.Background(), "p", "respawned", reports); err == nil {
 		t.Fatal("a refused submission must surface so the caller does not acknowledge")
 	}
 }

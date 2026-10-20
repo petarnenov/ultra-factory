@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/remotereports"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/remoteworker"
 )
 
@@ -19,12 +20,12 @@ type remoteReportsStore interface {
 // (outbound only) and the link service records which workers to pull, waking
 // the observer as soon as a link is stored. Both refuse this machine's own
 // host ID.
-func newRemoteReports(store remoteReportsStore, deliverer remotereports.Deliverer, selfHostID string, log *slog.Logger) (*remotereports.Observer, *remoteworker.Service) {
+func newRemoteReports(store remoteReportsStore, deliverer remotereports.Deliverer, selfHostID string, capacity *coordownership.Guard, log *slog.Logger) (*remotereports.Observer, *remoteworker.Service) {
 	observer := remotereports.New(remotereports.Deps{
 		Store: store, Deliverer: deliverer, SelfHostID: selfHostID, Logger: log,
 	})
 	links := remoteworker.New(remoteworker.Deps{
-		Store: store, SelfHostID: selfHostID, OnLinked: observer.Wake,
+		Store: store, SelfHostID: selfHostID, OnLinked: observer.Wake, Capacity: capacity,
 	})
 	return observer, links
 }

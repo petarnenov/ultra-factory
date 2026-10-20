@@ -4,12 +4,14 @@ How to set up, build, run, and test Agent Orchestrator locally.
 
 ## Prerequisites
 
-| Tool       | Minimum version | Notes                                                                  |
-| ---------- | --------------- | ---------------------------------------------------------------------- |
-| Go         | 1.27.1          | `go version` to check; install via [go.dev](https://go.dev/dl/)        |
-| Node.js    | 24         | `node --version`; install via [nodejs.org](https://nodejs.org/)        |
-| npm        | 10              | Ships with Node.js                                                     |
-| Nix (opt.) | -               | `nix develop` drops you into a shell with all deps; see `../flake.nix` |
+| Tool           | Minimum version | Notes                                                                  |
+| -------------- | --------------- | ---------------------------------------------------------------------- |
+| Go             | 1.27.1          | `go version` to check; install via [go.dev](https://go.dev/dl/)        |
+| Node.js        | 24              | `node --version`; install via [nodejs.org](https://nodejs.org/)        |
+| npm            | 10              | Ships with Node.js                                                     |
+| Python 3       | -               | `scripts/comment-policy/scan_comments.py`; needed by `make ci-check`   |
+| GitHub CLI     | -               | `gh auth login`; needed by the issue-policy check                      |
+| Nix (opt.)     | -               | `nix develop` drops you into a shell with all deps; see `../flake.nix` |
 
 Additional runtime dependencies for the daemon:
 
@@ -62,6 +64,7 @@ make daemon          # run the daemon from source
 make ao ARGS=status  # run the ao CLI from source
 make test            # backend + frontend unit tests
 make check           # lint, vet, typecheck, frontend tests
+make ci-check        # comment policy, issue policy, CI lint job
 make api / make sqlc # regenerate OpenAPI types / sqlc code
 ```
 
@@ -77,14 +80,14 @@ heavy steps serially, including under `make -j`.
 ### Branching
 
 ```bash
-git checkout -b ao/my-feature-branch origin/main
+git checkout -b ao/my-feature-branch origin/dev
 ```
 
-Keep your branch up to date by rebasing on main:
+Keep your branch up to date by rebasing on the integration branch:
 
 ```bash
 git fetch origin
-git rebase origin/main
+git rebase origin/dev
 ```
 
 ### Committing
@@ -153,6 +156,50 @@ go test -v ./internal/cli/      # a specific package
 ```bash
 npm run lint
 ```
+
+`npm run lint` runs the backend suite and golangci-lint with `GOTOOLCHAIN`
+forced to `backend/go.mod`'s version, as CI's `setup-go` does. It also clears
+`AO_*` for the backend suite, because CI runs without them and an AO worker
+session would otherwise inject its own session state into tests that read it.
+To run only the `go.yml` lint job, use `bash scripts/lint.sh --lint-only`.
+
+### Checks that mirror CI
+
+The comment policy, issue tracking policy, and lint job each use inputs that a
+bare command does not supply. `make ci-check` supplies them:
+
+```bash
+make ci-check                              # all three
+make ci-check ARGS="--only comment,lint"   # before the pull request exists
+make ci-check ARGS="--only issue --pr 412" # a specific pull request
+```
+
+- **Comment policy** (`.github/workflows/comment-policy.yml`): compares against
+  the pull request's base commit, or `origin/dev` when there is no pull request
+  yet, instead of the raw command's `origin/main` default. It also forces the
+  Go toolchain and runs the same test step as the workflow. On a `main` push,
+  pass `--base <before-sha>` (or `--base origin/main` before pushing). It needs
+  `frontend/node_modules`; install it with
+  `npm ci --prefix frontend --ignore-scripts` (the workflow's command).
+- **Issue policy** (`.github/workflows/issue-policy.yml`): sets `GH_TOKEN`,
+  `GITHUB_REPOSITORY`, and `PR_NUMBER` from your environment, `origin`, and the
+  current branch's pull request. It reads the live title, body, and issue labels,
+  so it needs an open pull request and GitHub API access. Before the pull
+  request exists, the issue check is skipped; run `make ci-check` again after
+  opening it. The workflow runs on the same inputs.
+- **Lint** (`go.yml` job `lint`): runs golangci-lint v2.14.0 in `backend` with
+  `GOTOOLCHAIN` pinned to `backend/go.mod`, matching `setup-go` and the pinned
+  action version.
+
+`make check` and `make check-all` also run the comment policy, and the issue
+policy when an open pull request exists. They keep their broader local suite;
+`make ci-check` is the focused entry point for the three CI policy jobs.
+
+Checks that cannot run locally: the issue policy needs an open pull request and
+GitHub API access; Docker jobs (`cli-e2e`, `railway-e2e`, and the image builds)
+need Docker (`make ci-local` runs the workflows through agent-ci); the macOS and
+Windows jobs need those runners; and the release/publish workflows are not
+validation steps.
 
 ### Code generation
 

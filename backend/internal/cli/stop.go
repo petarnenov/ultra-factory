@@ -2,7 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -46,6 +49,9 @@ func newStopCommand(ctx *commandContext) *cobra.Command {
 }
 
 func (c *commandContext) stopDaemon(ctx context.Context, opts stopOptions) (daemonStatus, error) {
+	if err := refuseDaemonControlInAgentSession("stop"); err != nil {
+		return daemonStatus{}, err
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return daemonStatus{}, err
@@ -90,6 +96,10 @@ func (c *commandContext) requestShutdown(ctx context.Context, port int) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var body apiError
+		if err := json.NewDecoder(io.LimitReader(resp.Body, maxDrainedBodyBytes)).Decode(&body); err == nil && body.Message != "" {
+			return errors.New(body.String())
+		}
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return nil

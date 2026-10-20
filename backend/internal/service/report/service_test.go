@@ -127,6 +127,17 @@ func TestCreateDefendsValidationAndOwnership(t *testing.T) {
 
 type artifactCalls []string
 
+func TestCreateRefusesATerminatedSession(t *testing.T) {
+	st := &fakeStore{ok: true, session: domain.SessionRecord{ID: "ao-9", ProjectID: "ao", Kind: domain.KindWorker, IsTerminated: true}}
+	_, err := New(Deps{Store: st}).Create(context.Background(), CreateInput{SessionID: "ao-9", State: domain.ReportDone, Note: "finished"})
+	if apiCode(err) != "SESSION_TERMINATED" {
+		t.Fatalf("err = %v, want SESSION_TERMINATED", err)
+	}
+	if st.created.ID != "" {
+		t.Fatalf("a terminated session queued report %q", st.created.ID)
+	}
+}
+
 func (a *artifactCalls) RecordReportedArtifact(_ context.Context, id domain.SessionID, reference string) {
 	*a = append(*a, string(id)+" "+reference)
 }

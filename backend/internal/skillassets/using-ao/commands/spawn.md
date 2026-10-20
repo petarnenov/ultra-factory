@@ -1,6 +1,6 @@
 # ao spawn
 
-Spawn a worker or orchestrator agent session in a registered project, or a standalone worker session that is not tied to a project.
+Spawn a worker, orchestrator, or coordinator agent session in a registered project, or a standalone worker session that is not tied to a project.
 Standalone sessions run in an AO-managed directory. Register a project first with `ao project add` for project-scoped sessions.
 
 ## Syntax
@@ -15,7 +15,8 @@ ao spawn [flags]
 |---|---|---|
 | `--branch string` | Branch for the session worktree | `ao/<session-id>/root` |
 | `--claim-pr string` | Claim an existing PR for authorized implementation continuation. Omit for review-only work | - |
-| `--kind string` | Session role: `worker` or `orchestrator` | `worker` |
+| `--kind string` | Session role: `worker`, `orchestrator`, or `coordinator`. A coordinator can only be spawned from the project's live root session and needs `--scope` | `worker` |
+| `--scope string` | Bounded area of work for `--kind coordinator` (required for it, max 200 characters, rejected for other kinds) | - |
 | `--host string` | Spawn on a paired remote AO machine (label, host ID, or URL from `ao host ls`). See [host.md](host.md) | This machine |
 | `--harness string` | Agent harness to use (see list below) | Project `worker.agent`; required if the project has none |
 | `--issue string` | Issue id to associate with the session | - |
@@ -60,6 +61,13 @@ ao spawn --project agent-orchestrator --name "review-pr-88" --prompt "Review PR 
 ao spawn --project agent-orchestrator --kind orchestrator --name "coordinate-fix" \
   --prompt "Coordinate the fix and report the worker PR."
 ```
+
+```bash
+# From the root orchestrator session: spawn a scoped coordinator (the project must enable coordinators)
+ao spawn --project agent-orchestrator --kind coordinator --scope "auth module" --name "coord-auth"
+```
+
+A coordinator is spawned by the live root only (`AO_SESSION_ID` must be the root's session ID) and runs on the root's machine, so `--host` is a usage error. A worker spawned from a coordinator session is assigned to that coordinator. Coordinators are off until the project enables them (`ao project set-config <id> --coordinators`); a spawn in a project that has not is refused with `COORDINATORS_DISABLED`. Limits come from the project's configuration and default to 2 active coordinators, 3 active workers per coordinator, and 6 active workers per project once a coordinator exists. A rejected spawn exits 1 with a stable code (`COORDINATORS_DISABLED`, `COORDINATOR_LIMIT_REACHED`, `COORDINATOR_WORKER_LIMIT_REACHED`, `PROJECT_WORKER_LIMIT_REACHED`, `COORDINATOR_ROOT_REQUIRED`) and creates no session. A terminated session frees its slot.
 
 ```bash
 # Spawn on another machine; the remote project is matched by repository

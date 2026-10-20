@@ -18,13 +18,18 @@
 #     with worker, PR and CI state every 5 minutes.
 
 # If the daemon, the BFF, or an enabled tailscaled exits, the other processes
-# are stopped and this script exits with the first one's status, so Railway
+# are stopped and this script exits non-zero, even when the child exited with
 
-# restarts the whole container. The tick loop starts after
-# AO_HUB_TICK_START_DELAY seconds and is not critical: when it exits it is
+# status 0, so restart-on-failure applies. A clean exit was not restarted by
+# the platform (issue #247), so a critical child exit is always a failure. The
 
-# logged and restarted after AO_HUB_TICK_RESTART_DELAY seconds, and the hub
-# keeps running. SIGTERM or SIGINT stops every child and exits 0.
+# daemon runs with AO_SUPERVISED=1, which makes its loopback /shutdown refuse
+# to stop the host. The tick loop starts after AO_HUB_TICK_START_DELAY seconds
+
+# and is not critical: when it exits it is logged and restarted after
+# AO_HUB_TICK_RESTART_DELAY seconds, and the hub keeps running. SIGTERM or
+
+# SIGINT stops every child and exits 0.
 
 #   1. As root (RAILWAY_RUN_UID=0): hand the root-owned volume to uid 10001 and
 #      re-run this script as that user, as the worker entrypoint does.
@@ -292,7 +297,9 @@ supervise() {
 	local status=0 exited
 	trap stop_children TERM INT
 	start_tailnet
-	run_child "${daemon_command[@]}" &
+	# AO_SUPERVISED makes the daemon refuse loopback /shutdown: the supervisor
+	# owns the container lifecycle, and no session may stop the whole hub.
+	run_child env AO_SUPERVISED=1 "${daemon_command[@]}" &
 	daemon_pid=$!
 	run_child node "$bff_main" &
 	bff_pid=$!
@@ -326,7 +333,14 @@ supervise() {
 		if [[ -n $tailscale_pid ]] && ! kill -0 "$tailscale_pid" 2>/dev/null; then
 			exited="tailscaled"
 		elif kill -0 "$daemon_pid" 2>/dev/null; then exited="hub BFF"; else exited="ao daemon"; fi
-		log "$exited exited with status $status; stopping the other processes"
+		if ((status == 0)); then
+			# A clean critical exit is still a failure: the platform only
+			# restarts a non-zero container exit (issue #247).
+			log "$exited exited with status 0 and no termination signal; treating it as a failure so the platform restarts the container"
+			status=1
+		else
+			log "$exited exited with status $status; stopping the other processes"
+		fi
 	fi
 	stop_children
 	wait "$daemon_pid" 2>/dev/null || true

@@ -141,6 +141,9 @@ type ReportRecord struct {
 	AcknowledgedAt     time.Time
 	LastError          string
 	DeliveryBatchID    string
+	// DeliveryOwnerID records the recipient a claimed batch was accepted for.
+	// It is diagnostic only; the next claim re-resolves ownership.
+	DeliveryOwnerID string
 }
 
 // ErrInvalidReport reports an invalid report or delivery transition input.
@@ -239,8 +242,5 @@ func UnwrapPastedContent(message string) string {
 }
 
 // ErrSemanticAcceptanceTimeout means the pane write succeeded but its prompt
-// hook has not yet confirmed acceptance. Retrying immediately can duplicate it.
+// hook has not confirmed it yet. Retrying would re-send the same prompt.
 var ErrSemanticAcceptanceTimeout = errors.New("prompt submission was not observed")
-
-// ReportAcceptanceRetryDelay allows late prompt hooks to arrive before retrying.
-const ReportAcceptanceRetryDelay = 5 * time.Minute

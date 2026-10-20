@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 type sessionOptions struct {
@@ -25,6 +27,7 @@ type sessionListOptions struct {
 	sessionOptions
 	all               bool
 	includeTerminated bool
+	tree              bool
 }
 
 type sessionCleanupOptions struct {
@@ -58,6 +61,10 @@ type sessionDTO struct {
 	Branch       string          `json:"branch,omitempty"`
 	BranchState  *branchStateDTO `json:"branchState,omitempty"`
 	PRs          []sessionPRDTO  `json:"prs"`
+	// OwnerSessionID is a worker's durable coordinator owner; nil is root-owned.
+	OwnerSessionID *string `json:"ownerSessionId"`
+	// CoordinatorScope bounds a coordinator's work and is empty otherwise.
+	CoordinatorScope string `json:"coordinatorScope,omitempty"`
 	// Model, Effort, and their sources record the resolved launch
 	// configuration and the layer and machine that supplied it.
 	Model              string           `json:"model,omitempty"`
@@ -108,8 +115,10 @@ type sessionPRSummaryResponse struct {
 }
 
 type sessionPRSummaryDTO struct {
-	Number int `json:"number"`
-	CI     struct {
+	URL     string `json:"url"`
+	Number  int    `json:"number"`
+	HeadSHA string `json:"headSha"`
+	CI      struct {
 		State string `json:"state"`
 	} `json:"ci"`
 	Review struct {
@@ -189,21 +198,23 @@ type claimPRResponse struct {
 }
 
 type sessionListEntry struct {
-	ID             string           `json:"id"`
-	ProjectID      string           `json:"projectId"`
-	Role           string           `json:"role"`
-	DisplayName    string           `json:"displayName,omitempty"`
-	Status         string           `json:"status,omitempty"`
-	Activity       string           `json:"activity,omitempty"`
-	Health         sessionHealthDTO `json:"health"`
-	IssueID        string           `json:"issueId,omitempty"`
-	Harness        string           `json:"harness,omitempty"`
-	Branch         string           `json:"branch,omitempty"`
-	PRs            []sessionListPR  `json:"prs"`
-	IsTerminated   bool             `json:"isTerminated"`
-	LastActivityAt *time.Time       `json:"lastActivityAt,omitempty"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	UpdatedAt      time.Time        `json:"updatedAt"`
+	ID               string           `json:"id"`
+	ProjectID        string           `json:"projectId"`
+	Role             string           `json:"role"`
+	DisplayName      string           `json:"displayName,omitempty"`
+	Status           string           `json:"status,omitempty"`
+	Activity         string           `json:"activity,omitempty"`
+	Health           sessionHealthDTO `json:"health"`
+	IssueID          string           `json:"issueId,omitempty"`
+	Harness          string           `json:"harness,omitempty"`
+	Branch           string           `json:"branch,omitempty"`
+	PRs              []sessionListPR  `json:"prs"`
+	OwnerSessionID   *string          `json:"ownerSessionId"`
+	CoordinatorScope string           `json:"coordinatorScope,omitempty"`
+	IsTerminated     bool             `json:"isTerminated"`
+	LastActivityAt   *time.Time       `json:"lastActivityAt,omitempty"`
+	CreatedAt        time.Time        `json:"createdAt"`
+	UpdatedAt        time.Time        `json:"updatedAt"`
 }
 
 type sessionListPR struct {
@@ -229,11 +240,14 @@ func newSessionCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newSessionListCommand(ctx))
 	cmd.AddCommand(newSessionTopCommand(ctx))
 	cmd.AddCommand(newSessionGetCommand(ctx))
+	cmd.AddCommand(newSessionInputCommand(ctx))
 	cmd.AddCommand(newSessionKillCommand(ctx))
 	cmd.AddCommand(newSessionRestoreCommand(ctx))
 	cmd.AddCommand(newSessionExitAgentCommand(ctx))
 	cmd.AddCommand(newSessionResumeAgentCommand(ctx))
 	cmd.AddCommand(newSessionRenameCommand(ctx))
+	cmd.AddCommand(newSessionOwnerCommand(ctx))
+	cmd.AddCommand(newSessionAssignCommand(ctx))
 	cmd.AddCommand(newSessionCleanupCommand(ctx))
 	cmd.AddCommand(newSessionClaimPRCommand(ctx))
 	cmd.AddCommand(newSessionSwitchAgentCommand(ctx))
@@ -256,6 +270,7 @@ func newSessionListCommand(ctx *commandContext) *cobra.Command {
 	addSessionProjectFlag(f, &opts.project, "Filter by project ID")
 	f.BoolVarP(&opts.all, "all", "a", false, "Include orchestrator sessions")
 	f.BoolVar(&opts.includeTerminated, "include-terminated", false, "Include terminated sessions")
+	f.BoolVar(&opts.tree, "tree", false, "Show the ownership tree: root, coordinators and their workers")
 	f.BoolVar(&opts.json, "json", false, "Output as JSON")
 	addHostFlag(cmd, ctx)
 	return cmd
@@ -402,12 +417,16 @@ func newSessionClaimPRCommand(ctx *commandContext) *cobra.Command {
 		Use:   "claim-pr [<session-id>] <pr-ref>",
 		Short: "Attach an existing PR to a session",
 		Long: "Attach an existing PR to a session. When session-id is omitted, the current session is read from AO_SESSION_ID.\n\n" +
-			"Claiming updates PR ownership metadata only; it does not check out the PR branch. Verify the workspace branch and HEAD before editing.",
+			"Claiming updates PR ownership metadata only; it does not check out the PR branch. Verify the workspace branch and HEAD before editing.\n\n" +
+			"With --host the claim is recorded on the daemon that owns the session, so the reviewed pull request is registered there.",
 		Example: `  # From inside an AO worker session
   ao session claim-pr 88
 
   # Target a session explicitly
-  ao session claim-pr mer-3 88`,
+  ao session claim-pr mer-3 88
+
+  # Claim for a session on another machine
+  ao session claim-pr mer-3 88 --host build-box`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.RangeArgs(1, 2)(cmd, args); err != nil {
 				return usageError{err}
@@ -426,6 +445,7 @@ func newSessionClaimPRCommand(ctx *commandContext) *cobra.Command {
 	addSessionProjectFlag(cmd.Flags(), &opts.project, "Project id to scope the lookup")
 	cmd.Flags().BoolVar(&opts.noTakeover, "no-takeover", false, "Refuse if another active session owns the PR")
 	cmd.Flags().BoolVar(&opts.json, "json", false, "Output as JSON")
+	addHostFlag(cmd, ctx)
 	return cmd
 }
 
@@ -549,6 +569,9 @@ func (c *commandContext) listSessions(ctx context.Context, cmd *cobra.Command, o
 			}
 		}
 	}
+	if opts.tree {
+		return c.listSessionTree(ctx, cmd, res.Sessions, opts)
+	}
 	sessions := filterAndSortSessions(res.Sessions, opts.all)
 	hiddenTerminatedCount := 0
 	if !opts.includeTerminated {
@@ -639,10 +662,25 @@ func (c *commandContext) getSession(ctx context.Context, cmd *cobra.Command, id 
 	if err != nil {
 		return err
 	}
-	if opts.json {
-		return writeJSON(cmd.OutOrStdout(), sessionResponse{Session: sess})
+	var entry *coordinatorRosterItem
+	if sess.Kind == string(domain.KindCoordinator) && sess.ProjectID != "" {
+		roster, err := c.fetchCoordinatorRoster(ctx, sess.ProjectID, true)
+		if err != nil {
+			return err
+		}
+		for i := range roster.Coordinators {
+			if roster.Coordinators[i].CoordinatorSessionID == sess.ID {
+				entry = &roster.Coordinators[i]
+			}
+		}
 	}
-	return writeSessionDetails(cmd, sess)
+	if opts.json {
+		return writeJSON(cmd.OutOrStdout(), sessionDetailOutput{Session: sess, Coordinator: entry})
+	}
+	if err := writeSessionDetails(cmd, sess); err != nil {
+		return err
+	}
+	return writeCoordinatorDetails(cmd.OutOrStdout(), entry)
 }
 
 func (c *commandContext) killSession(ctx context.Context, cmd *cobra.Command, id string, opts sessionOptions) error {
@@ -889,21 +927,23 @@ func sessionListEntries(sessions []sessionDTO, summaries map[string][]sessionPRS
 			last = &activity
 		}
 		entries = append(entries, sessionListEntry{
-			ID:             sess.ID,
-			ProjectID:      sess.ProjectID,
-			Role:           sessionRole(sess),
-			DisplayName:    sess.DisplayName,
-			Status:         sess.Status,
-			Activity:       sess.Activity.State,
-			Health:         sess.Health,
-			IssueID:        sess.IssueID,
-			Harness:        sess.Harness,
-			Branch:         sess.Branch,
-			PRs:            listPRsForSession(sess, summaries[sess.ID]),
-			IsTerminated:   sess.IsTerminated,
-			LastActivityAt: last,
-			CreatedAt:      sess.CreatedAt,
-			UpdatedAt:      sess.UpdatedAt,
+			ID:               sess.ID,
+			ProjectID:        sess.ProjectID,
+			Role:             sessionRole(sess),
+			DisplayName:      sess.DisplayName,
+			Status:           sess.Status,
+			Activity:         sess.Activity.State,
+			Health:           sess.Health,
+			IssueID:          sess.IssueID,
+			Harness:          sess.Harness,
+			Branch:           sess.Branch,
+			PRs:              listPRsForSession(sess, summaries[sess.ID]),
+			OwnerSessionID:   sess.OwnerSessionID,
+			CoordinatorScope: sess.CoordinatorScope,
+			IsTerminated:     sess.IsTerminated,
+			LastActivityAt:   last,
+			CreatedAt:        sess.CreatedAt,
+			UpdatedAt:        sess.UpdatedAt,
 		})
 	}
 	return entries
@@ -973,12 +1013,12 @@ func writeSessionList(cmd *cobra.Command, sessions []sessionDTO, summaries map[s
 				if _, err := fmt.Fprintf(table, "%s:\n", currentProject); err != nil {
 					return err
 				}
-				if _, err := fmt.Fprintln(table, "  SESSION\tROLE\tBRANCH\tPR\tCI\tREVIEW\tTHREADS\tACTIVITY\tHEALTH\tAGE"); err != nil {
+				if _, err := fmt.Fprintln(table, "  SESSION\tROLE\tOWNER\tBRANCH\tPR\tCI\tREVIEW\tTHREADS\tACTIVITY\tHEALTH\tAGE"); err != nil {
 					return err
 				}
 			}
 			pr, ci, review, threads := sessionPRColumns(sess, summaries[sess.ID])
-			if _, err := fmt.Fprintf(table, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sess.ID, sessionRole(sess), emptyDash(sess.Branch), pr, ci, review, threads, emptyDash(sess.Activity.State), sessionHealthColumn(sess.Health), sessionAge(now, sess.Activity.LastActivityAt)); err != nil {
+			if _, err := fmt.Fprintf(table, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sess.ID, sessionRole(sess), sessionOwnerColumn(sess), emptyDash(sess.Branch), pr, ci, review, threads, emptyDash(sess.Activity.State), sessionHealthColumn(sess.Health), sessionAge(now, sess.Activity.LastActivityAt)); err != nil {
 				return err
 			}
 		}
@@ -1081,6 +1121,8 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"project", sess.ProjectID},
 		{"name", sess.DisplayName},
 		{"role", sessionRole(sess)},
+		{"coordinator scope", sess.CoordinatorScope},
+		{"owner", sessionOwnerDetails(sess)},
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
 		{"health", sessionHealthDetails(sess.Health)},
@@ -1150,10 +1192,14 @@ func formatBranchState(sess sessionDTO) string {
 }
 
 func sessionRole(sess sessionDTO) string {
-	if sess.Kind == "orchestrator" {
+	switch sess.Kind {
+	case string(domain.KindOrchestrator):
 		return "orchestrator"
+	case string(domain.KindCoordinator):
+		return "coordinator"
+	default:
+		return "worker"
 	}
-	return "worker"
 }
 
 func formatSessionAge(d time.Duration) string {

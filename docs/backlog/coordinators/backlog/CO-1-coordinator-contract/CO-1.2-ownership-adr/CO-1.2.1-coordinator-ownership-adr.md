@@ -1,6 +1,6 @@
 # CO-1.2.1 · Task: ADR for coordinator hierarchy and report routing
 
-**Status:** ⬜ todo
+**Status:** ✅ done — decision recorded in [ADR 0010](../../../../../adr/0010-coordinator-hierarchy-and-report-ownership.md).
 
 **Type:** architecture. **Estimate:** 1–2 pd. **Story:** CO-1.2.
 

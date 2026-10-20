@@ -1037,7 +1037,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	preflightConfig := applySpawnAgentConfig(effectiveAgentConfig(cfg.Harness, cfg.Kind, project.Config), cfg.AgentConfig)
 	modeExplicitlyRequested := cfg.RequestedMode.Valid()
 	mode := m.resolveSessionMode(ctx, cfg.RequestedMode)
-	if cfg.Kind == domain.KindOrchestrator && !modeExplicitlyRequested {
+	if usesOrchestratorRole(cfg.Kind) && !modeExplicitlyRequested {
 		mode = domain.SessionModeChat
 	}
 	if mode == domain.SessionModeChat {
@@ -1091,7 +1091,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		}
 	}
 
-	asyncChat := cfg.Async && mode == domain.SessionModeChat && m.chat != nil && (cfg.Kind == domain.KindOrchestrator || cfg.Kind == domain.KindWorker)
+	asyncChat := cfg.Async && mode == domain.SessionModeChat && m.chat != nil && (usesOrchestratorRole(cfg.Kind) || cfg.Kind == domain.KindWorker)
 
 	var prep *taskPreparation
 	if cfg.AutomationRunID == nil && cfg.Branch == "" {
@@ -1564,8 +1564,14 @@ func (m *Manager) resolveAgentConfig(ctx context.Context, cfg ports.SpawnConfig,
 	return result.Config, nil
 }
 
+// usesOrchestratorRole reports whether a kind takes the orchestrator role
+// configuration: a coordinator is a constrained orchestrator-role session.
+func usesOrchestratorRole(kind domain.SessionKind) bool {
+	return kind == domain.KindOrchestrator || kind == domain.KindCoordinator
+}
+
 func withRoleOverride(project domain.ProjectConfig, kind domain.SessionKind, role domain.RoleOverride) domain.ProjectConfig {
-	if kind == domain.KindOrchestrator {
+	if usesOrchestratorRole(kind) {
 		project.Orchestrator = role
 	} else {
 		project.Worker = role
@@ -1576,13 +1582,15 @@ func withRoleOverride(project domain.ProjectConfig, kind domain.SessionKind, rol
 // resolveAgentLaunchConfig returns the resolved config together with the layer
 // that supplied each value.
 func (m *Manager) resolveAgentLaunchConfig(ctx context.Context, cfg ports.SpawnConfig, project domain.ProjectConfig) (agentlaunch.Result, error) {
-	role := roleOverride(cfg.Kind, project).AgentConfig
+	override := roleOverride(cfg.Kind, project)
 	request := agentlaunch.Request{
 		Machine:            m.machineLabel,
 		ProjectID:          string(cfg.ProjectID),
 		Harness:            cfg.Harness,
+		RoleHarness:        override.Harness,
+		RoleName:           roleConfigName(cfg.Kind),
 		Base:               project.AgentConfig,
-		Role:               role,
+		Role:               override.AgentConfig,
 		Explicit:           cfg.AgentConfig,
 		EffortExplicit:     cfg.EffortOverride,
 		AvailableHarnesses: m.availableHarnesses(),
@@ -1679,7 +1687,7 @@ func (m *Manager) inheritedSpawnPermissions(ctx context.Context, projectID domai
 	if err != nil {
 		return "", fmt.Errorf("load parent session %s: %w", parentID, err)
 	}
-	if !ok || parent.ProjectID != projectID || parent.Kind != domain.KindOrchestrator {
+	if !ok || parent.ProjectID != projectID || !usesOrchestratorRole(parent.Kind) {
 		// AO_SESSION_ID is available in every session, not only orchestrators.
 		// A worker (or a stale/cross-project value) must preserve the historical
 		// project-default spawn behavior rather than gain an inherited policy.
@@ -2129,7 +2137,7 @@ func effectiveHarness(explicit domain.AgentHarness, kind domain.SessionKind, cfg
 }
 
 func roleConfigName(kind domain.SessionKind) string {
-	if kind == domain.KindOrchestrator {
+	if usesOrchestratorRole(kind) {
 		return "orchestrator"
 	}
 	return "worker"
@@ -2233,7 +2241,7 @@ func validateSpawnModel(harness domain.AgentHarness, model string) error {
 }
 
 func roleOverride(kind domain.SessionKind, cfg domain.ProjectConfig) domain.RoleOverride {
-	if kind == domain.KindOrchestrator {
+	if usesOrchestratorRole(kind) {
 		return cfg.Orchestrator
 	}
 	return cfg.Worker
@@ -5217,6 +5225,8 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		ClientRequestID:   cfg.ClientRequestID,
 		ClientRequestHash: cfg.ClientRequestHash,
 		Kind:              cfg.Kind,
+		OwnerSessionID:    cfg.OwnerSessionID,
+		CoordinatorScope:  domain.NormalizeCoordinatorScope(cfg.CoordinatorScope),
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		Harness:           cfg.Harness,
@@ -5328,6 +5338,8 @@ func promptRoleForKind(kind domain.SessionKind) sessionPromptRole {
 	switch kind {
 	case domain.KindOrchestrator:
 		return sessionPromptRoleOrchestrator
+	case domain.KindCoordinator:
+		return sessionPromptRoleCoordinator
 	case domain.KindWorker:
 		return sessionPromptRoleWorker
 	default:
@@ -5477,6 +5489,15 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 	switch kind {
 	case domain.KindOrchestrator:
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
+	case domain.KindCoordinator:
+		cfg.OrchestratorRules = project.Config.OrchestratorRules
+		rec, ok, err := m.store.GetSession(ctx, sessionID)
+		if err != nil {
+			return "", fmt.Errorf("load coordinator %s for prompt: %w", sessionID, err)
+		}
+		if ok {
+			cfg.CoordinatorScope = rec.CoordinatorScope
+		}
 	case domain.KindWorker:
 		if projectID != "" {
 			orchestratorID, ok, err := m.activeOrchestratorSessionID(ctx, projectID)
