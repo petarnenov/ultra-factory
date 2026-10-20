@@ -160,7 +160,7 @@ type CheckRemoteWorkerCapacityRequest struct {
 	// HostReadinessChecked says UnreadyHarnesses is the host's answer for the
 	// harnesses a previous response listed in readinessHarnesses.
 	HostReadinessChecked bool              `json:"hostReadinessChecked,omitempty"`
-	UnreadyHarnesses     map[string]string `json:"unreadyHarnesses,omitempty" description:"Harness to reason, for harnesses not usable on the host."`
+	UnreadyHarnesses     map[string]string `json:"unreadyHarnesses,omitempty"`
 }
 
 // CheckRemoteWorkerCapacityResponse is the body of a passing capacity check.

@@ -20,6 +20,8 @@ import { SessionOwnershipSection } from "./SessionOwnershipSection";
 const entry = (overrides: Partial<CoordinatorRosterEntry> = {}): CoordinatorRosterEntry => ({
 	coordinatorSessionId: "ao-c1",
 	coordinatorScope: "auth",
+	agentProfileId: null,
+	workers: [],
 	isTerminated: false,
 	latestSummary: null,
 	needsRecovery: false,

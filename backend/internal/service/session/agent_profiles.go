@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -142,7 +143,8 @@ func normalizeSelection(sel domain.AgentSelection) domain.AgentSelection {
 
 // selectionError maps a selection check to WORKER_PROFILE_INVALID.
 func selectionError(err error) error {
-	if perr, ok := err.(*domain.AgentProfileError); ok {
+	var perr *domain.AgentProfileError
+	if errors.As(err, &perr) {
 		return apierr.Invalid("WORKER_PROFILE_INVALID", perr.Error(), map[string]any{"field": perr.Field})
 	}
 	return err
@@ -151,7 +153,8 @@ func selectionError(err error) error {
 // coordinatorSelectionError maps an unknown profile to
 // COORDINATOR_PROFILE_NOT_ALLOWED and anything else to WORKER_PROFILE_INVALID.
 func coordinatorSelectionError(err error) error {
-	if perr, ok := err.(*domain.AgentProfileError); ok && perr.UnknownProfileID != "" {
+	var perr *domain.AgentProfileError
+	if errors.As(err, &perr) && perr.UnknownProfileID != "" {
 		return apierr.Invalid("COORDINATOR_PROFILE_NOT_ALLOWED", perr.Error(), map[string]any{"profileId": perr.UnknownProfileID})
 	}
 	return selectionError(err)

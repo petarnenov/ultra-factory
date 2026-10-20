@@ -4248,7 +4248,6 @@ export interface components {
             hostReadinessChecked?: boolean;
             model?: string;
             parentSessionId: string;
-            /** @description Harness to reason, for harnesses not usable on the host. */
             unreadyHarnesses?: {
                 [key: string]: string;
             };
