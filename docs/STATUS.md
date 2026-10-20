@@ -285,12 +285,13 @@ Built on the branch:
 
 Verified live: hub public domain and TLS, login and board, hub → worker over
 Railway private networking (IPv4 and IPv6), live worker terminal in the
-browser, persistence of `/data` across hub image updates, and automated hub
-deploys.
+browser, persistence of `/data` across hub image updates, automated hub
+deploys, and hub orchestrator credentials with the wake-up loop (2026-10-17,
+[#134](https://github.com/petarnenov/ultra-factory/issues/134)).
 
 Pending live checks (not to be reported as passed): board load time and SSE and
 terminal latency ([#141](https://github.com/petarnenov/ultra-factory/issues/141)); PR status in the browser, a full sweep of the web
-build, and the image CSP decision ([#142](https://github.com/petarnenov/ultra-factory/issues/142)); hub orchestrator credentials ([#134](https://github.com/petarnenov/ultra-factory/issues/134));
+build, and the image CSP decision ([#142](https://github.com/petarnenov/ultra-factory/issues/142));
 backup and restore, drain, worker redeploy, hub rollback, and the limits ([#145](https://github.com/petarnenov/ultra-factory/issues/145));
 Railway token deletion permissions and live worker provisioning; desktop and
 CLI flows against a Railway worker ([#17](https://github.com/petarnenov/ultra-factory/issues/17)).

@@ -1702,3 +1702,47 @@ and #390 landed) for conflicts:
 
 Implementation tasks must add tests for every code in A5, for the default
 behavior with no new field set, and for the migration up and down.
+
+## Implementation notes
+
+These notes record where the shipped code (0.18.0) differs from the text
+above. The decisions and the Accepted status are unchanged.
+
+### N1. The project worker cap binds only while a coordinator is live
+
+Section 8 counts every live worker, root-owned ones included, against the
+project total. The code applies the project total (and the per-coordinator
+cap) only while at least one coordinator is live: `Counts.CheckNewWorker`
+returns early when `Coordinators == 0`
+(`backend/internal/service/ownership/capacity.go`), and the spawn path skips the
+exclusive lock for a root-owned worker in that case
+(`backend/internal/service/session/coordinator.go`). A project that has never
+enabled coordinators, or has none live, keeps its pre-0.18.0 behavior of no
+worker cap. This is deliberate: it is safer for existing projects, which could
+otherwise start refusing direct spawns after an upgrade. Once a coordinator is
+live, root-owned and remote workers count toward the total as section 8
+describes.
+
+### N2. Remote worker reassignment CLI
+
+Section 12 describes `ao session assign --host <host> --remote-session <id>`.
+The shipped commands are `ao remote-worker assign <host-id> <remote-session-id>
+--owner <coordinator-id|root>` and `ao remote-worker ls`
+(`backend/internal/cli/ownership.go`). `ao session assign <worker>` covers
+local workers only. The daemon route is unchanged:
+`PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner`.
+
+### N3. Merge guard scope
+
+`MERGE_ROOT_ONLY` (invariant I6) applies to every live worker and coordinator
+in every project, whether or not coordinators are enabled
+(`backend/internal/service/ownership/ownership.go`,
+`backend/internal/service/pr/action_service.go`). Since 0.18.0 a worker that runs
+`ao pr merge` receives 403. The runbook (`deploy/railway/README.md`) and
+`AGENTS.md` say so.
+
+### N4. Deviations fixed elsewhere
+
+The `coordinator_terminated` root escalation (section 7) was missing until
+#340, which migration `0216` closed. The amendment above covers the configurable
+limits.

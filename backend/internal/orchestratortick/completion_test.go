@@ -369,7 +369,7 @@ func TestMergeBlockersAreExact(t *testing.T) {
 			pr.Labels = nil
 			pr.Threads = nil
 			tc.mutate(&pr)
-			got := strings.Join(MergeBlockers(cfg, pr), ", ")
+			got := strings.Join(MergeBlockers(cfg, pr, now), ", ")
 			if tc.want == "" {
 				if got != "" {
 					t.Fatalf("blockers = %q, want none", got)
@@ -391,7 +391,7 @@ func TestApplyWorkerReviewRequiresTheExactHead(t *testing.T) {
 	if got.AOReviewStatus != "" {
 		t.Fatalf("stale AO verdict applied to a new head: %q", got.AOReviewStatus)
 	}
-	if blockers := strings.Join(MergeBlockers(DefaultConfig(), got), ", "); !strings.Contains(blockers, "no current-head AO native approval") {
+	if blockers := strings.Join(MergeBlockers(DefaultConfig(), got, now), ", "); !strings.Contains(blockers, "no current-head AO native approval") {
 		t.Fatalf("blockers = %q", blockers)
 	}
 }
@@ -444,7 +444,7 @@ func TestAOCurrentHeadApprovalAuthorizesMerge(t *testing.T) {
 	worker := r.Daemon.(*fakeDaemon).workers["Linux"][0]
 	worker.Reviews = []WorkerReview{{PRNumber: 201, TargetSHA: head("1"), Status: "up_to_date"}}
 	r.Daemon.(*fakeDaemon).workers["Linux"] = []Worker{worker}
-	blk := MergeBlockers(r.Config, applyWorkerReview(worker, gh.state.OpenPRs[0]))
+	blk := MergeBlockers(r.Config, applyWorkerReview(worker, gh.state.OpenPRs[0]), now)
 	tick(t, r)
 	state, _, _ := r.Store.Completion()
 	if fm.calls() != 1 {
@@ -560,5 +560,74 @@ func TestAOReviewChangeRequestBlocksAnExistingMergeAction(t *testing.T) {
 	tick(t, r)
 	if fm.calls() != 0 {
 		t.Fatal("merged after AO requested changes")
+	}
+}
+
+func TestSkippedDraftPhaseChecksBlockMergeUntilNewRunsFinish(t *testing.T) {
+	cfg := DefaultConfig()
+	pr := readyPR(1, "rw/1", head("a"))
+	pr.AOReviewStatus = "up_to_date"
+	for name, tc := range map[string]struct {
+		checks []Check
+		want   string
+	}{
+		"draft-phase skips only": {[]Check{{Result: "SKIPPED"}, {Result: "SKIPPED"}}, "required checks are pending"},
+		"new runs queued":        {[]Check{{Result: "QUEUED"}, {Result: "QUEUED"}}, "required checks are pending"},
+		"new runs finished":      {[]Check{{Result: "SUCCESS"}, {Result: "SUCCESS"}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pr := pr
+			pr.Draft, pr.Checks = false, tc.checks
+			got := strings.Join(MergeBlockers(cfg, pr, now), ", ")
+			if got != tc.want {
+				t.Fatalf("blockers = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDraftPhaseSkipsHoldMergeForTenMinutesAfterReady(t *testing.T) {
+	cfg := DefaultConfig()
+	flip := now.Add(-time.Minute)
+	pr := readyPR(1, "rw/1", head("a"))
+	pr.AOReviewStatus, pr.ReadyAt = "up_to_date", flip
+	before, after := flip.Add(-time.Minute), flip.Add(time.Second)
+	cheapOnly := []Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "SKIPPED", CompletedAt: before}}
+	for name, tc := range map[string]struct {
+		checks []Check
+		at     time.Time
+		want   string
+	}{
+		"cheap success after flip, expensive unregistered": {cheapOnly, now, "required checks are pending"},
+		"same state after the window":                      {cheapOnly, flip.Add(staleSkipWindow), ""},
+		"just inside the window":                           {cheapOnly, flip.Add(staleSkipWindow - time.Second), "required checks are pending"},
+		"new run registered":                               {[]Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "QUEUED"}}, now, "required checks are pending"},
+		"new runs finished":                                {[]Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "SUCCESS", CompletedAt: after}}, now, ""},
+		"skip after flip is genuine":                       {[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "SKIPPED", CompletedAt: after}}, now, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pr := pr
+			pr.Checks = tc.checks
+			if got := strings.Join(MergeBlockers(cfg, pr, tc.at), ", "); got != tc.want {
+				t.Fatalf("blockers = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSameCheckNameInAnotherWorkflowDoesNotHideAFailure(t *testing.T) {
+	pr := readyPR(1, "rw/1", head("a"))
+	pr.AOReviewStatus = "up_to_date"
+	pr.Checks = []Check{
+		{Name: "check", Workflow: "Code comment policy", Result: "FAILURE", CompletedAt: now.Add(-time.Hour)},
+		{Name: "check", Workflow: "Mobile", Result: "SUCCESS", CompletedAt: now.Add(-time.Minute)},
+	}
+	if got := strings.Join(MergeBlockers(DefaultConfig(), pr, now), ", "); got != "required checks are red" {
+		t.Fatalf("blockers = %q", got)
+	}
+	pr.Checks[0].Result = "CANCELLED"
+	pr.Checks = append(pr.Checks, Check{Name: "check", Workflow: "Code comment policy", Result: "SUCCESS", CompletedAt: now})
+	if got := MergeBlockers(DefaultConfig(), pr, now); len(got) != 0 {
+		t.Fatalf("rerun in the same workflow must supersede: %v", got)
 	}
 }

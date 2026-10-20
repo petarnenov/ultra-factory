@@ -70,7 +70,7 @@ func CompletionLines(notes []CompletionNote) []string {
 
 // MergeBlockers lists every reason a pull request must not be merged now: a
 // missing durable authorization is reported separately from provider readiness.
-func MergeBlockers(cfg Config, pr PullRequest) []string {
+func MergeBlockers(cfg Config, pr PullRequest, now time.Time) []string {
 	var out []string
 	switch {
 	case strings.TrimSpace(pr.HeadSHA) == "":
@@ -84,7 +84,7 @@ func MergeBlockers(cfg Config, pr PullRequest) []string {
 	if !strings.EqualFold(strings.TrimSpace(pr.Mergeable), "MERGEABLE") {
 		out = append(out, fmt.Sprintf("mergeability is %s", oneOf(pr.Mergeable, "unknown")))
 	}
-	if summary := CheckSummary(pr.Checks); summary != "green" {
+	if summary := PRCheckSummary(pr, now); summary != "green" {
 		out = append(out, "required checks are "+summary)
 	}
 	if blocker := reviewBlocker(pr); blocker != "" {
@@ -256,7 +256,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 
 			for _, pr := range ownedOpenPRs(worker, facts.GitHub) {
 				pr = applyWorkerReview(worker, pr)
-				if blockers := MergeBlockers(r.Config, pr); len(blockers) > 0 {
+				if blockers := MergeBlockers(r.Config, pr, now); len(blockers) > 0 {
 					noteFor(notes, key).Remaining = appendUniqueStrings(noteFor(notes, key).Remaining,
 						fmt.Sprintf("PR #%d: %s", pr.Number, strings.Join(blockers, ", ")))
 					continue
@@ -492,7 +492,7 @@ func (r *Runner) retryAction(ctx context.Context, worker Worker, session Session
 			return action, note, true
 		}
 		pr = applyWorkerReview(worker, pr)
-		if blockers := MergeBlockers(r.Config, pr); len(blockers) > 0 {
+		if blockers := MergeBlockers(r.Config, pr, now); len(blockers) > 0 {
 			action.Status = CompletionActionBlocked
 			action.LastError = "PR #" + fmt.Sprint(action.PR) + " no longer mergeable: " + strings.Join(blockers, ", ")
 			action.UpdatedAt = now

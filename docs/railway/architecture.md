@@ -269,9 +269,9 @@ Deployment-relevant rules:
 - **Termination hands work back; it does not delete.** A terminated coordinator
   returns its workers and links to the root and its slot is freed. Rows,
   reports, and summaries stay durable, and restore does not reattach the former
-  workers. Open defect
-  [#340](https://github.com/petarnenov/ultra-factory/issues/340) means the root
-  escalation summary for that termination is not written yet; verify the
+  workers. The
+  termination also writes the root escalation summary (migration `0216`,
+  [#340](https://github.com/petarnenov/ultra-factory/issues/340)); verify the
   handback through the roster.
 - **No replication.** One daemon, one SQLite database, no shared volume, no
   second coordinator service. Helpers are sessions, not services.
