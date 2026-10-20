@@ -872,6 +872,7 @@ func reportOperations() []operation {
 			{http.StatusCreated, controllers.CreateReportResponse{}},
 			{http.StatusBadRequest, envelope.APIError{}},
 			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusConflict, envelope.APIError{}},
 			{http.StatusInternalServerError, envelope.APIError{}},
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},
