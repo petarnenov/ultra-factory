@@ -123,6 +123,40 @@ no-bump)
 	assert_eq "$before" "$(git -C "$work" rev-parse dev)" "dev after timeout"
 	ok no-bump
 	;;
+stale-bump)
+	# origin/main sits at the previous release's bump while dev holds an
+	# unpromoted commit: the old bump must not satisfy the wait.
+	fixture stale-bump bump
+	printf 'next\n' >"$work/next.txt"
+	git -C "$work" add next.txt
+	git -C "$work" commit --quiet -m "feat(dev): unpromoted work"
+	git -C "$work" push --quiet origin dev
+	before="$(git -C "$work" rev-parse dev)"
+	expect_failure stale-bump "$work" --timeout 0
+	grep -q "promotion pull request" "$tmp/stale-bump.out" || fail "stale-bump: message"
+	assert_eq "$before" "$(git -C "$work" rev-parse dev)" "dev after stale bump"
+	run_sync "$work" --timeout 0 --allow-ahead --no-push >/dev/null 2>&1 ||
+		fail "stale-bump: --allow-ahead"
+	ok stale-bump
+	;;
+skip-wait)
+	fixture skip-wait ""
+	run_sync "$work" --skip-wait >"$tmp/skip-wait.out" 2>&1 || {
+		cat "$tmp/skip-wait.out" >&2
+		fail skip-wait
+	}
+	assert_eq "$(git -C "$origin" rev-parse refs/heads/main)" \
+		"$(git -C "$work" rev-parse dev)" "dev after skip-wait"
+	ok skip-wait
+	;;
+bad-args)
+	fixture bad-args bump
+	expect_failure missing-value "$work" --timeout
+	grep -q "needs a value" "$tmp/missing-value.out" || fail "missing-value: message"
+	expect_failure bad-source "$work" --source nope --timeout 0
+	grep -q "not found" "$tmp/bad-source.out" || fail "bad-source: message"
+	ok bad-args
+	;;
 dirty)
 	fixture dirty bump
 	printf 'edit\n' >>"$work/app.txt"
@@ -140,7 +174,7 @@ wrong-branch)
 	ok wrong-branch
 	;;
 all)
-	for name in happy wait idempotent no-push no-bump dirty wrong-branch; do
+	for name in happy wait idempotent no-push no-bump stale-bump skip-wait bad-args dirty wrong-branch; do
 		"$0" "$name" >"$tmp/$name.log" 2>&1 || {
 			cat "$tmp/$name.log" >&2
 			fail "case $name"
@@ -149,7 +183,7 @@ all)
 	done
 	;;
 *)
-	printf 'Usage: %s {all|happy|wait|idempotent|no-push|no-bump|dirty|wrong-branch}\n' "$0" >&2
+	printf 'Usage: %s {all|happy|wait|idempotent|no-push|no-bump|stale-bump|skip-wait|bad-args|dirty|wrong-branch}\n' "$0" >&2
 	exit 2
 	;;
 esac
