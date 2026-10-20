@@ -719,6 +719,7 @@ func Run() error {
 		reportCoordinator.Wake()
 	}})
 	chatSvc.SetReportCoordinator(reportCoordinator)
+	defer wakeOnCoordinatorTermination(ctx, cdcPipe.Broadcaster, store, reportCoordinator.Wake)()
 	reportDeliveryDone := reportCoordinator.Start(ctx)
 	defer func() {
 		stop()
