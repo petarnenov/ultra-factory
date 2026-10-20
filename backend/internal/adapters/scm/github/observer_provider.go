@@ -468,7 +468,7 @@ author{ login avatarUrl }
 mergeCommit{ oid }
 commits(last:1){ nodes{ commit{ oid statusCheckRollup{ state contexts(first:CONTEXT_LIMIT){ nodes{
   __typename
-  ... on CheckRun { name status conclusion detailsUrl url databaseId }
+  ... on CheckRun { name status conclusion completedAt detailsUrl url databaseId checkSuite{ workflowRun{ workflow{ name } } } }
   ... on StatusContext { context state targetUrl }
 } pageInfo{ hasNextPage endCursor } } } } } }
 `, "CONTEXT_LIMIT", strconv.Itoa(scmBatchCheckContextLimit))
@@ -515,7 +515,7 @@ func buildCheckContextsQuery(ref ports.SCMPRRef, cursor string) string {
 repo: repository(owner:%s,name:%s){ pullRequest(number:%d){
   commits(last:1){ nodes{ commit{ statusCheckRollup{ contexts(first:%d, after:%s){ nodes{
     __typename
-    ... on CheckRun { name status conclusion detailsUrl url databaseId }
+    ... on CheckRun { name status conclusion completedAt detailsUrl url databaseId checkSuite{ workflowRun{ workflow{ name } } } }
     ... on StatusContext { context state targetUrl }
   } pageInfo{ hasNextPage endCursor } } } } } }
 } }
@@ -629,7 +629,7 @@ func scmContextsPaginated(pr map[string]any) bool {
 func scmChecksFromGraphQL(pr map[string]any) []ports.SCMCheckObservation {
 	roll := statusRollup(pr)
 	contexts, _ := roll["contexts"].(map[string]any)
-	rawNodes := nodes(contexts["nodes"])
+	rawNodes := latestCheckRuns(nodes(contexts["nodes"]))
 	out := make([]ports.SCMCheckObservation, 0, len(rawNodes))
 	for _, n := range rawNodes {
 		typ := str(n["__typename"])

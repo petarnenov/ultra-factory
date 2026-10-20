@@ -481,6 +481,41 @@ func TestObserve_CIStates(t *testing.T) {
 			wantCI: domain.CIFailing,
 		},
 		{
+			name: "superseded cancelled and skipped runs lose to the rerun",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "CANCELLED", "completedAt": "2026-10-20T15:25:50Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SKIPPED", "completedAt": "2026-10-20T15:26:20Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:40:00Z"},
+			},
+			wantCI: domain.CIPassing,
+		},
+		{
+			name: "same name in another workflow does not hide a failure",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "check", "status": "COMPLETED", "conclusion": "FAILURE", "completedAt": "2026-10-20T15:25:50Z",
+					"checkSuite": map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": "Code comment policy"}}}},
+				map[string]any{"__typename": "CheckRun", "name": "check", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:40:00Z",
+					"checkSuite": map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": "Mobile"}}}},
+			},
+			wantCI: domain.CIFailing,
+		},
+		{
+			name: "newest run of a name still failing",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-20T15:25:50Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "FAILURE", "completedAt": "2026-10-20T15:40:00Z"},
+			},
+			wantCI: domain.CIFailing,
+		},
+		{
+			name: "rerun in progress is pending",
+			nodes: []any{
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": "CANCELLED", "completedAt": "2026-10-20T15:25:50Z"},
+				map[string]any{"__typename": "CheckRun", "name": "go", "status": "IN_PROGRESS"},
+			},
+			wantCI: domain.CIPending,
+		},
+		{
 			name: "legacy statuscontext failure",
 			nodes: []any{
 				map[string]any{"__typename": "StatusContext", "context": "ci/legacy", "state": "FAILURE", "targetUrl": "https://ci"},
@@ -1929,5 +1964,39 @@ func TestMergeabilityObservation_UnstableOutranksBlockers(t *testing.T) {
 				t.Fatalf("Blockers = %v, want %v", got.Blockers, tc.wantBlockers)
 			}
 		})
+	}
+}
+
+func TestCheckProjectionsDropSupersededRuns(t *testing.T) {
+	run := func(id int, conclusion, at, wf string) map[string]any {
+		return map[string]any{
+			"__typename": "CheckRun", "name": "go", "status": "COMPLETED", "conclusion": conclusion,
+			"completedAt": at, "databaseId": float64(id),
+			"checkSuite": map[string]any{"workflowRun": map[string]any{"workflow": map[string]any{"name": wf}}},
+		}
+	}
+	pr := map[string]any{
+		"commits": map[string]any{"nodes": []any{
+			map[string]any{"commit": map[string]any{"statusCheckRollup": map[string]any{
+				"contexts": map[string]any{"nodes": []any{
+					run(1, "CANCELLED", "2026-10-20T15:25:50Z", "Go"),
+					run(2, "SUCCESS", "2026-10-20T15:40:00Z", "Go"),
+					run(3, "FAILURE", "2026-10-20T15:30:00Z", "Mobile"),
+				}},
+			}}},
+		}},
+	}
+	scm := scmChecksFromGraphQL(pr)
+	if len(scm) != 2 || scm[0].ProviderID != "2" || scm[1].ProviderID != "3" {
+		t.Fatalf("scm checks = %+v", scm)
+	}
+	if failed := failedSCMChecks(scm); len(failed) != 1 || failed[0].ProviderID != "3" {
+		t.Fatalf("failed checks = %+v", failed)
+	}
+	if got := checksFromGraphQL(pr, "sha"); len(got) != 2 {
+		t.Fatalf("pr checks = %+v", got)
+	}
+	if id := jobIDForCheck(pr, "go"); id != 2 {
+		t.Fatalf("job id = %d, want the newest run's 2", id)
 	}
 }
