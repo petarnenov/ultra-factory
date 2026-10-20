@@ -92,15 +92,18 @@ func (c *SessionsController) assignOwner(w http.ResponseWriter, r *http.Request)
 	envelope.WriteJSON(w, http.StatusOK, SessionResponse{Session: sessionView(r, sess)})
 }
 
-// setCoordinatorLimits changes a live coordinator's worker limit. The service
-// enforces the live-root or operator caller and the project ceiling.
-func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http.Request) {
+// putCoordinatorChange decodes a coordinator-change body, applies it, and
+// answers with the coordinator's ownership view.
+func putCoordinatorChange[T any](
+	c *SessionsController, w http.ResponseWriter, r *http.Request, route string,
+	apply func(svc SessionOwnershipService, id domain.SessionID, req T) error,
+) {
 	svc, ok := c.Svc.(SessionOwnershipService)
 	if !ok {
-		apispec.NotImplemented(w, r, "PUT", "/api/v1/sessions/{sessionId}/coordinator-limits")
+		apispec.NotImplemented(w, r, "PUT", route)
 		return
 	}
-	var req CoordinatorLimitsRequest
+	var req T
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
@@ -108,12 +111,7 @@ func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http
 		return
 	}
 	id := domain.SessionID(chi.URLParam(r, "sessionId"))
-	caller := sessionsvc.CoordinatorLimitsCaller{
-		RequestedBy:       domain.SessionID(req.RequestedBySessionID),
-		OperatorInitiated: req.OperatorInitiated,
-		Origin:            req.Origin,
-	}
-	if _, err := svc.SetCoordinatorWorkerLimit(r.Context(), id, req.WorkerLimit, caller); err != nil {
+	if err := apply(svc, id, req); err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}
@@ -125,37 +123,34 @@ func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http
 	envelope.WriteJSON(w, http.StatusOK, sessionOwnershipResponse(view))
 }
 
+// setCoordinatorLimits changes a live coordinator's worker limit. The service
+// enforces the live-root or operator caller and the project ceiling.
+func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http.Request) {
+	putCoordinatorChange(c, w, r, "/api/v1/sessions/{sessionId}/coordinator-limits",
+		func(svc SessionOwnershipService, id domain.SessionID, req CoordinatorLimitsRequest) error {
+			caller := sessionsvc.CoordinatorLimitsCaller{
+				RequestedBy:       domain.SessionID(req.RequestedBySessionID),
+				OperatorInitiated: req.OperatorInitiated,
+				Origin:            req.Origin,
+			}
+			_, err := svc.SetCoordinatorWorkerLimit(r.Context(), id, req.WorkerLimit, caller)
+			return err
+		})
+}
+
 // setCoordinatorWorkerAgent changes a live coordinator's worker agent
 // selection. The service enforces the caller rules and the project profiles.
 func (c *SessionsController) setCoordinatorWorkerAgent(w http.ResponseWriter, r *http.Request) {
-	svc, ok := c.Svc.(SessionOwnershipService)
-	if !ok {
-		apispec.NotImplemented(w, r, "PUT", "/api/v1/sessions/{sessionId}/coordinator-worker-agent")
-		return
-	}
-	var req CoordinatorWorkerAgentRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
-		return
-	}
-	id := domain.SessionID(chi.URLParam(r, "sessionId"))
-	caller := sessionsvc.CoordinatorAgentCaller{
-		RequestedBy:       domain.SessionID(req.RequestedBySessionID),
-		OperatorInitiated: req.OperatorInitiated,
-		Origin:            req.Origin,
-	}
-	if _, err := svc.SetCoordinatorWorkerAgent(r.Context(), id, req.WorkerAgent, caller); err != nil {
-		envelope.WriteError(w, r, err)
-		return
-	}
-	view, err := svc.Ownership(r.Context(), id)
-	if err != nil {
-		envelope.WriteError(w, r, err)
-		return
-	}
-	envelope.WriteJSON(w, http.StatusOK, sessionOwnershipResponse(view))
+	putCoordinatorChange(c, w, r, "/api/v1/sessions/{sessionId}/coordinator-worker-agent",
+		func(svc SessionOwnershipService, id domain.SessionID, req CoordinatorWorkerAgentRequest) error {
+			caller := sessionsvc.CoordinatorAgentCaller{
+				RequestedBy:       domain.SessionID(req.RequestedBySessionID),
+				OperatorInitiated: req.OperatorInitiated,
+				Origin:            req.Origin,
+			}
+			_, err := svc.SetCoordinatorWorkerAgent(r.Context(), id, req.WorkerAgent, caller)
+			return err
+		})
 }
 
 // listCoordinators reads a project's coordinator roster and owned workers.
