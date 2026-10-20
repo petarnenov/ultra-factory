@@ -132,6 +132,15 @@ worker spawned from a coordinator session is owned by that coordinator. To move
 an existing worker: `ao session assign <worker> --owner <coordinator-id|root>`
 (root only; the target must be live and under its three-worker cap).
 
+Capacity the root plans around (ADR section 8, enforced by the daemon): two
+live coordinators, three active workers per coordinator, six active workers in
+the project. Root-owned workers count toward the six, so two coordinators with
+three workers each leave no room for a root-owned worker, and a spawn beyond
+the limit fails with `PROJECT_WORKER_LIMIT_REACHED` until a worker terminates.
+Spawning coordinators also requires `coordinators.enabled` in the project
+configuration (`COORDINATORS_DISABLED` otherwise). Reassigning to the root
+never changes the project total.
+
 ### Reassigning a worker
 
 - Reassignment is one durable owner write plus audit rows. The worker, its
@@ -169,7 +178,9 @@ only be spawned when a slot is free.
 4. Reports of the returned workers and the coordinator's pending summaries stay
    durable and are delivered to the root.
 5. Restoring a terminated coordinator does **not** reattach its former workers;
-   the root assigns them explicitly if wanted.
+   the root assigns them explicitly if wanted. A restore re-checks the
+   two-coordinator cap and fails with `COORDINATOR_LIMIT_REACHED` when two are
+   live.
 6. Root replacement does not touch coordinators: they keep running and keep
    their workers; pending summaries go to the new root.
 
