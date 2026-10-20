@@ -23,10 +23,10 @@ type SessionOwnershipService interface {
 		ownerID *domain.SessionID,
 		requestedBy domain.SessionID,
 	) (domain.SessionRecord, error)
-	SetCoordinatorWorkerLimit(
+	SetCoordinatorLimits(
 		ctx context.Context,
 		coordinatorID domain.SessionID,
-		limit *int,
+		update sessionsvc.CoordinatorLimitsUpdate,
 		caller sessionsvc.CoordinatorLimitsCaller,
 	) (domain.SessionRecord, error)
 	Ownership(ctx context.Context, id domain.SessionID) (sessionsvc.Ownership, error)
@@ -107,7 +107,12 @@ func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http
 		OperatorInitiated: req.OperatorInitiated,
 		Origin:            req.Origin,
 	}
-	if _, err := svc.SetCoordinatorWorkerLimit(r.Context(), id, req.WorkerLimit, caller); err != nil {
+	update := sessionsvc.CoordinatorLimitsUpdate{WorkerLimit: req.WorkerLimit}
+	if req.HostSlots != nil {
+		slots := hostSlotsFromInput(*req.HostSlots)
+		update.HostSlots = &slots
+	}
+	if _, err := svc.SetCoordinatorLimits(r.Context(), id, update, caller); err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}
@@ -172,6 +177,9 @@ func sessionOwnershipResponse(view sessionsvc.Ownership) SessionOwnershipRespons
 		limit, active := view.Capacity.WorkerLimit, view.Capacity.CoordinatorWorkers
 		out.EffectiveWorkerLimit, out.ActiveWorkerCount = &limit, &active
 		out.WorkerLimit = view.Session.CoordinatorWorkerLimit
+		placement := view.Capacity.PlacementLimit
+		out.EffectivePlacementLimit = &placement
+		out.HostSlots = hostSlotUsageResponse(view.Capacity.HostSlots)
 	}
 	if view.Owner != nil {
 		out.OwnerKind = string(view.Owner.Kind)
@@ -201,15 +209,17 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 			workers = append(workers, string(worker.ID))
 		}
 		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
-			CoordinatorSessionID: string(entry.Coordinator.ID),
-			CoordinatorScope:     entry.Coordinator.CoordinatorScope,
-			IsTerminated:         entry.Coordinator.IsTerminated,
-			WorkerSessionIDs:     workers,
-			WorkerCount:          len(workers),
-			WorkerLimit:          entry.Coordinator.CoordinatorWorkerLimit,
-			EffectiveWorkerLimit: entry.WorkerLimit,
-			ActiveWorkerCount:    entry.ActiveWorkers,
-			NeedsRecovery:        entry.NeedsRecovery,
+			CoordinatorSessionID:    string(entry.Coordinator.ID),
+			CoordinatorScope:        entry.Coordinator.CoordinatorScope,
+			IsTerminated:            entry.Coordinator.IsTerminated,
+			WorkerSessionIDs:        workers,
+			WorkerCount:             len(workers),
+			WorkerLimit:             entry.Coordinator.CoordinatorWorkerLimit,
+			EffectiveWorkerLimit:    entry.WorkerLimit,
+			ActiveWorkerCount:       entry.ActiveWorkers,
+			EffectivePlacementLimit: entry.PlacementLimit,
+			HostSlots:               hostSlotUsageResponse(entry.HostSlots),
+			NeedsRecovery:           entry.NeedsRecovery,
 		})
 	}
 	for _, worker := range roster.RootWorkers {
@@ -225,4 +235,21 @@ func sessionIDString(id *domain.SessionID) *string {
 	}
 	value := string(*id)
 	return &value
+}
+
+// hostSlotsFromInput converts wire entries; the service validates them.
+func hostSlotsFromInput(in []HostSlotInput) []domain.HostSlot {
+	out := make([]domain.HostSlot, len(in))
+	for i, entry := range in {
+		out[i] = domain.HostSlot{HostID: entry.HostID, Slots: entry.Slots}
+	}
+	return out
+}
+
+func hostSlotUsageResponse(in []sessionsvc.HostSlotUsage) []CoordinatorHostSlot {
+	out := make([]CoordinatorHostSlot, len(in))
+	for i, slot := range in {
+		out[i] = CoordinatorHostSlot{HostID: slot.HostID, Slots: slot.Slots, Used: slot.Used}
+	}
+	return out
 }

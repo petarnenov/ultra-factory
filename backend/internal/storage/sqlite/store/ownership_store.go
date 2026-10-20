@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -292,18 +293,46 @@ func intPtr(v sql.NullInt64) *int {
 	return &n
 }
 
-// SetCoordinatorWorkerLimit sets a live coordinator's own worker limit and
-// appends audit in one tx. It reports the previous limit.
-func (s *Store) SetCoordinatorWorkerLimit(
+// hostSlotsJSON encodes host slots for storage; no slots is NULL.
+func hostSlotsJSON(slots []domain.HostSlot) sql.NullString {
+	if len(slots) == 0 {
+		return sql.NullString{}
+	}
+	raw, err := json.Marshal(slots)
+	if err != nil {
+		// A slice of plain structs always marshals.
+		panic(fmt.Sprintf("marshal host slots: %v", err))
+	}
+	return sql.NullString{String: string(raw), Valid: true}
+}
+
+// parseHostSlots decodes stored host slots. An unreadable value reads as none,
+// the unrestricted default, and the service re-validates on every write.
+func parseHostSlots(v sql.NullString) []domain.HostSlot {
+	if !v.Valid || v.String == "" {
+		return nil
+	}
+	var slots []domain.HostSlot
+	if err := json.Unmarshal([]byte(v.String), &slots); err != nil {
+		return nil
+	}
+	return slots
+}
+
+// SetCoordinatorLimits sets a live coordinator's own worker limit and host
+// slots and appends audit in one tx. The event carries the actor and origin;
+// the stored before and after values are filled here.
+func (s *Store) SetCoordinatorLimits(
 	ctx context.Context,
 	id domain.SessionID,
-	limit int,
+	limit *int,
+	slots []domain.HostSlot,
 	event domain.CoordinatorLimitEvent,
 	at time.Time,
-) (previous *int, err error) {
+) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	err = s.inTx(ctx, "set coordinator worker limit", func(q *gen.Queries) error {
+	err := s.inTx(ctx, "set coordinator limits", func(q *gen.Queries) error {
 		row, err := q.GetSession(ctx, id)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ports.ErrSessionNotFound
@@ -311,9 +340,9 @@ func (s *Store) SetCoordinatorWorkerLimit(
 		if err != nil {
 			return err
 		}
-		previous = intPtr(row.CoordinatorWorkerLimit)
-		rows, err := q.SetCoordinatorWorkerLimit(ctx, gen.SetCoordinatorWorkerLimitParams{
-			CoordinatorWorkerLimit: nullInt(&limit),
+		rows, err := q.SetCoordinatorLimits(ctx, gen.SetCoordinatorLimitsParams{
+			CoordinatorWorkerLimit: nullInt(limit),
+			CoordinatorHostSlots:   hostSlotsJSON(slots),
 			UpdatedAt:              at,
 			ID:                     id,
 		})
@@ -324,18 +353,20 @@ func (s *Store) SetCoordinatorWorkerLimit(
 			return fmt.Errorf("session %s is not a live coordinator", id)
 		}
 		return q.InsertCoordinatorLimitEvent(ctx, gen.InsertCoordinatorLimitEventParams{
-			SessionID:      string(id),
-			PreviousLimit:  nullInt(previous),
-			NewLimit:       int64(limit),
-			ActorSessionID: string(event.ActorSessionID),
-			Origin:         event.Origin,
-			CreatedAt:      at,
+			SessionID:         string(id),
+			PreviousLimit:     nullInt(intPtr(row.CoordinatorWorkerLimit)),
+			NewLimit:          nullInt(limit),
+			PreviousHostSlots: row.CoordinatorHostSlots,
+			NewHostSlots:      hostSlotsJSON(slots),
+			ActorSessionID:    string(event.ActorSessionID),
+			Origin:            event.Origin,
+			CreatedAt:         at,
 		})
 	})
 	if err != nil {
-		return nil, fmt.Errorf("set coordinator worker limit %s: %w", id, err)
+		return fmt.Errorf("set coordinator limits %s: %w", id, err)
 	}
-	return previous, nil
+	return nil
 }
 
 // ListCoordinatorLimitEvents returns one coordinator's limit history.
@@ -348,7 +379,8 @@ func (s *Store) ListCoordinatorLimitEvents(ctx context.Context, id domain.Sessio
 	for i, row := range rows {
 		events[i] = domain.CoordinatorLimitEvent{
 			ID: row.ID, SessionID: domain.SessionID(row.SessionID),
-			PreviousLimit: intPtr(row.PreviousLimit), NewLimit: int(row.NewLimit),
+			PreviousLimit: intPtr(row.PreviousLimit), NewLimit: intPtr(row.NewLimit),
+			PreviousHostSlots: parseHostSlots(row.PreviousHostSlots), NewHostSlots: parseHostSlots(row.NewHostSlots),
 			ActorSessionID: domain.SessionID(row.ActorSessionID),
 			Origin:         row.Origin, CreatedAt: row.CreatedAt,
 		}

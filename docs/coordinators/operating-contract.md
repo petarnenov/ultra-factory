@@ -115,6 +115,27 @@ have its own `workerLimit`, from 1 up to the project's
 `maxWorkersPerCoordinator`: set at spawn, or changed on a live coordinator by
 the root or by the operator on its behalf. Omitted means the project value.
 
+Placement of coordinator-owned workers is enforced by the daemon:
+
+- A coordinator-owned worker on the local daemon is refused with
+  `COORDINATOR_LOCAL_WORKER_REFUSED` unless the project sets
+  `coordinators.allowLocalWorkers` (default `false`). Root-owned workers are not
+  affected. The rule applies to spawn, restore and reassignment; running local
+  workers are grandfathered.
+- `coordinators.allowedHosts` lists the paired remote host IDs a coordinator's
+  workers may use; empty allows any paired host. It never names the local daemon.
+- A coordinator may have `hostSlots` (`[{hostId, slots}]`, `slots >= 1`, one
+  entry per host, a host ID or label as input, stored as IDs), set at spawn or
+  changed live by the root or the operator through
+  `PUT /api/v1/sessions/{id}/coordinator-limits`. The total may not exceed the
+  coordinator's `workerLimit`; with slots set, workers run only on slotted
+  hosts and the slot total is the effective placement limit. A host outside the
+  slots or `allowedHosts` is `COORDINATOR_HOST_NOT_ALLOWED`; a host whose slots
+  are all used is `COORDINATOR_HOST_SLOTS_FULL`. Both are checked before the
+  remote worker is created and again when its link is registered or reassigned.
+  A slot is freed when the worker's link goes away, and an offline host keeps
+  its slots counted until then. The roster shows each slot with its use.
+
 ## What a coordinator's prompt contains
 
 - The worker cap shown to the coordinator is its own `workerLimit` when set,

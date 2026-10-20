@@ -51,9 +51,9 @@ type Store interface {
 	// SetSessionOwner writes owner + audit atomically. skipClaimGuard=false
 	// enforces the claimed-report guard; only automatic repair may pass true.
 	SetSessionOwner(ctx context.Context, id domain.SessionID, owner *domain.SessionID, reason domain.OwnershipEventReason, at time.Time, skipClaimGuard bool) (domain.SessionRecord, bool, error)
-	// SetCoordinatorWorkerLimit writes a live coordinator's limit + audit
-	// atomically and returns the previous limit.
-	SetCoordinatorWorkerLimit(ctx context.Context, id domain.SessionID, limit int, event domain.CoordinatorLimitEvent, at time.Time) (*int, error)
+	// SetCoordinatorLimits writes a live coordinator's worker limit and host
+	// slots with their audit row atomically. A nil limit keeps the project value.
+	SetCoordinatorLimits(ctx context.Context, id domain.SessionID, limit *int, slots []domain.HostSlot, event domain.CoordinatorLimitEvent, at time.Time) error
 	GetDisplayPRFactsForSession(ctx context.Context, id domain.SessionID) (domain.PRFacts, bool, error)
 	ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error)
 	ListPRFactsForSessions(ctx context.Context, ids []domain.SessionID) (map[domain.SessionID][]domain.PRFacts, error)
@@ -216,6 +216,7 @@ type Service struct {
 	runBackground      func(func())
 	capacityGuardMu    sync.Mutex
 	capacityGuard      *coordownership.Guard
+	hosts              coordownership.HostDirectory
 	workspaceCache     *workspaceCache
 	workspaceManifests *workspaceManifestIndex
 	workspaceEditsMu   sync.Mutex
@@ -416,6 +417,9 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if cfg.CoordinatorWorkerLimit != nil && cfg.Kind != domain.KindCoordinator {
 		return domain.Session{}, 0, 0, apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "workerLimit is supported for coordinator sessions only", map[string]any{"field": "workerLimit"})
 	}
+	if len(cfg.CoordinatorHostSlots) > 0 && cfg.Kind != domain.KindCoordinator {
+		return domain.Session{}, 0, 0, apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "hostSlots is supported for coordinator sessions only", map[string]any{"field": "hostSlots"})
+	}
 	if cfg.Kind == domain.KindCoordinator {
 		return s.spawnCoordinator(ctx, cfg)
 	}
@@ -424,7 +428,7 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		if err != nil {
 			return domain.Session{}, 0, 0, err
 		}
-		release, err := s.admitWorker(ctx, cfg.ProjectID, owner)
+		release, err := s.admitWorker(ctx, cfg.ProjectID, owner, !cfg.RemoteSpawned)
 		if err != nil {
 			return domain.Session{}, 0, 0, err
 		}
@@ -837,6 +841,11 @@ func (s *Service) projectLock(projectID domain.ProjectID) *sync.RWMutex {
 	guard := s.capacityGuard
 	s.capacityGuardMu.Unlock()
 	return guard.Project(projectID)
+}
+
+// SetHostDirectory sets the paired-host source for coordinator host slots.
+func (s *Service) SetHostDirectory(hosts coordownership.HostDirectory) {
+	s.hosts = hosts
 }
 
 // SetCapacityGuard shares the project capacity locks with the remote worker

@@ -4224,6 +4224,7 @@ export interface components {
             sessionId: string;
         };
         CheckRemoteWorkerCapacityRequest: {
+            hostId?: string;
             parentSessionId: string;
         };
         CheckRemoteWorkerCapacityResponse: {
@@ -4594,6 +4595,11 @@ export interface components {
         ContainerReapConfig: {
             disabled?: boolean;
         };
+        ControllersCoordinatorHostSlot: {
+            hostId: string;
+            slots: number;
+            used: number;
+        };
         ControllersCoordinatorSummaryHistoryResponse: {
             summaries: components["schemas"]["ControllersCoordinatorSummaryResponse"][];
         };
@@ -4631,6 +4637,10 @@ export interface components {
             state: "planning" | "working" | "blocked" | "done";
             submissionKey: string;
             workerSessionIds: string[];
+        };
+        ControllersHostSlotInput: {
+            hostId: string;
+            slots: number;
         };
         ControllersKeepAwakeStatus: {
             active: boolean;
@@ -5051,6 +5061,8 @@ export interface components {
             maxWorkersPerCoordinator: number;
         };
         CoordinatorLimitsRequest: {
+            /** @description Omitted keeps the stored slots; an empty list clears them. */
+            hostSlots?: null | components["schemas"]["ControllersHostSlotInput"][];
             /** @description Operator acts for the live root; needs origin. */
             operatorInitiated?: boolean;
             /** @enum {string} */
@@ -5063,7 +5075,9 @@ export interface components {
             activeWorkerCount: number;
             coordinatorScope: string;
             coordinatorSessionId: string;
+            effectivePlacementLimit: number;
             effectiveWorkerLimit: number;
+            hostSlots: components["schemas"]["ControllersCoordinatorHostSlot"][];
             isTerminated: boolean;
             latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
             needsRecovery: boolean;
@@ -5207,6 +5221,8 @@ export interface components {
             state: string;
         };
         DomainCoordinatorsConfig: {
+            allowLocalWorkers?: boolean;
+            allowedHosts?: string[];
             enabled?: boolean;
             maxCoordinators?: number;
             maxWorkers?: number;
@@ -6227,7 +6243,9 @@ export interface components {
             activeWorkerCount?: null | number;
             capacity: components["schemas"]["CoordinatorCapacity"];
             coordinatorScope?: string;
+            effectivePlacementLimit?: null | number;
             effectiveWorkerLimit?: null | number;
+            hostSlots?: components["schemas"]["ControllersCoordinatorHostSlot"][];
             /** @enum {string} */
             kind: "worker" | "orchestrator" | "coordinator";
             /** @enum {string} */
@@ -6740,6 +6758,7 @@ export interface components {
             /** @enum {string} */
             harness?: "claude-code" | "codex" | "aider" | "opencode" | "opencode-v2" | "grok" | "droid" | "amp" | "agy" | "crush" | "cursor" | "qwen" | "gemini" | "copilot" | "goose" | "auggie" | "continue" | "devin" | "cline" | "kimi" | "muse" | "kiro" | "kilocode" | "vibe" | "pi" | "kimchi" | "omp" | "fx" | "prime-agent" | "autohand" | "unreal-agent" | "codewhale" | "mimo-code" | "deepseek-harness" | "openhands" | "command-code";
             harnessExplicit?: null | boolean;
+            hostSlots?: components["schemas"]["ControllersHostSlotInput"][];
             issueId?: string;
             /** @enum {string} */
             kind?: "worker" | "orchestrator" | "coordinator";

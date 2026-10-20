@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	aoprocess "github.com/aoagents/agent-orchestrator/backend/internal/process"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
 // Manager is the controller-facing contract for the /api/v1/projects surface.
@@ -77,6 +79,7 @@ type Service struct {
 	defaultHarness      domain.AgentHarness
 	logger              *slog.Logger
 	onModelScopeChanged func(projectID string)
+	hosts               coordownership.HostDirectory
 	// addMu serialises the whole body of Add. Workspace registration performs
 	// filesystem mutations (git init, .gitignore writes, commits) that are not
 	// covered by the store's own writeMu, so path/id conflict checks plus the
@@ -103,6 +106,9 @@ type Deps struct {
 	// OnModelScopeChanged schedules non-blocking model-catalog invalidation
 	// after a project is created or its agent-relevant config changes.
 	OnModelScopeChanged func(projectID string)
+	// Hosts resolves paired remote hosts for coordinators.allowedHosts. Left
+	// nil, the allow list is checked for shape only.
+	Hosts coordownership.HostDirectory
 }
 
 // New returns a project service backed by the given durable store.
@@ -124,6 +130,7 @@ func NewWithDeps(d Deps) *Service {
 		defaultHarness:      defaultHarness,
 		logger:              d.Logger,
 		onModelScopeChanged: d.OnModelScopeChanged,
+		hosts:               d.Hosts,
 	}
 	if s.clock == nil {
 		s.clock = time.Now
@@ -282,6 +289,9 @@ func (m *Service) Add(ctx context.Context, in AddInput) (Project, error) {
 	if in.Config != nil {
 		if err := in.Config.Validate(); err != nil {
 			return Project{}, invalidConfigError(err)
+		}
+		if err := m.validateAllowedHosts(ctx, in.Config.Coordinators.AllowedHosts, nil); err != nil {
+			return Project{}, err
 		}
 		projectConfig = *in.Config
 	}
@@ -727,6 +737,9 @@ func (m *Service) UpdateSettings(ctx context.Context, id domain.ProjectID, in Up
 			return Project{}, invalidConfigError(err)
 		}
 	}
+	if err := m.validateAllowedHosts(ctx, in.Config.Coordinators.AllowedHosts, row.Config.Coordinators.AllowedHosts); err != nil {
+		return Project{}, err
+	}
 	if err := in.Config.ValidateCanonicalRepository(row.RepoOriginURL); err != nil {
 		return Project{}, invalidConfigError(err)
 	}
@@ -769,6 +782,9 @@ func (m *Service) SetConfig(ctx context.Context, id domain.ProjectID, in SetConf
 		if err := validateScratchProjectConfig(in.Config); err != nil {
 			return Project{}, invalidConfigError(err)
 		}
+	}
+	if err := m.validateAllowedHosts(ctx, in.Config.Coordinators.AllowedHosts, row.Config.Coordinators.AllowedHosts); err != nil {
+		return Project{}, err
 	}
 	if err := in.Config.ValidateCanonicalRepository(row.RepoOriginURL); err != nil {
 		return Project{}, invalidConfigError(err)
@@ -1109,4 +1125,28 @@ func invalidConfigError(err error) error {
 			map[string]any{"field": limits.Field, "max": limits.Max})
 	}
 	return apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
+}
+
+// validateAllowedHosts requires every newly listed host to be a paired remote
+// host; the local daemon and unknown hosts are refused. Hosts already in the
+// stored list pass, so an unrelated settings edit never fails on a host that
+// was unpaired later.
+func (m *Service) validateAllowedHosts(ctx context.Context, next, stored []string) error {
+	if m.hosts == nil || len(next) == 0 {
+		return nil
+	}
+	paired, err := m.hosts.PairedHosts(ctx)
+	if err != nil {
+		return apierr.Internal("PROJECT_HOSTS_LOAD_FAILED", "Failed to read the paired hosts")
+	}
+	self := m.hosts.SelfHostID()
+	for _, host := range next {
+		if slices.Contains(stored, host) && host != self {
+			continue
+		}
+		if host == self || !slices.ContainsFunc(paired, func(ref coordownership.HostRef) bool { return ref.ID == host }) {
+			return coordownership.HostNotAllowedError("", host)
+		}
+	}
+	return nil
 }

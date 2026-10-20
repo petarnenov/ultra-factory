@@ -386,13 +386,15 @@ type ConversationTurn struct {
 }
 
 type CoordinatorLimitEvent struct {
-	ID             int64
-	SessionID      string
-	PreviousLimit  sql.NullInt64
-	NewLimit       int64
-	ActorSessionID string
-	Origin         string
-	CreatedAt      time.Time
+	ID                int64
+	SessionID         string
+	PreviousLimit     sql.NullInt64
+	NewLimit          sql.NullInt64
+	PreviousHostSlots sql.NullString
+	NewHostSlots      sql.NullString
+	ActorSessionID    string
+	Origin            string
+	CreatedAt         time.Time
 }
 
 type CoordinatorSummary struct {
@@ -802,6 +804,7 @@ type Session struct {
 	CoordinatorScope                 string
 	OwnerSessionID                   *domain.SessionID
 	CoordinatorWorkerLimit           sql.NullInt64
+	CoordinatorHostSlots             sql.NullString
 }
 
 type SessionArtifactVersion struct {

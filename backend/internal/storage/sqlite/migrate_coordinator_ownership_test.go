@@ -259,3 +259,61 @@ func TestCoordinatorWorkerLimitMigrationDownDropsTheColumnAndAudit(t *testing.T)
 		t.Fatalf("column missing after re-applying: %v", err)
 	}
 }
+
+func TestCoordinatorHostSlotsMigrationKeepsAuditRowsAndAllowsNullLimits(t *testing.T) {
+	db := openMigratedDatabaseCopy(t, 218)
+	if _, err := db.Exec(`
+INSERT INTO projects (id, path, registered_at) VALUES ('ao', '/repo/ao', '2026-10-19T10:00:00Z');
+INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, harness, activity_last_at, created_at, updated_at)
+VALUES ('ao-1', 'ao', 1, 'coordinator', 'auth area', 'claude-code', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z');
+INSERT INTO coordinator_limit_events (session_id, previous_limit, new_limit, actor_session_id, origin, created_at)
+VALUES ('ao-1', NULL, 2, 'ao-root', 'ui', '2026-10-20T10:00:00Z');
+`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrate(db); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	var newLimit sql.NullInt64
+	var newSlots sql.NullString
+	if err := db.QueryRow(`SELECT new_limit, new_host_slots FROM coordinator_limit_events WHERE session_id = 'ao-1'`).Scan(&newLimit, &newSlots); err != nil || newLimit.Int64 != 2 || newSlots.Valid {
+		t.Fatalf("kept audit row = %v %v err=%v, want limit 2 and no slots", newLimit, newSlots, err)
+	}
+	if _, err := db.Exec(`
+INSERT INTO coordinator_limit_events (session_id, previous_limit, new_limit, previous_host_slots, new_host_slots, actor_session_id, origin, created_at)
+VALUES ('ao-1', 2, NULL, NULL, '[{"hostId":"host-a","slots":1}]', 'ao-root', 'cli', '2026-10-20T11:00:00Z')`); err != nil {
+		t.Fatalf("a slot-only audit row with a NULL limit: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET coordinator_host_slots = 'not json' WHERE id = 'ao-1'`); err == nil {
+		t.Fatal("invalid slot JSON must be rejected by the column check")
+	}
+	if _, err := db.Exec(`UPDATE sessions SET coordinator_host_slots = '[{"hostId":"host-a","slots":1}]' WHERE id = 'ao-1'`); err != nil {
+		t.Fatalf("store slots: %v", err)
+	}
+}
+
+func TestCoordinatorHostSlotsMigrationDownRestoresTheAuditTable(t *testing.T) {
+	db := openMigratedTestDB(t)
+	if _, err := db.Exec(`
+INSERT INTO projects (id, path, registered_at) VALUES ('ao', '/repo/ao', '2026-10-19T10:00:00Z');
+INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, harness, activity_last_at, created_at, updated_at)
+VALUES ('ao-1', 'ao', 1, 'coordinator', 'auth area', 'claude-code', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z', '2026-10-19T10:00:00Z');
+INSERT INTO coordinator_limit_events (session_id, previous_limit, new_limit, new_host_slots, actor_session_id, origin, created_at)
+VALUES ('ao-1', 3, NULL, '[{"hostId":"host-a","slots":1}]', 'ao-root', 'cli', '2026-10-20T11:00:00Z');
+`); err != nil {
+		t.Fatal(err)
+	}
+	if err := goose.DownTo(db, "migrations", 218); err != nil {
+		t.Fatalf("down migration: %v", err)
+	}
+	if _, err := db.Exec(`SELECT coordinator_host_slots FROM sessions`); err == nil {
+		t.Fatal("the column survived the down migration")
+	}
+	var newLimit int
+	if err := db.QueryRow(`SELECT new_limit FROM coordinator_limit_events`).Scan(&newLimit); err != nil || newLimit != 3 {
+		t.Fatalf("restored audit new_limit = %d err=%v, want the previous limit 3", newLimit, err)
+	}
+	if err := migrate(db); err != nil {
+		t.Fatalf("up again after down: %v", err)
+	}
+}

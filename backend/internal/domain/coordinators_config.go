@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // CoordinatorLimits are the effective capacity limits of one project.
 type CoordinatorLimits struct {
@@ -29,6 +32,13 @@ type CoordinatorsConfig struct {
 	// MaxWorkers bounds live workers per project once a coordinator exists
 	// (default 6).
 	MaxWorkers int `json:"maxWorkers,omitempty"`
+	// AllowedHosts bounds where coordinator-owned workers may run: paired
+	// remote host IDs. Empty allows any paired host. It never names the
+	// local daemon; local placement is AllowLocalWorkers.
+	AllowedHosts []string `json:"allowedHosts,omitempty"`
+	// AllowLocalWorkers lets coordinator-owned workers run on this daemon.
+	// The default refuses them (COORDINATOR_LOCAL_WORKER_REFUSED).
+	AllowLocalWorkers bool `json:"allowLocalWorkers,omitempty"`
 }
 
 // Limits resolves the effective limits, filling unset values with defaults.
@@ -75,6 +85,21 @@ func (c CoordinatorsConfig) Validate() error {
 	}
 	if eff := c.Limits(); eff.WorkersPerCoordinator > eff.Workers {
 		return &CoordinatorLimitsError{Field: "maxWorkersPerCoordinator", Max: eff.Workers}
+	}
+	return c.validateAllowedHosts()
+}
+
+// validateAllowedHosts requires non-blank, distinct host IDs.
+func (c CoordinatorsConfig) validateAllowedHosts() error {
+	seen := make(map[string]bool, len(c.AllowedHosts))
+	for i, host := range c.AllowedHosts {
+		if strings.TrimSpace(host) == "" || host != strings.TrimSpace(host) {
+			return fmt.Errorf("coordinators.allowedHosts[%d]: must be a host ID without surrounding spaces", i)
+		}
+		if seen[host] {
+			return fmt.Errorf("coordinators.allowedHosts[%d]: duplicate host %q", i, host)
+		}
+		seen[host] = true
 	}
 	return nil
 }

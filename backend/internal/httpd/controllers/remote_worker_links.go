@@ -21,7 +21,7 @@ type RemoteWorkerLinkService interface {
 
 // RemoteWorkerCapacityService is the optional pre-spawn capacity check.
 type RemoteWorkerCapacityService interface {
-	CheckCapacity(context.Context, domain.SessionID) error
+	CheckCapacity(ctx context.Context, parentID domain.SessionID, hostID string) error
 }
 
 // RemoteWorkerOwnershipService is the link ownership read and write surface.
@@ -88,7 +88,7 @@ func (c *RemoteWorkerLinksController) check(w http.ResponseWriter, r *http.Reque
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
 		return
 	}
-	if err := svc.CheckCapacity(r.Context(), domain.SessionID(req.ParentSessionID)); err != nil {
+	if err := svc.CheckCapacity(r.Context(), domain.SessionID(req.ParentSessionID), req.HostID); err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}

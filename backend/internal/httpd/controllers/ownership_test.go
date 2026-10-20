@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/remoteworker"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
@@ -38,6 +40,7 @@ func newOwnershipFixture(t *testing.T) ownershipFixture {
 	for _, project := range []string{"ao", "other"} {
 		if err := store.UpsertProject(ctx, domain.ProjectRecord{
 			ID: project, Path: "/tmp/" + project, RegisteredAt: time.Now().UTC(),
+			Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -492,5 +495,50 @@ func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
 	view, _, _ := doRequest(t, srv, http.MethodGet, path[:len(path)-len("coordinator-limits")]+"ownership", "")
 	if !reportContainsAll(string(view), `"workerLimit":1`, `"effectiveWorkerLimit":1`, `"maxCoordinators":2`) {
 		t.Fatalf("ownership = %s", view)
+	}
+}
+
+type routeHosts struct{}
+
+func (routeHosts) PairedHosts(context.Context) ([]coordownership.HostRef, error) {
+	return []coordownership.HostRef{{ID: "host-linux", Label: "Linux"}, {ID: "host-z600", Label: "Z600"}}, nil
+}
+func (routeHosts) SelfHostID() string { return "hub" }
+
+func TestCoordinatorLimitsRouteSetsHostSlotsAndTheRosterShowsUse(t *testing.T) {
+	f := newOwnershipFixture(t)
+	svc := sessionsvc.NewWithDeps(sessionsvc.Deps{Store: f.store})
+	svc.SetHostDirectory(routeHosts{})
+	srv := newRouterServer(t, httpd.APIDeps{Sessions: svc})
+	path := "/api/v1/sessions/" + string(f.coordinator.ID) + "/coordinator-limits"
+	put := func(payload string) (string, int) {
+		t.Helper()
+		body, status, _ := doRequest(t, srv, http.MethodPut, path, payload)
+		return string(body), status
+	}
+
+	body, status := put(`{"hostSlots":[{"hostId":"Linux","slots":2},{"hostId":"host-z600","slots":1}],"operatorInitiated":true,"origin":"ui"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"hostSlots":[{"hostId":"host-linux","slots":2,"used":0},{"hostId":"host-z600","slots":1,"used":0}]`, `"effectivePlacementLimit":3`) {
+		t.Fatalf("set slots status=%d body=%s", status, body)
+	}
+	body, status = put(`{"hostSlots":[{"hostId":"Linux","slots":0}],"operatorInitiated":true,"origin":"ui"}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "COORDINATOR_WORKER_LIMIT_INVALID", `"field":"hostSlots"`) {
+		t.Fatalf("zero slots status=%d body=%s", status, body)
+	}
+	body, status = put(`{"hostSlots":[{"hostId":"hub","slots":1}],"operatorInitiated":true,"origin":"ui"}`)
+	if status != http.StatusConflict || !reportContainsAll(body, "COORDINATOR_HOST_NOT_ALLOWED") {
+		t.Fatalf("local host status=%d body=%s", status, body)
+	}
+	events, err := f.store.ListCoordinatorLimitEvents(context.Background(), f.coordinator.ID)
+	if err != nil || len(events) != 1 || len(events[0].NewHostSlots) != 2 {
+		t.Fatalf("audit = %+v err=%v, want one row with two slots", events, err)
+	}
+
+	rosterBody, _, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/ao/coordinators", "")
+	if !reportContainsAll(string(rosterBody), `"effectivePlacementLimit":3`, `"host-linux"`, `"used":0`) {
+		t.Fatalf("roster body = %s", rosterBody)
+	}
+	if body, status = put(`{"hostSlots":[],"requestedBySessionId":"` + string(f.root.ID) + `"}`); status != http.StatusOK || strings.Contains(body, `"host-linux"`) {
+		t.Fatalf("clear status=%d body=%s", status, body)
 	}
 }

@@ -37,8 +37,9 @@ func (s *Service) spawnOwner(ctx context.Context, cfg ports.SpawnConfig) (*domai
 }
 
 // admitWorker counts under the project lock; hold the release until the row
-// exists. The config is read under the exclusive lock.
-func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, owner *domain.SessionID) (func(), error) {
+// exists. The config is read under the exclusive lock. A local worker also
+// has to pass the local-worker rule.
+func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, owner *domain.SessionID, local bool) (func(), error) {
 	mu := s.projectLock(project)
 	mu.RLock()
 	counts, err := s.countCapacity(ctx, project)
@@ -51,9 +52,12 @@ func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, own
 	}
 	mu.RUnlock()
 	mu.Lock()
-	limits, counts, err := s.limitsAndCounts(ctx, project)
+	cfg, counts, err := s.configAndCounts(ctx, project)
 	if err == nil {
-		err = counts.CheckNewWorker(project, owner, limits)
+		err = counts.CheckNewWorker(project, owner, cfg.Limits())
+	}
+	if err == nil && local {
+		err = coordownership.CheckLocalWorker(owner, project, cfg)
 	}
 	if err != nil {
 		mu.Unlock()
@@ -62,15 +66,15 @@ func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, own
 	return mu.Unlock, nil
 }
 
-// limitsAndCounts reads the project's limits and census; the caller holds
-// the project lock exclusively.
-func (s *Service) limitsAndCounts(ctx context.Context, project domain.ProjectID) (domain.CoordinatorLimits, coordownership.Counts, error) {
+// configAndCounts reads the project's coordinator config and census; the
+// caller holds the project lock exclusively.
+func (s *Service) configAndCounts(ctx context.Context, project domain.ProjectID) (domain.CoordinatorsConfig, coordownership.Counts, error) {
 	cfg, err := coordownership.LoadConfig(ctx, s.store, project)
 	if err != nil {
-		return domain.CoordinatorLimits{}, coordownership.Counts{}, err
+		return domain.CoordinatorsConfig{}, coordownership.Counts{}, err
 	}
 	counts, err := s.countCapacity(ctx, project)
-	return cfg.Limits(), counts, err
+	return cfg, counts, err
 }
 
 // requireRoot loads the caller and accepts only the project's live root.
@@ -118,6 +122,15 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 			return domain.Session{}, 0, 0, coordownership.WorkerLimitInvalidError(got, limits.WorkersPerCoordinator)
 		}
 	}
+	if len(cfg.CoordinatorHostSlots) > 0 {
+		limit := limits.WorkersPerCoordinator
+		if cfg.CoordinatorWorkerLimit != nil {
+			limit = *cfg.CoordinatorWorkerLimit
+		}
+		if cfg.CoordinatorHostSlots, err = coordownership.NormalizeHostSlots(ctx, s.hosts, cfg.CoordinatorHostSlots, gate.AllowedHosts, limit); err != nil {
+			return domain.Session{}, 0, 0, err
+		}
+	}
 	counts, err := s.countCapacity(ctx, cfg.ProjectID)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
@@ -148,7 +161,7 @@ func (s *Service) admitRestore(ctx context.Context, rec domain.SessionRecord) (f
 		}
 		return unlock, nil
 	case domain.KindWorker:
-		return s.admitWorker(ctx, rec.ProjectID, rec.OwnerSessionID)
+		return s.admitWorker(ctx, rec.ProjectID, rec.OwnerSessionID, true)
 	}
 	return func() {}, nil
 }

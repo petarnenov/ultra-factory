@@ -140,7 +140,8 @@ type localDaemon struct {
 	// linkCode is the error code answered with a non-201 linkStatus.
 	linkCode string
 	// checkCode, when set, makes POST remote-worker-links/check answer 409.
-	checkCode string
+	checkCode   string
+	checkBodies []string
 }
 
 func (d *localDaemon) answerLinks(status int) {
@@ -175,8 +176,10 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
 		d.mu.Unlock()
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links/check" {
+			body, _ := io.ReadAll(r.Body)
 			d.mu.Lock()
 			code := d.checkCode
+			d.checkBodies = append(d.checkBodies, string(body))
 			d.mu.Unlock()
 			if code != "" {
 				writeTestJSON(w, http.StatusConflict, map[string]string{"error": "conflict", "code": code, "message": "worker limit reached"})
