@@ -4913,6 +4913,7 @@ export interface components {
             /** @enum {string} */
             controller: "connecting" | "ready" | "busy" | "recovering" | "hibernated" | "stopped";
             conversationId: string;
+            delta?: boolean;
             harness?: string;
             hasMoreBefore: boolean;
             /** Format: int64 */
@@ -4927,6 +4928,8 @@ export interface components {
             /** Format: int64 */
             oldestSequence?: number;
             rateLimits?: components["schemas"]["ConversationRateLimitsPayload"];
+            /** Format: int64 */
+            revision: number;
             sessionId: string;
             settings: components["schemas"]["ConversationTurnSettingsPayload"];
             supportsExcerpts?: boolean;
@@ -12711,6 +12714,8 @@ export interface operations {
             query?: {
                 /** @description Read items older than this conversation sequence. Omit for the newest page. */
                 beforeSequence?: null | number;
+                /** @description Only entries changed since this revision. */
+                sinceRevision?: null | number;
                 /** @description Maximum combined messages and activities to return. Defaults to 200. */
                 limit?: null | number;
             };
@@ -12731,6 +12736,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConversationSnapshotResponse"];
                 };
+            };
+            /** @description Not Modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad Request */
             400: {
@@ -14385,6 +14397,8 @@ export interface operations {
             query?: {
                 /** @description Read items older than this conversation sequence. Omit for the newest page. */
                 beforeSequence?: null | number;
+                /** @description Only entries changed since this revision. */
+                sinceRevision?: null | number;
                 /** @description Maximum combined messages and activities to return. Defaults to 200. */
                 limit?: null | number;
             };
@@ -14404,6 +14418,22 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationSnapshotResponse"];
+                };
+            };
+            /** @description Not Modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
                 };
             };
             /** @description Not Found */
