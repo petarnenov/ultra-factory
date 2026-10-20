@@ -85,6 +85,10 @@ type Observer struct {
 	mu       sync.Mutex
 	failures map[string]string
 	refused  map[string]string
+	// unrecorded holds report IDs per link that were delivered but whose
+	// local record write failed; pull treats them as delivered and every
+	// acknowledge retries the write until it succeeds.
+	unrecorded map[string]map[string]bool
 }
 
 // New constructs an idle Observer.
@@ -110,7 +114,7 @@ func New(d Deps) *Observer {
 	return &Observer{
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
-		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{},
+		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[string]map[string]bool{},
 	}
 }
 
@@ -312,6 +316,11 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 	if err != nil {
 		return nil, err
 	}
+	o.mu.Lock()
+	for id := range o.unrecorded[linkID(link.HostID, link.RemoteSessionID)] {
+		delivered[id] = true
+	}
+	o.mu.Unlock()
 	item := &pulled{link: link, host: client}
 	for _, id := range result.rejected {
 		o.log.Warn("remote reports: dropping a report this daemon cannot deliver", "host", client.label, "session", link.RemoteSessionID, "report", id)
@@ -400,14 +409,38 @@ func (o *Observer) acknowledge(ctx context.Context, items []*pulled, pass *settl
 		for i, report := range item.fresh {
 			ids[i] = report.ID
 		}
-		if err := o.store.RecordDeliveredRemoteReports(ctx, item.link.HostID, item.link.RemoteSessionID, ids, at); err != nil {
-			o.log.Error("remote reports: record delivery failed", "host", item.host.label, "session", item.link.RemoteSessionID, "err", err)
+		key := linkID(item.link.HostID, item.link.RemoteSessionID)
+		// Retry earlier failed writes together with this group's IDs. While a
+		// write keeps failing, the IDs stay in the in-memory set, so the next
+		// pass does not deliver them again even if the host acknowledgement
+		// below fails; the host acknowledgement still proceeds.
+		o.mu.Lock()
+		for id := range o.unrecorded[key] {
+			ids = append(ids, id)
+		}
+		o.mu.Unlock()
+		if len(ids) > 0 {
+			if err := o.store.RecordDeliveredRemoteReports(ctx, item.link.HostID, item.link.RemoteSessionID, ids, at); err != nil {
+				o.log.Error("remote reports: record delivery failed", "host", item.host.label, "session", item.link.RemoteSessionID, "err", err)
+				o.mu.Lock()
+				if o.unrecorded[key] == nil {
+					o.unrecorded[key] = map[string]bool{}
+				}
+				for _, id := range ids {
+					o.unrecorded[key][id] = true
+				}
+				o.mu.Unlock()
+			} else {
+				o.mu.Lock()
+				delete(o.unrecorded, key)
+				o.mu.Unlock()
+			}
 		}
 		hostID := item.link.HostID
 		deadline := pass.ackDeadline(hostID, o.hostBudget)
 		if pass.unreachable[hostID] || !time.Now().Before(deadline) || o.refusedPassword(hostID, item.host.password) {
-			// The next pass acknowledges these again; the local record keeps
-			// them from being delivered twice.
+			// The next pass acknowledges these again; the local or in-memory
+			// record keeps them from being delivered twice.
 			pass.unreachable[hostID] = true
 			continue
 		}
@@ -531,3 +564,5 @@ func closeIdle(client http.Client) {
 		transport.CloseIdleConnections()
 	}
 }
+
+func linkID(hostID string, session domain.SessionID) string { return hostID + "/" + string(session) }

@@ -678,6 +678,33 @@ func TestPollAcknowledgesEvenWhenRecordingTheDeliveryFails(t *testing.T) {
 	}
 }
 
+func TestPollDoesNotRedeliverWhenRecordAndAcknowledgementBothFailOnce(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	host := newFakeHost(t, "host-build", "pw")
+	host.pending["widgets-3"] = reportsJSON(needsInput("rpt_1", now))
+	host.failAck = true
+	store := newMemStore(link("host-build", "widgets-3"))
+	store.recordErr = errors.New("disk full")
+	deliverer := &fakeDeliverer{}
+	observer := newTestObserver(store, deliverer, host)
+
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.recordErr = nil
+	store.mu.Unlock()
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(deliverer.calls) != 1 {
+		t.Fatalf("deliveries = %d, want exactly 1", len(deliverer.calls))
+	}
+	if len(store.recorded) != 1 || store.recorded[0] != "rpt_1" {
+		t.Fatalf("recorded = %v, want the retried write to land", store.recorded)
+	}
+}
+
 func TestAcknowledgeSplitsIntoChunksTheRemoteAccepts(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	client := &hostClient{http: remotehost.DirectClient(nil, time.Second), base: host.srv.URL, hostID: "host-build", password: "pw", label: "b"}
