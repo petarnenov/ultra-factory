@@ -512,6 +512,12 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if err != nil {
 		return domain.Session{}, 0, 0, err
 	}
+	if cfg.OwnerSessionID != nil && cfg.AutoReview == nil {
+		// ADR 0010: a coordinator-owned worker is reviewed unless the spawn
+		// explicitly turns it off.
+		on := true
+		cfg.AutoReview = &on
+	}
 	rec, promptBytes, systemPromptBytes, err := s.manager.Spawn(ctx, cfg)
 	if err != nil {
 		s.invalidateAgentReadinessAfterLaunchFailure(cfg.Harness, err)

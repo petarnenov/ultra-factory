@@ -1703,6 +1703,45 @@ and #390 landed) for conflicts:
 Implementation tasks must add tests for every code in A5, for the default
 behavior with no new field set, and for the migration up and down.
 
+### A9. Ready-PR hand-off and default auto-review
+
+A coordinator hands a pull request to the root only when an AO native review
+approved its exact head, required CI is green, and no review thread is
+unresolved. Merge authority does not move: only the root merges, and a
+coordinator running `ao pr merge` is still refused with `MERGE_ROOT_ONLY`.
+
+- **Spawn-time `autoReview`.** The spawn request takes an optional
+  `autoReview` boolean (`ao spawn --auto-review[=true|false]`). When set, it
+  overrides the project's `autoReview` for that one session, including a
+  `--host` spawn, where the peer daemon applies it. Without the field the
+  project default applies.
+- **Coordinator rule.** A worker whose spawn parent is a live coordinator gets
+  `autoReview=true` unless the spawn sets `false`. For a `--host` spawn the
+  calling CLI resolves the local parent and sends the value, because the peer
+  cannot see the local coordinator. Root-owned workers are unchanged.
+- **`readyPRs` on a summary.** `ao coordinator report --ready-pr
+  <number>@<head-sha>[@<review-run-id>]` and `POST
+  /api/v1/coordinator-summaries` carry `readyPRs: [{number, headSha,
+  reviewRunId}]`. The daemon validates every entry before it stores the
+  summary: the PR belongs to a worker this coordinator owns, is still open,
+  `headSha` is its current head, and the review run is complete (or delivered)
+  with an approved verdict for that head. An omitted `reviewRunId` resolves to
+  the newest approved run for the head. One bad entry rejects the whole summary
+  and stores nothing.
+- **Scope.** Validation reads this daemon's PR and review records, so it covers
+  workers on this machine. CI and unresolved threads are the coordinator's check
+  and the root's re-check, not part of the daemon validation.
+- **Root.** A summary lists each ready PR with its head SHA. The root re-checks
+  that the head is unchanged and CI is green, then merges with `gh pr merge <n>
+  --squash --match-head-commit <sha>`. It does not re-run the review for an
+  approved head.
+
+New error code:
+
+| Code | Kind / status | When | Details |
+| --- | --- | --- | --- |
+| `READY_PR_INVALID` | Invalid / 400 | A `readyPRs` entry names a PR outside this coordinator's workers, a head that is not current, a PR that is not open, or a review run that is missing, for another head, or not approved | `number`, `reason` (`pr_not_owned`, `pr_not_open`, `stale_head`, `review_run_not_found`, `review_head_mismatch`, `review_not_approved`) |
+
 ## Implementation notes
 
 These notes record where the shipped code (0.18.0) differs from the text

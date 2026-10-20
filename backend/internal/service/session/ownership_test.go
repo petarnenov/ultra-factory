@@ -326,3 +326,39 @@ func TestCoordinatorRosterFlagsATerminatedCoordinatorWithLiveWorkers(t *testing.
 		t.Fatalf("a terminated coordinator with only terminated workers needs no recovery: %+v", all.Coordinators)
 	}
 }
+
+func TestSpawnAutoReviewDefaultsOnForCoordinatorOwnedWorkers(t *testing.T) {
+	off := false
+	cases := []struct {
+		name     string
+		parent   domain.SessionRecord
+		explicit *bool
+		want     *bool
+	}{
+		{"coordinator-owned defaults on", domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindCoordinator}, nil, boolRef(true)},
+		{"explicit false wins", domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindCoordinator}, &off, &off},
+		{"root-owned is unchanged", domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindOrchestrator}, nil, nil},
+		{"terminated coordinator is unchanged", domain.SessionRecord{ID: "ao-1", ProjectID: "ao", Kind: domain.KindCoordinator, IsTerminated: true}, nil, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AllowLocalWorkers: true}}}
+			st.sessions[tc.parent.ID] = tc.parent
+			fc := &fakeCommander{spawnRecord: domain.SessionRecord{ID: "ao-9", ProjectID: "ao", Kind: domain.KindWorker}}
+			svc := &Service{manager: fc, store: st}
+			if _, _, _, err := svc.Spawn(context.Background(), ports.SpawnConfig{
+				ProjectID: "ao", Kind: domain.KindWorker, Harness: domain.HarnessClaudeCode,
+				ParentSessionID: tc.parent.ID, AutoReview: tc.explicit,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			got := fc.spawnedCfg.AutoReview
+			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Fatalf("autoReview = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func boolRef(v bool) *bool { return &v }

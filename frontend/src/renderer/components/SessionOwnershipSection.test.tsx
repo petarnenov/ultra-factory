@@ -89,6 +89,7 @@ describe("SessionOwnershipSection", () => {
 						escalationReason: "scope_decision",
 						id: "csum_1",
 						projectId: "ao",
+						readyPRs: [],
 						result: "waiting on schema",
 						scope: "auth",
 						state: "blocked",

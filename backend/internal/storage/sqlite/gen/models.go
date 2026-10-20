@@ -419,6 +419,14 @@ type CoordinatorSummary struct {
 	LastError            string
 }
 
+type CoordinatorSummaryReadyPR struct {
+	SummaryID   string
+	PRNumber    int64
+	HeadSha     string
+	ReviewRunID string
+	Position    int64
+}
+
 type CoordinatorSummaryRemoteWorker struct {
 	SummaryID       string
 	HostID          string

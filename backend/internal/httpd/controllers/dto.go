@@ -617,6 +617,10 @@ type SpawnSessionRequest struct {
 	// Omitted inherits the daemon-resolved project setting.
 	TerminateOnPRMerge *bool `json:"terminateOnPrMerge,omitempty"`
 
+	// AutoReview, when set, overrides the project default for this spawn. Omitted
+	// inherits the project setting, or true for a coordinator-owned worker.
+	AutoReview *bool `json:"autoReview,omitempty"`
+
 	// RequestedOutput asks for a specific deliverable. artifact tells the worker to
 	// write a file in its artifact directory instead of opening a PR. Omitted is
 	// the ordinary task flow.

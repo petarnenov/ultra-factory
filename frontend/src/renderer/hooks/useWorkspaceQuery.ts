@@ -377,8 +377,25 @@ async function fetchWorkspaces(): Promise<WorkspaceSummary[]> {
 	return applyOptimisticSessionKills(workspaces) ?? workspaces;
 }
 
+// A host that accepts the connection but never answers would otherwise leave
+// its query pending forever, so aggregate surfaces could not tell it from slow.
+export const REMOTE_REQUEST_TIMEOUT_MS = 10_000;
+
+async function withRemoteTimeout<T>(request: (signal: AbortSignal) => Promise<T>): Promise<T> {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), REMOTE_REQUEST_TIMEOUT_MS);
+	try {
+		return await request(controller.signal);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+// A timed-out host is reported failed at once; the 15 s poll tries it again.
+const retryUnlessTimedOut = (failureCount: number, error: unknown) => failureCount < 1 && !(error instanceof DOMException && error.name === "AbortError");
+
 async function fetchRemoteProjects(hostId: string) {
-	const { data, error, response } = await clientForHost(hostId).GET("/api/v1/projects");
+	const { data, error, response } = await withRemoteTimeout((signal) => clientForHost(hostId).GET("/api/v1/projects", { signal }));
 	if (error) {
 		recheckRemoteHost(hostId, response.status);
 		throw error;
@@ -388,7 +405,7 @@ async function fetchRemoteProjects(hostId: string) {
 
 // Polls ask for live sessions only; terminated ones load on demand.
 async function fetchRemoteSessions(hostId: string, query: { active: boolean; project?: string } = { active: true }) {
-	const { data, error, response } = await clientForHost(hostId).GET("/api/v1/sessions", { params: { query } });
+	const { data, error, response } = await withRemoteTimeout((signal) => clientForHost(hostId).GET("/api/v1/sessions", { params: { query }, signal }));
 	if (error) {
 		recheckRemoteHost(hostId, response.status);
 		throw error;
@@ -615,7 +632,7 @@ export function useRemoteWorkspaces(options: WorkspaceSubscriptionOptions = {}) 
 		queries: connected.map((hostId) => ({
 			queryKey: remoteProjectsQueryKey(hostId),
 			queryFn: () => fetchRemoteProjects(hostId),
-			retry: 1,
+			retry: retryUnlessTimedOut,
 			refetchInterval: 15_000,
 			subscribed: options.subscribed,
 		})),
@@ -624,7 +641,7 @@ export function useRemoteWorkspaces(options: WorkspaceSubscriptionOptions = {}) 
 		queries: connected.map((hostId) => ({
 			queryKey: remoteSessionsQueryKey(hostId),
 			queryFn: () => fetchRemoteSessions(hostId),
-			retry: 1,
+			retry: retryUnlessTimedOut,
 			refetchInterval: (query: Query<Awaited<ReturnType<typeof fetchRemoteSessions>>>) =>
 				remotePollInterval(hostId, query.state.data?.some((session) => session.statusReadiness === "checking") ?? false),
 			subscribed: options.subscribed,

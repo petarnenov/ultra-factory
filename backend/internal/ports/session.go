@@ -99,6 +99,9 @@ type SpawnConfig struct {
 	// TerminateOnPRMerge, when non-nil, overrides ProjectConfig.TerminateOnPRMerge
 	// for this one spawn. A nil value inherits the project default.
 	TerminateOnPRMerge *bool
+	// AutoReview, when non-nil, overrides ProjectConfig.AutoReview for this
+	// spawn. A nil value inherits the project default.
+	AutoReview *bool
 	// Attachments are files pasted or dropped into the task brief. They are
 	// written into the session worktree and referenced by path in the prompt so
 	// the agent can read them (CLI agents receive the prompt as text and cannot
