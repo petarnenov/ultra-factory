@@ -305,6 +305,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 		}
 	}
 
+	ownerFailed := map[string]bool{}
 	if resolver, ok := r.Daemon.(CompletionOwnerResolver); ok {
 		for _, key := range sortedKeys(state.Sessions) {
 			session := state.Sessions[key]
@@ -321,7 +322,12 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 				}
 				recipient, err := resolver.ResolveCompletionOwner(ctx, session.Host, session.Session)
 				if err != nil {
-					return notesList(notes), changed, fmt.Errorf("resolve completion owner: %w", err)
+					// Scope the failure: skip this worker's actions this tick.
+					ownerFailed[key] = true
+					note := noteFor(notes, key)
+					note.Host, note.Session = session.Host, session.Session
+					note.Errors = appendUniqueStrings(note.Errors, "resolve completion owner: "+err.Error())
+					break
 				}
 				action.Recipient = &recipient
 				session.Actions[actionKey] = action
@@ -349,6 +355,9 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 				continue
 			}
 			worker, workerPresent := workers[key]
+			if ownerFailed[key] {
+				continue
+			}
 			if !hostReachable[session.Host] {
 				// A transient host failure is not proof the worker is gone.
 				continue
@@ -382,7 +391,7 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 		if !ok || action.Status == CompletionActionCompleted || action.Status == CompletionActionSuperseded {
 			continue
 		}
-		if !hostReachable[session.Host] {
+		if !hostReachable[session.Host] || ownerFailed[key] {
 			// A transient host failure is not proof the close is no longer due.
 			continue
 		}

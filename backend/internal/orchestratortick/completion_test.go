@@ -796,3 +796,32 @@ func TestTickDoesNotReplayLegacyMergeNotificationsWithoutOwnerSnapshot(t *testin
 		}
 	}
 }
+
+type ownerFailDaemon struct {
+	*completionDaemon
+	failSession string
+}
+
+func (d *ownerFailDaemon) ResolveCompletionOwner(ctx context.Context, host, session string) (CompletionRecipient, error) {
+	if session == d.failSession {
+		return CompletionRecipient{}, errors.New("owner lookup unavailable")
+	}
+	return d.completionDaemon.ResolveCompletionOwner(ctx, host, session)
+}
+
+func TestTickOwnerResolveFailureOnlySkipsThatWorker(t *testing.T) {
+	r, d, gh, fm, _ := completionFixture(t)
+	second := cleanWorker("rw/191", 202)
+	second.ID = "uf-2"
+	second.Reviews = []WorkerReview{{PRNumber: 202, TargetSHA: head("2"), Status: "up_to_date"}}
+	d.workers["Linux"] = append(d.workers["Linux"], second)
+	gh.state.OpenPRs = append(gh.state.OpenPRs, readyPR(202, "rw/191", head("2")))
+	r.Daemon = &ownerFailDaemon{completionDaemon: &completionDaemon{fakeDaemon: d}, failSession: "uf-2"}
+	res := tick(t, r)
+	if fm.calls() != 1 || fm.requests[0].Number != 201 {
+		t.Fatalf("merge requests = %+v", fm.requests)
+	}
+	if !strings.Contains(strings.Join(CompletionLines(res.Completions), " "), "resolve completion owner") {
+		t.Fatalf("owner failure not reported: %+v", res.Completions)
+	}
+}
