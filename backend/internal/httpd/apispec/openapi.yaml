@@ -4962,7 +4962,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Bad Request: also codes in x-error-codes'
+          description: 'Bad Request: coordinator codes in x-error-codes'
         "403":
           content:
             application/json:
@@ -4980,7 +4980,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Conflict: see x-error-codes'
+          description: 'Conflict: coordinator codes in x-error-codes'
         "500":
           content:
             application/json:

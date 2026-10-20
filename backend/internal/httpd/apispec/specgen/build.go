@@ -2737,9 +2737,9 @@ func sessionOperations() []operation {
 			method: http.MethodPost, path: "/api/v1/sessions", id: "spawnSession", tag: "sessions",
 			summary: "Spawn a new agent session",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: also codes in x-error-codes",
+				http.StatusBadRequest: "Bad Request: coordinator codes in x-error-codes",
 				http.StatusForbidden:  "Forbidden: COORDINATOR_ROOT_REQUIRED",
-				http.StatusConflict:   "Conflict: see x-error-codes",
+				http.StatusConflict:   "Conflict: coordinator codes in x-error-codes",
 			},
 			errorCodes: map[int][]string{
 				http.StatusBadRequest: {"COORDINATOR_SCOPE_REQUIRED", "COORDINATOR_SCOPE_TOO_LONG", "REMOTE_SPAWN_WORKER_REQUIRED"},
