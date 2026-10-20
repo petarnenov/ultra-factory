@@ -125,6 +125,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 			const remoteRefreshQueues = new Map<string, {
 				pendingHost: boolean;
 				sessions: Set<string>;
+				reviews: Set<string>;
 				timer?: ReturnType<typeof setTimeout>;
 				lastFlushAt: number;
 			}>();
@@ -134,22 +135,26 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 				if (queue.timer !== undefined) { clearTimeout(queue.timer); queue.timer = undefined; }
 				const sessions = [...queue.sessions];
 				const pendingHost = queue.pendingHost;
+				const reviews = [...queue.reviews];
 				queue.sessions.clear();
+				queue.reviews.clear();
 				queue.pendingHost = false;
 				queue.lastFlushAt = Date.now();
 				if (pendingHost) refreshRemote(hostId);
+				for (const reviewId of reviews) invalidate(["reviewer-conversation", hostId, reviewId]);
 				for (const sessionId of sessions) {
 					if (isConversationObserved(hostId, sessionId)) refreshRemoteConversationOnce(hostId, sessionId);
 				}
 			};
-			const queueRemoteRefresh = (hostId: string, sessionId?: string) => {
+			const queueRemoteRefresh = (hostId: string, sessionId?: string, reviewId?: string) => {
 				let queue = remoteRefreshQueues.get(hostId);
 				if (!queue) {
-					queue = { pendingHost: false, sessions: new Set(), lastFlushAt: Number.NEGATIVE_INFINITY };
+					queue = { pendingHost: false, sessions: new Set(), reviews: new Set(), lastFlushAt: Number.NEGATIVE_INFINITY };
 					remoteRefreshQueues.set(hostId, queue);
 				}
 				queue.pendingHost = true;
 				if (sessionId) queue.sessions.add(sessionId);
+				if (reviewId) queue.reviews.add(reviewId);
 				if (isTabHidden() || queue.timer !== undefined) return;
 				const wait = REMOTE_REFRESH_WINDOW_MS - (Date.now() - queue.lastFlushAt);
 				if (wait <= 0) { flushRemoteRefresh(hostId); return; }
@@ -225,10 +230,8 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 							const conversationSessionId = typeof decoded.sessionId === "string" && typeof decoded.payload?.conversationId === "string" && typeof decoded.payload.reviewId !== "string"
 								? decoded.sessionId
 								: undefined;
-							queueRemoteRefresh(hostId, conversationSessionId);
-							if (typeof decoded.payload?.reviewId === "string") {
-								invalidate(["reviewer-conversation", hostId, decoded.payload.reviewId]);
-							}
+							const reviewId = typeof decoded.payload?.reviewId === "string" ? decoded.payload.reviewId : undefined;
+							queueRemoteRefresh(hostId, conversationSessionId, reviewId);
 						} catch {
 							// The host's project/session cache still refreshes after a malformed event.
 							queueRemoteRefresh(hostId);

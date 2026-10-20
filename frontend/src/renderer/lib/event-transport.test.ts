@@ -197,7 +197,7 @@ describe("createEventTransport", () => {
 		expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["project-config", "box-a"] }, { cancelRefetch: false });
 		expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["session-usage", "detail", "box-a"] }, { cancelRefetch: false });
 		expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["session-reviews", "box-a"] }, { cancelRefetch: false });
-		expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["reviewer-conversation", "box-a", "review-1"] }, { cancelRefetch: false });
+		await vi.waitFor(() => expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["reviewer-conversation", "box-a", "review-1"] }, { cancelRefetch: false }), { timeout: 3_000 });
 		expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["remote-session-agent-switches", "box-a"] }, { cancelRefetch: false });
 		expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["session-interface-transition", "box-a"] }, { cancelRefetch: false });
 		await vi.waitFor(() => expect(remoteGetMock).toHaveBeenCalledWith("/api/v1/sessions/{sessionId}/conversation", {
@@ -273,6 +273,25 @@ describe("createEventTransport", () => {
 				burst(remote, "watched", 1);
 				await vi.advanceTimersByTimeAsync(5_000);
 				expect(remoteGetMock).toHaveBeenCalledTimes(1);
+				disconnect();
+			} finally { vi.useRealTimers(); }
+		});
+
+		it("defers a reviewer conversation refresh while the tab is hidden", async () => {
+			vi.useFakeTimers();
+			try {
+				const { client, disconnect, remote } = setup();
+				await vi.advanceTimersByTimeAsync(0);
+				vi.mocked(client.invalidateQueries).mockClear();
+				const reviewKey = { queryKey: ["reviewer-conversation", "box-a", "review-1"] };
+				setVisibility("hidden");
+				for (let i = 0; i < 10; i += 1) remote.emit("review_run_updated", JSON.stringify({ sessionId: "same", payload: { reviewId: "review-1", conversationId: "rc" } }));
+				await vi.advanceTimersByTimeAsync(10_000);
+				expect(client.invalidateQueries).not.toHaveBeenCalledWith(reviewKey, { cancelRefetch: false });
+				setVisibility("visible");
+				await vi.advanceTimersByTimeAsync(0);
+				const calls = vi.mocked(client.invalidateQueries).mock.calls.filter(([f]) => JSON.stringify(f) === JSON.stringify(reviewKey));
+				expect(calls).toHaveLength(1);
 				disconnect();
 			} finally { vi.useRealTimers(); }
 		});
