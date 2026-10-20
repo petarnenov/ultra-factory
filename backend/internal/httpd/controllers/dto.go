@@ -642,8 +642,8 @@ type SessionOwnerRequest struct {
 	RequestedBySessionID string  `json:"requestedBySessionId"`
 }
 
-// CoordinatorLimitsRequest: send requestedBySessionId (the live root) or
-// operatorInitiated with origin (the operator, for the live root).
+// CoordinatorLimitsRequest is the PUT coordinator-limits body. Send
+// requestedBySessionId (live root) or operatorInitiated with origin.
 type CoordinatorLimitsRequest struct {
 	WorkerLimit          int    `json:"workerLimit" minimum:"1"`
 	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`

@@ -330,8 +330,8 @@ func (s *Service) SetCoordinatorWorkerLimit(
 	if err != nil {
 		return domain.SessionRecord{}, err
 	}
-	if max := gate.Limits().WorkersPerCoordinator; limit < 1 || limit > max {
-		return domain.SessionRecord{}, coordownership.WorkerLimitInvalidError(limit, max)
+	if ceiling := gate.Limits().WorkersPerCoordinator; limit < 1 || limit > ceiling {
+		return domain.SessionRecord{}, coordownership.WorkerLimitInvalidError(limit, ceiling)
 	}
 	event := domain.CoordinatorLimitEvent{ActorSessionID: actor, Origin: origin}
 	if _, err := s.store.SetCoordinatorWorkerLimit(ctx, coordinator.ID, limit, event, s.now()); err != nil {

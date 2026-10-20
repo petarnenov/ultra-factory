@@ -74,9 +74,9 @@ func CoordinatorLimitError(project domain.ProjectID, current, allowed int) error
 }
 
 // WorkerLimitInvalidError rejects a per-coordinator limit outside 1..max.
-func WorkerLimitInvalidError(got, max int) error {
+func WorkerLimitInvalidError(got, limit int) error {
 	return apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "workerLimit must be between 1 and the project's maxWorkersPerCoordinator",
-		map[string]any{"field": "workerLimit", "value": got, "max": max})
+		map[string]any{"field": "workerLimit", "value": got, "max": limit})
 }
 
 // CoordinatorWorkerLimitError reports one coordinator's worker cap.
