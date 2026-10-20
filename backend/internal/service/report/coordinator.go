@@ -150,11 +150,17 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 	attempted := map[string]bool{}
 	delivered := 0
 	stalled := false
+	stalledClaim := false
 	var firstErr error
 	var unresolved domain.ProjectID
 	for _, report := range pending {
-		if report.AvailableAt.After(now) {
-			break
+		due := !report.AvailableAt.After(now)
+		if !due {
+			if !c.terminatedWorker(ctx, report.SessionID) {
+				break
+			}
+			// A terminated worker cannot report again, so its queued report
+			// is flushed now instead of trickling in after its deadline.
 		}
 		group, err := c.localGroup(ctx, report)
 		if err != nil {
@@ -178,14 +184,17 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 			// More due groups remain; run again shortly instead of sleeping.
 			return c.retryDelay, firstErr
 		}
-		ok, err := c.deliverGroup(ctx, report.ProjectID, group)
+		claimed, acknowledged, err := c.deliverGroup(ctx, report.ProjectID, group)
 		if err != nil && firstErr == nil {
 			firstErr = err
 		}
-		if ok {
+		if claimed {
 			delivered++
 		} else {
 			stalled = true
+		}
+		if claimed && !acknowledged {
+			stalledClaim = true
 		}
 	}
 	if firstErr != nil {
@@ -199,7 +208,17 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 		// instead of letting a root outage park it behind the next deadline.
 		return c.retryDelay, nil
 	}
-	if next, ok := nextPendingDelay(pending, now); ok {
+	schedule := pending
+	if stalledClaim {
+		// A claim that acknowledged nothing may have moved its batch later, for
+		// example a coalesced stuck report, so read the deadlines back.
+		fresh, err := c.store.ListPendingReportSchedule(ctx, reportScheduleScanLimit)
+		if err != nil {
+			return c.retryDelay, nil
+		}
+		schedule = fresh
+	}
+	if next, ok := nextPendingDelay(schedule, now); ok {
 		return next, nil
 	}
 	if delivered > 0 {
@@ -212,6 +231,12 @@ func (c *Coordinator) RunDue(ctx context.Context) (time.Duration, error) {
 		return c.retryDelay, nil
 	}
 	return -1, nil
+}
+
+// terminatedWorker reports a worker that will never produce another report.
+func (c *Coordinator) terminatedWorker(ctx context.Context, id domain.SessionID) bool {
+	session, found, err := c.store.GetSession(ctx, id)
+	return err == nil && found && session.IsTerminated
 }
 
 // nextPendingDelay returns the earliest future deadline in schedule order.
@@ -291,10 +316,12 @@ func (c *Coordinator) localGroup(ctx context.Context, report domain.ReportRecord
 	return group, nil
 }
 
-func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.ProjectID, group recipientGroup) (bool, error) {
+// deliverGroup reports whether it claimed a batch and whether it acknowledged
+// one; only an acknowledged batch has finished its delivery.
+func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.ProjectID, group recipientGroup) (claimed, acknowledged bool, err error) {
 	batch, err := c.claim(ctx, projectID, group.Recipient, group.Root)
 	if err != nil || len(batch.Reports) == 0 {
-		return false, err
+		return false, false, err
 	}
 	if batch.hasState(domain.ReportStuck) {
 		interrupted := false
@@ -302,12 +329,12 @@ func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.Project
 		for _, worker := range batch.stuckWorkers() {
 			acquired, next, acquireErr := c.store.AcquireReportInterrupt(ctx, worker, c.now().UTC(), ReportInterruptWindow)
 			if acquireErr != nil {
-				return true, c.release(ctx, batch, acquireErr)
+				return true, false, c.release(ctx, batch, acquireErr)
 			}
 			if acquired {
 				interrupted = true
 				if interruptErr := c.delivery.Interrupt(ctx, group.Recipient); interruptErr != nil {
-					return true, c.release(ctx, batch, interruptErr)
+					return true, false, c.release(ctx, batch, interruptErr)
 				}
 			} else if nextInterrupt.IsZero() || next.Before(nextInterrupt) {
 				nextInterrupt = next
@@ -315,19 +342,32 @@ func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.Project
 		}
 		if !interrupted && !batch.hasState(domain.ReportNeedsInput) {
 			_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, nextInterrupt, "repeated stuck report coalesced inside interrupt window")
-			return true, deferErr
+			return true, false, deferErr
 		}
 	}
 	if err := c.delivery.Submit(ctx, group.Recipient, batch.Render(), batch.IdempotencyKey()); err != nil {
-		slog.Warn("report delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
-		if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
-			_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC().Add(domain.ReportAcceptanceRetryDelay), err.Error())
-			return true, errors.Join(err, deferErr)
+		if !errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
+			slog.Warn("report delivery failed", "delivery_id", batch.IdempotencyKey(), "recipient", group.Recipient, "err", err)
+			return true, false, c.release(ctx, batch, err)
 		}
-		return true, c.release(ctx, batch, err)
+		// The prompt was written; only its acceptance hook is late. Re-arming
+		// the batch re-pastes it on every retry, so it is consumed once here.
+		slog.Warn("report delivery unconfirmed; batch consumed", "delivery_id", batch.IdempotencyKey(), "recipient", group.Recipient, "err", err)
+		if ackErr := c.consume(ctx, batch); ackErr != nil {
+			return true, false, errors.Join(err, ackErr)
+		}
+		return true, true, nil
 	}
-	_, err = c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
-	return true, err
+	if err := c.consume(ctx, batch); err != nil {
+		return true, false, err
+	}
+	return true, true, nil
+}
+
+// consume acknowledges a submitted batch, so no later pass sends it again.
+func (c *Coordinator) consume(ctx context.Context, batch PreparedBatch) error {
+	_, err := c.store.AcknowledgeReportBatch(ctx, batch.ProjectID, batch.Token, c.now().UTC())
+	return err
 }
 
 // ErrNoActiveOrchestrator reports a project with no orchestrator to deliver to.

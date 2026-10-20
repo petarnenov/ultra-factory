@@ -256,13 +256,20 @@ immediately without interrupting current orchestrator work. `--stuck` requests
 an interrupt at most once per worker every three minutes and coalesces equal
 repeats. Reports route to the active project orchestrator at each attempt and
 remain pending when none is active. AO never spawns an orchestrator to deliver
-a report.
+a report. A terminated worker's queued reports are delivered once and then the
+stream ends: `ao report` for a terminated session fails with
+`409 SESSION_TERMINATED`, and a report still queued in the CLI outbox for such
+a session is discarded when its replay is rejected.
 
 Scheduled delivery and exact same-turn user-message piggyback use Chat's
-durable semantic message boundary. Supported TUIs acknowledge delivery only
-after their native prompt hook reports acceptance of the exact durable batch
-identity. A successful terminal write is never acknowledgement. Reports remain
-pending for TUI adapters that cannot expose this semantic boundary.
+durable semantic message boundary. Supported TUIs confirm delivery through
+their native prompt hook reporting acceptance of the exact durable batch
+identity. A successful terminal write alone is not confirmation: when the hook
+does not arrive within the acceptance wait, the batch is nevertheless
+acknowledged and never re-sent. That is a deliberate loss window, because the
+prompt was already written and a retry would paste it again: a prompt the
+harness never submitted is not recovered. Reports remain pending for TUI
+adapters that cannot expose this semantic boundary.
 
 `GET /api/v1/reports?projectId=<id>` is the read-only persisted report
 projection. Consumers such as Project Summary can read ordered report facts

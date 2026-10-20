@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -318,6 +319,10 @@ type coordinatorStore struct {
 	interrupts  map[domain.SessionID]time.Time
 	acked       int
 	ownerEvents []coordinatorOwnerEvent
+	// claims counts batch claims so a regression can bound a spin instead of
+	// hanging: over the limit the store fails the claim.
+	claims     int
+	claimLimit int
 }
 
 type coordinatorOwnerEvent struct {
@@ -378,6 +383,10 @@ func (s *coordinatorStore) effectiveOwner(sessionID domain.SessionID, root domai
 func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project domain.ProjectID, recipient, root domain.SessionID, token string, at time.Time) ([]domain.ReportRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.claims++
+	if s.claimLimit > 0 && s.claims > s.claimLimit {
+		return nil, errors.New("claim limit reached")
+	}
 	batchID := ""
 	for i := range s.reports {
 		rec := &s.reports[i]
@@ -498,9 +507,11 @@ type coordinatorDelivery struct {
 	submissions []coordinatorSubmission
 	interrupts  []domain.SessionID
 	submitErr   error
+	attempts    int
 }
 
 func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
+	d.attempts++
 	if d.submitErr != nil {
 		return d.submitErr
 	}
@@ -512,31 +523,101 @@ func (d *coordinatorDelivery) Interrupt(_ context.Context, target domain.Session
 	return nil
 }
 
-func TestCoordinatorAcceptanceTimeoutDefersBatch(t *testing.T) {
+func TestCoordinatorAcceptanceTimeoutConsumesTheBatchOnce(t *testing.T) {
 	now := time.Now()
 	store := newCoordinatorStore(now)
 	store.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator}}
 	store.add(reportAt("one", "worker", now, now, "finished"))
 	d := &coordinatorDelivery{submitErr: domain.ErrSemanticAcceptanceTimeout}
 	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: d, Now: func() time.Time { return now }})
-	if _, err := c.RunDue(context.Background()); err == nil {
-		t.Fatal("expected timeout")
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
 	}
+	// The prompt was written before the acceptance timeout: deliver it once.
+	if d.attempts != 1 || store.acked != 1 {
+		t.Fatalf("attempts=%d acknowledged=%d, want one consumed delivery", d.attempts, store.acked)
+	}
+	// Neither a late hook nor a restarted daemon resends the consumed batch.
 	d.submitErr = nil
-	for i := 0; i < 20; i++ {
-		now = now.Add(time.Second)
+	for i := 0; i < 5; i++ {
+		now = now.Add(time.Hour)
+		restarted := NewCoordinator(CoordinatorDeps{Store: store, Delivery: d, Now: func() time.Time { return now }})
+		if _, err := restarted.RunDue(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.attempts != 1 || len(d.submissions) != 0 {
+		t.Fatalf("attempts=%d submissions=%d, want no replay of a consumed batch", d.attempts, len(d.submissions))
+	}
+}
+
+// A flush that acknowledges nothing must not be retried in the same pass:
+// a terminated worker's rate-limited stuck batch used to be claimed forever.
+func TestCoordinatorTerminatedStuckFlushDoesNotSpin(t *testing.T) {
+	now := time.Date(2026, 9, 14, 15, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{
+		{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator},
+		{ID: "ended", ProjectID: "p", Kind: domain.KindWorker, IsTerminated: true},
+	}
+	stuck := reportAt("stuck", "ended", now.Add(-time.Minute), now, "blocked")
+	stuck.State = domain.ReportStuck
+	checkpoint := reportAt("later", "ended", now, now.Add(30*time.Minute), "older head")
+	store.add(stuck, checkpoint)
+	// The interrupt window from an earlier interruption is still open.
+	store.interrupts["ended"] = now
+	store.claimLimit = 3
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+
+	delay, err := c.RunDue(context.Background())
+	if err != nil {
+		t.Fatalf("the deferred flush spun: %v", err)
+	}
+	if delay != ReportInterruptWindow {
+		t.Fatalf("delay = %v, want the deferral deadline %v", delay, ReportInterruptWindow)
+	}
+	if store.claims != 1 || len(delivery.submissions) != 0 {
+		t.Fatalf("claims=%d submissions=%d, want one deferred claim and no delivery", store.claims, len(delivery.submissions))
+	}
+}
+
+func TestCoordinatorFlushesATerminatedWorkersQueueOnce(t *testing.T) {
+	now := time.Date(2026, 9, 14, 14, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{
+		{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator},
+		{ID: "ended", ProjectID: "p", Kind: domain.KindWorker, IsTerminated: true},
+		{ID: "live", ProjectID: "p", Kind: domain.KindWorker},
+	}
+	store.add(reportAt("late", "ended", now, now.Add(time.Hour), "final head"))
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 || !strings.Contains(delivery.submissions[0].message, "final head") || store.acked != 1 {
+		t.Fatalf("terminated flush = %#v acked=%d", delivery.submissions, store.acked)
+	}
+	// A live worker keeps its normal deadline, and later passes send nothing.
+	store.add(reportAt("live-one", "live", now, now.Add(time.Hour), "live head"))
+	if delay, err := c.RunDue(context.Background()); err != nil || delay != time.Hour {
+		t.Fatalf("live delay = %v, err = %v", delay, err)
+	}
+	for i := 0; i < 3; i++ {
+		now = now.Add(time.Minute)
 		if _, err := c.RunDue(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if len(d.submissions) != 0 || store.acked != 0 {
-		t.Fatal("retried before backoff")
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("a terminated session kept producing deliveries: %#v", delivery.submissions)
 	}
-	now = now.Add(domain.ReportAcceptanceRetryDelay)
+	now = now.Add(time.Hour)
 	if _, err := c.RunDue(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(d.submissions) != 1 || store.acked != 1 {
-		t.Fatal("did not retry after backoff")
+	if len(delivery.submissions) != 2 || !strings.Contains(delivery.submissions[1].message, "live head") {
+		t.Fatalf("live delivery = %#v", delivery.submissions)
 	}
 }

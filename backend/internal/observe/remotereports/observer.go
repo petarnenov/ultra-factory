@@ -82,10 +82,9 @@ type Observer struct {
 	log        *slog.Logger
 	wake       chan struct{}
 
-	mu         sync.Mutex
-	failures   map[string]string
-	refused    map[string]string
-	retryAfter map[string]time.Time
+	mu       sync.Mutex
+	failures map[string]string
+	refused  map[string]string
 }
 
 // New constructs an idle Observer.
@@ -111,7 +110,7 @@ func New(d Deps) *Observer {
 	return &Observer{
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
-		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, retryAfter: map[string]time.Time{},
+		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{},
 	}
 }
 
@@ -369,38 +368,27 @@ func (o *Observer) settle(ctx context.Context, projectID domain.ProjectID, items
 			fresh = append(fresh, item.fresh...)
 		}
 		sort.SliceStable(fresh, func(i, j int) bool { return fresh[i].CreatedAt.Before(fresh[j].CreatedAt) })
-		key := retryKey(projectID, recipient)
-		o.mu.Lock()
-		retryAt := o.retryAfter[key]
-		o.mu.Unlock()
-		if o.now().Before(retryAt) {
-			continue
-		}
 		err := o.deliverer.DeliverExternal(ctx, projectID, recipient, fresh)
-		o.mu.Lock()
-		if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
-			o.retryAfter[key] = o.now().Add(domain.ReportAcceptanceRetryDelay)
-		} else {
-			delete(o.retryAfter, key)
-		}
-		o.mu.Unlock()
-		if err != nil {
-			batch := reportsvc.PreparedBatch{ProjectID: projectID, Reports: fresh}
+		batch := reportsvc.PreparedBatch{ProjectID: projectID, Reports: fresh}
+		unconfirmed := errors.Is(err, domain.ErrSemanticAcceptanceTimeout)
+		switch {
+		case err == nil:
+		case unconfirmed:
+			o.log.Warn("remote report delivery unconfirmed; batch settled", "delivery_id", batch.IdempotencyKey(), "recipient", recipient, "err", err)
+		default:
 			o.log.Warn("remote report delivery failed", "delivery_id", batch.IdempotencyKey(), "recipient", recipient, "err", err)
-			o.note("group "+string(projectID)+"/"+string(recipient), string(projectID), err)
+		}
+		o.note("group "+string(projectID)+"/"+string(recipient), string(projectID), err)
+		// The prompt was written before an acceptance timeout, so the group is
+		// settled: re-pulling it would deliver the same prompt again.
+		if err != nil && !unconfirmed {
 			continue
 		}
-		o.note("group "+string(projectID)+"/"+string(recipient), string(projectID), nil)
 		o.acknowledge(ctx, group, pass)
 	}
 	// Rejections and reports already recorded as delivered still need their
 	// acknowledgement even when their group had nothing fresh to deliver.
 	o.acknowledge(ctx, ackOnly, pass)
-}
-
-// retryKey scopes an acceptance backoff to one owner group.
-func retryKey(projectID domain.ProjectID, recipient domain.SessionID) string {
-	return string(projectID) + "\x00" + string(recipient)
 }
 
 // acknowledge records one delivered group per link, then acknowledges each
