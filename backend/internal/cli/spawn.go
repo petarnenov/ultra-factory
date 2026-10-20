@@ -188,7 +188,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				}
 			}
 
-			profilesPick := explicitHarness == "" && profileLikelyPicked(opts, project)
+			profilesPick := explicitHarness == "" && ctx.profileLikelyPicked(cmd.Context(), opts, project)
 			if !opts.skipAgentCheck && !profilesPick {
 				if err := ctx.preflightSpawnAgentAuth(cmd.Context(), cmd, opts.harness); err != nil {
 					return err
@@ -697,7 +697,9 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 
 // profileLikelyPicked reports whether the daemon will replace the CLI default
 // agent with a profile, so the default's preflight would check the wrong one.
-func profileLikelyPicked(opts spawnOptions, project projectDetails) bool {
+// A worker spawn depends on the parent's kind and stored selection, read from
+// its ownership view; any doubt keeps the preflight.
+func (c *commandContext) profileLikelyPicked(ctx context.Context, opts spawnOptions, project projectDetails) bool {
 	if project.Config == nil || len(project.Config.Coordinators.AgentProfiles) == 0 {
 		return false
 	}
@@ -711,8 +713,24 @@ func profileLikelyPicked(opts spawnOptions, project projectDetails) bool {
 		}
 		return active(cfg.CoordinatorAgent)
 	case "", "worker":
-		parent := strings.TrimSpace(os.Getenv("AO_SESSION_ID")) != ""
-		return parent && !opts.standalone && (active(cfg.WorkerAgent) || active(cfg.RootWorkerAgent))
+		parentID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+		if parentID == "" || opts.standalone {
+			return false
+		}
+		var parent sessionOwnershipDTO
+		if err := c.localContext().getJSON(ctx, "sessions/"+url.PathEscape(parentID)+"/ownership", &parent); err != nil {
+			return false
+		}
+		switch parent.Kind {
+		case "coordinator":
+			if parent.WorkerAgent != nil {
+				return active(parent.WorkerAgent)
+			}
+			return active(cfg.WorkerAgent)
+		case "orchestrator":
+			// The root's explicit model or effort wins over its selection.
+			return active(cfg.RootWorkerAgent) && strings.TrimSpace(opts.model) == "" && strings.TrimSpace(opts.effort) == ""
+		}
 	}
 	return false
 }

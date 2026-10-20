@@ -196,23 +196,34 @@ func TestProjectSetConfigAgentFlagUsageErrors(t *testing.T) {
 func TestSpawnPreflightSkipsOnlyWhenAProfileWillBePicked(t *testing.T) {
 	profiles := `"agentProfiles":[{"id":"a","harness":"codex","model":"m","effort":"e"}]`
 	fixedA := `{"mode":"fixed","profileId":"a"}`
-	for _, tc := range []struct {
+	inherit := `{"mode":"inherit"}`
+	type tcase struct {
 		name          string
 		coordinators  string
 		session       string
+		parentKind    string
+		parentWorker  string
 		args          []string
 		wantPreflight bool
-	}{
-		{"inherit selections keep the preflight", profiles, "demo-root", nil, true},
-		{"no parent keeps the preflight", profiles + `,"workerAgent":` + fixedA, "", nil, true},
-		{"worker from the root with a fixed selection skips it", profiles + `,"rootWorkerAgent":` + fixedA, "demo-root", nil, false},
-		{"worker with an explicit agent keeps it", profiles + `,"workerAgent":` + fixedA, "demo-root", []string{"--agent", "codex"}, true},
-		{"orchestrator keeps it", profiles + `,"workerAgent":` + fixedA + `,"coordinatorAgent":` + fixedA, "demo-root", []string{"--kind", "orchestrator"}, true},
-		{"coordinator with a fixed project selection skips it", profiles + `,"coordinatorAgent":` + fixedA, "demo-root",
+	}
+	for _, tc := range []tcase{
+		{"inherit selections keep the preflight", profiles, "demo-root", "orchestrator", "", nil, true},
+		{"no parent keeps the preflight", profiles + `,"workerAgent":` + fixedA, "", "", "", nil, true},
+		{"root with a fixed root selection skips it", profiles + `,"rootWorkerAgent":` + fixedA, "demo-root", "orchestrator", "", nil, false},
+		{"root with only workerAgent active keeps it", profiles + `,"workerAgent":` + fixedA, "demo-root", "orchestrator", "", nil, true},
+		{"root passing --model keeps it", profiles + `,"rootWorkerAgent":` + fixedA, "demo-root", "orchestrator", "", []string{"--model", "x"}, true},
+		{"coordinator with the project workerAgent skips it", profiles + `,"workerAgent":` + fixedA, "demo-c1", "coordinator", "", nil, false},
+		{"coordinator override beats an inherit project", profiles, "demo-c1", "coordinator", fixedA, nil, false},
+		{"coordinator override to inherit beats a fixed project", profiles + `,"workerAgent":` + fixedA, "demo-c1", "coordinator", inherit, nil, true},
+		{"worker parent keeps it", profiles + `,"workerAgent":` + fixedA, "demo-w1", "worker", "", nil, true},
+		{"unreadable parent keeps it", profiles + `,"workerAgent":` + fixedA, "demo-gone", "", "", nil, true},
+		{"worker with an explicit agent keeps it", profiles + `,"workerAgent":` + fixedA, "demo-c1", "coordinator", "", []string{"--agent", "codex"}, true},
+		{"orchestrator keeps it", profiles + `,"workerAgent":` + fixedA + `,"coordinatorAgent":` + fixedA, "demo-root", "orchestrator", "", []string{"--kind", "orchestrator"}, true},
+		{"coordinator with a fixed project selection skips it", profiles + `,"coordinatorAgent":` + fixedA, "demo-root", "orchestrator", "",
 			[]string{"--kind", "coordinator", "--scope", "auth"}, false},
-		{"coordinator with an inherit project selection keeps it", profiles, "demo-root",
+		{"coordinator with an inherit project selection keeps it", profiles, "demo-root", "orchestrator", "",
 			[]string{"--kind", "coordinator", "--scope", "auth"}, true},
-		{"coordinator overriding to a fixed selection skips it", profiles, "demo-root",
+		{"coordinator overriding to a fixed selection skips it", profiles, "demo-root", "orchestrator", "",
 			[]string{"--kind", "coordinator", "--scope", "auth", "--coordinator-agent", "fixed:a"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,6 +235,12 @@ func TestSpawnPreflightSkipsOnlyWhenAProfileWillBePicked(t *testing.T) {
 				switch {
 				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
 					_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo","agent":"codex","config":{"coordinators":{`+tc.coordinators+`}}}}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sessions/"+tc.session+"/ownership" && tc.parentKind != "":
+					worker := ""
+					if tc.parentWorker != "" {
+						worker = `,"workerAgent":` + tc.parentWorker
+					}
+					_, _ = io.WriteString(w, `{"sessionId":"`+tc.session+`","projectId":"demo","kind":"`+tc.parentKind+`","ownerSessionId":null,"rootSessionId":null`+worker+`}`)
 				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agents/readiness/ensure":
 					preflight = true
 					_, _ = io.WriteString(w, authorizedAgentsJSON("codex"))
