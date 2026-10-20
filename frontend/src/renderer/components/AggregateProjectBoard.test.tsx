@@ -19,15 +19,12 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 vi.mock("../hooks/useWorkspaceQuery", () => ({
 	useWorkspaceQuery: () => ({ data: mocks.local, isPending: false, isError: false }),
 	useProjectIdentity: () => ({ data: { aggregateProjects: mocks.associations }, isPending: false, isError: false }),
-	remoteWorkspacesQueryOptions: (hostId: string) => ({ queryKey: [hostId] }),
-}));
-vi.mock("@tanstack/react-query", async (importOriginal) => ({
-	...await importOriginal<typeof import("@tanstack/react-query")>(),
-	useQueries: ({ queries }: { queries: Array<{ queryKey: [string] }> }) => queries.map(({ queryKey: [hostId] }) => ({
-		data: mocks.remote.filter((workspace) => workspace.hostId === hostId),
-		isSuccess: mocks.loaded.includes(hostId),
-		isError: mocks.failed.includes(hostId),
-	})),
+	useRemoteWorkspaces: () => ({
+		data: mocks.remote,
+		loadedProjectHostIds: mocks.loaded,
+		loadedSessionHostIds: mocks.loaded,
+		failedHostIds: mocks.failed,
+	}),
 }));
 vi.mock("../hooks/useRemoteHosts", () => ({ useRemoteHosts: () => ({ hosts: mocks.hosts }) }));
 vi.mock("../lib/host-clients", () => ({ labelForHost: (hostId: string) => `Host ${hostId}` }));

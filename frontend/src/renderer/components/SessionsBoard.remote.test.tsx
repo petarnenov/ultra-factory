@@ -32,6 +32,7 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 		data: [{ id: "shared", name: "Local", sessions: [worker("local", "Local worker")] }],
 		isError: false, isSuccess: false,
 	}),
+	useRemoteTerminatedSessions: () => [],
 	useRemoteProjectQuery: (hostId: string) => ({
 		data: mocks.workspaces[hostId], isError: false, isSuccess: Boolean(mocks.workspaces[hostId]),
 	}),

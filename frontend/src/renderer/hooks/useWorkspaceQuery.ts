@@ -189,6 +189,20 @@ export const workspaceQueryKeyForHost = (hostId?: string) => hostId ? remoteWork
 const remoteProjectsQueryKey = (hostId: string) => [...remoteWorkspaceQueryKey(hostId), "projects"] as const;
 const remoteSessionsQueryKey = (hostId: string) => [...remoteWorkspaceQueryKey(hostId), "sessions"] as const;
 const lastRemoteHealthRecheck = new Map<string, number>();
+const REMOTE_POLL_MS = 15_000;
+const remoteCheckingPolls = new Map<string, number>();
+
+// A session whose status is still being checked used to be re-polled every
+// 300 ms. Back off 2 s, 4 s, 8 s, up to the normal floor, per host.
+function remotePollInterval(hostId: string, checking: boolean): number {
+	if (!checking) {
+		remoteCheckingPolls.delete(hostId);
+		return REMOTE_POLL_MS;
+	}
+	const polls = remoteCheckingPolls.get(hostId) ?? 0;
+	remoteCheckingPolls.set(hostId, polls + 1);
+	return Math.min(2_000 * 2 ** polls, REMOTE_POLL_MS);
+}
 
 function recheckRemoteHost(hostId: string, status: number): void {
 	if (![401, 403, 426, 502, 503].includes(status)) return;
@@ -372,13 +386,18 @@ async function fetchRemoteProjects(hostId: string) {
 	return data?.projects ?? [];
 }
 
-async function fetchRemoteSessions(hostId: string) {
-	const { data, error, response } = await clientForHost(hostId).GET("/api/v1/sessions");
+// Polls ask for live sessions only; terminated ones load on demand.
+async function fetchRemoteSessions(hostId: string, query: { active: boolean; project?: string } = { active: true }) {
+	const { data, error, response } = await clientForHost(hostId).GET("/api/v1/sessions", { params: { query } });
 	if (error) {
 		recheckRemoteHost(hostId, response.status);
 		throw error;
 	}
-	return Promise.all((data?.sessions ?? []).map(async (session) => ({
+	return Promise.all((data?.sessions ?? []).map((session) => withRemoteArtifactUrls(hostId, session)));
+}
+
+async function withRemoteArtifactUrls<T extends { id: string; artifactFiles?: components["schemas"]["ControllersSessionView"]["artifactFiles"] }>(hostId: string, session: T) {
+	return {
 		...session,
 		artifactFiles: await Promise.all((session.artifactFiles ?? []).map(async (artifact) => ({
 			...artifact,
@@ -387,7 +406,7 @@ async function fetchRemoteSessions(hostId: string) {
 			// would mean this computer; a remote chat shows no frame anyway.
 			inlineUrl: undefined,
 		}))),
-	})));
+	};
 }
 
 function toRemoteWorkspaces(
@@ -606,7 +625,8 @@ export function useRemoteWorkspaces(options: WorkspaceSubscriptionOptions = {}) 
 			queryKey: remoteSessionsQueryKey(hostId),
 			queryFn: () => fetchRemoteSessions(hostId),
 			retry: 1,
-			refetchInterval: 15_000,
+			refetchInterval: (query: Query<Awaited<ReturnType<typeof fetchRemoteSessions>>>) =>
+				remotePollInterval(hostId, query.state.data?.some((session) => session.statusReadiness === "checking") ?? false),
 			subscribed: options.subscribed,
 		})),
 	});
@@ -633,8 +653,23 @@ export function remoteWorkspacesQueryOptions(hostId: string) {
 		queryFn: () => fetchRemoteWorkspaces(hostId),
 		enabled: Boolean(hostId),
 		retry: 1,
-		refetchInterval: workspaceRefetchInterval,
+		refetchInterval: (query: Query<WorkspaceSummary[]>) => remotePollInterval(hostId, workspaceStatusesChecking(query.state.data)),
 	};
+}
+
+/** Terminated sessions of one remote project, for the archive only. */
+export function useRemoteTerminatedSessions(hostId: string | undefined, projectId: string | undefined, project?: Pick<WorkspaceSummary, "id" | "name">) {
+	const query = useQuery({
+		queryKey: ["remote-terminated-sessions", hostId ?? "", projectId ?? ""],
+		queryFn: () => fetchRemoteSessions(hostId ?? "", { active: false, project: projectId }),
+		enabled: Boolean(hostId && projectId),
+		retry: 1,
+		refetchOnMount: "always",
+	});
+	return useMemo(
+		() => (query.data ?? []).map((session) => ({ ...toWorkspaceSession(session, project ?? { id: projectId ?? "", name: "" }), hostId })),
+		[query.data, project, projectId, hostId],
+	);
 }
 
 export function remoteProjectQueryOptions(hostId: string, projectId: string) {
@@ -733,6 +768,27 @@ export function useWorkspaceSession(sessionId: string, hostId?: string, localLoo
 		select: selectRemoteSession,
 		enabled: Boolean(hostId && sessionId),
 	});
+	// The remote list is live sessions only; a terminated session opened by link
+	// is fetched by id once the list has loaded without it.
+	const remoteDirect = useQuery({
+		queryKey: ["remote-session", hostId ?? "", sessionId],
+		enabled: Boolean(hostId && sessionId) && remote.isSuccess && remote.data === undefined,
+		retry: 1,
+		queryFn: async () => {
+			const { data, error, response } = await clientForHost(hostId ?? "").GET("/api/v1/sessions/{sessionId}", { params: { path: { sessionId } } });
+			if (error) {
+				if (response.status === 404) return null;
+				recheckRemoteHost(hostId ?? "", response.status);
+				throw error;
+			}
+			if (!data?.session) return null;
+			const session = await withRemoteArtifactUrls(hostId ?? "", data.session);
+			const project = session.projectId
+				? { id: session.projectId, name: "" }
+				: { id: STANDALONE_WORKSPACE_ID, name: standaloneWorkspaceName() };
+			return { ...toWorkspaceSession(session, project), hostId };
+		},
+	});
 	const selectLocalSession = useMemo(
 		() => (workspaces: WorkspaceSummary[]) =>
 			workspaces.flatMap((workspace) => workspace.sessions).find((session) => session.id === sessionId),
@@ -796,7 +852,7 @@ export function useWorkspaceSession(sessionId: string, hostId?: string, localLoo
 			return changed ? next : current;
 		});
 	}, [queryClient, resolvedDirectSession, hostId, localLookupEnabled]);
-	if (hostId) return remote;
+	if (hostId) return remote.data === undefined && remoteDirect.data ? { ...remote, data: remoteDirect.data } : remote;
 	return {
 		...local,
 		data: local.data ?? resolvedDirectSession ?? cloudSession,

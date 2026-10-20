@@ -162,3 +162,35 @@ it("never keeps a remote daemon's inline artifact origin, which here would name 
 	await waitFor(() => expect(result.current.data[0]?.sessions[0]?.artifactFiles?.[0]?.path).toBe("q3/report.html"));
 	expect(result.current.data[0]?.sessions[0]?.artifactFiles?.[0]?.inlineUrl).toBeUndefined();
 });
+
+it("polls remote sessions with active=true and shares one request per host between subscribers", async () => {
+	await prepareTwoHosts();
+	const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+		const url = input instanceof Request ? input.url : String(input);
+		return Response.json(url.includes("/projects")
+			? { projects: [{ id: "project-1", name: "Remote", path: "/remote" }] }
+			: { sessions: [{ id: "session-1", projectId: "project-1", harness: "codex", status: "working", prs: [] }] });
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	const { result } = renderHook(() => ({ sidebar: useRemoteWorkspaces(), board: useRemoteWorkspaces() }), { wrapper });
+	await waitFor(() => expect(result.current.board.data).toHaveLength(1));
+	const sessionUrls = fetchMock.mock.calls
+		.map(([input]) => input instanceof Request ? input.url : String(input))
+		.filter((url) => url.includes("/api/v1/sessions"));
+	expect(sessionUrls).toHaveLength(1);
+	expect(new URL(sessionUrls[0] ?? "").searchParams.get("active")).toBe("true");
+});
+
+it("opens a terminated remote session by id when the live list omits it", async () => {
+	remoteConnect.mockResolvedValue({ hostId: "box-a", label: "Box A", url: "http://box-a:3001", base: "http://127.0.0.1:4000" });
+	vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+		const url = input instanceof Request ? input.url : String(input);
+		if (url.includes("/projects")) return Response.json({ projects: [{ id: "project-1", name: "Remote", path: "/remote" }] });
+		if (url.includes("/sessions/old-1")) return Response.json({ session: { id: "old-1", projectId: "project-1", harness: "codex", status: "terminated", isTerminated: true, prs: [] } });
+		return Response.json({ sessions: [] });
+	}));
+	await connectHost("http://box-a:3001");
+	const { result } = renderHook(() => useWorkspaceSession("old-1", "box-a"), { wrapper });
+	await waitFor(() => expect(result.current.data?.id).toBe("old-1"));
+	expect(result.current.data?.isTerminated).toBe(true);
+});
