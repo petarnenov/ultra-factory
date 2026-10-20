@@ -387,13 +387,13 @@ func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project do
 	if s.claimLimit > 0 && s.claims > s.claimLimit {
 		return nil, errors.New("claim limit reached")
 	}
-	batchID := ""
+	batchID, fresh := "", false
 	for i := range s.reports {
 		rec := &s.reports[i]
 		if rec.ProjectID == project && rec.DeliveryState == domain.ReportPending && s.effectiveOwner(rec.SessionID, root) == recipient {
 			batchID = rec.DeliveryBatchID
 			if batchID == "" {
-				batchID = "report-batch:" + rec.ID
+				batchID, fresh = "report-batch:"+rec.ID, true
 			}
 			break
 		}
@@ -407,7 +407,8 @@ func (s *coordinatorStore) ClaimPendingReportBatch(_ context.Context, project do
 		if rec.ProjectID != project || rec.DeliveryState != domain.ReportPending || s.effectiveOwner(rec.SessionID, root) != recipient {
 			continue
 		}
-		if rec.DeliveryBatchID != "" && rec.DeliveryBatchID != batchID {
+		// Like the durable store, only unbatched reports join a fresh batch.
+		if rec.DeliveryBatchID != batchID && (!fresh || rec.DeliveryBatchID != "") {
 			continue
 		}
 		rec.DeliveryBatchID = batchID
@@ -619,5 +620,78 @@ func TestCoordinatorFlushesATerminatedWorkersQueueOnce(t *testing.T) {
 	}
 	if len(delivery.submissions) != 2 || !strings.Contains(delivery.submissions[1].message, "live head") {
 		t.Fatalf("live delivery = %#v", delivery.submissions)
+	}
+}
+
+// runLoopUntilAcked drives the real Start loop, with no Wake, until want
+// reports are acknowledged, then stops it and returns the submissions.
+func runLoopUntilAcked(t *testing.T, store *coordinatorStore, delivery *coordinatorDelivery, now time.Time, want int) []coordinatorSubmission {
+	t.Helper()
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }, RetryDelay: 5 * time.Millisecond})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := c.Start(ctx)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		store.mu.Lock()
+		acked := store.acked
+		store.mu.Unlock()
+		if acked >= want || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	<-done
+	return delivery.submissions
+}
+
+func TestCoordinatorLoopDeliversUnbatchedReportsBehindAReleasedBatch(t *testing.T) {
+	now := time.Date(2026, 9, 14, 16, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator}}
+	released := reportAt("released", "worker", now.Add(-time.Minute), now, "released head")
+	released.DeliveryBatchID = "report-batch:released"
+	store.add(released, reportAt("fresh", "worker", now, now, "fresh head"))
+
+	submissions := runLoopUntilAcked(t, store, &coordinatorDelivery{}, now, 2)
+	if len(submissions) != 2 || !strings.Contains(submissions[0].message, "released head") || !strings.Contains(submissions[1].message, "fresh head") {
+		t.Fatalf("submissions = %#v, want both reports without a wake-up", submissions)
+	}
+}
+
+func TestCoordinatorLoopDeliversReassignedWorkersOldBatchToTheNewOwner(t *testing.T) {
+	now := time.Date(2026, 9, 14, 16, 30, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	owner := domain.SessionID("coord")
+	store.sessions = []domain.SessionRecord{
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator, Mode: domain.SessionModeChat, CreatedAt: now},
+		{ID: "coord", ProjectID: "p", Kind: domain.KindCoordinator, CoordinatorScope: "auth", CreatedAt: now},
+		{ID: "moved", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+		{ID: "native", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+	}
+	old := reportAt("old", "moved", now.Add(-time.Minute), now, "carries old batch")
+	old.DeliveryBatchID = "report-batch:previous-group"
+	store.add(old, reportAt("new", "native", now, now, "unbatched"))
+
+	submissions := runLoopUntilAcked(t, store, &coordinatorDelivery{}, now, 2)
+	if len(submissions) != 2 || submissions[0].target != "coord" || submissions[1].target != "coord" {
+		t.Fatalf("submissions = %#v, want both delivered to the new owner", submissions)
+	}
+}
+
+func TestCoordinatorRunDueRetriesWhileADueReportRemains(t *testing.T) {
+	now := time.Date(2026, 9, 14, 17, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
+	store.sessions = []domain.SessionRecord{{ID: "orch", ProjectID: "p", Kind: domain.KindOrchestrator}}
+	released := reportAt("released", "worker", now.Add(-time.Minute), now, "released head")
+	released.DeliveryBatchID = "report-batch:released"
+	store.add(released, reportAt("fresh", "worker", now, now, "fresh head"))
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: &coordinatorDelivery{}, Now: func() time.Time { return now }, RetryDelay: time.Second})
+
+	if delay, err := c.RunDue(context.Background()); err != nil || delay != time.Second {
+		t.Fatalf("first pass delay = %v, err = %v, want the retry delay", delay, err)
+	}
+	if delay, err := c.RunDue(context.Background()); err != nil || delay >= 0 {
+		t.Fatalf("second pass delay = %v, err = %v, want idle", delay, err)
 	}
 }
