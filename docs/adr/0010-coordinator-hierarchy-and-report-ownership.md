@@ -1330,9 +1330,16 @@ reassignment and needs to rebalance), and killing workers above a lowered limit
 - **Total.** The slots must add up to at most the coordinator's `workerLimit`.
   A larger total is rejected with `COORDINATOR_WORKER_LIMIT_INVALID`. A smaller
   total is allowed. The part of `workerLimit` that no slot covers cannot be
-  placed: with slots set, a worker may run only on a host that has a slot, so
+  placed: with slots set, a remote worker may run only on a host that has a slot, so
   the effective placement limit is the slot total. `workerLimit` itself does
   not change; it stays the value reported by `COORDINATOR_WORKER_LIMIT_REACHED`.
+- **Paired hosts only.** `allowedHosts` and `hostSlots` name paired (remote)
+  hosts. The local daemon is not a valid entry in either; a local host ID or
+  label there is rejected with `COORDINATOR_HOST_NOT_ALLOWED`. Local placement
+  is governed only by `allowLocalWorkers` (decision 4). A local worker
+  (permitted by that flag) counts against the coordinator's `workerLimit` and
+  the project totals, but uses no slot, and the slot total does not limit it.
+  The host checks below apply to remote spawns and remote-link writes.
 - **Allow list is a hard bound.** The project's `allowedHosts` (or, when it is
   empty, any registered remote host) always bounds placement. Slots can only
   narrow it. A slot for a host outside `allowedHosts` is rejected with
@@ -1341,12 +1348,12 @@ reassignment and needs to rebalance), and killing workers above a lowered limit
   (existing workers are grandfathered).
 - **No slots.** A coordinator with no slots may use any host in the project's
   `allowedHosts`, or any registered remote host when that list is empty.
-- **Enforcement.** On every coordinator-owned worker spawn, restore,
+- **Enforcement.** On every coordinator-owned remote worker spawn, restore,
   reassignment and remote-link write, the daemon checks the target host:
   outside `allowedHosts`, or, when the coordinator has slots, outside its
   slots, is `COORDINATOR_HOST_NOT_ALLOWED`; a host whose slots are all used by this
   coordinator's live workers is `COORDINATOR_HOST_SLOTS_FULL`. Slot use is
-  counted from live local workers placed on the host and remote worker links,
+  counted from the remote worker links placed on the host,
   inside the same admission step as the section 8 counts.
 - **Host goes offline.** There is no automatic move. The workers on it keep
   their slots until they terminate. The operator or the root reassigns or
@@ -1576,7 +1583,7 @@ new:
 | `PUT /api/v1/sessions/{sessionId}/coordinator-worker-agent` | New. Body `{workerAgent, requestedBySessionId, operatorInitiated, origin}`; changes a live coordinator's worker agent selection for workers spawned after the change; sends the system message; audited in `coordinator_agent_events`. Same marker and `COORDINATOR_ROOT_REQUIRED` rule as the limits route | Live root, or the app API with `operatorInitiated: true` | CO-5.7 |
 | `GET /api/v1/projects/{projectId}/coordinators` | Roster gains `workerLimit`, `hostSlots` with per-host `used`, `agentProfileId`, per-worker `agentProfileId`, and `hubMemoryPressure` (`{usedBytes, limitBytes, percent, warning}` or `null`) | App API caller | CO-5.2, CO-5.3, CO-5.6, CO-5.7 |
 | `POST /api/v1/sessions` (worker) | The session read model gains `agentProfileId`. A worker spawn under a coordinator applies decisions 3, 4 and 8 | Unchanged | CO-5.3, CO-5.7 |
-| `PUT /api/v1/sessions/{id}/owner` | Target is also checked against `workerLimit`, host slots and the local-worker rule (the worker is on the local daemon) | Live root | CO-5.3 |
+| `PUT /api/v1/sessions/{id}/owner` | Target is also checked against `workerLimit` and the local-worker rule (the worker is on the local daemon, so slots and `allowedHosts` do not apply) | Live root | CO-5.3 |
 | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` | Target is also checked against `workerLimit`, host slots and `allowedHosts`. The local-worker rule does not apply: the worker is on a paired host | Live root | CO-5.3 |
 | `POST /api/v1/remote-worker-links` | Host slots and `allowedHosts` are checked at registration. The local-worker rule does not apply | Unchanged | CO-5.3 |
 
