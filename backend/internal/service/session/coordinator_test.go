@@ -40,6 +40,12 @@ func (s *capStore) ListSessions(ctx context.Context, p domain.ProjectID) ([]doma
 	return s.fakeStore.ListSessions(ctx, p)
 }
 
+func (s *capStore) GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fakeStore.GetProject(ctx, id)
+}
+
 func (s *capStore) ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -648,4 +654,62 @@ func TestConfiguredWorkerLimitsReplaceTheFixedNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantAPIError(t, f.spawnWorker("ao-root"), "PROJECT_WORKER_LIMIT_REACHED", map[string]any{"current": 2, "allowed": 2})
+}
+
+// spawnBlockedOnProjectLock starts call while this test holds the project
+// lock, runs change once call is parked on it, then releases the lock.
+func spawnBlockedOnProjectLock(f *capFixture, change func(), call func() error) error {
+	lock := f.svc.projectLock("ao")
+	lock.Lock()
+	done := make(chan error, 1)
+	go func() { done <- call() }()
+	time.Sleep(50 * time.Millisecond)
+	change()
+	lock.Unlock()
+	return <-done
+}
+
+func TestWorkerAdmissionAppliesALimitLoweredWhileItWaitedForTheLock(t *testing.T) {
+	f := newCapFixture(t)
+	f.configure(domain.CoordinatorsConfig{Enabled: true})
+	c := f.coordinator("ao-c1", false)
+	f.worker("ao-w1", &c, false)
+	f.worker("ao-w2", &c, false)
+	err := spawnBlockedOnProjectLock(f,
+		func() { f.configure(domain.CoordinatorsConfig{Enabled: true, MaxWorkersPerCoordinator: 2}) },
+		func() error { return f.spawnWorker(c) })
+	wantAPIError(t, err, "COORDINATOR_WORKER_LIMIT_REACHED", map[string]any{"current": 2, "allowed": 2})
+	if f.fc.spawnCalls != 0 {
+		t.Fatal("a refused spawn must not reach the manager")
+	}
+}
+
+func TestCoordinatorSpawnAppliesALimitLoweredWhileItWaitedForTheLock(t *testing.T) {
+	f := newCapFixture(t)
+	f.coordinator("ao-c1", false)
+	err := spawnBlockedOnProjectLock(f,
+		func() { f.configure(domain.CoordinatorsConfig{Enabled: true, MaxCoordinators: 1}) },
+		func() error { return f.spawnCoordinator("ao-root", "second") })
+	wantAPIError(t, err, "COORDINATOR_LIMIT_REACHED", map[string]any{"current": 1, "allowed": 1})
+}
+
+func TestCoordinatorSpawnSeesTheGateClosedWhileItWaitedForTheLock(t *testing.T) {
+	f := newCapFixture(t)
+	err := spawnBlockedOnProjectLock(f,
+		func() { f.configure(domain.CoordinatorsConfig{}) },
+		func() error { return f.spawnCoordinator("ao-root", "docs") })
+	wantAPIError(t, err, "COORDINATORS_DISABLED", map[string]any{"projectId": "ao"})
+}
+
+func TestCoordinatorSpawnRechecksTheRootUnderTheLock(t *testing.T) {
+	f := newCapFixture(t)
+	err := spawnBlockedOnProjectLock(f,
+		func() {
+			f.seed(domain.SessionRecord{ID: "ao-root", ProjectID: "ao", Kind: domain.KindOrchestrator, IsTerminated: true})
+		},
+		func() error { return f.spawnCoordinator("ao-root", "docs") })
+	wantAPIError(t, err, "COORDINATOR_ROOT_REQUIRED", map[string]any{"sessionId": "ao-root"})
+	if f.fc.spawnCalls != 0 {
+		t.Fatal("a spawn by a terminated root must not reach the manager")
+	}
 }

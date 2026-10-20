@@ -146,6 +146,17 @@ type CreateRemoteWorkerLinkRequest struct {
 	DisplayName     string `json:"displayName,omitempty" maxLength:"100"`
 }
 
+// CheckRemoteWorkerCapacityRequest asks whether a worker spawned by the parent
+// session could be linked now, before the remote worker is created.
+type CheckRemoteWorkerCapacityRequest struct {
+	ParentSessionID string `json:"parentSessionId"`
+}
+
+// CheckRemoteWorkerCapacityResponse is the body of a passing capacity check.
+type CheckRemoteWorkerCapacityResponse struct {
+	OK bool `json:"ok"`
+}
+
 // RemoteWorkerLinkResponse is a stored remote worker link.
 type RemoteWorkerLinkResponse struct {
 	HostID          string `json:"hostId"`

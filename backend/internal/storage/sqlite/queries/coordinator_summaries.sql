@@ -92,3 +92,8 @@ UPDATE coordinator_summaries
 SET delivery_state = 'pending', claim_token = '', claimed_at = NULL,
     last_error = 'delivery claim recovered after daemon restart'
 WHERE delivery_state = 'claimed';
+
+-- name: ListCoordinatorSummaryRemoteWorkers :many
+SELECT host_id, remote_session_id FROM coordinator_summary_remote_workers
+WHERE summary_id = ?
+ORDER BY position;

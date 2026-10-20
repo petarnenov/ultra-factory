@@ -227,7 +227,14 @@ func (s *Store) summaryWithWorkers(ctx context.Context, row gen.CoordinatorSumma
 	if err != nil {
 		return domain.CoordinatorSummary{}, fmt.Errorf("list coordinator summary workers: %w", err)
 	}
+	remotes, err := s.qr.ListCoordinatorSummaryRemoteWorkers(ctx, row.ID)
+	if err != nil {
+		return domain.CoordinatorSummary{}, fmt.Errorf("list coordinator summary remote workers: %w", err)
+	}
 	rec := coordinatorSummaryFromGen(row)
+	for _, r := range remotes {
+		rec.RemoteWorkers = append(rec.RemoteWorkers, domain.SummaryRemoteWorker{HostID: r.HostID, RemoteSessionID: r.RemoteSessionID})
+	}
 	rec.WorkerSessionIDs = make([]domain.SessionID, len(workers))
 	for i, worker := range workers {
 		rec.WorkerSessionIDs[i] = domain.SessionID(worker)

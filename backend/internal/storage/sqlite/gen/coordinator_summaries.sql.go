@@ -443,6 +443,40 @@ func (q *Queries) ListCoordinatorSummariesBySession(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listCoordinatorSummaryRemoteWorkers = `-- name: ListCoordinatorSummaryRemoteWorkers :many
+SELECT host_id, remote_session_id FROM coordinator_summary_remote_workers
+WHERE summary_id = ?
+ORDER BY position
+`
+
+type ListCoordinatorSummaryRemoteWorkersRow struct {
+	HostID          string
+	RemoteSessionID string
+}
+
+func (q *Queries) ListCoordinatorSummaryRemoteWorkers(ctx context.Context, summaryID string) ([]ListCoordinatorSummaryRemoteWorkersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listCoordinatorSummaryRemoteWorkers, summaryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCoordinatorSummaryRemoteWorkersRow{}
+	for rows.Next() {
+		var i ListCoordinatorSummaryRemoteWorkersRow
+		if err := rows.Scan(&i.HostID, &i.RemoteSessionID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCoordinatorSummaryWorkers = `-- name: ListCoordinatorSummaryWorkers :many
 SELECT worker_session_id FROM coordinator_summary_workers
 WHERE summary_id = ?

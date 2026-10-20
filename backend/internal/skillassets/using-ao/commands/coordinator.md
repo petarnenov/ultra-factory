@@ -76,7 +76,7 @@ ao coordinator report --state <planning|working|blocked|done> [flags]
 | `--state` | Summary state (required) | - |
 | `--worker` | Worker session id covered (repeatable, at most 3) | - |
 | `--result` | Result text, at most 2000 characters | - |
-| `--escalate` | `overlapping_files`, `unclear_acceptance`, `worker_failed`, `scope_decision`, `coordinator_terminated`, or `other`; requires `--state blocked` | - |
+| `--escalate` | `overlapping_files`, `unclear_acceptance`, `worker_failed`, `scope_decision`, or `other`; requires `--state blocked` | - |
 | `--note` | Escalation note, at most 500 characters; required for `other` | - |
 | `--scope` | Summary scope | the coordinator's scope |
 | `--submission-key` | Idempotency key | a fresh key |

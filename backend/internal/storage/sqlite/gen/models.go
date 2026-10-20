@@ -407,6 +407,13 @@ type CoordinatorSummary struct {
 	LastError            string
 }
 
+type CoordinatorSummaryRemoteWorker struct {
+	SummaryID       string
+	HostID          string
+	RemoteSessionID string
+	Position        int64
+}
+
 type CoordinatorSummaryWorker struct {
 	SummaryID       string
 	WorkerSessionID string
