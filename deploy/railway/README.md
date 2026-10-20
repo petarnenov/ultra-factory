@@ -409,7 +409,7 @@ the same token, run `gh auth setup-git` once in a hub terminal as uid
 `10001`; it writes only a credential-helper reference to
 `/data/home/.gitconfig`, not the token.
 
-**Live check (operator, pending, #134).** In a hub terminal, `ao agent ls`
+**Live check (operator, passed 2026-10-17, #134).** In a hub terminal, `ao agent ls`
 lists the chosen harness as `authorized`; an orchestrator session started in
 the hub answers a prompt and runs
 `gh issue view 119 --repo petarnenov/ultra-factory`. Record only the result
@@ -977,7 +977,9 @@ runbook is not approval.
 | `MERGE_ROOT_ONLY` merge authority | pull request #333 |
 | End-to-end pilot (CLI and service level) | #227, pull request #339: [`coordinator_pilot_e2e_test.go`](../../backend/internal/cli/coordinator_pilot_e2e_test.go), [`pilot_test.go`](../../backend/internal/service/coordinatorpilot/pilot_test.go) |
 | Live multi-machine run and baseline comparison | **Pending operator run** on #227 and #218; capture protocol in [resource-baseline.md](resource-baseline.md) |
-| Known defect: no root escalation summary on coordinator termination | [#340](https://github.com/petarnenov/ultra-factory/issues/340) (open) |
+| Root escalation summary on coordinator termination | [#340](https://github.com/petarnenov/ultra-factory/issues/340) (closed): migration `0216` writes the `coordinator_terminated` summary |
+
+**Merge authority.** The daemon refuses `ao pr merge` from every live worker and coordinator with `403 MERGE_ROOT_ONLY`, in every project and whether or not coordinators are enabled (introduced in 0.18.0, pull request #333). Integration belongs to the project root, so a worker reports a green PR to its owner and does not merge it.
 
 ### Prerequisites
 
@@ -1362,13 +1364,11 @@ Only then terminate the coordinator:
 ao session kill <coordinator-id>
 ```
 
-Termination returns any worker or link it still owns to the root atomically and
-audits the change. It does **not** delete the coordinator, its workers, or their
-reports. Because of open defect
-[#340](https://github.com/petarnenov/ultra-factory/issues/340), it does not
-write the `coordinator_terminated` escalation summary to the root either, so
-confirm the handback yourself with the commands above instead of waiting for a
-notification.
+Termination returns any worker or link it still owns to the root atomically,
+audits the change and writes the `coordinator_terminated` escalation summary to
+the root (migration `0216`, [#340](https://github.com/petarnenov/ultra-factory/issues/340)).
+It does **not** delete the coordinator, its workers, or their reports. Still
+confirm the handback with the commands above.
 
 Do not run `ao session cleanup` during this sequence: it reclaims workspaces of
 terminated sessions (skipping dirty worktrees). **(guidance)** Keep worktrees
@@ -1433,8 +1433,8 @@ summary delivered, and **no** coordinator, worker, report, or summary deleted.
    `ao remote-worker ls`. Every worker must resolve to the live root.
 6. **Terminate each coordinator.** `ao session kill <coordinator-id>`. Keep the
    rows; termination is not deletion. If you skipped step 4, the termination
-   trigger still returns the workers to the root, but #340 means the root gets no
-   escalation summary, so verify manually.
+   trigger still returns the workers to the root and writes the escalation summary;
+   verify both manually.
 7. **Verify pending reports and summaries reach the root.** Check the summary
    history (`deliveryState`, `lastError`) and the report-table query above; the
    root's conversation must show the handback. A live-but-exited coordinator
@@ -1635,11 +1635,9 @@ recorded above.
 | --- | --- | --- |
 | Board load time, SSE delivery latency, terminal typing latency | Login asset TTFB only; streams open; terminal output works | [#141](https://github.com/petarnenov/ultra-factory/issues/141) |
 | PR status in the browser, full sweep of desktop-only features on the web, image CSP (`img-src`) decision, `make check` green on the branch head | #127 hid Codex accounts and enabled remote hosts; no full sweep | [#142](https://github.com/petarnenov/ultra-factory/issues/142) |
-| Hub orchestrator credentials (`ao agent ls` authorized, `gh issue view` from a hub orchestrator) | Documentation only | [#134](https://github.com/petarnenov/ultra-factory/issues/134) |
 | Hub backup export and restore, worker drain, worker redeploy with its volume, resume after restart, hub rollback, `volume_size_limit`, idle warning | Local tests only | [#145](https://github.com/petarnenov/ultra-factory/issues/145) |
 | Railway token deletion permissions (service and volume) for worker removal | RW-3.1.1 token was denied deletion | Operator decision before setting `RAILWAY_API_TOKEN` |
 | Worker provisioning through the Railway API on a live hub, including `AO_HUB_WORKER_URL_MODE=private` | Fake provider in the local e2e only | Needs the token above |
-| Orchestrator wake-up loop in the hub | Offline dry-run test only | Operator, with the Mac tick stopped |
 | Desktop pairing and host-scoped clone/session/terminal/message/PR/preview on a Railway worker (RW-1.4.2) | Not run from the desktop app; the web UI path to `worker-1` works | [#17](https://github.com/petarnenov/ultra-factory/issues/17) |
 | CLI spawn/list/get/send against a Railway worker | Not tested | [#17](https://github.com/petarnenov/ultra-factory/issues/17) |
 | Worker database preservation across a deliberate redeploy | Host ID matched across deployments; no DB comparison | #145 |

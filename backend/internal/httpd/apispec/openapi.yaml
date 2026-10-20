@@ -3038,7 +3038,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3153,7 +3153,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3198,7 +3198,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
         "404":
           content:
             application/json:
@@ -3586,7 +3586,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3650,7 +3650,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: 'Bad Request: COORDINATOR_LIMITS_INVALID'
         "409":
           content:
             application/json:
@@ -3738,7 +3738,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Forbidden
+          description: 'Forbidden: MERGE_ROOT_ONLY'
         "404":
           content:
             application/json:
@@ -4064,7 +4064,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: 'Conflict: COORDINATOR_WORKER_LIMIT_REACHED'
         "500":
           content:
             application/json:
@@ -4956,13 +4956,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Bad Request
+          description: |-
+            Bad Request: COORDINATOR_SCOPE_REQUIRED,
+            COORDINATOR_SCOPE_TOO_LONG, REMOTE_SPAWN_WORKER_REQUIRED
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: COORDINATOR_ROOT_REQUIRED'
         "404":
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -4972,6 +4986,15 @@ paths:
       summary: Spawn a new agent session
       tags:
       - sessions
+      x-error-codes:
+      - COORDINATORS_DISABLED
+      - COORDINATOR_ROOT_REQUIRED
+      - COORDINATOR_SCOPE_REQUIRED
+      - COORDINATOR_SCOPE_TOO_LONG
+      - COORDINATOR_LIMIT_REACHED
+      - COORDINATOR_WORKER_LIMIT_REACHED
+      - PROJECT_WORKER_LIMIT_REACHED
+      - REMOTE_SPAWN_WORKER_REQUIRED
   /api/v1/sessions/{sessionId}:
     get:
       operationId: getSession
@@ -8188,7 +8211,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: Conflict
+          description: |-
+            Conflict: COORDINATOR_WORKER_LIMIT_REACHED,
+            OWNER_REASSIGNMENT_IN_FLIGHT
         "500":
           content:
             application/json:

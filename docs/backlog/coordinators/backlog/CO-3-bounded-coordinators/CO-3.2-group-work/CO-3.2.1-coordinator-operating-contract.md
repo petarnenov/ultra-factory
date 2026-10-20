@@ -1,6 +1,6 @@
 # CO-3.2.1 · Task: Define coordinator operating prompt and handoff
 
-**Status:** ⬜ todo
+**Status:** ✅ done — merged in [#331](https://github.com/petarnenov/ultra-factory/pull/331); issue [#225](https://github.com/petarnenov/ultra-factory/issues/225) is closed.
 
 **Type:** orchestration and documentation. **Estimate:** 1–2 pd.
 **Story:** CO-3.2.

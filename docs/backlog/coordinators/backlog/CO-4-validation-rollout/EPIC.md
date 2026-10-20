@@ -1,6 +1,6 @@
 # CO-4 · Epic: Validate and roll out hierarchical coordination
 
-**Status:** ⬜ todo
+**Status:** 🔄 in progress — CO-4.2.1 merged in [#341](https://github.com/petarnenov/ultra-factory/pull/341); CO-4.1.1 still needs an operator run ([#227](https://github.com/petarnenov/ultra-factory/issues/227)).
 
 **Goal.** Prove the two-coordinator, six-worker topology handles delivery,
 recovery, operator visibility, and resource use before enabling it for regular

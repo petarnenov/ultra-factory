@@ -11178,7 +11178,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11273,7 +11273,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11377,7 +11377,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11843,7 +11843,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11934,7 +11934,7 @@ export interface operations {
                     "application/json": components["schemas"]["ClonePreparationResult"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: COORDINATOR_LIMITS_INVALID */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12048,7 +12048,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden: MERGE_ROOT_ONLY */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -12478,7 +12478,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict: COORDINATOR_WORKER_LIMIT_REACHED */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -13557,8 +13557,18 @@ export interface operations {
                     "application/json": components["schemas"]["SpawnSessionResponse"];
                 };
             };
-            /** @description Bad Request */
+            /** @description Bad Request: COORDINATOR_SCOPE_REQUIRED,
+             *     COORDINATOR_SCOPE_TOO_LONG, REMOTE_SPAWN_WORKER_REQUIRED */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden: COORDINATOR_ROOT_REQUIRED */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13568,6 +13578,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict: see x-error-codes */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17357,7 +17376,8 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict: COORDINATOR_WORKER_LIMIT_REACHED,
+             *     OWNER_REASSIGNMENT_IN_FLIGHT */
             409: {
                 headers: {
                     [name: string]: unknown;

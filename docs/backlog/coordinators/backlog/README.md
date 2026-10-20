@@ -52,32 +52,32 @@ sub-issues; labels `co`, `co:epic`, `co:story`, and `co:task` identify the
 initiative and item type. The GitHub Project tracks all 24 issues with Status, Stage, estimate, parent
 issue, and sub-issue progress fields: [AO: Hierarchical Coordinators (CO)](https://github.com/users/petarnenov/projects/2).
 
-| Item | GitHub issue | Project status |
+| Item | GitHub issue | Status |
 |---|---:|---|
 | [CO-1] Epic: Measure load and define coordinator ownership | [#205](https://github.com/petarnenov/ultra-factory/issues/205) | Todo |
 | [CO-1.1] Story: Baseline resource use under six workers | [#209](https://github.com/petarnenov/ultra-factory/issues/209) | Todo |
 | [CO-1.1.1] Task: Record per-process resource baseline | [#218](https://github.com/petarnenov/ultra-factory/issues/218) | Todo |
-| [CO-1.2] Story: Coordinator ownership contract | [#210](https://github.com/petarnenov/ultra-factory/issues/210) | Todo |
-| [CO-1.2.1] Task: ADR for coordinator hierarchy and report routing | [#219](https://github.com/petarnenov/ultra-factory/issues/219) | Todo |
-| [CO-2] Epic: Persist coordinator ownership and route reports | [#206](https://github.com/petarnenov/ultra-factory/issues/206) | Todo |
-| [CO-2.1] Story: Durable coordinator and worker ownership | [#211](https://github.com/petarnenov/ultra-factory/issues/211) | Todo |
-| [CO-2.1.1] Task: Persist coordinator ownership | [#220](https://github.com/petarnenov/ultra-factory/issues/220) | Todo |
-| [CO-2.1.2] Task: Expose ownership through daemon and CLI APIs | [#221](https://github.com/petarnenov/ultra-factory/issues/221) | Todo |
-| [CO-2.2] Story: Owner-routed reports and root summaries | [#212](https://github.com/petarnenov/ultra-factory/issues/212) | Todo |
-| [CO-2.2.1] Task: Route local and remote reports to worker owner | [#222](https://github.com/petarnenov/ultra-factory/issues/222) | Todo |
-| [CO-2.2.2] Task: Deliver coordinator summaries and escalations to root | [#223](https://github.com/petarnenov/ultra-factory/issues/223) | Todo |
-| [CO-3] Epic: Run two bounded coordinators | [#207](https://github.com/petarnenov/ultra-factory/issues/207) | Todo |
-| [CO-3.1] Story: Spawn coordinators and enforce capacity | [#213](https://github.com/petarnenov/ultra-factory/issues/213) | Todo |
-| [CO-3.1.1] Task: Add coordinator spawn and capacity rules | [#224](https://github.com/petarnenov/ultra-factory/issues/224) | Todo |
-| [CO-3.2] Story: Coordinate worker groups and return summaries | [#214](https://github.com/petarnenov/ultra-factory/issues/214) | Todo |
-| [CO-3.2.1] Task: Define coordinator operating prompt and handoff | [#225](https://github.com/petarnenov/ultra-factory/issues/225) | Todo |
-| [CO-3.3] Story: Inspect coordinator hierarchy | [#215](https://github.com/petarnenov/ultra-factory/issues/215) | Todo |
-| [CO-3.3.1] Task: Show coordinator ownership in session listings | [#226](https://github.com/petarnenov/ultra-factory/issues/226) | Todo |
+| [CO-1.2] Story: Coordinator ownership contract | [#210](https://github.com/petarnenov/ultra-factory/issues/210) | Done |
+| [CO-1.2.1] Task: ADR for coordinator hierarchy and report routing | [#219](https://github.com/petarnenov/ultra-factory/issues/219) | Done |
+| [CO-2] Epic: Persist coordinator ownership and route reports | [#206](https://github.com/petarnenov/ultra-factory/issues/206) | Done |
+| [CO-2.1] Story: Durable coordinator and worker ownership | [#211](https://github.com/petarnenov/ultra-factory/issues/211) | Done |
+| [CO-2.1.1] Task: Persist coordinator ownership | [#220](https://github.com/petarnenov/ultra-factory/issues/220) | Done |
+| [CO-2.1.2] Task: Expose ownership through daemon and CLI APIs | [#221](https://github.com/petarnenov/ultra-factory/issues/221) | Done |
+| [CO-2.2] Story: Owner-routed reports and root summaries | [#212](https://github.com/petarnenov/ultra-factory/issues/212) | Done |
+| [CO-2.2.1] Task: Route local and remote reports to worker owner | [#222](https://github.com/petarnenov/ultra-factory/issues/222) | Done |
+| [CO-2.2.2] Task: Deliver coordinator summaries and escalations to root | [#223](https://github.com/petarnenov/ultra-factory/issues/223) | Done |
+| [CO-3] Epic: Run two bounded coordinators | [#207](https://github.com/petarnenov/ultra-factory/issues/207) | Done |
+| [CO-3.1] Story: Spawn coordinators and enforce capacity | [#213](https://github.com/petarnenov/ultra-factory/issues/213) | Done |
+| [CO-3.1.1] Task: Add coordinator spawn and capacity rules | [#224](https://github.com/petarnenov/ultra-factory/issues/224) | Done |
+| [CO-3.2] Story: Coordinate worker groups and return summaries | [#214](https://github.com/petarnenov/ultra-factory/issues/214) | Done |
+| [CO-3.2.1] Task: Define coordinator operating prompt and handoff | [#225](https://github.com/petarnenov/ultra-factory/issues/225) | Done |
+| [CO-3.3] Story: Inspect coordinator hierarchy | [#215](https://github.com/petarnenov/ultra-factory/issues/215) | Done |
+| [CO-3.3.1] Task: Show coordinator ownership in session listings | [#226](https://github.com/petarnenov/ultra-factory/issues/226) | Done |
 | [CO-4] Epic: Validate and roll out hierarchical coordination | [#208](https://github.com/petarnenov/ultra-factory/issues/208) | Todo |
 | [CO-4.1] Story: End-to-end pilot and resource comparison | [#216](https://github.com/petarnenov/ultra-factory/issues/216) | Todo |
 | [CO-4.1.1] Task: Run coordinator hierarchy end-to-end | [#227](https://github.com/petarnenov/ultra-factory/issues/227) | Todo |
-| [CO-4.2] Story: Roll out and recover the coordinator hierarchy | [#217](https://github.com/petarnenov/ultra-factory/issues/217) | Todo |
-| [CO-4.2.1] Task: Document coordinator rollout and rollback | [#228](https://github.com/petarnenov/ultra-factory/issues/228) | Todo |
+| [CO-4.2] Story: Roll out and recover the coordinator hierarchy | [#217](https://github.com/petarnenov/ultra-factory/issues/217) | Done |
+| [CO-4.2.1] Task: Document coordinator rollout and rollback | [#228](https://github.com/petarnenov/ultra-factory/issues/228) | Done |
 
 ## Repo rules every task follows
 
