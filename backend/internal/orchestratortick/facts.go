@@ -98,11 +98,12 @@ type PullRequest struct {
 
 // MergedPR is a pull request already merged into the base branch.
 type MergedPR struct {
-	Number   int
-	Head     string
-	HeadSHA  string
-	Body     string
-	MergedAt time.Time
+	Number         int
+	Head           string
+	HeadSHA        string
+	Body           string
+	MergeCommitSHA string
+	MergedAt       time.Time
 }
 
 // ClosedPR is a pull request closed without merging.
@@ -191,4 +192,27 @@ type Facts struct {
 	Hosts     []HostSessions
 	GitHub    *GitHubState
 	GitHubErr error
+}
+
+// CompletedPR identifies a merged pull request in an owner notification.
+type CompletedPR struct {
+	Number         int    `json:"number"`
+	MergeCommitSHA string `json:"mergeCommitSha"`
+}
+
+// CompletionNotifier delivers completion events through the report path.
+type CompletionNotifier interface {
+	NotifyCompletion(context.Context, string, string, string, string, []CompletedPR, *CompletionRecipient) error
+}
+
+// CompletionRecipient pins the owner before a worker link can disappear.
+type CompletionRecipient struct {
+	HostID         string `json:"hostId"`
+	OwnerSessionID string `json:"ownerSessionId"`
+	ProjectID      string `json:"projectId"`
+}
+
+// CompletionOwnerResolver resolves hub ownership before completion mutations.
+type CompletionOwnerResolver interface {
+	ResolveCompletionOwner(context.Context, string, string) (CompletionRecipient, error)
 }

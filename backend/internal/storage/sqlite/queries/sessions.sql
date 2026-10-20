@@ -23,7 +23,7 @@ INSERT INTO sessions (
     requested_output,
     created_at, updated_at, is_pinned, pinned_at, auto_inject_review, auto_inject_ci,
     provision_state, provision_error, is_task_preparation, automation_run_id, automation_launch_completed,
-    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit,
+    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
     agent_profile_id, coordinator_worker_agent
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
@@ -32,7 +32,7 @@ INSERT INTO sessions (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?
+    ?, ?, ?, ?, ?, ?, ?, ?, ?
 );
 
 -- name: GetClientRequestSession :one
@@ -213,7 +213,7 @@ SET session_mode = sqlc.arg(target_mode),
 WHERE id = sqlc.arg(id) AND session_mode = sqlc.arg(source_mode) AND is_terminated = 0;
 
 -- name: GetSession :one
-SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
     agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
@@ -234,7 +234,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
 FROM sessions WHERE id = ?;
 
 -- name: GetSessionByAutomationRunID :one
-SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
     agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
@@ -255,7 +255,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
 FROM sessions WHERE automation_run_id = ?;
 
 -- name: ListSessionsByProject :many
-SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
     agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
@@ -276,7 +276,7 @@ SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinat
 FROM sessions WHERE project_id IS ? ORDER BY num;
 
 -- name: ListAllSessions :many
-SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit,
+SELECT id, project_id, num, issue_id, kind, harness, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
     agent_profile_id, coordinator_worker_agent,
     activity_state, activity_last_at, is_terminated, branch, workspace_path,
     runtime_handle_id, agent_session_id, agent_session_id_launch_id, native_identity_observed_at, prompt,
@@ -316,6 +316,7 @@ UPDATE sessions SET
     coordinator_worker_limit = sqlc.narg(coordinator_worker_limit),
     agent_profile_id = sqlc.narg(agent_profile_id),
     coordinator_worker_agent = sqlc.narg(coordinator_worker_agent),
+    coordinator_host_slots = sqlc.narg(coordinator_host_slots),
     harness = sqlc.arg(harness),
     auto_review_enabled = sqlc.arg(auto_review_enabled),
     terminate_on_pr_merge = sqlc.arg(terminate_on_pr_merge),

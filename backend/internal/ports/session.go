@@ -49,6 +49,9 @@ type SpawnConfig struct {
 	CoordinatorAgent *domain.AgentSelection
 	// AgentProfileID is set by the profile pick and recorded on the session.
 	AgentProfileID string
+	// CoordinatorHostSlots are the coordinator's validated, normalized host
+	// slots. Coordinator spawns only.
+	CoordinatorHostSlots []domain.HostSlot
 	// RemoteSpawned marks a worker another machine started with `ao spawn
 	// --host`. Its orchestrator runs on that machine, so this daemon refuses to
 	// start one of its own while the worker is active.

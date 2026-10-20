@@ -182,3 +182,19 @@ func TestSelectionsNeedProfilesToChooseFrom(t *testing.T) {
 		t.Fatalf("inherit needs no profiles: %v", err)
 	}
 }
+
+func TestCoordinatorsConfigValidatesAllowedHosts(t *testing.T) {
+	ok := CoordinatorsConfig{AllowedHosts: []string{"host-a", "host-b"}, AllowLocalWorkers: true}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("a distinct list is valid: %v", err)
+	}
+	for name, hosts := range map[string][]string{
+		"blank":      {"host-a", " "},
+		"padded":     {" host-a"},
+		"duplicated": {"host-a", "host-a"},
+	} {
+		if err := (CoordinatorsConfig{AllowedHosts: hosts}).Validate(); err == nil {
+			t.Fatalf("%s allowedHosts must be rejected", name)
+		}
+	}
+}

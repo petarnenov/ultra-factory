@@ -113,6 +113,9 @@ type coordinatorsConfig struct {
 	CoordinatorAgent         *agentSelection `json:"coordinatorAgent,omitempty"`
 	WorkerAgent              *agentSelection `json:"workerAgent,omitempty"`
 	RootWorkerAgent          *agentSelection `json:"rootWorkerAgent,omitempty"`
+	// Settable through --config-json; flags come with the coordinator CLI.
+	AllowedHosts      []string `json:"allowedHosts,omitempty"`
+	AllowLocalWorkers bool     `json:"allowLocalWorkers,omitempty"`
 }
 
 type containerReapConfig struct {

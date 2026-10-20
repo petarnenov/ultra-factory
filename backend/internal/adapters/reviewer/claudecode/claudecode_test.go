@@ -2,6 +2,7 @@ package claudecode
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -552,4 +553,33 @@ func flagValue(argv []string, flag string) string {
 		}
 	}
 	return ""
+}
+
+func TestReviewCommandUsesFreshSessionIDWhenTranscriptExists(t *testing.T) {
+	derived := workeragent.SessionUUID("review-w1")
+	cases := []struct {
+		name     string
+		existing map[string]bool
+		err      error
+		wantSame bool
+	}{
+		{"no transcript keeps the deterministic id", nil, nil, true},
+		{"existing transcript gets a fresh id", map[string]bool{derived: true}, nil, false},
+		{"probe failure gets a fresh id", nil, errors.New("probe failed"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agent := &captureHistoryAgent{existing: tc.existing, err: tc.err}
+			spec, err := (&Reviewer{agent: agent}).ReviewCommand(context.Background(), ports.ReviewInvocation{ReviewerID: "review-w1", Prompt: "review it"})
+			if err != nil {
+				t.Fatalf("ReviewCommand: %v", err)
+			}
+			if got := spec.AgentSessionID == derived; got != tc.wantSame {
+				t.Fatalf("session id = %q, deterministic = %q, want same=%v", spec.AgentSessionID, derived, tc.wantSame)
+			}
+			if agent.got.NativeSessionID != spec.AgentSessionID {
+				t.Fatalf("launched with %q, persisted %q", agent.got.NativeSessionID, spec.AgentSessionID)
+			}
+		})
+	}
 }

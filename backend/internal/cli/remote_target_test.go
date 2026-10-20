@@ -190,11 +190,11 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 			code, forced, need := d.checkCode, d.checkAgent, d.checkNeed
 			d.checkBodies = append(d.checkBodies, string(checkBody))
 			d.mu.Unlock()
-			if len(need) > 0 && strings.Contains(string(checkBody), `"hostId"`) && !strings.Contains(string(checkBody), `"hostReadinessChecked":true`) {
+			if len(need) > 0 && strings.Contains(string(checkBody), `"agentCheck":true`) && !strings.Contains(string(checkBody), `"hostReadinessChecked":true`) {
 				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "readinessHarnesses": need})
 				return
 			}
-			if forced != "" && strings.Contains(string(checkBody), `"hostId"`) {
+			if forced != "" && strings.Contains(string(checkBody), `"agentCheck":true`) {
 				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "agent": map[string]string{
 					"profileId": "p", "harness": forced, "model": "m", "effort": "e"}})
 				return

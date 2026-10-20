@@ -168,7 +168,7 @@ func newPilot(t *testing.T) *pilot {
 	t.Cleanup(func() { _ = p.store.Close() })
 	ctx := context.Background()
 	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: string(project), Path: "/tmp/ao-pilot", RegisteredAt: p.now(),
-		Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{Enabled: true}}}); err != nil {
+		Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{Enabled: true, AllowLocalWorkers: true}}}); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
 	p.root, err = store.CreateSession(ctx, domain.SessionRecord{

@@ -396,13 +396,15 @@ type CoordinatorAgentEvent struct {
 }
 
 type CoordinatorLimitEvent struct {
-	ID             int64
-	SessionID      string
-	PreviousLimit  sql.NullInt64
-	NewLimit       int64
-	ActorSessionID string
-	Origin         string
-	CreatedAt      time.Time
+	ID                int64
+	SessionID         string
+	PreviousLimit     sql.NullInt64
+	NewLimit          sql.NullInt64
+	PreviousHostSlots sql.NullString
+	NewHostSlots      sql.NullString
+	ActorSessionID    string
+	Origin            string
+	CreatedAt         time.Time
 }
 
 type CoordinatorSummary struct {
@@ -822,6 +824,7 @@ type Session struct {
 	CoordinatorWorkerLimit           sql.NullInt64
 	AgentProfileID                   sql.NullString
 	CoordinatorWorkerAgent           sql.NullString
+	CoordinatorHostSlots             sql.NullString
 }
 
 type SessionArtifactVersion struct {

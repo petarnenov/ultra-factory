@@ -5237,6 +5237,7 @@ func seedRecord(cfg ports.SpawnConfig, projectConfig domain.ProjectConfig, now t
 		CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit,
 		CoordinatorWorkerAgent: cfg.CoordinatorWorkerAgent,
 		AgentProfileID:         cfg.AgentProfileID,
+		CoordinatorHostSlots:   cfg.CoordinatorHostSlots,
 		CreatedAt:              now,
 		UpdatedAt:              now,
 		Harness:                cfg.Harness,

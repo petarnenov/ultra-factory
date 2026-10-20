@@ -309,18 +309,18 @@ func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owne
 	return rec, true, nil
 }
 
-func (f *fakeStore) SetCoordinatorWorkerLimit(_ context.Context, id domain.SessionID, limit int, event domain.CoordinatorLimitEvent, at time.Time) (*int, error) {
+func (f *fakeStore) SetCoordinatorLimits(_ context.Context, id domain.SessionID, limit *int, slots []domain.HostSlot, event domain.CoordinatorLimitEvent, at time.Time) error {
 	rec, ok := f.sessions[id]
 	if !ok || rec.Kind != domain.KindCoordinator || rec.IsTerminated {
-		return nil, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+		return apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 	}
-	previous := rec.CoordinatorWorkerLimit
-	rec.CoordinatorWorkerLimit = &limit
+	event.SessionID, event.PreviousLimit, event.NewLimit, event.CreatedAt = id, rec.CoordinatorWorkerLimit, limit, at
+	event.PreviousHostSlots, event.NewHostSlots = rec.CoordinatorHostSlots, slots
+	rec.CoordinatorWorkerLimit, rec.CoordinatorHostSlots = limit, slots
 	rec.UpdatedAt = at
 	f.sessions[id] = rec
-	event.SessionID, event.PreviousLimit, event.NewLimit, event.CreatedAt = id, previous, limit, at
 	f.limitEvents = append(f.limitEvents, event)
-	return previous, nil
+	return nil
 }
 
 func (f *fakeStore) SetCoordinatorWorkerAgent(_ context.Context, id domain.SessionID, selection domain.AgentSelection, event domain.CoordinatorAgentEvent, at time.Time) (*domain.AgentSelection, error) {

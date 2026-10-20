@@ -996,6 +996,44 @@ func TestDestroyIsIdempotentWhenSessionMissing(t *testing.T) {
 	}
 }
 
+// Real tmux 3.4 wording with a running server: set-option names the target as
+// "no such session: =name" while kill-session says "can't find session: name".
+func TestDestroyIsIdempotentWhenSetOptionReportsNoSuchSession(t *testing.T) {
+	r, fr := newTestRuntime(0)
+	fr.outputs = [][]byte{
+		nil,
+		[]byte("no such session: =review-x\n"),
+		[]byte("can't find session: review-x\n"),
+	}
+	fr.err = &exec.ExitError{}
+
+	if err := r.Destroy(context.Background(), ports.RuntimeHandle{ID: "review-x"}); err != nil {
+		t.Fatalf("Destroy: %v", err)
+	}
+	if len(fr.calls) != 3 || fr.calls[1].args[0] != "set-option" || fr.calls[2].args[0] != "kill-session" {
+		t.Fatalf("calls = %#v, want list-panes, set-option, then kill-session", fr.calls)
+	}
+}
+
+func TestSessionMissingOutputRecognisesTmux34Strings(t *testing.T) {
+	cases := []struct {
+		out  string
+		want bool
+	}{
+		{"no such session: =review-x\n", true},
+		{"can't find session: review-x\n", true},
+		{"session not found: review-x", true},
+		{"no server running on /tmp/tmux-1000/default", false},
+		{"error connecting to /tmp/tmux-1000/default (No such file or directory)", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := sessionMissingOutput(tc.out); got != tc.want {
+			t.Errorf("sessionMissingOutput(%q) = %v, want %v", tc.out, got, tc.want)
+		}
+	}
+}
+
 func TestDestroyIsIdempotentWhenNoServer(t *testing.T) {
 	r, fr := newTestRuntime(0)
 	fr.outputs = [][]byte{nil, []byte("no server running on /tmp/tmux-1000/default"), []byte("no server running on /tmp/tmux-1000/default")}

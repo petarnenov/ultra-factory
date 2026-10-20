@@ -222,6 +222,7 @@ var shippedMigrations = map[int64]string{
 	217: "0217_coordinator_termination_escalation_remote_workers.sql",
 	218: "0218_coordinator_worker_limit.sql",
 	219: "0219_agent_profiles.sql",
+	220: "0220_coordinator_host_slots.sql",
 	221: "0221_coordinator_summary_ready_prs.sql",
 }
 

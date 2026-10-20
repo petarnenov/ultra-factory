@@ -176,8 +176,35 @@ func TestRemoteSpawnOverCapacityCreatesNoRemoteWorker(t *testing.T) {
 	}
 }
 
+func TestRemoteSpawnPlacementRefusalCreatesNoRemoteWorker(t *testing.T) {
+	for _, code := range []string{"COORDINATOR_HOST_NOT_ALLOWED", "COORDINATOR_HOST_SLOTS_FULL"} {
+		t.Run(code, func(t *testing.T) {
+			local, remote := newLinkedSpawnFixture(t)
+			local.answerLinks(http.StatusCreated)
+			local.rejectCheckWith(code)
+
+			_, err := spawnRemoteInsideSession(t, local, remote)
+			if err == nil || !strings.Contains(err.Error(), code) {
+				t.Fatalf("err = %v, want %s", err, code)
+			}
+			if _, ok := remote.find(http.MethodPost, "/api/v1/sessions"); ok {
+				t.Fatal("a remote worker was spawned although the placement pre-check failed")
+			}
+			local.mu.Lock()
+			bodies := append([]string(nil), local.checkBodies...)
+			local.mu.Unlock()
+			if len(bodies) != 1 || !strings.Contains(bodies[0], `"hostId":"host-build"`) {
+				t.Fatalf("check bodies = %v, want one naming host-build", bodies)
+			}
+			if links := local.links(); len(links) != 0 {
+				t.Fatalf("link requests = %v, want none", links)
+			}
+		})
+	}
+}
+
 func TestRemoteSpawnTerminatesTheWorkerWhenLinkingHitsCapacity(t *testing.T) {
-	for _, code := range []string{"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED", "REMOTE_WORKER_LINK_LIMIT", "OWNER_TERMINATED"} {
+	for _, code := range []string{"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED", "REMOTE_WORKER_LINK_LIMIT", "OWNER_TERMINATED", "COORDINATOR_HOST_NOT_ALLOWED", "COORDINATOR_HOST_SLOTS_FULL"} {
 		t.Run(code, func(t *testing.T) {
 			local, remote := newLinkedSpawnFixture(t)
 			local.rejectLinksWith(http.StatusConflict, code)
@@ -337,7 +364,7 @@ func TestRemoteOrchestratorSpawnIgnoresWorkerAgentProfiles(t *testing.T) {
 	bodies := append([]string(nil), local.checkBodies...)
 	local.mu.Unlock()
 	for _, body := range bodies {
-		if strings.Contains(body, `"hostId"`) {
+		if strings.Contains(body, `"agentCheck":true`) {
 			t.Fatalf("an orchestrator spawn asked for a worker agent profile: %s", body)
 		}
 	}
@@ -385,7 +412,7 @@ func TestRemoteWorkerSpawnAppliesTheProfileAgentAfterTheHostReadinessRoundTrip(t
 		if err := json.Unmarshal([]byte(body), &req); err != nil {
 			t.Fatal(err)
 		}
-		if req.HostID != "" {
+		if req.AgentCheck {
 			hostChecks = append(hostChecks, req)
 		}
 	}

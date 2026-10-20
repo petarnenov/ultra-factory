@@ -25,6 +25,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/importer"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
@@ -2520,6 +2521,54 @@ func TestManager_SetConfigRejectsCoordinatorLimitsAboveTheHardMaximum(t *testing
 	}
 	if updated.Config == nil || !updated.Config.Coordinators.Enabled || updated.Config.Coordinators.MaxCoordinators != 1 {
 		t.Fatalf("stored config = %#v", updated.Config)
+	}
+}
+
+type pairedHosts struct{ ids []string }
+
+func (h pairedHosts) PairedHosts(context.Context) ([]coordownership.HostRef, error) {
+	out := make([]coordownership.HostRef, len(h.ids))
+	for i, id := range h.ids {
+		out[i] = coordownership.HostRef{ID: id}
+	}
+	return out, nil
+}
+func (h pairedHosts) SelfHostID() string { return "hub" }
+
+func TestSetConfigAllowedHostsAcceptOnlyPairedRemoteHosts(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlitetest.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	m := project.NewWithDeps(project.Deps{Store: store, Hosts: pairedHosts{ids: []string{"host-a", "host-b"}}})
+	created, err := m.Add(ctx, project.AddInput{Path: gitRepo(t)})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	set := func(hosts ...string) error {
+		_, err := m.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+			Coordinators: domain.CoordinatorsConfig{AllowedHosts: hosts, AllowLocalWorkers: true},
+		}})
+		return err
+	}
+	if err := set("host-a", "host-b"); err != nil {
+		t.Fatalf("paired hosts: %v", err)
+	}
+	for _, bad := range []string{"hub", "host-unknown"} {
+		var apiErr *apierr.Error
+		if err := set("host-a", bad); !errors.As(err, &apiErr) || apiErr.Code != "COORDINATOR_HOST_NOT_ALLOWED" || apiErr.Details["hostId"] != bad {
+			t.Fatalf("%s: err = %v, want COORDINATOR_HOST_NOT_ALLOWED", bad, err)
+		}
+	}
+	// A host already listed stays valid after it is unpaired, so unrelated
+	// settings edits never fail on it.
+	gone := project.NewWithDeps(project.Deps{Store: store, Hosts: pairedHosts{ids: []string{"host-b"}}})
+	if _, err := gone.SetConfig(ctx, created.ID, project.SetConfigInput{Config: domain.ProjectConfig{
+		Coordinators: domain.CoordinatorsConfig{AllowedHosts: []string{"host-a", "host-b"}},
+	}}); err != nil {
+		t.Fatalf("an already-listed host is kept: %v", err)
 	}
 }
 

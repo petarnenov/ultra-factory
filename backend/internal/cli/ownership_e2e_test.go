@@ -36,7 +36,8 @@ func seedOwnershipWorld(t *testing.T, e env) ownershipWorld {
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Now().UTC().Truncate(time.Second)
 	for _, id := range []string{"ao", "other"} {
-		if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: id, Path: "/tmp/" + id, RegisteredAt: now}); err != nil {
+		if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: id, Path: "/tmp/" + id, RegisteredAt: now,
+			Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{Enabled: true, AllowLocalWorkers: true}}}); err != nil {
 			t.Fatalf("seed project %s: %v", id, err)
 		}
 	}

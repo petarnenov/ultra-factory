@@ -22,7 +22,7 @@ type RemoteWorkerLinkService interface {
 
 // RemoteWorkerCapacityService is the optional pre-spawn capacity check.
 type RemoteWorkerCapacityService interface {
-	CheckCapacity(context.Context, domain.SessionID) error
+	CheckCapacity(ctx context.Context, parentID domain.SessionID, hostID string) error
 }
 
 // RemoteWorkerAgentService is the optional agent selection check for a remote
@@ -95,12 +95,12 @@ func (c *RemoteWorkerLinksController) check(w http.ResponseWriter, r *http.Reque
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
 		return
 	}
-	if err := svc.CheckCapacity(r.Context(), domain.SessionID(req.ParentSessionID)); err != nil {
+	if err := svc.CheckCapacity(r.Context(), domain.SessionID(req.ParentSessionID), req.HostID); err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}
 	resp := CheckRemoteWorkerCapacityResponse{OK: true}
-	if agents, ok := c.Svc.(RemoteWorkerAgentService); ok && req.HostID != "" {
+	if agents, ok := c.Svc.(RemoteWorkerAgentService); ok && req.AgentCheck && req.HostID != "" {
 		check := remoteworker.AgentCheck{
 			ParentSessionID: domain.SessionID(req.ParentSessionID), HostID: req.HostID,
 			Explicit:         agentprofile.Explicit{Model: req.Model, Effort: req.Effort},

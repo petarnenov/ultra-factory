@@ -487,6 +487,43 @@ ships, is versioned and is tested with the rest of AO.
   the supervisor restarts it after 60 seconds; the daemon and the BFF keep
   running.
 
+#### Merge queue
+
+The tick's gated squash merge into `dev` is the single non-root merge path,
+acting under the root's authority. An operator enables it explicitly with
+`RW_TICK_MERGE_AUTHORIZED=1` on the hub service; it is off by default. This
+change does not set Railway variables. `RW_TICK_BASE` selects the target
+branch and must remain `dev` for this queue.
+
+The existing gates all apply: a known current head, a non-draft PR,
+`MERGEABLE`, passing required checks, a current-head AO native `up_to_date`
+review, no `CHANGES_REQUESTED` or `REVIEW_REQUIRED`, no unresolved threads,
+and no hold label. The provider refuses a merge if the evaluated head moves.
+A coordinator's `readyPRs` hand-off is advisory; it cannot authorize a merge
+or replace fresh provider and native review facts.
+
+Set `RW_TICK_PAUSED=1` or run `ao orchestrator tick pause "maintenance"` to
+stop the queue, including previously queued actions. Apply `needs-human`,
+`do-not-merge`, or `status:blocked` to hold one PR (or configure
+`RW_TICK_HOLD_LABELS`). Remove the authorization flag to disable merging.
+
+Only workers are merge and close candidates: coordinators and orchestrators
+are excluded even if their host is configured. After a merge or completed
+worker closure, the live owning coordinator receives system context through
+the report delivery path, naming the worker, PR numbers and merge commits.
+Remote ownership is resolved from the hub's worker link, never from the
+remote worker's session owner. Root-owned workers need no additional message.
+The root's tick message still lists the completion. The local owner is
+saved before a merge or close, so removing a terminated worker's link
+cannot lose its notification. Completed actions are saved before delivery;
+notification retries use the same semantic acceptance key and do not
+repeat the merge or notify twice.
+
+`ao orchestrator tick status` lists queued (`pending`), completed, blocked,
+and superseded merge actions with their head, merge commit and latest
+blocker. PRs blocked before queueing, including missing authorization, appear
+in the worker's remaining reasons. The tick message also names blockers.
+
 **Inspect and pause.** In a hub terminal (uid `10001`, `HOME=/data/home`):
 
 ```bash
@@ -1587,6 +1624,7 @@ were not verified and must not be reported as passed.
 | Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
 | Orchestrator credentials (RW-5.4.1) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | In the hub, `ao agent ls` listed `claude-code` and `codex` as `authorized`; the hub orchestrator session answered prompts and ran `gh issue view 119 --repo petarnenov/ultra-factory`. With `AO_HUB_ORCHESTRATOR_TICK=1` the hub tick loop delivered TICKs to it (for example for PR #155) with nothing running on the Mac. No credential output recorded. |
 | Orchestrator wake-up loop (RW-5.4.2) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | With `AO_HUB_ORCHESTRATOR_TICK=1` on the hub, the tick loop delivered TICKs to the hub orchestrator (for example for PR #155) with nothing running on the Mac. Recorded from the operator's live check; no dry-run output. |
+| Tick merge authorization (#420) | Unknown; needs-human operator check | No live hub variable read was performed for this change. An operator must record whether `RW_TICK_MERGE_AUTHORIZED` is set (value `1` enables merging). Enabling it remains an operator decision; this issue does not change Railway variables. |
 
 The spike in [`packages/hub-bff/docs/railway-api-notes.md`](../../packages/hub-bff/docs/railway-api-notes.md)
 confirmed only selected Railway GraphQL create/configuration operations with a

@@ -391,7 +391,8 @@ func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID
 	var ok struct{}
 	err := c.localContext().postJSON(ctx, "remote-worker-links/check", struct {
 		ParentSessionID string `json:"parentSessionId"`
-	}{parentID}, &ok)
+		HostID          string `json:"hostId,omitempty"`
+	}{parentID, c.remote.hostID}, &ok)
 	var apiErr apiResponseError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound && apiErr.ErrorBody.Code != "SESSION_NOT_FOUND" {
 		return nil
@@ -412,6 +413,7 @@ type remoteWorkerAgent struct {
 type remoteAgentCheckRequest struct {
 	ParentSessionID      string            `json:"parentSessionId"`
 	HostID               string            `json:"hostId"`
+	AgentCheck           bool              `json:"agentCheck"`
 	Harness              string            `json:"harness,omitempty"`
 	HarnessExplicit      bool              `json:"harnessExplicit,omitempty"`
 	Model                string            `json:"model,omitempty"`
@@ -429,7 +431,7 @@ type remoteAgentCheckResponse struct {
 // agent, reporting the host's readiness. Nil keeps normal resolution.
 func (c *commandContext) checkRemoteWorkerAgent(ctx context.Context, parentID string, req *spawnRequest, harnessExplicit bool) (*remoteWorkerAgent, error) {
 	check := remoteAgentCheckRequest{
-		ParentSessionID: parentID, HostID: c.remote.hostID, Harness: req.Harness,
+		ParentSessionID: parentID, HostID: c.remote.hostID, AgentCheck: true, Harness: req.Harness,
 		HarnessExplicit: harnessExplicit, Model: req.Model, Effort: req.Effort,
 	}
 	var res remoteAgentCheckResponse
@@ -481,7 +483,8 @@ func unreadyHarnesses(asked []string, readiness agentReadinessResponse) map[stri
 // ownership terminates the remote session, other failures keep it.
 func (c *commandContext) failRemoteLink(ctx context.Context, remoteID string, err error) error {
 	var apiErr apiResponseError
-	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT") || strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER"))
+	rejected := errors.As(err, &apiErr) && (strings.Contains(apiErr.ErrorBody.Code, "LIMIT") ||
+		strings.HasPrefix(apiErr.ErrorBody.Code, "OWNER") || strings.HasPrefix(apiErr.ErrorBody.Code, "COORDINATOR_HOST_"))
 	if !rejected {
 		return fmt.Errorf("remote worker %s is still running but was not linked, so its reports will not reach this machine's orchestrator: %w", remoteID, err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
+	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 	sessionsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/session"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systemcheck"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systeminstall"
@@ -152,7 +153,10 @@ type CheckRemoteWorkerCapacityRequest struct {
 	ParentSessionID string `json:"parentSessionId"`
 	// HostID, Harness, Model and Effort apply the parent's agent selection to
 	// a worker on that host; Harness needs HarnessExplicit.
-	HostID          string `json:"hostId,omitempty"`
+	HostID string `json:"hostId,omitempty"`
+	// AgentCheck asks for the agent half of the check; without it only the
+	// capacity and host placement rules apply.
+	AgentCheck      bool   `json:"agentCheck,omitempty"`
 	Harness         string `json:"harness,omitempty"`
 	HarnessExplicit bool   `json:"harnessExplicit,omitempty"`
 	Model           string `json:"model,omitempty"`
@@ -620,7 +624,10 @@ type SpawnSessionRequest struct {
 	// CoordinatorAgent overrides the project's coordinatorAgent for this
 	// coordinator.
 	CoordinatorAgent *domain.AgentSelection `json:"coordinatorAgent,omitempty"`
-	Harness          domain.AgentHarness    `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
+	// HostSlots are the coordinator's per-host worker slots; the slot total is
+	// at most workerLimit. Coordinator spawns only.
+	HostSlots []HostSlotInput     `json:"hostSlots,omitempty"`
+	Harness   domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`
@@ -696,13 +703,29 @@ type SessionOwnerRequest struct {
 	RequestedBySessionID string  `json:"requestedBySessionId"`
 }
 
+// HostSlotInput is one hostSlots entry. hostId may be a paired host's ID or
+// its label; the daemon stores the ID.
+type HostSlotInput struct {
+	HostID string `json:"hostId"`
+	Slots  int    `json:"slots" minimum:"1"`
+}
+
+// CoordinatorHostSlot is one stored host slot and the coordinator's live
+// workers on that host.
+type CoordinatorHostSlot struct {
+	HostID string `json:"hostId"`
+	Slots  int    `json:"slots"`
+	Used   int    `json:"used"`
+}
+
 // CoordinatorLimitsRequest is the PUT coordinator-limits body. Send
 // requestedBySessionId (live root) or operatorInitiated with origin.
 type CoordinatorLimitsRequest struct {
-	WorkerLimit          *int   `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
-	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
-	OperatorInitiated    bool   `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
-	Origin               string `json:"origin,omitempty" enum:"ui,cli,api"`
+	WorkerLimit          *int             `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
+	HostSlots            *[]HostSlotInput `json:"hostSlots,omitempty" description:"Omitted keeps stored slots; [] clears."`
+	RequestedBySessionID string           `json:"requestedBySessionId,omitempty"`
+	OperatorInitiated    bool             `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
+	Origin               string           `json:"origin,omitempty" enum:"ui,cli,api"`
 }
 
 // CoordinatorWorkerAgentRequest is the PUT coordinator-worker-agent body.
@@ -745,6 +768,10 @@ type SessionOwnershipResponse struct {
 	// is its stored selection (null: the project default).
 	AgentProfileID *string                `json:"agentProfileId"`
 	WorkerAgent    *domain.AgentSelection `json:"workerAgent,omitempty"`
+	// EffectivePlacementLimit is the effective limit, or with host slots the
+	// smaller of it and the slot total. HostSlots are set for a coordinator.
+	EffectivePlacementLimit *int                  `json:"effectivePlacementLimit,omitempty"`
+	HostSlots               []CoordinatorHostSlot `json:"hostSlots,omitempty"`
 }
 
 // CoordinatorRosterResponse is a project's local ownership hierarchy. Remote
@@ -778,6 +805,10 @@ type CoordinatorRosterEntry struct {
 	WorkerLimit          *int `json:"workerLimit"`
 	EffectiveWorkerLimit int  `json:"effectiveWorkerLimit"`
 	ActiveWorkerCount    int  `json:"activeWorkerCount"`
+	// EffectivePlacementLimit is the effective limit, or with host slots the
+	// smaller of it and the slot total.
+	EffectivePlacementLimit int                   `json:"effectivePlacementLimit"`
+	HostSlots               []CoordinatorHostSlot `json:"hostSlots"`
 	// NeedsRecovery is derived at read time: the coordinator is terminated
 	// while a live worker still names it as owner.
 	NeedsRecovery bool `json:"needsRecovery"`
@@ -3929,4 +3960,12 @@ type CompletedTaskReportResponse struct {
 	Config CompletedTaskConfigHistory `json:"config"`
 	Runs   []CompletedTaskRun         `json:"runs"`
 	Stages CompletedTaskStages        `json:"stages"`
+}
+
+// CompletionReportRequest carries one durable tick completion notification.
+type CompletionReportRequest = reportsvc.CompletionInput
+
+// CompletionReportResponse acknowledges accepted completion context.
+type CompletionReportResponse struct {
+	Accepted bool `json:"accepted"`
 }

@@ -311,6 +311,9 @@ type SessionRecord struct {
 	// CoordinatorWorkerAgent is a coordinator's own worker agent selection.
 	// Nil means the project's coordinators.workerAgent applies.
 	CoordinatorWorkerAgent *AgentSelection `json:"-"`
+	// CoordinatorHostSlots are a coordinator's own per-host worker slots,
+	// normalized: host IDs, one entry per host, sorted. Empty means none.
+	CoordinatorHostSlots []HostSlot `json:"-"`
 	// ReviewerHarness is this session's preferred reviewer. Empty delegates to
 	// the project configuration.
 	ReviewerHarness   ReviewerHarness `json:"reviewerHarness,omitempty" enum:"claude-code,codex,copilot,cursor,kilocode,opencode,opencode-v2,kiro,pi,agy,devin,droid,kimi,kimchi,muse,amp,aider,grok,crush,auggie,cline,autohand"`
