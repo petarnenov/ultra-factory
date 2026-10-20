@@ -708,9 +708,11 @@ type operation struct {
 	// handlers that accept an empty body as a meaningful default.
 	optionalReqBody bool
 	resps           []respUnit
-	contentTypes    map[int]string   // optional non-JSON response content types by status
-	respNotes       map[int]string   // optional response descriptions by status
-	errorCodes      map[int][]string // x-error-codes by status
+	contentTypes    map[int]string // optional non-JSON response content types by status
+	respNotes       map[int]string // optional response descriptions by status
+
+	// errorCodes become the x-error-codes extension, keyed by status.
+	errorCodes map[int][]string
 }
 
 func operations() []operation {
