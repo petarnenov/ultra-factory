@@ -85,8 +85,7 @@ type Observer struct {
 	mu       sync.Mutex
 	failures map[string]string
 	refused  map[string]string
-	// unrecorded holds report IDs per link that were delivered but whose
-	// local record write failed; pull treats them as delivered and every
+	// unrecorded: delivered IDs per link whose record write failed;
 	// acknowledge retries the write until it succeeds.
 	unrecorded map[string]map[string]bool
 }
@@ -410,10 +409,8 @@ func (o *Observer) acknowledge(ctx context.Context, items []*pulled, pass *settl
 			ids[i] = report.ID
 		}
 		key := linkID(item.link.HostID, item.link.RemoteSessionID)
-		// Retry earlier failed writes together with this group's IDs. While a
-		// write keeps failing, the IDs stay in the in-memory set, so the next
-		// pass does not deliver them again even if the host acknowledgement
-		// below fails; the host acknowledgement still proceeds.
+		// Retry failed writes too; until one lands, pull skips these IDs
+		// via the in-memory set, even if the host ack fails.
 		o.mu.Lock()
 		for id := range o.unrecorded[key] {
 			ids = append(ids, id)
