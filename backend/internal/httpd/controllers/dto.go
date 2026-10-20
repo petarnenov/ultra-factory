@@ -656,7 +656,7 @@ type SessionOwnerRequest struct {
 // CoordinatorLimitsRequest is the PUT coordinator-limits body. Send
 // requestedBySessionId (live root) or operatorInitiated with origin.
 type CoordinatorLimitsRequest struct {
-	WorkerLimit          int    `json:"workerLimit" minimum:"1"`
+	WorkerLimit          *int   `json:"workerLimit,omitempty" minimum:"1" description:"Omitted keeps the stored value."`
 	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
 	OperatorInitiated    bool   `json:"operatorInitiated,omitempty" description:"Operator acts for the live root; needs origin."`
 	Origin               string `json:"origin,omitempty" enum:"ui,cli,api"`
@@ -684,9 +684,11 @@ type SessionOwnershipResponse struct {
 	RootSessionID    *string `json:"rootSessionId"`
 	// Capacity is the project's effective limits and live census.
 	Capacity CoordinatorCapacity `json:"capacity"`
-	// WorkerLimit and ActiveWorkerCount are set for a coordinator.
-	WorkerLimit       *int `json:"workerLimit,omitempty"`
-	ActiveWorkerCount *int `json:"activeWorkerCount,omitempty"`
+	// Set for a coordinator. WorkerLimit is the stored limit (null: project
+	// value); EffectiveWorkerLimit is clamped to the project ceiling.
+	WorkerLimit          *int `json:"workerLimit,omitempty"`
+	EffectiveWorkerLimit *int `json:"effectiveWorkerLimit,omitempty"`
+	ActiveWorkerCount    *int `json:"activeWorkerCount,omitempty"`
 }
 
 // CoordinatorRosterResponse is a project's local ownership hierarchy. Remote
@@ -708,10 +710,11 @@ type CoordinatorRosterEntry struct {
 	IsTerminated         bool     `json:"isTerminated"`
 	WorkerSessionIDs     []string `json:"workerSessionIds"`
 	WorkerCount          int      `json:"workerCount"`
-	// WorkerLimit is the effective worker limit: the coordinator's own, or
-	// the project's. ActiveWorkerCount includes remote workers.
-	WorkerLimit       int `json:"workerLimit"`
-	ActiveWorkerCount int `json:"activeWorkerCount"`
+	// WorkerLimit is stored (null: project value); the effective one is
+	// clamped. ActiveWorkerCount includes remote workers.
+	WorkerLimit          *int `json:"workerLimit"`
+	EffectiveWorkerLimit int  `json:"effectiveWorkerLimit"`
+	ActiveWorkerCount    int  `json:"activeWorkerCount"`
 	// NeedsRecovery is derived at read time: the coordinator is terminated
 	// while a live worker still names it as owner.
 	NeedsRecovery bool `json:"needsRecovery"`

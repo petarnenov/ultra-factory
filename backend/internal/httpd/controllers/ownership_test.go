@@ -442,7 +442,7 @@ func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
 		t.Fatalf("operator update status=%d body=%s", status, body)
 	}
 	events, err := f.store.ListCoordinatorLimitEvents(context.Background(), f.coordinator.ID)
-	if err != nil || len(events) != 2 || events[1].Origin != "ui" || events[1].ActorSessionID != f.root.ID || events[0].Origin != "root" {
+	if err != nil || len(events) != 2 || events[1].Origin != "ui" || events[1].ActorSessionID != f.root.ID || events[0].Origin != "api" {
 		t.Fatalf("audit = %+v err=%v", events, err)
 	}
 
@@ -453,6 +453,18 @@ func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
 	body, status = put(`{"workerLimit":9,"requestedBySessionId":"` + string(f.root.ID) + `"}`)
 	if status != http.StatusBadRequest || !reportContainsAll(body, "COORDINATOR_WORKER_LIMIT_INVALID", `"max":3`) {
 		t.Fatalf("above the project value status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":1,"operatorInitiated":true,"requestedBySessionId":"` + string(f.root.ID) + `","origin":"ui"}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "OPERATOR_MARKER_NOT_ALLOWED") {
+		t.Fatalf("marker with a named caller status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerLimit":0,"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "COORDINATOR_WORKER_LIMIT_INVALID") {
+		t.Fatalf("explicit 0 status=%d body=%s", status, body)
+	}
+	body, status = put(`{"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"workerLimit":1`) {
+		t.Fatalf("omitted workerLimit keeps the stored value: status=%d body=%s", status, body)
 	}
 	for _, bad := range []string{
 		`{"workerLimit":1,"operatorInitiated":true}`,
@@ -470,11 +482,11 @@ func TestCoordinatorLimitsRouteUpdatesAndExposesTheLimit(t *testing.T) {
 	}
 
 	roster, _, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/ao/coordinators", "")
-	if !reportContainsAll(string(roster), `"capacity":{`, `"maxWorkers":6`, `"workerLimit":1`, `"workerLimit":3`, `"activeWorkerCount":0`) {
+	if !reportContainsAll(string(roster), `"capacity":{`, `"maxWorkers":6`, `"workerLimit":1`, `"effectiveWorkerLimit":1`, `"workerLimit":null`, `"effectiveWorkerLimit":3`, `"activeWorkerCount":0`) {
 		t.Fatalf("roster = %s", roster)
 	}
 	view, _, _ := doRequest(t, srv, http.MethodGet, path[:len(path)-len("coordinator-limits")]+"ownership", "")
-	if !reportContainsAll(string(view), `"workerLimit":1`, `"maxCoordinators":2`) {
+	if !reportContainsAll(string(view), `"workerLimit":1`, `"effectiveWorkerLimit":1`, `"maxCoordinators":2`) {
 		t.Fatalf("ownership = %s", view)
 	}
 }

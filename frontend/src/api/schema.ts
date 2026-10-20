@@ -5056,17 +5056,19 @@ export interface components {
             /** @enum {string} */
             origin?: "ui" | "cli" | "api";
             requestedBySessionId?: string;
-            workerLimit: number;
+            /** @description Omitted keeps the stored value. */
+            workerLimit?: null | number;
         };
         CoordinatorRosterEntry: {
             activeWorkerCount: number;
             coordinatorScope: string;
             coordinatorSessionId: string;
+            effectiveWorkerLimit: number;
             isTerminated: boolean;
             latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
             needsRecovery: boolean;
             workerCount: number;
-            workerLimit: number;
+            workerLimit: null | number;
             workerSessionIds: string[];
         };
         CoordinatorRosterResponse: {
@@ -6225,6 +6227,7 @@ export interface components {
             activeWorkerCount?: null | number;
             capacity: components["schemas"]["CoordinatorCapacity"];
             coordinatorScope?: string;
+            effectiveWorkerLimit?: null | number;
             /** @enum {string} */
             kind: "worker" | "orchestrator" | "coordinator";
             /** @enum {string} */

@@ -15038,10 +15038,11 @@ components:
         requestedBySessionId:
           type: string
         workerLimit:
+          description: Omitted keeps the stored value.
           minimum: 1
-          type: integer
-      required:
-      - workerLimit
+          type:
+          - "null"
+          - integer
       type: object
     CoordinatorRosterEntry:
       properties:
@@ -15051,6 +15052,8 @@ components:
           type: string
         coordinatorSessionId:
           type: string
+        effectiveWorkerLimit:
+          type: integer
         isTerminated:
           type: boolean
         latestSummary:
@@ -15063,7 +15066,9 @@ components:
         workerCount:
           type: integer
         workerLimit:
-          type: integer
+          type:
+          - "null"
+          - integer
         workerSessionIds:
           items:
             type: string
@@ -15075,6 +15080,7 @@ components:
       - workerSessionIds
       - workerCount
       - workerLimit
+      - effectiveWorkerLimit
       - activeWorkerCount
       - needsRecovery
       - latestSummary
@@ -18099,6 +18105,10 @@ components:
           $ref: '#/components/schemas/CoordinatorCapacity'
         coordinatorScope:
           type: string
+        effectiveWorkerLimit:
+          type:
+          - "null"
+          - integer
         kind:
           enum:
           - worker

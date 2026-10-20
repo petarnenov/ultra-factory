@@ -26,9 +26,8 @@ type SessionOwnershipService interface {
 	SetCoordinatorWorkerLimit(
 		ctx context.Context,
 		coordinatorID domain.SessionID,
-		limit int,
-		requestedBy domain.SessionID,
-		operatorOrigin string,
+		limit *int,
+		caller sessionsvc.CoordinatorLimitsCaller,
 	) (domain.SessionRecord, error)
 	Ownership(ctx context.Context, id domain.SessionID) (sessionsvc.Ownership, error)
 	CoordinatorRoster(
@@ -103,18 +102,12 @@ func (c *SessionsController) setCoordinatorLimits(w http.ResponseWriter, r *http
 		return
 	}
 	id := domain.SessionID(chi.URLParam(r, "sessionId"))
-	origin := ""
-	if req.OperatorInitiated {
-		origin = req.Origin
-		if origin != "ui" && origin != "cli" && origin != "api" {
-			envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "COORDINATOR_LIMITS_ORIGIN_INVALID", "origin must be ui, cli or api when operatorInitiated is true", nil)
-			return
-		}
-	} else if req.Origin != "" {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "COORDINATOR_LIMITS_ORIGIN_INVALID", "origin is only valid with operatorInitiated", nil)
-		return
+	caller := sessionsvc.CoordinatorLimitsCaller{
+		RequestedBy:       domain.SessionID(req.RequestedBySessionID),
+		OperatorInitiated: req.OperatorInitiated,
+		Origin:            req.Origin,
 	}
-	if _, err := svc.SetCoordinatorWorkerLimit(r.Context(), id, req.WorkerLimit, domain.SessionID(req.RequestedBySessionID), origin); err != nil {
+	if _, err := svc.SetCoordinatorWorkerLimit(r.Context(), id, req.WorkerLimit, caller); err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}
@@ -177,7 +170,8 @@ func sessionOwnershipResponse(view sessionsvc.Ownership) SessionOwnershipRespons
 	}
 	if view.Session.Kind == domain.KindCoordinator {
 		limit, active := view.Capacity.WorkerLimit, view.Capacity.CoordinatorWorkers
-		out.WorkerLimit, out.ActiveWorkerCount = &limit, &active
+		out.EffectiveWorkerLimit, out.ActiveWorkerCount = &limit, &active
+		out.WorkerLimit = view.Session.CoordinatorWorkerLimit
 	}
 	if view.Owner != nil {
 		out.OwnerKind = string(view.Owner.Kind)
@@ -212,7 +206,8 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 			IsTerminated:         entry.Coordinator.IsTerminated,
 			WorkerSessionIDs:     workers,
 			WorkerCount:          len(workers),
-			WorkerLimit:          entry.WorkerLimit,
+			WorkerLimit:          entry.Coordinator.CoordinatorWorkerLimit,
+			EffectiveWorkerLimit: entry.WorkerLimit,
 			ActiveWorkerCount:    entry.ActiveWorkers,
 			NeedsRecovery:        entry.NeedsRecovery,
 		})
