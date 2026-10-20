@@ -131,6 +131,12 @@ Direct delegation still works: a worker spawned by the root is root-owned. A
 worker spawned from a coordinator session is owned by that coordinator. To move
 an existing worker: `ao session assign <worker> --owner <coordinator-id|root>`
 (root only; the target must be live and under its three-worker cap).
+A linked remote worker is identified by its host and remote session id, so use
+`ao remote-worker assign <host-id> <remote-session-id> --owner <coordinator-id|root>`
+instead, and list them with `ao remote-worker ls --project <id>`. The ADR
+sketches this as `ao session assign --host --remote-session`; the shipped
+command is `ao remote-worker assign` (see `docs/cli/README.md`). Every
+assignment step below applies to local workers and remote links alike.
 
 Capacity the root plans around (ADR section 8, enforced by the daemon): two
 live coordinators, three active workers per coordinator, six active workers in
@@ -167,9 +173,11 @@ only be spawned when a slot is free.
    first with `ao session kill <old-id>`. The daemon returns its workers to the
    root (see the automatic path below), which frees the slot. Then spawn the
    replacement and assign the returned workers to it with
-   `ao session assign <worker> --owner <new-coordinator-id>`. Between the kill
-   and the assignment the workers are root-owned and keep running; their
-   reports go to the root.
+   `ao session assign <worker> --owner <new-coordinator-id>`, using
+   `ao remote-worker assign <host-id> <remote-session-id> --owner
+   <new-coordinator-id>` for each returned remote link. Between the kill and
+   the assignment the workers are root-owned and keep running; their reports go
+   to the root.
 3. **Automatic.** If the coordinator terminates (kill, reaper, PR-merge lifecycle, replacement),
    the daemon in one transaction returns every worker and remote link it owned
    to the root and writes a root-addressed `blocked` summary with
