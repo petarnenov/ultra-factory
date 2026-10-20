@@ -1587,6 +1587,7 @@ were not verified and must not be reported as passed.
 | Image update and rollback | Update: pass; rollback pending | Updates are published and deployed by `hub-image.yml` (see [Automated image publish and deploy](#automated-image-publish-and-deploy)), with a 60 s post-`SUCCESS` re-check added after a crash loop (#128). A rollback was not exercised. |
 | Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
 | Orchestrator credentials (RW-5.4.1) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | In the hub, `ao agent ls` listed `claude-code` and `codex` as `authorized`; the hub orchestrator session answered prompts and ran `gh issue view 119 --repo petarnenov/ultra-factory`. With `AO_HUB_ORCHESTRATOR_TICK=1` the hub tick loop delivered TICKs to it (for example for PR #155) with nothing running on the Mac. No credential output recorded. |
+| Orchestrator wake-up loop (RW-5.4.2) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | With `AO_HUB_ORCHESTRATOR_TICK=1` on the hub, the tick loop delivered TICKs to the hub orchestrator (for example for PR #155) with nothing running on the Mac. Recorded from the operator's live check; no dry-run output. |
 
 The spike in [`packages/hub-bff/docs/railway-api-notes.md`](../../packages/hub-bff/docs/railway-api-notes.md)
 confirmed only selected Railway GraphQL create/configuration operations with a
