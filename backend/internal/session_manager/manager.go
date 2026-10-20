@@ -5471,7 +5471,18 @@ func appendAttachmentReferences(prompt string, refs []string) string {
 // empty input box rather than receiving an auto-generated kickoff turn.
 func (m *Manager) buildSpawnTexts(ctx context.Context, cfg ports.SpawnConfig, sessionID domain.SessionID) (prompt, systemPrompt string, err error) {
 	prompt = buildPrompt(cfg)
-	systemPrompt, err = m.buildSystemPrompt(ctx, cfg.Kind, cfg.ProjectID, sessionID, cfg.RequestedOutput, domain.NormalizeSessionMode(cfg.RequestedMode) == domain.SessionModeChat)
+	// The row may still be a task-preparation seed whose CI gate was resolved
+	// from project defaults, so derive the gate from the spawn config here.
+	var ciGate *bool
+	if cfg.Kind == domain.KindWorker && cfg.ProjectID != "" {
+		project, err := m.loadProject(ctx, cfg.ProjectID)
+		if err != nil {
+			return "", "", err
+		}
+		gate := project.Config.CIGate.Active(resolveSpawnBool(cfg.AutoReview, project.Config.AutoReview))
+		ciGate = &gate
+	}
+	systemPrompt, err = m.buildSystemPromptWithCIGate(ctx, cfg.Kind, cfg.ProjectID, sessionID, cfg.RequestedOutput, domain.NormalizeSessionMode(cfg.RequestedMode) == domain.SessionModeChat, ciGate)
 	if err != nil {
 		return "", "", err
 	}
@@ -5486,6 +5497,14 @@ func (m *Manager) buildSpawnTexts(ctx context.Context, cfg ports.SpawnConfig, se
 // agent runs as a chat session, the only mode with the html tools and ao render.
 // requestedOutput is the deliverable requested at spawn.
 func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind, projectID domain.ProjectID, sessionID domain.SessionID, requestedOutput domain.RequestedOutput, chat bool) (string, error) {
+	return m.buildSystemPromptWithCIGate(ctx, kind, projectID, sessionID, requestedOutput, chat, nil)
+}
+
+// buildSystemPromptWithCIGate is buildSystemPrompt with an explicit CI gate
+// for a worker. A nil ciGate reads the session's stored CIGateActive, which is
+// correct for restore and rebuild; spawn passes the value it resolved from its
+// config because the row may not be promoted yet.
+func (m *Manager) buildSystemPromptWithCIGate(ctx context.Context, kind domain.SessionKind, projectID domain.ProjectID, sessionID domain.SessionID, requestedOutput domain.RequestedOutput, chat bool, ciGate *bool) (string, error) {
 	project, err := m.loadProject(ctx, projectID)
 	if err != nil {
 		return "", err
@@ -5536,7 +5555,10 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 			return "", err
 		}
 		cfg.ProjectRules = rules
-		if projectID != "" {
+		switch {
+		case ciGate != nil:
+			cfg.CIGateActive = *ciGate
+		case projectID != "":
 			rec, ok, err := m.store.GetSession(ctx, sessionID)
 			if err != nil {
 				return "", fmt.Errorf("load worker %s for prompt: %w", sessionID, err)

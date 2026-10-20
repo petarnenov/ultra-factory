@@ -11648,6 +11648,43 @@ func TestSpawn_PreparedSessionPersistsArtifactDir(t *testing.T) {
 	}
 }
 
+func TestBuildSpawnTextsCIGateFollowsSpawnAutoReviewOverPreparedRow(t *testing.T) {
+	gate := domain.CIGateConfig{Mode: domain.CIGateReview, WithoutAutoReview: domain.CIGateWithoutReady}
+	on, off := true, false
+	cases := []struct {
+		name      string
+		projectAR bool
+		spawnAR   *bool
+		wantGated bool
+	}{
+		{name: "override on over off default", projectAR: false, spawnAR: &on, wantGated: true},
+		{name: "override off over on default", projectAR: true, spawnAR: &off, wantGated: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, st, _, _ := newManager()
+			m.runBackground = func(work func()) { work() }
+			project := st.projects["mer"]
+			project.Config.AutoReview = tc.projectAR
+			project.Config.CIGate = gate
+			project.RepoOriginURL = "https://github.com/acme/mercury"
+			st.projects["mer"] = project
+			token, err := m.PrepareTaskWorkspace(ctx, project)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Harness: domain.HarnessClaudeCode, Prompt: "go", TaskPreparation: token, AutoReview: tc.spawnAR}
+			_, systemPrompt, err := m.buildSpawnTexts(ctx, cfg, domain.SessionID(token))
+			if err != nil {
+				t.Fatalf("buildSpawnTexts: %v", err)
+			}
+			if got := strings.Contains(systemPrompt, "## CI Gate"); got != tc.wantGated {
+				t.Fatalf("CI Gate section present = %v, want %v", got, tc.wantGated)
+			}
+		})
+	}
+}
+
 func TestSendAutomationDoesNotRecordHumanDirection(t *testing.T) {
 	for _, sender := range []string{"", "orchestrator-1", "worker-1", "unknown"} {
 		t.Run("sender="+sender, func(t *testing.T) {
