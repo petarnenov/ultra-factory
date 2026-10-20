@@ -8,7 +8,7 @@ import (
 )
 
 func TestPRMergePostsToDaemon(t *testing.T) {
-	cfg := setConfigEnv(t)
+	cfg := setReviewEnv(t)
 	srv, capture := reviewServer(t, http.StatusOK, `{"ok":true,"prNumber":42,"method":"squash"}`)
 	writeRunFileFor(t, cfg, srv)
 
@@ -27,8 +27,44 @@ func TestPRMergePostsToDaemon(t *testing.T) {
 	}
 }
 
+func TestPRMergeSendsRequestingSession(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", " ao-root ")
+	srv, capture := reviewServer(t, http.StatusOK, `{"ok":true,"prNumber":42,"method":"squash"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	if _, errOut, err := executeCLI(t, aliveDeps(), "pr", "merge", "42"); err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(capture.body), &body); err != nil {
+		t.Fatalf("body %q: %v", capture.body, err)
+	}
+	if len(body) != 1 || body["requestedBySessionId"] != "ao-root" {
+		t.Fatalf("body = %v, want only requestedBySessionId=ao-root", body)
+	}
+}
+
+func TestPRMergeSurfacesMergeRootOnlyEnvelope(t *testing.T) {
+	cfg := setReviewEnv(t)
+	t.Setenv("AO_SESSION_ID", "ao-3")
+	srv, _ := reviewServer(t, http.StatusForbidden,
+		`{"error":"forbidden","code":"MERGE_ROOT_ONLY","message":"Only the project root may merge a pull request","requestId":"req-7"}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, _, err := executeCLI(t, aliveDeps(), "pr", "merge", "42")
+	if err == nil || ExitCode(err) != 1 {
+		t.Fatalf("err = %v exit = %d, want exit 1", err, ExitCode(err))
+	}
+	for _, want := range []string{"MERGE_ROOT_ONLY", "request req-7"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err, want)
+		}
+	}
+}
+
 func TestPRMergeOmitsMissingMethodFromOutput(t *testing.T) {
-	cfg := setConfigEnv(t)
+	cfg := setReviewEnv(t)
 	srv, _ := reviewServer(t, http.StatusOK, `{"ok":true,"prNumber":42}`)
 	writeRunFileFor(t, cfg, srv)
 

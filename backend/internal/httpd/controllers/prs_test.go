@@ -2,14 +2,18 @@ package controllers_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 )
 
@@ -78,6 +82,73 @@ func TestPRsRoutes_Merge_200(t *testing.T) {
 	if svc.mergeRequest.PRID != "42" || svc.mergeRequest.PRURL != "https://github.com/acme/widgets/pull/42" || svc.mergeRequest.ExpectedHeadSHA != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
 		t.Fatalf("merge request = %#v", svc.mergeRequest)
 	}
+}
+
+func TestPRsRoutes_Merge_ForwardsRequestingSession(t *testing.T) {
+	svc := &fakePRService{mergeResult: prsvc.MergeResult{PRNumber: 42, Method: "squash"}}
+	srv := newPRTestServer(t, svc)
+	body := `{"prUrl":"https://github.com/acme/widgets/pull/42","expectedHeadSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requestedBySessionId":" ao-root "}`
+
+	respBody, status, _ := doRequest(t, srv, "POST", "/api/v1/prs/42/merge", body)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", status, respBody)
+	}
+	if svc.mergeRequest.RequestedBySessionID != "ao-root" {
+		t.Fatalf("requester = %q, want ao-root", svc.mergeRequest.RequestedBySessionID)
+	}
+}
+
+func TestPRsRoutes_Merge_AnonymousCallerHasNoRequester(t *testing.T) {
+	svc := &fakePRService{mergeResult: prsvc.MergeResult{PRNumber: 42, Method: "squash"}}
+	srv := newPRTestServer(t, svc)
+
+	_, status, _ := doRequest(t, srv, "POST", "/api/v1/prs/42/merge", validMergeBody)
+	if status != http.StatusOK || svc.mergeRequest.RequestedBySessionID != "" {
+		t.Fatalf("status = %d, requester = %q", status, svc.mergeRequest.RequestedBySessionID)
+	}
+}
+
+// A live coordinator or worker is refused with the ADR 0010 code in the
+// standard envelope, and the caller's request id survives.
+func TestPRsRoutes_Merge_403MergeRootOnly(t *testing.T) {
+	for _, kind := range []domain.SessionKind{domain.KindCoordinator, domain.KindWorker} {
+		t.Run(string(kind), func(t *testing.T) {
+			svc := &fakePRService{mergeErr: fmt.Errorf("merge: %w", coordownership.RequireMergeAuthority(
+				domain.SessionRecord{ID: "ao-9", Kind: kind}))}
+			srv := newPRTestServer(t, svc)
+			req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/prs/42/merge",
+				strings.NewReader(`{"requestedBySessionId":"ao-9"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", "req-merge-1")
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			assertJSON(t, resp.Header)
+			assertErrorCode(t, body, resp.StatusCode, http.StatusForbidden, "MERGE_ROOT_ONLY")
+			var env struct {
+				Error     string         `json:"error"`
+				RequestID string         `json:"requestId"`
+				Details   map[string]any `json:"details"`
+			}
+			mustJSON(t, body, &env)
+			if env.Error != "forbidden" || env.RequestID != "req-merge-1" || env.Details["sessionId"] != "ao-9" {
+				t.Fatalf("envelope = %+v", env)
+			}
+		})
+	}
+}
+
+func TestPRsRoutes_Merge_BlankIdentityIs400(t *testing.T) {
+	svc := &fakePRService{mergeErr: prsvc.ErrInvalidPR}
+	srv := newPRTestServer(t, svc)
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/prs/42/merge", `{}`)
+	assertErrorCode(t, body, status, http.StatusBadRequest, "INVALID_PR")
 }
 
 // ---- Merge: 404 ----

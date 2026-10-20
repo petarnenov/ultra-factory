@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
 
@@ -414,5 +415,80 @@ func TestActionServiceResolveComments_NothingToResolve(t *testing.T) {
 	}
 	if writer.writeCalls != 0 || scm.resolveCalls != 0 {
 		t.Fatalf("writes=%d resolves=%d, want 0", writer.writeCalls, scm.resolveCalls)
+	}
+}
+
+// sessionActionStore adds session lookup so the merge-authority check runs.
+type sessionActionStore struct {
+	fakeActionStore
+	sessions map[domain.SessionID]domain.SessionRecord
+}
+
+func (f *sessionActionStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
+	rec, ok := f.sessions[id]
+	return rec, ok, nil
+}
+
+func (f *sessionActionStore) GetProject(context.Context, string) (domain.ProjectRecord, bool, error) {
+	return domain.ProjectRecord{}, false, nil
+}
+
+func TestActionServiceMerge_EnforcesMergeAuthorityPerCaller(t *testing.T) {
+	sessions := map[domain.SessionID]domain.SessionRecord{
+		"root":   {ID: "root", ProjectID: "ao", Kind: domain.KindOrchestrator},
+		"coord":  {ID: "coord", ProjectID: "ao", Kind: domain.KindCoordinator},
+		"worker": {ID: "worker", ProjectID: "ao", Kind: domain.KindWorker},
+		"dead":   {ID: "dead", ProjectID: "ao", Kind: domain.KindWorker, IsTerminated: true},
+	}
+	cases := []struct {
+		name      string
+		requester domain.SessionID
+		refused   bool
+		role      string
+	}{
+		{name: "root allowed", requester: "root"},
+		{name: "anonymous allowed", requester: ""},
+		{name: "unknown session allowed", requester: "ghost"},
+		{name: "terminated worker allowed", requester: "dead"},
+		{name: "coordinator refused", requester: "coord", refused: true, role: "coordinator"},
+		{name: "worker refused", requester: "worker", refused: true, role: "worker"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pr, scm := mergeableActionFixture()
+			store := &sessionActionStore{fakeActionStore: fakeActionStore{pr: pr, ok: true}, sessions: sessions}
+			svc := NewActionService(ActionDeps{Store: store, Reader: scm, Merger: scm})
+			_, err := svc.Merge(context.Background(), MergeRequest{
+				PRID: "42", PRURL: pr.URL, ExpectedHeadSHA: pr.HeadSHA, RequestedBySessionID: tc.requester,
+			})
+			if !tc.refused {
+				if err != nil || scm.mergeCalls != 1 {
+					t.Fatalf("err = %v, merge calls = %d, want a merge", err, scm.mergeCalls)
+				}
+				return
+			}
+			var apiErr *apierr.Error
+			if !errors.As(err, &apiErr) || apiErr.Kind != apierr.KindForbidden || apiErr.Code != "MERGE_ROOT_ONLY" {
+				t.Fatalf("err = %v, want 403 MERGE_ROOT_ONLY", err)
+			}
+			if apiErr.Details["sessionId"] != string(tc.requester) || apiErr.Details["role"] != tc.role {
+				t.Fatalf("details = %v", apiErr.Details)
+			}
+			if scm.mergeCalls != 0 {
+				t.Fatalf("merge calls = %d, want 0", scm.mergeCalls)
+			}
+		})
+	}
+}
+
+func TestActionServiceMerge_AuthorityPrecedesPayloadValidation(t *testing.T) {
+	store := &sessionActionStore{sessions: map[domain.SessionID]domain.SessionRecord{
+		"coord": {ID: "coord", ProjectID: "ao", Kind: domain.KindCoordinator},
+	}}
+	svc := NewActionService(ActionDeps{Store: store})
+	_, err := svc.Merge(context.Background(), MergeRequest{PRID: "42", RequestedBySessionID: "coord"})
+	var apiErr *apierr.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "MERGE_ROOT_ONLY" {
+		t.Fatalf("err = %v, want MERGE_ROOT_ONLY before INVALID_PR", err)
 	}
 }

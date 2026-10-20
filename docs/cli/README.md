@@ -355,6 +355,11 @@ PR actions are available through `ao pr merge` and
 `ao review trigger` (also `execute` and `restart`), `ao review cancel` (also
 `stop`), and `ao review submit`.
 
+`ao pr merge` sends `AO_SESSION_ID` as `requestedBySessionId` (ADR 0010). The
+daemon refuses a live coordinator or worker with `403 MERGE_ROOT_ONLY`; the
+root, a human, and any caller that omits or does not match a live session
+proceed as before.
+
 ## Configuration
 
 The CLI and daemon share the same environment-driven config:

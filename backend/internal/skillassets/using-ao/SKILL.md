@@ -15,7 +15,7 @@ trigger: "Using the ao CLI in an AO workspace: creating Cues, spawning workers, 
 | `coordinator` | List a project's coordinators, scopes, and the workers they own | Understanding project ownership before delegating or recovering a helper | [commands/coordinator.md](commands/coordinator.md) |
 | `remote-worker` | List linked remote workers and assign or clear their local owner | Inspecting or reassigning ownership of `ao spawn --host` workers | [commands/remote-worker.md](commands/remote-worker.md) |
 | `agent` | Inspect installed harnesses and launch readiness | Choosing or diagnosing an agent harness | `ao agent ls --refresh` |
-| `pr` | Merge a PR or resolve its review threads | Completing a reviewed change | `ao pr merge` / `ao pr resolve-comments` |
+| `pr` | Merge a PR or resolve its review threads | Completing a reviewed change; only the root merges (a coordinator or worker gets `MERGE_ROOT_ONLY`) | [commands/pr.md](commands/pr.md) |
 | `project` | Register, inspect, configure, or remove projects | Setting up or managing repos AO knows about | [commands/project.md](commands/project.md) |
 | `automation` | Manage durable recurring session automations | Creating, editing, disabling, deleting, and inspecting scheduled runs | [commands/automation.md](commands/automation.md) |
 | `cue` | Create or list reusable project Cues | Saving a repetitive command or agent task at the user's request | [commands/cue.md](commands/cue.md) |

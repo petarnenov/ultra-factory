@@ -266,3 +266,15 @@ func TestEmbeddedRenderGuidanceSeparatesRendersFromArtifacts(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbeddedPRGuidanceDocumentsMergeAuthority(t *testing.T) {
+	for _, name := range []string{"using-ao/commands/pr.md", "using-ao/SKILL.md", "using-ao/references.md"} {
+		body, err := files.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", name, err)
+		}
+		if !strings.Contains(string(body), "MERGE_ROOT_ONLY") {
+			t.Fatalf("%s does not document MERGE_ROOT_ONLY", name)
+		}
+	}
+}

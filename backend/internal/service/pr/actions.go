@@ -1,6 +1,10 @@
 package pr
 
-import "context"
+import (
+	"context"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+)
 
 // ActionManager is the controller-facing contract for guarded PR mutations.
 type ActionManager interface {
@@ -14,6 +18,9 @@ type MergeRequest struct {
 	PRID            string
 	PRURL           string
 	ExpectedHeadSHA string
+	// RequestedBySessionID optionally names the session asking for the merge.
+	// Empty keeps the caller anonymous and skips the merge-authority check.
+	RequestedBySessionID domain.SessionID
 }
 
 // MergeResult is the successful outcome of a PR merge.

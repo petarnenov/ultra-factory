@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,12 @@ type mergePRResponse struct {
 	OK       bool   `json:"ok"`
 	PRNumber int    `json:"prNumber"`
 	Method   string `json:"method"`
+}
+
+// mergePRRequest mirrors the merge body fields the CLI sends. The requester
+// is optional: the daemon refuses a live coordinator or worker (ADR 0010).
+type mergePRRequest struct {
+	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
 }
 
 type resolveCommentsRequest struct {
@@ -45,8 +52,12 @@ func newPRMergeCommand(ctx *commandContext) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var req mergePRRequest
+			if !ctx.targetsRemote() {
+				req.RequestedBySessionID = strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+			}
 			var res mergePRResponse
-			if err := ctx.postJSON(cmd.Context(), "prs/"+url.PathEscape(prNumber)+"/merge", struct{}{}, &res); err != nil {
+			if err := ctx.postJSON(cmd.Context(), "prs/"+url.PathEscape(prNumber)+"/merge", req, &res); err != nil {
 				return err
 			}
 			if method := strings.TrimSpace(res.Method); method != "" {
