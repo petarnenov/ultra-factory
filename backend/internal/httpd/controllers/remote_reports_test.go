@@ -163,6 +163,22 @@ func TestRemoteWorkerLinkRouteStoresTheLinkAgainstTheParentsProject(t *testing.T
 	}
 }
 
+func TestRemoteWorkerCapacityCheckRoute(t *testing.T) {
+	store, _, orchestrator := openReportStore(t)
+	links := remoteworker.New(remoteworker.Deps{Store: store, SelfHostID: "host-local"})
+	srv := newRouterServer(t, httpd.APIDeps{RemoteWorkerLinks: links})
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/remote-worker-links/check",
+		`{"parentSessionId":"`+string(orchestrator.ID)+`"}`)
+	if status != http.StatusOK || !strings.Contains(string(body), `"ok":true`) {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	body, status, _ = doRequest(t, srv, "POST", "/api/v1/remote-worker-links/check", `{"parentSessionId":"ghost"}`)
+	if status != http.StatusNotFound || !strings.Contains(string(body), "SESSION_NOT_FOUND") {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+}
+
 func TestRemoteWorkerLinksAreLoopbackOnlyButPullRoutesServeTheLAN(t *testing.T) {
 	if !httpd.IsLANControlBlockedPathForTest("/api/v1/remote-worker-links") {
 		t.Fatal("a LAN client could make this daemon contact saved hosts with their credentials")

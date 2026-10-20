@@ -118,18 +118,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	if s.selfHostID != "" && in.HostID == s.selfHostID {
 		return Registration{}, apierr.Invalid("REMOTE_HOST_IS_LOCAL", "The host is this machine; local workers need no link", nil)
 	}
-	parent, ok, err := s.store.GetSession(ctx, in.ParentSessionID)
+	parent, err := s.linkParent(ctx, in.ParentSessionID)
 	if err != nil {
 		return Registration{}, err
-	}
-	if !ok {
-		return Registration{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
-	}
-	if parent.IsTerminated {
-		return Registration{}, apierr.Conflict("PARENT_SESSION_TERMINATED", "The parent session is terminated", nil)
-	}
-	if parent.ProjectID == "" {
-		return Registration{}, apierr.Invalid("PARENT_PROJECT_REQUIRED", "The parent session has no project", nil)
 	}
 	entry, found, err := s.lookup(in.HostID)
 	if err != nil {
@@ -167,15 +158,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
 	}
 	if !hasLink(existing, link) {
-		counts, err := coordownership.Count(ctx, s.store, s.store, link.ProjectID)
-		if err != nil {
-			return Registration{}, err
-		}
-		gate, err := coordownership.LoadConfig(ctx, s.store, link.ProjectID)
-		if err != nil {
-			return Registration{}, err
-		}
-		if err := counts.CheckNewWorker(link.ProjectID, link.OwnerSessionID, gate.Limits()); err != nil {
+		if err := s.checkCapacity(ctx, link.ProjectID, link.OwnerSessionID); err != nil {
 			return Registration{}, err
 		}
 	}
@@ -200,6 +183,52 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 		registration.PullBlocked = err.Error()
 	}
 	return registration, nil
+}
+
+// linkParent loads the live, project-bound session that spawns a remote worker.
+func (s *Service) linkParent(ctx context.Context, id domain.SessionID) (domain.SessionRecord, error) {
+	parent, ok, err := s.store.GetSession(ctx, id)
+	if err != nil {
+		return domain.SessionRecord{}, err
+	}
+	if !ok {
+		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	if parent.IsTerminated {
+		return domain.SessionRecord{}, apierr.Conflict("PARENT_SESSION_TERMINATED", "The parent session is terminated", nil)
+	}
+	if parent.ProjectID == "" {
+		return domain.SessionRecord{}, apierr.Invalid("PARENT_PROJECT_REQUIRED", "The parent session has no project", nil)
+	}
+	return parent, nil
+}
+
+// CheckCapacity reports whether a worker spawned by parentID could be linked
+// now. It stores nothing; Register re-validates under the project lock.
+func (s *Service) CheckCapacity(ctx context.Context, parentID domain.SessionID) error {
+	if s == nil || s.store == nil {
+		return errors.New("remoteworker: store is required")
+	}
+	parent, err := s.linkParent(ctx, parentID)
+	if err != nil {
+		return err
+	}
+	projectLock := s.capacity.Project(parent.ProjectID)
+	projectLock.Lock()
+	defer projectLock.Unlock()
+	return s.checkCapacity(ctx, parent.ProjectID, coordownership.SpawnOwner(parent, parent.ProjectID))
+}
+
+func (s *Service) checkCapacity(ctx context.Context, projectID domain.ProjectID, owner *domain.SessionID) error {
+	counts, err := coordownership.Count(ctx, s.store, s.store, projectID)
+	if err != nil {
+		return err
+	}
+	gate, err := coordownership.LoadConfig(ctx, s.store, projectID)
+	if err != nil {
+		return err
+	}
+	return counts.CheckNewWorker(projectID, owner, gate.Limits())
 }
 
 func hasLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) bool {

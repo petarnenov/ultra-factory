@@ -596,6 +596,9 @@ Tables:
   keys to the summary and the session, both cascading on delete. It is the
   durable link back to the workers the summary covers. It records history; a
   later reassignment does not rewrite it.
+- `coordinator_summary_remote_workers(summary_id, host_id,
+  remote_session_id, position)`, cascading on the summary. Only the
+  termination escalation fills it, with the remote links released to the root.
 
 Bounded payload:
 
@@ -605,7 +608,7 @@ Bounded payload:
 | `state` | `planning`, `working`, `blocked`, `done` |
 | `workerSessionIds` | 0..3; each must be a worker currently owned by the submitting coordinator |
 | `result` | 0..2000 characters |
-| `escalationReason` | empty, or `overlapping_files`, `unclear_acceptance`, `worker_failed`, `scope_decision`, `coordinator_terminated`, `other` |
+| `escalationReason` | empty, or `overlapping_files`, `unclear_acceptance`, `worker_failed`, `scope_decision`, `other`; `coordinator_terminated` is reserved for the daemon and rejected with 400 |
 | `escalationNote` | 0..500 characters; required for `other` |
 
 Delivery:
@@ -716,8 +719,11 @@ trigger that runs when a coordinator becomes terminated:
 3. Do the same for `remote_worker_links` and their audit table.
 4. Insert one root-addressed `coordinator_summaries` row with
    `state='blocked'`, `escalation_reason='coordinator_terminated'`, and the
-   returned worker IDs recorded in `coordinator_summary_workers`. It is
-   available immediately, so the root learns about the handback without
+   returned worker IDs recorded in `coordinator_summary_workers` and the
+   returned remote links in `coordinator_summary_remote_workers`. Its
+   `submission_key` is `daemon:coordinator_terminated:<random>`: each
+   termination writes exactly one row, and the API rejects caller keys that
+   start with `daemon:`. It is available immediately, so the root learns about the handback without
    polling.
 5. Leave the coordinator's other pending summaries and its workers' pending
    reports durable. The next delivery pass resolves them to the root.

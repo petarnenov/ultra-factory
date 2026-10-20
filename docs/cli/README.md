@@ -75,8 +75,14 @@ machine's daemon (`POST /api/v1/remote-worker-links`, loopback only). The daemon
 then pulls the remote worker's `ao report` output from that host and delivers it
 to the parent's project orchestrator. Unattended pulling runs over https,
 loopback, or Tailscale; plain http needs `AO_REMOTE_REPORTS_ALLOW_HTTP=1` in the
-daemon's environment. If the link fails, or the host will not be polled, the
-spawn still succeeds and prints a warning. Design: `docs/adr/0005-daemon-pulls-remote-worker-reports.md`.
+daemon's environment. Before spawning, the CLI asks the daemon whether the
+worker fits the capacity caps (`POST /api/v1/remote-worker-links/check`). If the
+link is still rejected for capacity or ownership, the CLI terminates the remote
+worker and the spawn fails with the daemon error code. Any other link failure
+also fails the spawn but keeps the remote worker, and the error names its
+session id for manual cleanup. Only a non-empty `pullBlocked` (the host will not
+be polled) prints a warning and lets the spawn succeed, as does a projectless
+`--standalone` worker, which is never linked. Design: `docs/adr/0005-daemon-pulls-remote-worker-reports.md`.
 
 `review trigger`, `review ls`, and `review cancel` accept `--host` too. The
 worker session id is required explicitly: session ids are per machine, so the
