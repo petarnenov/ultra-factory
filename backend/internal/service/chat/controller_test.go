@@ -5791,6 +5791,26 @@ func TestRelaySessionChatTurnDeliveryReportsTheAcceptedQueueOutcome(t *testing.T
 	if len(delivery.PendingInputRequestIDs) != 1 || delivery.PendingInputRequestIDs[0] != "input-1" {
 		t.Fatalf("pending inputs = %v, want [input-1]", delivery.PendingInputRequestIDs)
 	}
+
+	// Once the question is answered it is no longer part of the snapshot a later
+	// queued message reports: the answer and the queue write cannot interleave.
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventInputResolved, ProviderTurnID: "provider-turn-1", RequestID: "input-1",
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Activities) != 0 && s.Activities[len(s.Activities)-1].Status != domain.ActivityStatusPending
+	})
+
+	delivery, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "fourth", "c4", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("relay after answer: %v", err)
+	}
+	if !delivery.Queued {
+		t.Fatalf("relay after answer = %+v, want still queued", delivery)
+	}
+	if len(delivery.PendingInputRequestIDs) != 0 {
+		t.Fatalf("pending inputs = %v, want none once the question is answered", delivery.PendingInputRequestIDs)
+	}
 }
 
 // A relayed message is AO carrying someone else's words: `ao send`, or an

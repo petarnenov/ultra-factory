@@ -1424,8 +1424,14 @@ func (c *Controller) Send(ctx context.Context, msg ports.ChatUserMessage) (domai
 	return turn, err
 }
 
-// SendWithDelivery is Send plus the structured questions the accepted message
-// queued behind, captured with the queue decision itself.
+// appendedMessageSnapshotter is implemented by a store that reports the pending
+// structured questions at the same commit as the appended message.
+type appendedMessageSnapshotter interface {
+	AppendUserMessageSnapshot(ctx context.Context, conversationID string, session domain.SessionID, reviewID, generation string, msg domain.ConversationMessage, turnID string, now time.Time) (bool, []string, error)
+}
+
+// SendWithDelivery is Send plus the structured questions pending when the
+// message was recorded, captured in the same transaction.
 func (c *Controller) SendWithDelivery(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, []string, error) {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
@@ -1490,10 +1496,14 @@ func (c *Controller) sendLocked(
 	}
 
 	var (
-		created bool
-		err     error
+		created       bool
+		pendingInputs []string
+		err           error
 	)
-	if c.reviewID == "" {
+	if snapshotter, ok := c.store.(appendedMessageSnapshotter); ok {
+		created, pendingInputs, err = snapshotter.AppendUserMessageSnapshot(
+			ctx, c.conversation.ID, c.sessionID, c.reviewID, c.generation, record, turnID, now)
+	} else if c.reviewID == "" {
 		created, err = c.store.AppendUserMessage(ctx, c.conversation.ID, c.sessionID, c.generation, record, turnID, now)
 	} else {
 		created, err = c.store.AppendReviewUserMessage(ctx, c.conversation.ID, c.sessionID, c.reviewID, c.generation, record, turnID, now)
@@ -1524,30 +1534,12 @@ func (c *Controller) sendLocked(
 			HandledByReviewID:  c.reviewID,
 			State:              domain.TurnStateQueued,
 			RequestedAt:        now,
-		}, c.pendingInputRequestIDs(ctx), nil
+		}, pendingInputs, nil
 	}
 
 	turn, err := c.dispatch(ctx, turnID, msg, now)
 	dispatched = err == nil
 	return turn, nil, err
-}
-
-// pendingInputRequestIDs reads the questions the running turn is parked on. The
-// queue outcome stands even when this read fails.
-func (c *Controller) pendingInputRequestIDs(ctx context.Context) []string {
-	reader, ok := c.store.(interface {
-		PendingInputRequestIDs(context.Context, string) ([]string, error)
-	})
-	if !ok {
-		return nil
-	}
-	ids, err := reader.PendingInputRequestIDs(ctx, c.conversation.ID)
-	if err != nil {
-		c.log.Warn("chat send: queued but could not list pending inputs",
-			"session", c.sessionID, "error", err)
-		return nil
-	}
-	return ids
 }
 
 // RetryTurn re-dispatches a failed turn's durable prompt as a new turn.
