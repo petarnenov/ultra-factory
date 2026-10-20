@@ -1526,7 +1526,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Check that a worker spawned by a session could be linked, before spawning it (loopback only) */
+        /** Check link capacity before a remote spawn (loopback only) */
         post: operations["checkRemoteWorkerCapacity"];
         delete?: never;
         options?: never;

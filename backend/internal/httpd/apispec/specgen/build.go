@@ -845,7 +845,7 @@ func reportOperations() []operation {
 		},
 	}, {
 		method: http.MethodPost, path: "/api/v1/remote-worker-links/check", id: "checkRemoteWorkerCapacity", tag: "reports",
-		summary: "Check that a worker spawned by a session could be linked, before spawning it (loopback only)",
+		summary: "Check link capacity before a remote spawn (loopback only)",
 		reqBody: controllers.CheckRemoteWorkerCapacityRequest{},
 		resps: []respUnit{
 			{http.StatusOK, controllers.CheckRemoteWorkerCapacityResponse{}},

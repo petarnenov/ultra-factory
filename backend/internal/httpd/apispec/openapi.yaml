@@ -4126,8 +4126,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Not Implemented
-      summary: Check that a worker spawned by a session could be linked, before spawning
-        it (loopback only)
+      summary: Check link capacity before a remote spawn (loopback only)
       tags:
       - reports
   /api/v1/reports:
