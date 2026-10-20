@@ -164,6 +164,9 @@ type agentLauncher struct {
 	auth       agentAuthResolver
 	executable func() (string, error)
 	chat       ReviewerChatController
+	// exitCheckDelay, when positive, makes Spawn wait that long after Create
+	// and fail if the reviewer process has already exited.
+	exitCheckDelay time.Duration
 }
 
 type preLaunchReviewer interface {
@@ -212,6 +215,12 @@ func WithRunFilePath(path string) LauncherOption {
 	return func(l *agentLauncher) {
 		l.runFile = path
 	}
+}
+
+// WithLaunchExitCheck makes Spawn fail, with the pane output, when the reviewer
+// process has already exited delay after it was created.
+func WithLaunchExitCheck(delay time.Duration) LauncherOption {
+	return func(l *agentLauncher) { l.exitCheckDelay = delay }
 }
 
 // NewLauncher builds the production reviewer launcher.
@@ -597,11 +606,37 @@ func (l *agentLauncher) launchReviewerTerminalWithMode(ctx context.Context, spec
 			return LaunchResult{}, fmt.Errorf("reviewer initial message: %w", err)
 		}
 	}
+	if err := l.checkLaunchExit(ctx, spec, handle); err != nil {
+		return LaunchResult{}, err
+	}
 	agentSessionID := strings.TrimSpace(cmd.AgentSessionID)
 	if agentSessionID == "" {
 		agentSessionID = strings.TrimSpace(spec.AgentSessionID)
 	}
 	return LaunchResult{HandleID: handle.ID, LaunchID: strings.TrimSpace(spec.LaunchID), AgentSessionID: agentSessionID, NativeResumed: nativeResumed}, nil
+}
+
+// checkLaunchExit fails a launch whose reviewer died at once, with the pane
+// output as the cause, and removes the dead pane.
+func (l *agentLauncher) checkLaunchExit(ctx context.Context, spec LaunchSpec, handle ports.RuntimeHandle) error {
+	if l.exitCheckDelay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(l.exitCheckDelay)
+	select {
+	case <-ctx.Done():
+		timer.Stop()
+		return ctx.Err()
+	case <-timer.C:
+	}
+	// An unreadable liveness probe proves nothing; only a confirmed exit fails.
+	if alive, err := l.Alive(ctx, handle.ID, spec.LaunchID); err == nil && !alive {
+		output, _ := l.runtime.GetOutput(ctx, handle, 40)
+		_ = l.runtime.Destroy(ctx, handle)
+		cause := fmt.Errorf("reviewer exited at launch: %s", strings.TrimSpace(output))
+		return agentlaunch.RedactError(cause, spec.ProjectEnv)
+	}
+	return nil
 }
 
 func (l *agentLauncher) waitForPromptReadiness(ctx context.Context, reviewer ports.Reviewer, handle ports.RuntimeHandle) error {

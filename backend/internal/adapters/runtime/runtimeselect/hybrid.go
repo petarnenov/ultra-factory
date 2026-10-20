@@ -77,9 +77,14 @@ func (r *hybridRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (po
 	return fallback, nil
 }
 
+// Destroy of an unprefixed ID reaches both backends: callers address a pane
+// by bare name, but a direct-host pane is stored prefixed. Unknown is success.
 func (r *hybridRuntime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error {
 	backend, raw := r.route(handle)
-	return backend.Destroy(ctx, raw)
+	if backend == r.direct {
+		return backend.Destroy(ctx, raw)
+	}
+	return errors.Join(r.legacy.Destroy(ctx, raw), r.direct.Destroy(ctx, raw))
 }
 
 func (r *hybridRuntime) IsAlive(ctx context.Context, handle ports.RuntimeHandle) (bool, error) {
