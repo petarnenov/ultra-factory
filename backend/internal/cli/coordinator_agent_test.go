@@ -192,3 +192,57 @@ func TestProjectSetConfigAgentFlagUsageErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestSpawnPreflightSkipsOnlyWhenAProfileWillBePicked(t *testing.T) {
+	profiles := `"agentProfiles":[{"id":"a","harness":"codex","model":"m","effort":"e"}]`
+	fixedA := `{"mode":"fixed","profileId":"a"}`
+	for _, tc := range []struct {
+		name          string
+		coordinators  string
+		session       string
+		args          []string
+		wantPreflight bool
+	}{
+		{"inherit selections keep the preflight", profiles, "demo-root", nil, true},
+		{"no parent keeps the preflight", profiles + `,"workerAgent":` + fixedA, "", nil, true},
+		{"worker from the root with a fixed selection skips it", profiles + `,"rootWorkerAgent":` + fixedA, "demo-root", nil, false},
+		{"worker with an explicit agent keeps it", profiles + `,"workerAgent":` + fixedA, "demo-root", []string{"--agent", "codex"}, true},
+		{"orchestrator keeps it", profiles + `,"workerAgent":` + fixedA + `,"coordinatorAgent":` + fixedA, "demo-root", []string{"--kind", "orchestrator"}, true},
+		{"coordinator with a fixed project selection skips it", profiles + `,"coordinatorAgent":` + fixedA, "demo-root",
+			[]string{"--kind", "coordinator", "--scope", "auth"}, false},
+		{"coordinator with an inherit project selection keeps it", profiles, "demo-root",
+			[]string{"--kind", "coordinator", "--scope", "auth"}, true},
+		{"coordinator overriding to a fixed selection skips it", profiles, "demo-root",
+			[]string{"--kind", "coordinator", "--scope", "auth", "--coordinator-agent", "fixed:a"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			t.Setenv("AO_SESSION_ID", tc.session)
+			preflight := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
+					_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo","agent":"codex","config":{"coordinators":{`+tc.coordinators+`}}}}`)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/agents/readiness/ensure":
+					preflight = true
+					_, _ = io.WriteString(w, authorizedAgentsJSON("codex"))
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+					_, _ = io.WriteString(w, `{"session":{"id":"demo-2","status":"idle"}}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			writeRunFileFor(t, cfg, srv)
+
+			args := append([]string{"spawn", "--project", "demo", "--name", "x"}, tc.args...)
+			if _, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, args...); err != nil {
+				t.Fatalf("spawn: %v stderr=%s", err, errOut)
+			}
+			if preflight != tc.wantPreflight {
+				t.Fatalf("preflight ran = %v, want %v", preflight, tc.wantPreflight)
+			}
+		})
+	}
+}

@@ -188,9 +188,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				}
 			}
 
-			// With agent profiles the daemon picks the agent for a coordinator's
-			// or the root's spawn, so the CLI default is not what will launch.
-			profilesPick := explicitHarness == "" && project.Config != nil && len(project.Config.Coordinators.AgentProfiles) > 0
+			profilesPick := explicitHarness == "" && profileLikelyPicked(opts, project)
 			if !opts.skipAgentCheck && !profilesPick {
 				if err := ctx.preflightSpawnAgentAuth(cmd.Context(), cmd, opts.harness); err != nil {
 					return err
@@ -695,6 +693,28 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 		return usageError{fmt.Errorf("--claim-pr is supported for worker sessions only")}
 	}
 	return nil
+}
+
+// profileLikelyPicked reports whether the daemon will replace the CLI default
+// agent with a profile, so the default's preflight would check the wrong one.
+func profileLikelyPicked(opts spawnOptions, project projectDetails) bool {
+	if project.Config == nil || len(project.Config.Coordinators.AgentProfiles) == 0 {
+		return false
+	}
+	active := func(sel *agentSelection) bool { return sel != nil && sel.Mode != "" && sel.Mode != "inherit" }
+	cfg := project.Config.Coordinators
+	switch opts.kind {
+	case "coordinator":
+		if opts.coordinatorAgent != "" {
+			sel, err := parseAgentSelection("--coordinator-agent", opts.coordinatorAgent)
+			return err == nil && active(sel)
+		}
+		return active(cfg.CoordinatorAgent)
+	case "", "worker":
+		parent := strings.TrimSpace(os.Getenv("AO_SESSION_ID")) != ""
+		return parent && !opts.standalone && (active(cfg.WorkerAgent) || active(cfg.RootWorkerAgent))
+	}
+	return false
 }
 
 // coordinatorAgentSelections parses the two agent selection flags; both are
