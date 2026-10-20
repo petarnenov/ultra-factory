@@ -879,7 +879,11 @@ func reportOperations() []operation {
 		method: http.MethodPut, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner", id: "assignRemoteWorkerOwner", tag: "reports",
 		summary: "Assign or clear a linked remote worker's local owner",
 		respNotes: map[int]string{
-			http.StatusConflict: "Conflict: COORDINATOR_WORKER_LIMIT_REACHED",
+			http.StatusConflict: "Conflict: see x-error-codes",
+		},
+		errorCodes: []string{
+			"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
+			"COORDINATOR_WORKER_LIMIT_REACHED",
 		},
 		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}},
 		reqBody:    controllers.SessionOwnerRequest{},
@@ -3565,7 +3569,11 @@ func sessionOperations() []operation {
 			method: http.MethodPut, path: "/api/v1/sessions/{sessionId}/owner", id: "assignSessionOwner", tag: "sessions",
 			summary: "Assign or clear a worker's coordinator owner (live root only)",
 			respNotes: map[int]string{
-				http.StatusConflict: "Conflict: COORDINATOR_WORKER_LIMIT_REACHED,\nOWNER_REASSIGNMENT_IN_FLIGHT",
+				http.StatusConflict: "Conflict: see x-error-codes",
+			},
+			errorCodes: []string{
+				"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
+				"COORDINATOR_WORKER_LIMIT_REACHED", "OWNER_REASSIGNMENT_IN_FLIGHT",
 			},
 			pathParams: []any{controllers.SessionIDParam{}},
 			reqBody:    controllers.SessionOwnerRequest{},

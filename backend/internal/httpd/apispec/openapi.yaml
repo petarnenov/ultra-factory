@@ -4064,7 +4064,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Conflict: COORDINATOR_WORKER_LIMIT_REACHED'
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -4080,6 +4080,11 @@ paths:
       summary: Assign or clear a linked remote worker's local owner
       tags:
       - reports
+      x-error-codes:
+      - OWNER_CROSS_PROJECT
+      - OWNER_NOT_COORDINATOR
+      - OWNER_TERMINATED
+      - COORDINATOR_WORKER_LIMIT_REACHED
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -8211,9 +8216,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: |-
-            Conflict: COORDINATOR_WORKER_LIMIT_REACHED,
-            OWNER_REASSIGNMENT_IN_FLIGHT
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -8229,6 +8232,12 @@ paths:
       summary: Assign or clear a worker's coordinator owner (live root only)
       tags:
       - sessions
+      x-error-codes:
+      - OWNER_CROSS_PROJECT
+      - OWNER_NOT_COORDINATOR
+      - OWNER_TERMINATED
+      - COORDINATOR_WORKER_LIMIT_REACHED
+      - OWNER_REASSIGNMENT_IN_FLIGHT
   /api/v1/sessions/{sessionId}/ownership:
     get:
       operationId: getSessionOwnership

@@ -12478,7 +12478,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict: COORDINATOR_WORKER_LIMIT_REACHED */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -17376,8 +17376,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict: COORDINATOR_WORKER_LIMIT_REACHED,
-             *     OWNER_REASSIGNMENT_IN_FLIGHT */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;
