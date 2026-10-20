@@ -593,9 +593,8 @@ func (p *pilot) seedRootWorker(t *testing.T) domain.SessionID {
 }
 
 // TestCoordinatorTerminationEscalatesToRoot holds ADR 0010 sections 6 and 7:
-// termination escalates to the root. Nothing writes it yet, so it is skipped.
+// termination escalates to the root, listing the returned workers.
 func TestCoordinatorTerminationEscalatesToRoot(t *testing.T) {
-	t.Skip("known defect (reported on #227): nothing writes the coordinator_terminated root summary")
 	p := newPilot(t)
 	ctx := context.Background()
 	coord := p.mustSpawn(domain.KindCoordinator, p.root.ID, "auth area")
@@ -615,6 +614,62 @@ func TestCoordinatorTerminationEscalatesToRoot(t *testing.T) {
 	if got := p.deliv.receivedBy(p.root.ID, string(worker)); got != 1 {
 		t.Fatalf("the escalation does not list the returned worker %s", worker)
 	}
+}
+
+// TestCoordinatorTerminationEscalationDelivery covers the escalation's
+// delivery: immediate, retried, written once, and sent with no workers.
+func TestCoordinatorTerminationEscalationDelivery(t *testing.T) {
+	t.Run("no owned workers still escalates once", func(t *testing.T) {
+		p := newPilot(t)
+		coord := p.mustSpawn(domain.KindCoordinator, p.root.ID, "docs area")
+		if _, err := p.svc.Kill(context.Background(), coord); err != nil {
+			t.Fatalf("kill coordinator: %v", err)
+		}
+		for i := 0; i < 2; i++ {
+			if err := p.runDue(); err != nil {
+				t.Fatalf("delivery pass: %v", err)
+			}
+		}
+		if got := p.deliv.receivedBy(p.root.ID, "coordinator_terminated"); got != 1 {
+			t.Fatalf("root received %d escalations, want 1", got)
+		}
+	})
+
+	t.Run("immediate, retried after a failed delivery, and not duplicated by a second kill", func(t *testing.T) {
+		p := newPilot(t)
+		ctx := context.Background()
+		coord := p.mustSpawn(domain.KindCoordinator, p.root.ID, "auth area")
+		worker := p.mustSpawn(domain.KindWorker, coord, "")
+		if _, err := p.svc.Kill(ctx, coord); err != nil {
+			t.Fatalf("kill coordinator: %v", err)
+		}
+		// No clock advance: an escalation skips the summary cadence.
+		p.deliv.setFail(errors.New("root pane unavailable"))
+		_ = p.runDue()
+		if got := p.deliv.receivedBy(p.root.ID, "coordinator_terminated"); got != 0 {
+			t.Fatalf("a failed delivery was recorded as accepted %d times", got)
+		}
+		p.deliv.setFail(nil)
+		p.advance(time.Minute)
+		if err := p.runDue(); err != nil {
+			t.Fatalf("retry pass: %v", err)
+		}
+		// A second termination must not write another escalation.
+		_, _ = p.svc.Kill(ctx, coord)
+		p.advance(time.Minute)
+		for i := 0; i < 2; i++ {
+			_ = p.runDue()
+		}
+		if got := p.deliv.receivedBy(p.root.ID, "coordinator_terminated"); got != 1 {
+			t.Fatalf("root received %d escalations after retry and a second kill, want 1", got)
+		}
+		if got := p.deliv.receivedBy(p.root.ID, string(worker)); got != 1 {
+			t.Fatalf("the escalation does not list the returned worker %s", worker)
+		}
+		if p.ownerOf(worker) != "" {
+			t.Fatalf("worker owner = %q, want the root", p.ownerOf(worker))
+		}
+	})
 }
 
 func mustReports(t *testing.T, p *pilot) []domain.ReportRecord {

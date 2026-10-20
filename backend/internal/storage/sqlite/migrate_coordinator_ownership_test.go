@@ -120,6 +120,36 @@ VALUES ('ao-5', 'ao', 5, 'worker', 'claude-code', 'ao-1', '2026-10-19T10:00:00Z'
 	if err := db.QueryRow(`SELECT reason FROM remote_worker_owner_events WHERE host_id = 'host-build' ORDER BY id DESC LIMIT 1`).Scan(&reason); err != nil || reason != "coordinator_terminated" {
 		t.Fatalf("remote termination audit reason = %q err=%v", reason, err)
 	}
+
+	// The same statement writes the root escalation and links the worker.
+	var summaries, linked int
+	var state, esc string
+	if err := db.QueryRow(`SELECT count(*), COALESCE(MAX(state), ''), COALESCE(MAX(escalation_reason), '') FROM coordinator_summaries WHERE coordinator_session_id = 'ao-3'`).Scan(&summaries, &state, &esc); err != nil {
+		t.Fatal(err)
+	}
+	if summaries != 1 || state != "blocked" || esc != "coordinator_terminated" {
+		t.Fatalf("termination escalation = %d rows state=%q reason=%q", summaries, state, esc)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM coordinator_summary_workers WHERE worker_session_id = 'ao-4'`).Scan(&linked); err != nil || linked != 1 {
+		t.Fatalf("escalation worker links = %d err=%v, want 1", linked, err)
+	}
+	// A repeated terminal write is not a transition: no second escalation.
+	if _, err := db.Exec(`UPDATE sessions SET is_terminated = 1, updated_at = '2026-10-19T11:05:00Z' WHERE id = 'ao-3'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM coordinator_summaries WHERE coordinator_session_id = 'ao-3'`).Scan(&summaries); err != nil || summaries != 1 {
+		t.Fatalf("escalations after a repeated terminal write = %d err=%v, want 1", summaries, err)
+	}
+	// A restored coordinator that terminates again is a new event.
+	if _, err := db.Exec(`UPDATE sessions SET is_terminated = 0, updated_at = '2026-10-19T12:00:00Z' WHERE id = 'ao-3'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE sessions SET is_terminated = 1, updated_at = '2026-10-19T13:00:00Z' WHERE id = 'ao-3'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM coordinator_summaries WHERE coordinator_session_id = 'ao-3'`).Scan(&summaries); err != nil || summaries != 2 {
+		t.Fatalf("escalations after a second termination = %d err=%v, want 2", summaries, err)
+	}
 }
 
 func TestCoordinatorKindMigrationDownRefusesCoordinatorRows(t *testing.T) {
