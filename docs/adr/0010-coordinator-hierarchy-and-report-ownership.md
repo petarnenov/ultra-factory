@@ -811,11 +811,22 @@ Rules:
   same transaction that sets the terminal fact.
 - A failed spawn creates no session row, or a terminated row once provisioning
   began; either way it consumes no slot.
-- CO-3.1.1 must add a store operation, or extend session creation, so the
-  capacity count and the insert happen in one `inTx` under the store write
-  lock. A check-then-insert split across transactions is not acceptable.
-  Coordinator spawn also takes the project orchestrator lock, so it serializes
-  with root replacement. Concurrency tests are required.
+- The capacity count and the insert are serialized by the per-project
+  `ownership.Guard` lock, not by one store transaction. The spawn path runs the
+  runtime and workspace provisioning between the count and the insert, so a
+  single `inTx` cannot span them. This holds only while the daemon is the
+  single writer to SQLite (see the single-writer decision above); a second
+  writer, such as a CLI maintenance command opening the database, must take
+  the same boundary or add a store-level count-and-insert first. The SQLite
+  triggers enforce ownership rules, not the 2/3/6 limits.
+- Everything a decision rests on is read under that lock: the project's
+  `coordinators` config, the live-root check for a coordinator spawn, and the
+  census. A caller check made before the lock is only an early refusal; it is
+  repeated inside. The error order for a coordinator spawn is root caller
+  (`COORDINATOR_ROOT_REQUIRED`), then scope, then `COORDINATORS_DISABLED`, so a
+  non-root caller in a disabled project gets the 403. Coordinator spawn also
+  takes the project orchestrator lock, so it serializes with root
+  replacement. Concurrency tests are required.
 - Reassignment checks the target coordinator's count in the same transaction
   as the owner write. Reassignment to the root never changes the project total.
 - Existing workers and links are grandfathered. The limits apply to new
