@@ -766,3 +766,33 @@ func TestTickDoesNotReplayLegacyCloseNotificationsWithoutPRSnapshots(t *testing.
 		t.Fatalf("legacy completion replayed: %+v", state)
 	}
 }
+
+func TestTickDoesNotReplayLegacyMergeNotificationsWithoutOwnerSnapshot(t *testing.T) {
+	r, d, _, _, store := completionFixture(t)
+	notifier := &completionDaemon{fakeDaemon: d}
+	r.Daemon = notifier
+	legacy := CompletionAction{
+		Kind: ActionMerge, Status: CompletionActionCompleted,
+		PR: 150, MergeCommitSHA: "merge-old",
+	}
+	if err := store.SaveCompletion(CompletionState{Sessions: map[string]SessionCompletion{
+		"Linux/old-worker": {Host: "Linux", Session: "old-worker", Actions: map[string]CompletionAction{
+			"merge:150@" + head("0"): legacy,
+		}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, r)
+	state, _, err := store.Completion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Sessions["Linux/old-worker"].Actions["merge:150@"+head("0")].Notified {
+		t.Fatalf("legacy merge not consumed: %+v", state)
+	}
+	for _, id := range notifier.notifications {
+		if strings.Contains(id, "old-worker") {
+			t.Fatalf("legacy merge replayed: %v", notifier.notifications)
+		}
+	}
+}

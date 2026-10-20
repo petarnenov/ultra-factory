@@ -453,8 +453,8 @@ func (r *Runner) reconcileCompletion(ctx context.Context, facts Facts, now time.
 				if action.Kind == ActionMerge {
 					prs = []CompletedPR{{Number: action.PR, MergeCommitSHA: action.MergeCommitSHA}}
 				}
-				// Legacy close actions have no PR snapshot to report.
-				if action.Kind != ActionClose || len(prs) > 0 {
+				// Pre-upgrade actions have no owner snapshot; never replay them.
+				if action.Recipient != nil && (action.Kind != ActionClose || len(prs) > 0) {
 					if err := notifier.NotifyCompletion(ctx, session.Host, session.Session, actionKey, action.Kind, prs, action.Recipient); err != nil {
 						note := noteFor(notes, key)
 						note.Host, note.Session = session.Host, session.Session
