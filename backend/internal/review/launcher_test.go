@@ -633,9 +633,8 @@ func TestLauncherSpawnReplacesStalePane(t *testing.T) {
 	}
 }
 
-// directHostRuntime models the hybrid runtime's contract: Create persists a
-// "ptyhost-v1:"-prefixed handle and refuses a duplicate raw name, and Destroy of
-// the bare name must reach that direct pane.
+// directHostRuntime models hybrid Create (prefixed handle, duplicate name
+// refused) and Destroy of the bare name reaching that direct pane.
 type directHostRuntime struct {
 	fakeRuntime
 	panes map[string]bool

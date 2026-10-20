@@ -2096,13 +2096,8 @@ func (e *Engine) ArchiveReviewer(ctx stdctx.Context, workerID domain.SessionID) 
 	return err
 }
 
-// ReleaseFinishedReviewerPanes destroys the TUI reviewer pane of every review
-// that has no running pass left and clears its handle. A pane is kept when it
-// carries a resumable native agent session (the next pass reuses it, see
-// reviewerPaneReusable); otherwise nothing ever reaches it again and the agent
-// process would idle until the worker is torn down. Best effort: the verdict or
-// cancellation is already durable, so a failure is logged and left for the
-// next trigger's stale-pane replacement.
+// ReleaseFinishedReviewerPanes destroys idle TUI reviewer panes with no
+// resumable agent session. Best effort: the result is already durable.
 func (e *Engine) ReleaseFinishedReviewerPanes(ctx stdctx.Context, workerID domain.SessionID) {
 	ctx = stdctx.WithoutCancel(ctx)
 	unlock := e.lockWorker(workerID)
