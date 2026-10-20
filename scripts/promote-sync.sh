@@ -73,9 +73,8 @@ git fetch --quiet --prune "$remote"
 git rev-parse --verify --quiet "$remote/$source_branch^{commit}" >/dev/null ||
 	die "$remote/$source_branch not found; check --remote and --source"
 
-# Any version bump at the head of the source branch would satisfy the wait
-# below, including the previous release's. If the branch holds commits the
-# source lacks, the promotion has not landed, so refuse instead of syncing early.
+# The wait below accepts any bump, even the previous release's. Commits the
+# source lacks mean the promotion has not landed, so refuse.
 if [ "$allow_ahead" != "1" ] && ! git merge-base --is-ancestor HEAD "$remote/$source_branch"; then
 	die "$branch has commits that $remote/$source_branch lacks; merge the promotion pull request ($branch -> $source_branch) first, or pass --allow-ahead"
 fi
