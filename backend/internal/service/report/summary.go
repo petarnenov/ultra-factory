@@ -191,9 +191,8 @@ func readyPRInvalid(number int, reason, message string) error {
 	return apierr.Invalid("READY_PR_INVALID", message, map[string]any{"number": number, "reason": reason})
 }
 
-// resolveReadyPRs checks every entry against live state and returns the
-// entries with their approved review run ids. Any bad entry rejects the
-// whole summary, so nothing is stored.
+// resolveReadyPRs checks each entry against live state and adds its run id.
+// One bad entry rejects the whole summary, so nothing is stored.
 func (s *SummaryService) resolveReadyPRs(ctx context.Context, coordinator domain.SessionRecord, in []domain.ReadyPR) ([]domain.ReadyPR, error) {
 	if len(in) == 0 {
 		return nil, nil
