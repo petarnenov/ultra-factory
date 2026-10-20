@@ -226,10 +226,14 @@ rules are the
 flowchart TD
     R[Root orchestrator<br/>hub] --> C1[Coordinator A<br/>hub, scope A]
     R --> C2[Coordinator B<br/>hub, scope B]
-    C1 --> W1[Workers 1-3<br/>paired hosts]
-    C2 --> W4[Workers 4-6<br/>paired hosts]
-    R -.->|direct delegation, preserved| W7[Root-owned worker]
+    C1 --> W1[Up to 3 of the 6 workers<br/>paired hosts]
+    C2 --> W2[Up to 3 of the 6 workers<br/>paired hosts]
+    R -.->|direct delegation, uses a slot in the same six| W3[Root-owned worker<br/>owner NULL]
 ```
+
+The project total is **six active workers**, not six plus direct delegation:
+coordinator-owned workers and root-owned workers draw from the same six slots. A
+root-owned direct worker is an alternative to an owned worker, never a seventh.
 
 Deployment-relevant rules:
 

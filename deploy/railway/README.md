@@ -1007,9 +1007,11 @@ hub (coordination only)
         │  remote links (owner = the coordinator's local session id)
         ▼
 paired hosts (implementation only)
-  workers 1-3                owned by A, at most three active
-  workers 4-6                owned by B, at most three active
-  root-owned worker (optional) direct root delegation, owner NULL
+  up to six active workers total, local or remote
+    workers 1-3              owned by A, at most three active
+    workers 4-6              owned by B, at most three active
+    root-owned worker(s)     direct root delegation, owner NULL;
+                             each occupies one of the same six slots
 ```
 
 - **Coordinators run where the root runs.** The root spawns them on the hub's
@@ -1018,8 +1020,8 @@ paired hosts (implementation only)
   `403 COORDINATOR_ROOT_REQUIRED`.
 - **Workers run on the paired hosts.** A coordinator can spawn a remote worker
   (`ao spawn --host` from its session) and owns it through the remote link. A
-  root-owned direct worker keeps working exactly as before and needs no
-  coordinator.
+  root-owned direct worker keeps working exactly as before, needs no
+  coordinator, and counts toward the same six.
 - **Ownership is a hub fact.** A remote link stores a local coordinator session
   id; that id is never sent to the peer daemon, so a worker host cannot see or
   address the topology.
