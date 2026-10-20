@@ -240,7 +240,7 @@ func (c *Coordinator) runReportsLocked(ctx context.Context) (time.Duration, erro
 		// example a coalesced stuck report, so read the deadlines back.
 		fresh, err := c.store.ListPendingReportSchedule(ctx, reportScheduleScanLimit)
 		if err != nil {
-			return c.retryDelay, nil
+			return c.retryDelay, nil //nolint:nilerr // retry; the pass itself succeeded
 		}
 		schedule = fresh
 	}
