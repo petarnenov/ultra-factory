@@ -75,6 +75,10 @@ func TestClaudeResumeHookConfirmsNativeIdentityForCurrentLaunch(t *testing.T) {
 	t.Setenv("AO_DATA_DIR", t.TempDir())
 	t.Setenv("AO_SESSION_ID", string(session.ID))
 	t.Setenv("AO_RUNTIME_LAUNCH_ID", "launch-resumed")
+	// Host shells leak markers that divert this worker hook: a headless
+	// Claude entrypoint counts as a side run and a review id reroutes it.
+	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
+	t.Setenv("AO_REVIEW_SESSION_ID", "")
 
 	var stdout, stderr bytes.Buffer
 	command := cli.NewRootCommand(cli.Deps{
