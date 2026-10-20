@@ -807,6 +807,12 @@ Rules:
   Direct delegation works within the total.
 - A coordinator's own three-worker cap applies even when the project total has
   room.
+
+> Amended 2026-10-20: the two rules above keep their logic, but the numbers
+> are the defaults. The project total is the effective `maxWorkers` (up to
+> 12), and a coordinator's cap is its own `workerLimit` (default
+> `maxWorkersPerCoordinator`, up to 6). The same applies to every other fixed
+> 2, 3 or 6 in this section and in sections 7 and 12.
 - Termination releases coordinator slots, owner slots, and project slots in the
   same transaction that sets the terminal fact.
 - A failed spawn creates no session row, or a terminated row once provisioning
@@ -1249,7 +1255,12 @@ This amendment supersedes the "raising them needs a new decision" rule in
 section 8: the project ceilings become configurable up to a new system hard
 maximum. It also supersedes the section 9 statement that the daemon does not
 refuse a local worker spawn on the hub, for coordinator-owned workers
-(decision 4). Everything else in sections 1 to 15 stays as written. The
+(decision 4). Everything else in sections 1 to 15 stays as written, except
+that wherever they state the fixed numbers 2, 3 or 6 (the live coordinator
+count, the "three-worker cap", the "<3 active workers" reassignment guards and
+the project total), read the effective limits: the defaults 2 / 3 / 6, or the
+configured values and the coordinator's own `workerLimit`, up to the hard
+maximum 4 / 6 / 12. The rules built on those numbers do not change. The
 implementation tasks are CO-5.2 (limits), CO-5.3 (host placement), CO-5.4
 (CLI), CO-5.5 (prompts), CO-5.7 (agent profiles) and CO-5.6 (UI).
 
