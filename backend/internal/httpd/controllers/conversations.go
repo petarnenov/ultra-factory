@@ -825,15 +825,28 @@ func writeConversationSnapshot(w http.ResponseWriter, r *http.Request, response 
 	etag := `W/"` + hex.EncodeToString(sum[:16]) + `"`
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-cache")
-	for _, candidate := range strings.Split(r.Header.Get("If-None-Match"), ",") {
-		if strings.TrimSpace(candidate) == etag {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
+	if ifNoneMatchHits(r.Header.Values("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(append(body, '\n'))
+}
+
+// ifNoneMatchHits applies RFC 9110 weak comparison: "*" matches, and the
+// weakness prefix is ignored on both sides.
+func ifNoneMatchHits(values []string, etag string) bool {
+	want := strings.TrimPrefix(etag, "W/")
+	for _, value := range values {
+		for _, candidate := range strings.Split(value, ",") {
+			candidate = strings.TrimSpace(candidate)
+			if candidate == "*" || strings.TrimPrefix(candidate, "W/") == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // snapshotRevision is the newest write time, in Unix nanoseconds, across the

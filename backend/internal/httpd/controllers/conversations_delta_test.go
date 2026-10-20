@@ -157,3 +157,20 @@ func TestConversationUnchangedAnswersNotModified(t *testing.T) {
 		}
 	}
 }
+
+func TestConversationIfNoneMatchUsesWeakComparison(t *testing.T) {
+	base := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	first, _ := getConversation(t, deltaSnapshot(base), "", nil)
+	etag := first.Header.Get("ETag")
+	strong := etag[len("W/"):]
+	for _, header := range []string{"*", strong, `"other", ` + etag} {
+		resp, _ := getConversation(t, deltaSnapshot(base), "", http.Header{"If-None-Match": {header}})
+		if resp.StatusCode != http.StatusNotModified {
+			t.Fatalf("If-None-Match %q answered %d, want 304", header, resp.StatusCode)
+		}
+	}
+	resp, _ := getConversation(t, deltaSnapshot(base), "", http.Header{"If-None-Match": {`"other"`}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a different tag answered %d, want 200", resp.StatusCode)
+	}
+}
