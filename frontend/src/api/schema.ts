@@ -13557,8 +13557,7 @@ export interface operations {
                     "application/json": components["schemas"]["SpawnSessionResponse"];
                 };
             };
-            /** @description Bad Request: COORDINATOR_SCOPE_REQUIRED,
-             *     COORDINATOR_SCOPE_TOO_LONG, REMOTE_SPAWN_WORKER_REQUIRED */
+            /** @description Bad Request: also codes in x-error-codes */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13585,7 +13584,7 @@ export interface operations {
                     "application/json": components["schemas"]["APIError"];
                 };
             };
-            /** @description Conflict: coordinator codes in x-error-codes */
+            /** @description Conflict: see x-error-codes */
             409: {
                 headers: {
                     [name: string]: unknown;

@@ -4081,10 +4081,11 @@ paths:
       tags:
       - reports
       x-error-codes:
-      - OWNER_CROSS_PROJECT
-      - OWNER_NOT_COORDINATOR
-      - OWNER_TERMINATED
-      - COORDINATOR_WORKER_LIMIT_REACHED
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -4961,9 +4962,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: |-
-            Bad Request: COORDINATOR_SCOPE_REQUIRED,
-            COORDINATOR_SCOPE_TOO_LONG, REMOTE_SPAWN_WORKER_REQUIRED
+          description: 'Bad Request: also codes in x-error-codes'
         "403":
           content:
             application/json:
@@ -4981,7 +4980,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/APIError'
-          description: 'Conflict: coordinator codes in x-error-codes'
+          description: 'Conflict: see x-error-codes'
         "500":
           content:
             application/json:
@@ -4992,14 +4991,17 @@ paths:
       tags:
       - sessions
       x-error-codes:
-      - COORDINATORS_DISABLED
-      - COORDINATOR_ROOT_REQUIRED
-      - COORDINATOR_SCOPE_REQUIRED
-      - COORDINATOR_SCOPE_TOO_LONG
-      - COORDINATOR_LIMIT_REACHED
-      - COORDINATOR_WORKER_LIMIT_REACHED
-      - PROJECT_WORKER_LIMIT_REACHED
-      - REMOTE_SPAWN_WORKER_REQUIRED
+        "400":
+        - COORDINATOR_SCOPE_REQUIRED
+        - COORDINATOR_SCOPE_TOO_LONG
+        - REMOTE_SPAWN_WORKER_REQUIRED
+        "403":
+        - COORDINATOR_ROOT_REQUIRED
+        "409":
+        - COORDINATORS_DISABLED
+        - COORDINATOR_LIMIT_REACHED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - PROJECT_WORKER_LIMIT_REACHED
   /api/v1/sessions/{sessionId}:
     get:
       operationId: getSession
@@ -8233,11 +8235,12 @@ paths:
       tags:
       - sessions
       x-error-codes:
-      - OWNER_CROSS_PROJECT
-      - OWNER_NOT_COORDINATOR
-      - OWNER_TERMINATED
-      - COORDINATOR_WORKER_LIMIT_REACHED
-      - OWNER_REASSIGNMENT_IN_FLIGHT
+        "409":
+        - OWNER_CROSS_PROJECT
+        - OWNER_NOT_COORDINATOR
+        - OWNER_TERMINATED
+        - COORDINATOR_WORKER_LIMIT_REACHED
+        - OWNER_REASSIGNMENT_IN_FLIGHT
   /api/v1/sessions/{sessionId}/ownership:
     get:
       operationId: getSessionOwnership

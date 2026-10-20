@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 
 	jsonschema "github.com/swaggest/jsonschema-go"
@@ -134,7 +135,11 @@ func Build() ([]byte, error) {
 		}
 		if len(op.errorCodes) > 0 {
 			if o, ok := oc.(interface{ Operation() *openapi31.Operation }); ok {
-				o.Operation().WithMapOfAnythingItem("x-error-codes", op.errorCodes)
+				byStatus := map[string][]string{}
+				for status, codes := range op.errorCodes {
+					byStatus[strconv.Itoa(status)] = codes
+				}
+				o.Operation().WithMapOfAnythingItem("x-error-codes", byStatus)
 			}
 		}
 		if err := r.AddOperation(oc); err != nil {
@@ -703,9 +708,9 @@ type operation struct {
 	// handlers that accept an empty body as a meaningful default.
 	optionalReqBody bool
 	resps           []respUnit
-	contentTypes    map[int]string // optional non-JSON response content types by status
-	respNotes       map[int]string // optional response descriptions by status
-	errorCodes      []string       // optional x-error-codes extension
+	contentTypes    map[int]string   // optional non-JSON response content types by status
+	respNotes       map[int]string   // optional response descriptions by status
+	errorCodes      map[int][]string // x-error-codes by status
 }
 
 func operations() []operation {
@@ -881,9 +886,11 @@ func reportOperations() []operation {
 		respNotes: map[int]string{
 			http.StatusConflict: "Conflict: see x-error-codes",
 		},
-		errorCodes: []string{
-			"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
-			"COORDINATOR_WORKER_LIMIT_REACHED",
+		errorCodes: map[int][]string{
+			http.StatusConflict: {
+				"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
+				"COORDINATOR_WORKER_LIMIT_REACHED",
+			},
 		},
 		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}},
 		reqBody:    controllers.SessionOwnerRequest{},
@@ -2727,14 +2734,17 @@ func sessionOperations() []operation {
 			method: http.MethodPost, path: "/api/v1/sessions", id: "spawnSession", tag: "sessions",
 			summary: "Spawn a new agent session",
 			respNotes: map[int]string{
-				http.StatusBadRequest: "Bad Request: COORDINATOR_SCOPE_REQUIRED,\nCOORDINATOR_SCOPE_TOO_LONG, REMOTE_SPAWN_WORKER_REQUIRED",
+				http.StatusBadRequest: "Bad Request: also codes in x-error-codes",
 				http.StatusForbidden:  "Forbidden: COORDINATOR_ROOT_REQUIRED",
-				http.StatusConflict:   "Conflict: coordinator codes in x-error-codes",
+				http.StatusConflict:   "Conflict: see x-error-codes",
 			},
-			errorCodes: []string{
-				"COORDINATORS_DISABLED", "COORDINATOR_ROOT_REQUIRED", "COORDINATOR_SCOPE_REQUIRED",
-				"COORDINATOR_SCOPE_TOO_LONG", "COORDINATOR_LIMIT_REACHED", "COORDINATOR_WORKER_LIMIT_REACHED",
-				"PROJECT_WORKER_LIMIT_REACHED", "REMOTE_SPAWN_WORKER_REQUIRED",
+			errorCodes: map[int][]string{
+				http.StatusBadRequest: {"COORDINATOR_SCOPE_REQUIRED", "COORDINATOR_SCOPE_TOO_LONG", "REMOTE_SPAWN_WORKER_REQUIRED"},
+				http.StatusForbidden:  {"COORDINATOR_ROOT_REQUIRED"},
+				http.StatusConflict: {
+					"COORDINATORS_DISABLED", "COORDINATOR_LIMIT_REACHED",
+					"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED",
+				},
 			},
 			reqBody: controllers.SpawnSessionRequest{},
 			resps: []respUnit{
@@ -3571,9 +3581,11 @@ func sessionOperations() []operation {
 			respNotes: map[int]string{
 				http.StatusConflict: "Conflict: see x-error-codes",
 			},
-			errorCodes: []string{
-				"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
-				"COORDINATOR_WORKER_LIMIT_REACHED", "OWNER_REASSIGNMENT_IN_FLIGHT",
+			errorCodes: map[int][]string{
+				http.StatusConflict: {
+					"OWNER_CROSS_PROJECT", "OWNER_NOT_COORDINATOR", "OWNER_TERMINATED",
+					"COORDINATOR_WORKER_LIMIT_REACHED", "OWNER_REASSIGNMENT_IN_FLIGHT",
+				},
 			},
 			pathParams: []any{controllers.SessionIDParam{}},
 			reqBody:    controllers.SessionOwnerRequest{},
