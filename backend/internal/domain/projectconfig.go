@@ -83,9 +83,8 @@ type ProjectConfig struct {
 	// after spawn.
 	AutoReview bool `json:"autoReview,omitempty"`
 
-	// CIGate makes expensive PR CI wait for AO review. The effective value is
-	// resolved once at spawn and stored on the session (CIGateActive), so a
-	// change affects only new sessions. The default is off.
+	// CIGate holds PR CI until AO review; resolved once at spawn onto the
+	// session (CIGateActive). Default off.
 	CIGate CIGateConfig `json:"ciGate,omitempty"`
 
 	// TerminateOnPRMerge controls auto-teardown of spawned workers once all

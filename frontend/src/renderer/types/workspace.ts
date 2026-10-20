@@ -157,7 +157,7 @@ export type WorkspaceSession = {
 	};
 	/** Whether the daemon may automatically review this session after it becomes idle. */
 	autoReviewEnabled?: boolean;
-	/** Whether this session opens draft-first under the project's CI gate. Read-only. */
+	/** True when the session opens draft-first under the CI gate. */
 	ciGateActive?: boolean;
 	kind?: SessionKind;
 	/** Worker owner: null is root-owned, undefined is not reported. */

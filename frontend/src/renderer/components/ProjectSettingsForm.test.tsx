@@ -896,12 +896,12 @@ describe("ProjectSettingsForm", () => {
 		expect(screen.queryByRole("button", { name: "Without auto-review" })).not.toBeInTheDocument();
 
 		await userEvent.click(gate);
-		await userEvent.click(screen.getByRole("menuitemradio", { name: "After AO review" }));
+		await userEvent.click(screen.getByRole("menuitem", { name: "After AO review" }));
 		const fallback = await screen.findByRole("button", { name: "Without auto-review" });
 		expect(fallback).toHaveTextContent("Open ready PR");
 
 		await userEvent.click(fallback);
-		await userEvent.click(screen.getByRole("menuitemradio", { name: "Keep draft until marked ready" }));
+		await userEvent.click(screen.getByRole("menuitem", { name: "Keep draft until marked ready" }));
 
 		submitSettings();
 
@@ -932,14 +932,14 @@ describe("ProjectSettingsForm", () => {
 		expect(await screen.findByRole("button", { name: "Without auto-review" })).toHaveTextContent("Keep draft until marked ready");
 
 		await userEvent.click(gate);
-		await userEvent.click(screen.getByRole("menuitemradio", { name: "Off" }));
+		await userEvent.click(screen.getByRole("menuitem", { name: "Off" }));
 		await userEvent.click(screen.getByRole("button", { name: "CI gate" }));
-		await userEvent.click(screen.getByRole("menuitemradio", { name: "After AO review" }));
+		await userEvent.click(screen.getByRole("menuitem", { name: "After AO review" }));
 		const fallback = await screen.findByRole("button", { name: "Without auto-review" });
 		await userEvent.click(fallback);
-		await userEvent.click(screen.getByRole("menuitemradio", { name: "Open ready PR" }));
+		await userEvent.click(screen.getByRole("menuitem", { name: "Open ready PR" }));
 		await userEvent.click(screen.getByRole("button", { name: "CI gate" }));
-		await userEvent.click(screen.getByRole("menuitemradio", { name: "Off" }));
+		await userEvent.click(screen.getByRole("menuitem", { name: "Off" }));
 
 		submitSettings();
 

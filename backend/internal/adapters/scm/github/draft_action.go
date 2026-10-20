@@ -23,9 +23,8 @@ const convertToDraftMutation = `mutation ConvertToDraft($id: ID!) {
   convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } }
 }`
 
-// SetPullRequestDraft marks a pull request ready for review or converts it
-// back to a draft through the GraphQL API. The flip needs a user or app token;
-// it is done with the account token the daemon already uses for merges.
+// SetPullRequestDraft flips a PR between draft and ready via GraphQL, using
+// the account token the daemon already uses for merges.
 func (p *Provider) SetPullRequestDraft(ctx context.Context, request ports.SCMDraftRequest) error {
 	if p == nil || p.client == nil {
 		return fmt.Errorf("github scm: draft setter is not configured")

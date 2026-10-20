@@ -8,7 +8,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/gen"
 )
 
-// RecordSessionPRReadyEvent appends the audit row for a manual draft/ready flip.
+// RecordSessionPRReadyEvent appends the audit row for a manual flip.
 func (s *Store) RecordSessionPRReadyEvent(ctx context.Context, ev domain.SessionPRReadyEvent) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -25,7 +25,7 @@ func (s *Store) RecordSessionPRReadyEvent(ctx context.Context, ev domain.Session
 	return nil
 }
 
-// ListSessionPRReadyEvents returns a session's manual draft/ready flips in order.
+// ListSessionPRReadyEvents returns a session's manual flips in order.
 func (s *Store) ListSessionPRReadyEvents(ctx context.Context, id domain.SessionID) ([]domain.SessionPRReadyEvent, error) {
 	rows, err := s.qr.ListSessionPRReadyEvents(ctx, id)
 	if err != nil {

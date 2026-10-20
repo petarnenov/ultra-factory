@@ -20,10 +20,8 @@ type readyStore interface {
 	RecordSessionPRReadyEvent(ctx context.Context, ev domain.SessionPRReadyEvent) error
 }
 
-// requireReadyAuthority lets only the project root and the target's owning
-// coordinator flip the draft flag. A worker never can: the gate must not be
-// bypassable by the agent it gates. An anonymous caller is a person or a
-// remote host and passes.
+// requireReadyAuthority allows only the root and the owning coordinator; a
+// worker must not bypass its own gate. Anonymous callers (people) pass.
 func requireReadyAuthority(ctx context.Context, store readyStore, target domain.SessionRecord, requestedBy domain.SessionID) error {
 	if requestedBy == "" {
 		return nil

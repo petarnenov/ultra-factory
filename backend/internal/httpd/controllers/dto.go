@@ -2546,13 +2546,12 @@ type MergePRResponse struct {
 type SetPRReadyRequest struct {
 	// Ready true marks the PR ready for review; false converts it to a draft.
 	Ready bool `json:"ready"`
-	// RequestedBySessionID optionally names the calling session. Anyone but
-	// the project root or the owning coordinator is refused with 403
-	// CI_GATE_FORBIDDEN.
+	// RequestedBySessionID names the caller; non-root, non-owner callers get
+	// 403 CI_GATE_FORBIDDEN.
 	RequestedBySessionID string `json:"requestedBySessionId,omitempty"`
 }
 
-// SetPRReadyResponse is the body of POST /api/v1/sessions/{sessionId}/pr/ready (200).
+// SetPRReadyResponse is the 200 body of POST /sessions/{sessionId}/pr/ready.
 type SetPRReadyResponse struct {
 	OK       bool   `json:"ok"`
 	PRURL    string `json:"prUrl"`
