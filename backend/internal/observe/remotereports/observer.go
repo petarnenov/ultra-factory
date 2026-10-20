@@ -404,14 +404,14 @@ func (o *Observer) settle(ctx context.Context, projectID domain.ProjectID, items
 func (o *Observer) acknowledge(ctx context.Context, items []*pulled, pass *settlePass) {
 	at := o.now().UTC()
 	for _, item := range items {
-		ids := make([]string, len(item.fresh))
-		for i, report := range item.fresh {
-			ids[i] = report.ID
-		}
 		key := linkID(item.link.HostID, item.link.RemoteSessionID)
 		// Retry failed writes too; until one lands, pull skips these IDs
 		// via the in-memory set, even if the host ack fails.
 		o.mu.Lock()
+		ids := make([]string, 0, len(item.fresh)+len(o.unrecorded[key]))
+		for _, report := range item.fresh {
+			ids = append(ids, report.ID)
+		}
 		for id := range o.unrecorded[key] {
 			ids = append(ids, id)
 		}
