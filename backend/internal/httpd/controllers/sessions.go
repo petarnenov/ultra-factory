@@ -146,6 +146,10 @@ type sessionMessageOptionsSender interface {
 	SendWithOptions(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) error
 }
 
+type sessionMessageDeliverySender interface {
+	SendWithDelivery(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error)
+}
+
 // ActivityRecorder applies an agent activity-state signal to a session. It is
 // satisfied directly by *lifecycle.Manager: an activity signal is a pure
 // lifecycle reduction (no runtime/workspace teardown), so it bypasses
@@ -1984,14 +1988,24 @@ func (c *SessionsController) send(w http.ResponseWriter, r *http.Request) {
 		attachment = &decoded
 	}
 	message := domain.SanitizeControlChars(in.Message)
-	var err error
-	if in.UserAuthored || in.SenderSessionID != "" {
+	options := ports.MessageDeliveryOptions{AuthoredByUser: in.UserAuthored, SenderSessionID: in.SenderSessionID}
+	var (
+		delivery *SendSessionMessageDelivery
+		err      error
+	)
+	if sender, ok := c.Svc.(sessionMessageDeliverySender); ok {
+		out, sendErr := sender.SendWithDelivery(r.Context(), sessionID(r), message, attachment, options)
+		err = sendErr
+		if err == nil && out.Known {
+			delivery = &SendSessionMessageDelivery{Queued: out.Queued}
+		}
+	} else if in.UserAuthored || in.SenderSessionID != "" {
 		sender, ok := c.Svc.(sessionMessageOptionsSender)
 		if !ok {
 			apispec.NotImplemented(w, r, "POST", "/api/v1/sessions/{sessionId}/send")
 			return
 		}
-		err = sender.SendWithOptions(r.Context(), sessionID(r), message, attachment, ports.MessageDeliveryOptions{AuthoredByUser: in.UserAuthored, SenderSessionID: in.SenderSessionID})
+		err = sender.SendWithOptions(r.Context(), sessionID(r), message, attachment, options)
 	} else {
 		err = c.Svc.Send(r.Context(), sessionID(r), message, attachment)
 	}
@@ -1999,7 +2013,7 @@ func (c *SessionsController) send(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, SendSessionMessageResponse{OK: true, SessionID: sessionID(r), Message: message})
+	envelope.WriteJSON(w, http.StatusOK, SendSessionMessageResponse{OK: true, SessionID: sessionID(r), Message: message, Delivery: delivery})
 }
 
 func (c *SessionsController) delegateTask(w http.ResponseWriter, r *http.Request) {

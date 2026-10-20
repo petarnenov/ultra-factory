@@ -2730,6 +2730,9 @@ func (f *fakeCommander) Send(_ context.Context, id domain.SessionID, message str
 func (f *fakeCommander) SendWithOptions(_ context.Context, id domain.SessionID, message string, _ *ports.SpawnAttachment, _ ports.MessageDeliveryOptions) error {
 	return f.Send(context.Background(), id, message, nil)
 }
+func (f *fakeCommander) SendWithDelivery(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
+	return ports.MessageDelivery{}, f.SendWithOptions(ctx, id, message, attachment, options)
+}
 func (f *fakeCommander) RunBackgroundTask(ctx context.Context, id domain.SessionID, systemPrompt, prompt string) (string, error) {
 	call := backgroundTaskCall{
 		ctx: ctx, id: id, systemPrompt: systemPrompt, prompt: prompt,

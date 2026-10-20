@@ -2469,9 +2469,24 @@ func (s *Service) relayChatTurn(
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
 ) (string, error) {
-	controller, release, err := s.workingController(ctx, id)
+	turn, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
 	if err != nil {
 		return "", err
+	}
+	return turn.ID, nil
+}
+
+// relayConversationTurn records and dispatches one relayed message, returning
+// the accepted turn so a caller can see whether the agent can read it now.
+func (s *Service) relayConversationTurn(
+	ctx context.Context,
+	id domain.SessionID,
+	text, clientMessageID string,
+	options ports.MessageDeliveryOptions,
+) (domain.ConversationTurn, error) {
+	controller, release, err := s.workingController(ctx, id)
+	if err != nil {
+		return domain.ConversationTurn{}, err
 	}
 	defer release()
 	msg := s.resolveSteerSender(ctx, ports.ChatUserMessage{
@@ -2481,14 +2496,29 @@ func (s *Service) relayChatTurn(
 	})
 	turn, err := controller.Send(ctx, msg)
 	if err != nil {
-		return "", err
+		return domain.ConversationTurn{}, err
 	}
-	return turn.ID, nil
+	return turn, nil
 }
 
 // RelaySessionChatTurn preserves cooperative sender identity and automation origin.
 func (s *Service) RelaySessionChatTurn(ctx context.Context, id domain.SessionID, text, clientMessageID string, options ports.MessageDeliveryOptions) (string, error) {
 	return s.relayChatTurn(ctx, id, text, clientMessageID, options)
+}
+
+// RelaySessionChatTurnDelivery is RelaySessionChatTurn plus the controller's
+// outcome for the accepted message.
+func (s *Service) RelaySessionChatTurnDelivery(
+	ctx context.Context,
+	id domain.SessionID,
+	text, clientMessageID string,
+	options ports.MessageDeliveryOptions,
+) (ports.MessageDelivery, error) {
+	turn, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
+	if err != nil {
+		return ports.MessageDelivery{}, err
+	}
+	return ports.MessageDelivery{Known: true, Queued: turn.State == domain.TurnStateQueued}, nil
 }
 
 // StopChat releases a session's controller.

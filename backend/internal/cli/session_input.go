@@ -24,10 +24,7 @@ type sessionInputOptions struct {
 // conversationInputSnapshotDTO is the part of the conversation snapshot these
 // commands read. Pending structured inputs are timeline activities.
 type conversationInputSnapshotDTO struct {
-	SessionID string `json:"sessionId"`
-	// Controller reports whether a turn is already running; send reads it to
-	// tell a caller its message can only be queued.
-	Controller string                         `json:"controller,omitempty"`
+	SessionID  string                         `json:"sessionId"`
 	Activities []conversationInputActivityDTO `json:"activities"`
 }
 

@@ -10,8 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-
-	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 type sendOptions struct {
@@ -47,6 +45,16 @@ type steerOrSendAPIResponse struct {
 	ActivityID     string `json:"activityId"`
 	State          string `json:"state"`
 	Duplicate      bool   `json:"duplicate"`
+}
+
+// sendAPIResponse mirrors the daemon's send acknowledgement. Delivery is
+// absent on a daemon that cannot report one, which is not "delivered".
+type sendAPIResponse struct {
+	Delivery *sendAPIDelivery `json:"delivery,omitempty"`
+}
+
+type sendAPIDelivery struct {
+	Queued bool `json:"queued"`
 }
 
 func newSendCommand(ctx *commandContext) *cobra.Command {
@@ -113,54 +121,36 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 	return c.steerMessage(ctx, path, message, senderSessionID, strings.TrimSpace(opts.clientMessageID), opts.recoverOnly)
 }
 
-// sendTarget is what the daemon showed about the session just before the
-// message was accepted.
-type sendTarget struct {
-	pendingInputs []pendingSessionInput
-	busy          bool
-}
-
-// plainSend sends the message, then explains what the target can read now.
-// A failed state read never changes whether the send itself succeeded.
+// plainSend explains a queue the daemon reports. The outcome comes from the
+// accepted send, so the note cannot describe a state the delivery never saw.
 func (c *commandContext) plainSend(
 	ctx context.Context,
 	path, session, message, senderSessionID string,
 	userAuthored bool,
 ) error {
-	target := c.sendTargetState(ctx, session)
+	var res sendAPIResponse
 	if err := c.postJSON(ctx, path+"/send", sendAPIRequest{
 		Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored,
-	}, nil); err != nil {
+	}, &res); err != nil {
 		return err
 	}
-	return c.writeSendTarget(session, target)
+	if res.Delivery == nil || !res.Delivery.Queued {
+		return nil
+	}
+	return c.writeQueuedSend(ctx, session)
 }
 
-// sendTargetState reads the two facts that decide whether a message can reach
-// the agent now: unanswered structured inputs, and a turn already running.
-func (c *commandContext) sendTargetState(ctx context.Context, session string) sendTarget {
-	var snapshot conversationInputSnapshotDTO
-	if err := c.getJSON(ctx, "sessions/"+url.PathEscape(session)+"/conversation", &snapshot); err == nil {
-		return sendTarget{
-			pendingInputs: pendingInputsFromActivities(snapshot.Activities),
-			busy:          snapshot.Controller == "busy",
-		}
-	}
-	// A terminal-mode session has no conversation; its activity carries the
-	// same answer.
-	var res sessionResponse
-	if err := c.getJSON(ctx, "sessions/"+url.PathEscape(session), &res); err != nil {
-		return sendTarget{}
-	}
-	return sendTarget{busy: res.Session.Activity.State == string(domain.ActivityActive)}
-}
-
-// writeSendTarget reports what the caller's message is waiting behind. A send
-// the agent can read immediately stays silent, as it always has.
-func (c *commandContext) writeSendTarget(session string, target sendTarget) error {
+// writeQueuedSend names what the accepted message waits behind. The input list
+// only explains the confirmed queue; failing to read it keeps the turn note.
+func (c *commandContext) writeQueuedSend(ctx context.Context, session string) error {
 	out := c.deps.Out
-	if len(target.pendingInputs) > 0 {
-		count := len(target.pendingInputs)
+	var snapshot conversationInputSnapshotDTO
+	pendingInputs := []pendingSessionInput(nil)
+	if err := c.getJSON(ctx, "sessions/"+url.PathEscape(session)+"/conversation", &snapshot); err == nil {
+		pendingInputs = pendingInputsFromActivities(snapshot.Activities)
+	}
+	if len(pendingInputs) > 0 {
+		count := len(pendingInputs)
 		unblocker := "the question is"
 		if count > 1 {
 			unblocker = "the questions are"
@@ -171,20 +161,17 @@ func (c *commandContext) writeSendTarget(session string, target sendTarget) erro
 			count, pluralS(count), session, unblocker); err != nil {
 			return err
 		}
-		for _, input := range target.pendingInputs {
+		for _, input := range pendingInputs {
 			if _, err := fmt.Fprintf(out, "  %s\n", c.sessionInputAnswerHint(session, input)); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if target.busy {
-		_, err := fmt.Fprintf(out,
-			"Message accepted and queued behind the turn already running on session %s;"+
-				" the agent reads it when that turn ends.\n", session)
-		return err
-	}
-	return nil
+	_, err := fmt.Fprintf(out,
+		"Message accepted and queued behind the turn already running on session %s;"+
+			" the agent reads it when that turn ends.\n", session)
+	return err
 }
 
 func (c *commandContext) steerMessage(

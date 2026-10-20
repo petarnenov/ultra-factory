@@ -5740,6 +5740,34 @@ func TestInitialPromptIsAttributedToTheUser(t *testing.T) {
 	}
 }
 
+// A relayed message reports what the accepted send did: the agent read it, or
+// it waits behind the turn already running. Callers must not infer that later.
+func TestRelaySessionChatTurnDeliveryReportsTheAcceptedQueueOutcome(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	delivery, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "first", "c1", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("idle relay: %v", err)
+	}
+	if !delivery.Known || delivery.Queued {
+		t.Fatalf("idle relay delivery = %+v, want known and not queued", delivery)
+	}
+
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+
+	delivery, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "second", "c2", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("busy relay: %v", err)
+	}
+	if !delivery.Known || !delivery.Queued {
+		t.Fatalf("busy relay delivery = %+v, want known and queued", delivery)
+	}
+}
+
 // A relayed message is AO carrying someone else's words: `ao send`, or an
 // orchestrator writing to a worker. It must be attributed to automation, not
 // passed off as something the user typed here — the timeline distinguishes the

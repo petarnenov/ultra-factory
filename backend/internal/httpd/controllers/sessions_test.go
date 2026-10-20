@@ -47,6 +47,7 @@ type fakeSessionService struct {
 	sent                       string
 	sentAttachment             *ports.SpawnAttachment
 	sentDeliveryOptions        ports.MessageDeliveryOptions
+	delivery                   ports.MessageDelivery
 	delegationInput            sessionsvc.DelegateTaskInput
 	delegationErr              error
 	preparedProject            domain.ProjectID
@@ -535,6 +536,10 @@ func (f *fakeSessionService) SendWithOptions(_ context.Context, _ domain.Session
 	f.sentAttachment = attachment
 	f.sentDeliveryOptions = options
 	return nil
+}
+
+func (f *fakeSessionService) SendWithDelivery(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
+	return f.delivery, f.SendWithOptions(ctx, id, message, attachment, options)
 }
 
 func (f *fakeSessionService) DelegateTask(_ context.Context, in sessionsvc.DelegateTaskInput) (sessionsvc.DelegateTaskOutcome, error) {
@@ -4238,6 +4243,47 @@ func TestSessionsAPI_DelegateTaskRejectsOversizedBody(t *testing.T) {
 	assertErrorCode(t, body, status, http.StatusBadRequest, "INVALID_JSON")
 	if svc.delegationInput.ProjectID != "" {
 		t.Fatalf("delegate service called with oversized body: %#v", svc.delegationInput)
+	}
+}
+
+func TestSessionsAPI_SendReportsDeliveryOutcome(t *testing.T) {
+	cases := []struct {
+		name     string
+		delivery ports.MessageDelivery
+		want     string
+	}{
+		{"queued", ports.MessageDelivery{Known: true, Queued: true}, `"delivery":{"queued":true}`},
+		{"delivered", ports.MessageDelivery{Known: true}, `"delivery":{"queued":false}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newFakeSessionService()
+			svc.delivery = tc.delivery
+			srv := newSessionTestServer(t, svc)
+
+			body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/ao-1/send", `{"message":"check the PR"}`)
+			if status != http.StatusOK {
+				t.Fatalf("send = %d, want 200; body=%s", status, body)
+			}
+			if !strings.Contains(string(body), tc.want) {
+				t.Fatalf("response = %s, want %s", body, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionsAPI_SendOmitsUnknownDeliveryOutcome(t *testing.T) {
+	// A service that cannot say what happened must not look like a delivery
+	// report the client can trust.
+	svc := newFakeSessionService()
+	srv := newSessionTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/ao-1/send", `{"message":"check the PR"}`)
+	if status != http.StatusOK {
+		t.Fatalf("send = %d, want 200; body=%s", status, body)
+	}
+	if strings.Contains(string(body), "delivery") {
+		t.Fatalf("response = %s, want no delivery field when the outcome is unknown", body)
 	}
 }
 

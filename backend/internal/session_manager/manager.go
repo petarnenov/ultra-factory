@@ -4552,6 +4552,13 @@ func (m *Manager) Send(ctx context.Context, id domain.SessionID, message string,
 // SendWithOptions delivers a message with caller-supplied authorship facts that
 // are independent of the mechanism AO uses to carry it.
 func (m *Manager) SendWithOptions(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) error {
+	_, err := m.SendWithDelivery(ctx, id, message, attachment, options)
+	return err
+}
+
+// SendWithDelivery is SendWithOptions plus what the delivery did with the
+// accepted message. A queued message is one the agent has not read yet.
+func (m *Manager) SendWithDelivery(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
 	if attachment != nil {
 		// Reuses StageAttachments rather than a bespoke writer: it already owns the
 		// empty-workspace guard (refusing beats writing under the daemon's cwd),
@@ -4559,7 +4566,7 @@ func (m *Manager) SendWithOptions(ctx context.Context, id domain.SessionID, mess
 		// creation, and the git-exclude step.
 		refs, err := m.StageAttachments(ctx, id, []ports.SpawnAttachment{*attachment})
 		if err != nil {
-			return fmt.Errorf("send %s: attachment: %w", id, err)
+			return ports.MessageDelivery{}, fmt.Errorf("send %s: attachment: %w", id, err)
 		}
 		message = appendAttachmentReferences(message, refs)
 	}
@@ -4581,7 +4588,7 @@ func (m *Manager) SendSemantic(ctx context.Context, id domain.SessionID, message
 	}
 	wrapped := domain.WrapReportDelivery(clientMessageID, message)
 	if domain.NormalizeSessionMode(rec.Mode) == domain.SessionModeChat {
-		handled, sendErr := m.sendChat(ctx, id, wrapped, clientMessageID, ports.MessageDeliveryOptions{})
+		handled, _, sendErr := m.sendChat(ctx, id, wrapped, clientMessageID, ports.MessageDeliveryOptions{})
 		if !handled {
 			return ErrSemanticAcceptanceUnsupported
 		}
@@ -4593,7 +4600,7 @@ func (m *Manager) SendSemantic(ctx context.Context, id domain.SessionID, message
 	if semanticMessageAccepted(rec, clientMessageID) {
 		return nil
 	}
-	if err := m.send(ctx, id, wrapped, clientMessageID, ports.MessageDeliveryOptions{}); err != nil {
+	if _, err := m.send(ctx, id, wrapped, clientMessageID, ports.MessageDeliveryOptions{}); err != nil {
 		return err
 	}
 	deadline := time.NewTimer(10 * time.Second)
@@ -4662,23 +4669,23 @@ func (m *Manager) InterruptTUI(ctx context.Context, id domain.SessionID) error {
 // send carries an optional idempotency key used by durable transition-message
 // retries. Ordinary callers leave it empty; the outbox preserves the key across
 // restart, rollback, and even a second overlapping handoff.
-func (m *Manager) send(ctx context.Context, id domain.SessionID, message, clientMessageID string, options ports.MessageDeliveryOptions) error {
+func (m *Manager) send(ctx context.Context, id domain.SessionID, message, clientMessageID string, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
 	// A controller transition deliberately has a short interval with no writer.
 	// Queue internal/lifecycle sends durably instead of racing either controller
 	// or dropping coordination work; the transition worker drains this outbox
 	// only after the target controller is active.
 	if queued, err := m.queueDuringInterfaceTransition(ctx, id, message, clientMessageID, options); err != nil {
-		return fmt.Errorf("send %s: interface transition: %w", id, err)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: interface transition: %w", id, err)
 	} else if queued {
-		return nil
+		return ports.MessageDelivery{}, nil
 	}
 	// Chat mode has no pane to type into, so it does not go through the messenger
 	// at all. Without this branch the send reached the runtime guard and was
 	// refused as "missing runtime handles" — true of the handles, wrong about the
 	// session, and it left `ao send` and orchestrator-to-worker relay unable to
 	// reach a chat worker.
-	if handled, err := m.sendChat(ctx, id, message, clientMessageID, options); handled {
-		return err
+	if handled, delivery, err := m.sendChat(ctx, id, message, clientMessageID, options); handled {
+		return delivery, err
 	}
 
 	if _, coordination := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(message)); !coordination && !options.AuthoredByUser && strings.TrimSpace(message) != "" {
@@ -4690,7 +4697,7 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 	}
 	message, err := m.prepareOutboundMessage(ctx, id, message)
 	if err != nil {
-		return err
+		return ports.MessageDelivery{}, err
 	}
 	if options.InteractionAt.IsZero() {
 		options.InteractionAt = m.clock()
@@ -4709,28 +4716,28 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 	}
 	outcome, err := m.messenger.DeliverWithPostWrite(ctx, id, message, afterWrite)
 	if err != nil {
-		return fmt.Errorf("send %s: %w", id, err)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, err)
 	}
 	switch outcome {
 	case sessionguard.SuppressedNotFound:
-		return fmt.Errorf("send %s: %w", id, ErrNotFound)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrNotFound)
 	case sessionguard.SuppressedTerminated:
-		return fmt.Errorf("send %s: %w", id, ErrTerminated)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrTerminated)
 	case sessionguard.SuppressedExited:
-		return fmt.Errorf("send %s: %w", id, ErrAgentExited)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrAgentExited)
 	case sessionguard.SuppressedAwaitingUser:
-		return fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrAwaitingDecision)
 	case sessionguard.SuppressedStartupPending:
-		return fmt.Errorf("send %s: %w", id, ErrStartupPending)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrStartupPending)
 	case sessionguard.SuppressedInputGated:
-		return fmt.Errorf("send %s: %w", id, ErrSwitchInProgress)
+		return ports.MessageDelivery{}, fmt.Errorf("send %s: %w", id, ErrSwitchInProgress)
 	}
 	// Chat and transition queues persist interaction in their acceptance transaction.
 	// Only direct terminal sends need this separate fact; outbox replay already has it.
 	if options.SenderSessionID != "" && clientMessageID == "" {
 		if recorder, ok := m.store.(ports.SessionInteractionRecorder); ok {
 			if err := recorder.RecordSessionInteraction(context.WithoutCancel(ctx), id, options.SenderSessionID, options.InteractionAt); err != nil {
-				return fmt.Errorf("record interaction: %w", err)
+				return ports.MessageDelivery{}, fmt.Errorf("record interaction: %w", err)
 			}
 		}
 	}
@@ -4747,15 +4754,15 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 		// was already delivered above); log so a store error is not swallowed
 		// silently.
 		m.logger.Warn("send: confirm skipped, session lookup failed", "sessionID", id, "error", err)
-		return nil
+		return ports.MessageDelivery{}, nil
 	}
 	if !ok {
-		return nil
+		return ports.MessageDelivery{}, nil
 	}
 	if m.harnessNudgeSafe(rec.Harness) {
 		m.confirmActive(ctx, m.messenger, id)
 	}
-	return nil
+	return ports.MessageDelivery{}, nil
 }
 
 func (m *Manager) prepareOutboundMessage(ctx context.Context, id domain.SessionID, message string) (string, error) {

@@ -1293,6 +1293,17 @@ type SendSessionMessageResponse struct {
 	OK        bool             `json:"ok"`
 	SessionID domain.SessionID `json:"sessionId"`
 	Message   string           `json:"message"`
+	// Delivery is what the daemon did with the accepted message. Absent when
+	// the transport cannot say, so unknown never reads as delivered.
+	Delivery *SendSessionMessageDelivery `json:"delivery,omitempty"`
+}
+
+// SendSessionMessageDelivery reports the delivery outcome of an accepted
+// message.
+type SendSessionMessageDelivery struct {
+	// Queued means the agent has not read the message yet: it waits behind a
+	// turn already in flight.
+	Queued bool `json:"queued"`
 }
 
 // DelegateTaskRequest is the body of POST /api/v1/orchestrators/delegate.
