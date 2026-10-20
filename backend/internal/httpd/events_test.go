@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
 	"github.com/aoagents/agent-orchestrator/backend/internal/config"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/sse"
 )
 
 type fakeEventSource struct {
@@ -258,7 +260,7 @@ func TestWriteSSEEventSanitizesEventNameNewlines(t *testing.T) {
 	e := testCDCEvent(1)
 	e.Type = cdc.EventType("session_updated\nid: 999\rdata: injected")
 
-	if err := writeSSEEvent(rec, rec, e, &sentSeq); err != nil {
+	if err := writeSSEEvent(rec, e, &sentSeq); err != nil {
 		t.Fatalf("writeSSEEvent: %v", err)
 	}
 
@@ -524,4 +526,72 @@ func TestEventsStreamHeartbeatsWhileIdle(t *testing.T) {
 		}
 	}
 	t.Fatalf("idle stream sent no heartbeat frame in 4s (got %q); a buffering proxy has nothing to flush an event through", seen)
+}
+
+// A client that stops reading is dropped by the write deadline while its
+// connection stays open.
+func TestEventsStreamDropsClientThatStopsReading(t *testing.T) {
+	restore := sse.WriteTimeout
+	sse.WriteTimeout = 300 * time.Millisecond
+	defer func() { sse.WriteTimeout = restore }()
+
+	live := &fakeEventSubscriber{}
+	src := &fakeEventSource{live: live}
+	router := NewRouterWithControl(config.Config{}, discardLogger(), nil, APIDeps{
+		CDC:    src,
+		Events: live,
+	}, ControlDeps{})
+	ts := httptest.NewServer(router)
+	defer ts.Close()
+
+	conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if tc, ok := conn.(*net.TCPConn); ok {
+		_ = tc.SetReadBuffer(4096)
+	}
+	if _, err := conn.Write([]byte("GET /api/v1/events?after=999999 HTTP/1.1\r\nHost: x\r\n\r\n")); err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	// Never read from conn.
+
+	waitFor := func(want bool, d time.Duration) bool {
+		end := time.Now().Add(d)
+		for time.Now().Before(end) {
+			if live.hasSubscriber() == want {
+				return true
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return false
+	}
+	if !waitFor(true, 5*time.Second) {
+		t.Fatal("handler never subscribed")
+	}
+
+	big := testCDCEvent(0)
+	big.Payload = json.RawMessage(`{"blob":"` + strings.Repeat("x", 256<<10) + `"}`)
+	stop := make(chan struct{})
+	pubDone := make(chan struct{})
+	go func() {
+		defer close(pubDone)
+		for seq := int64(1_000_000); ; seq++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			e := big
+			e.Seq = seq
+			live.publish(e)
+			time.Sleep(5 * time.Millisecond)
+		}
+	}()
+	defer func() { close(stop); <-pubDone }()
+
+	if !waitFor(false, 10*time.Second) {
+		t.Fatal("handler still attached after the client stopped reading; write deadline did not end the stream")
+	}
 }

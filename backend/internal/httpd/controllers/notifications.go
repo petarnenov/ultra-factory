@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/sse"
 	notificationsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/notification"
 )
 
@@ -157,8 +157,7 @@ func (c *NotificationsController) stream(w http.ResponseWriter, r *http.Request)
 		apispec.NotImplemented(w, r, "GET", "/api/v1/notifications/stream")
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		envelope.WriteAPIError(w, r, http.StatusInternalServerError, "internal", "SSE_UNSUPPORTED", "Streaming is not supported by this server", nil)
 		return
 	}
@@ -171,34 +170,32 @@ func (c *NotificationsController) stream(w http.ResponseWriter, r *http.Request)
 	h.Set("Connection", "keep-alive")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	if _, err := fmt.Fprint(w, "event: ready\ndata: {}\n\n"); err != nil {
+	if err := sse.Send(w, "event: ready\ndata: {}\n\n"); err != nil {
 		return
 	}
-	flusher.Flush()
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 
 	for {
 		select {
 		case <-heartbeat.C:
-			if _, err := fmt.Fprint(w, "event: heartbeat\ndata: {}\n\n"); err != nil {
+			if err := sse.Send(w, "event: heartbeat\ndata: {}\n\n"); err != nil {
 				return
 			}
-			flusher.Flush()
 		case <-r.Context().Done():
 			return
 		case event, ok := <-ch:
 			if !ok {
 				return
 			}
-			if err := writeNotificationSSE(w, flusher, event); err != nil {
+			if err := writeNotificationSSE(w, event); err != nil {
 				return
 			}
 		}
 	}
 }
 
-func writeNotificationSSE(w http.ResponseWriter, flusher http.Flusher, event domain.NotificationEvent) error {
+func writeNotificationSSE(w http.ResponseWriter, event domain.NotificationEvent) error {
 	name := "notification_created"
 	var payload any = notificationResponseFromRecord(event.Record)
 	switch event.Kind {
@@ -218,11 +215,7 @@ func writeNotificationSSE(w http.ResponseWriter, flusher http.Flusher, event dom
 	if err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data); err != nil {
-		return err
-	}
-	flusher.Flush()
-	return nil
+	return sse.Send(w, "event: %s\ndata: %s\n\n", name, data)
 }
 
 func parseNotificationListFilter(r *http.Request) (notificationsvc.ListFilter, error) {

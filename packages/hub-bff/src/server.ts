@@ -79,6 +79,8 @@ const CONTENT_TYPES: Record<string, string> = {
 export type BffOptions = {
 	spaDir: string;
 	hosts?: ProxyHosts;
+	// Close SSE streams silent for this long; defaults to SSE_IDLE_MS.
+	sseIdleMs?: number;
 	passwordHash: string;
 	// When set, state-changing requests must carry exactly this Origin.
 	// Otherwise the Origin must match the request's Host.
@@ -95,7 +97,7 @@ export type BffOptions = {
 
 export function createBff(options: BffOptions): Server {
 	const { log } = options;
-	const proxy = createProxy(options.hosts);
+	const proxy = createProxy(options.hosts, { sseIdleMs: options.sseIdleMs });
 	const spaDir = path.resolve(options.spaDir);
 	const password = parsePasswordHash(options.passwordHash);
 	const sessions = new SessionStore(options.now);

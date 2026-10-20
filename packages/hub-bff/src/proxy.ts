@@ -57,7 +57,12 @@ export function rejectUpgrade(socket: Duplex, status: number, error: string): vo
 	socket.end(`HTTP/1.1 ${status} Error\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
 }
 
-export function createProxy(hosts?: ProxyHosts) {
+// Hosts heartbeat every 10 s; a stream silent far longer is stuck. A stalled
+// downstream pauses the pipe, so this bounds both directions.
+export const SSE_IDLE_MS = 60_000;
+
+export function createProxy(hosts?: ProxyHosts, options: { sseIdleMs?: number } = {}) {
+	const sseIdleMs = options.sseIdleMs ?? SSE_IDLE_MS;
 	function target(req: IncomingMessage) {
 		const selected = route(req.url ?? "");
 		if (!selected) return undefined;
@@ -100,6 +105,13 @@ export function createProxy(hosts?: ProxyHosts) {
 				res.flushHeaders();
 				reply.on("error", () => res.destroy());
 				res.on("close", () => reply.destroy());
+				if (headers["x-accel-buffering"] === "no") {
+					const idle = setTimeout(() => { reply.destroy(); res.destroy(); }, sseIdleMs);
+					const rearm = () => idle.refresh();
+					reply.on("data", rearm);
+					res.on("drain", rearm);
+					res.on("close", () => clearTimeout(idle));
+				}
 				reply.pipe(res);
 			});
 			upstream.on("error", () => proxyError(res, 502, "host unreachable"));
