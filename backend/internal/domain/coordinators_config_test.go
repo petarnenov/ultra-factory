@@ -106,7 +106,7 @@ func TestAgentProfilesValidate(t *testing.T) {
 		"empty fixed":        {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: AgentSelectionFixed}}, "coordinators.workerAgent"},
 		"unknown mode":       {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: "shuffle"}}, "coordinators.workerAgent"},
 		"inherit with ids":   {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: AgentSelectionInherit, ProfileID: "a"}}, "coordinators.workerAgent"},
-		"selection w/o list": {CoordinatorsConfig{CoordinatorAgent: AgentSelection{Mode: AgentSelectionRandom, ProfileIDs: nil}, WorkerAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "a"}}, "coordinators.workerAgent"},
+		"selection w/o list": {CoordinatorsConfig{WorkerAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "a"}}, "coordinators.workerAgent"},
 	} {
 		err := tc.cfg.Validate()
 		var perr *AgentProfileError
@@ -162,5 +162,23 @@ func TestAgentSelectionCandidates(t *testing.T) {
 		if err := cfg.Validate(); !errors.As(err, &perr) {
 			t.Fatalf("%+v: err = %v, want WORKER_PROFILE_INVALID", sel, err)
 		}
+	}
+}
+
+func TestSelectionsNeedProfilesToChooseFrom(t *testing.T) {
+	random := AgentSelection{Mode: AgentSelectionRandom}
+	for name, cfg := range map[string]CoordinatorsConfig{
+		"workerAgent":      {WorkerAgent: random},
+		"rootWorkerAgent":  {RootWorkerAgent: random},
+		"coordinatorAgent": {CoordinatorAgent: random},
+	} {
+		var perr *AgentProfileError
+		if err := cfg.Validate(); !errors.As(err, &perr) || perr.UnknownProfileID != "" || perr.Field != "coordinators."+name {
+			t.Errorf("%s: err = %v, want WORKER_PROFILE_INVALID on the field", name, err)
+		}
+	}
+	inherit := CoordinatorsConfig{WorkerAgent: AgentSelection{Mode: AgentSelectionInherit}}
+	if err := inherit.Validate(); err != nil {
+		t.Fatalf("inherit needs no profiles: %v", err)
 	}
 }

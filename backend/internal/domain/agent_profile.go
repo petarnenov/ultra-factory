@@ -172,8 +172,12 @@ func ValidateAgentSelection(field string, sel AgentSelection, profiles []AgentPr
 	default:
 		return &AgentProfileError{Field: field, Reason: fmt.Sprintf("unknown mode %q", sel.Mode)}
 	}
-	if _, unknown, ok := sel.Candidates(profiles); !ok {
+	selected, unknown, ok := sel.Candidates(profiles)
+	if !ok {
 		return &AgentProfileError{Field: field, Reason: fmt.Sprintf("unknown profile %q", unknown), UnknownProfileID: unknown}
+	}
+	if len(selected) == 0 {
+		return &AgentProfileError{Field: field, Reason: "the project has no agent profiles to choose from"}
 	}
 	return nil
 }

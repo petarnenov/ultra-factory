@@ -336,3 +336,18 @@ func TestLiveWorkerAgentChangeRules(t *testing.T) {
 		t.Fatalf("stored = %+v", got)
 	}
 }
+
+func TestSelectionsWithoutProjectProfilesAreInvalid(t *testing.T) {
+	f := newCapFixture(t)
+	random := domain.AgentSelection{Mode: domain.AgentSelectionRandom}
+	_, err := f.spawnCoordinatorWith(ports.SpawnConfig{CoordinatorWorkerAgent: &random})
+	wantAPIError(t, err, "WORKER_PROFILE_INVALID", map[string]any{"field": "workerAgent"})
+	_, err = f.spawnCoordinatorWith(ports.SpawnConfig{CoordinatorAgent: &random})
+	wantAPIError(t, err, "WORKER_PROFILE_INVALID", map[string]any{"field": "coordinatorAgent"})
+	id := f.coordinator("ao-c1", false)
+	_, err = f.svc.SetCoordinatorWorkerAgent(context.Background(), id, random, opCaller("cli"))
+	wantAPIError(t, err, "WORKER_PROFILE_INVALID", map[string]any{"field": "workerAgent"})
+	if len(f.cfgs) != 0 || len(f.store.agentEvents) != 0 {
+		t.Fatal("a refused selection must not spawn or be audited")
+	}
+}
