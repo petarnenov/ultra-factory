@@ -88,7 +88,11 @@ func (s *Service) checkReassignCapacity(ctx context.Context, worker domain.Sessi
 	if err != nil {
 		return err
 	}
-	return counts.CheckOwner(&owner)
+	gate, err := coordownership.LoadConfig(ctx, s.store, worker.ProjectID)
+	if err != nil {
+		return err
+	}
+	return counts.CheckOwner(&owner, gate.Limits())
 }
 
 // Ownership is one session's durable ownership plus the project's live root.

@@ -408,6 +408,64 @@ func TestProjectSetConfig_TerminateOnPRMergeConfigJSON(t *testing.T) {
 	}
 }
 
+func TestProjectSetConfig_CoordinatorFlags(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "set-config", "demo", "--coordinators", "--max-coordinators", "1",
+		"--max-workers-per-coordinator", "2", "--max-workers", "4")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var got setConfigRequest
+	if err := json.Unmarshal(capture.body, &got); err != nil {
+		t.Fatalf("decode request body: %v\nbody=%s", err, capture.body)
+	}
+	want := coordinatorsConfig{Enabled: true, MaxCoordinators: 1, MaxWorkersPerCoordinator: 2, MaxWorkers: 4}
+	if got.Config.Coordinators != want {
+		t.Fatalf("coordinators = %+v, want %+v", got.Config.Coordinators, want)
+	}
+}
+
+func TestProjectSetConfig_ExplicitZeroLimitIsAccepted(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "set-config", "demo", "--max-workers", "0")
+	if err != nil {
+		t.Fatalf("an explicit zero limit is a valid default: %v\nstderr=%s", err, errOut)
+	}
+	if len(capture.body) == 0 {
+		t.Fatal("the config was not sent")
+	}
+}
+
+func TestProjectSetConfig_CoordinatorsConfigJSON(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "set-config", "demo", "--config-json", `{"coordinators":{"enabled":true,"maxWorkers":5}}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var got setConfigRequest
+	if err := json.Unmarshal(capture.body, &got); err != nil {
+		t.Fatalf("decode request body: %v\nbody=%s", err, capture.body)
+	}
+	if !got.Config.Coordinators.Enabled || got.Config.Coordinators.MaxWorkers != 5 {
+		t.Fatalf("coordinators = %+v", got.Config.Coordinators)
+	}
+}
+
 func TestProjectRemove_RequiresID(t *testing.T) {
 	setConfigEnv(t)
 	_, _, err := executeCLI(t, Deps{}, "project", "rm")

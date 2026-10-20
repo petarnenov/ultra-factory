@@ -102,6 +102,15 @@ type reviewerConfig struct {
 	AgentConfig *agentConfig `json:"agentConfig,omitempty"`
 }
 
+// coordinatorsConfig mirrors domain.CoordinatorsConfig. A zero limit means the
+// daemon's default.
+type coordinatorsConfig struct {
+	Enabled                  bool `json:"enabled,omitempty"`
+	MaxCoordinators          int  `json:"maxCoordinators,omitempty"`
+	MaxWorkersPerCoordinator int  `json:"maxWorkersPerCoordinator,omitempty"`
+	MaxWorkers               int  `json:"maxWorkers,omitempty"`
+}
+
 type containerReapConfig struct {
 	Disabled bool `json:"disabled,omitempty"`
 }
@@ -141,8 +150,9 @@ type projectConfig struct {
 	TerminateOnPRMerge bool `json:"terminateOnPrMerge,omitempty"`
 	// WorkersRequestReview must round-trip through set-config so a CLI edit
 	// of another field never silently turns it off.
-	WorkersRequestReview bool             `json:"workersRequestReview,omitempty"`
-	Reviewers            []reviewerConfig `json:"reviewers,omitempty"`
+	WorkersRequestReview bool               `json:"workersRequestReview,omitempty"`
+	Reviewers            []reviewerConfig   `json:"reviewers,omitempty"`
+	Coordinators         coordinatorsConfig `json:"coordinators,omitempty"`
 }
 
 // setConfigRequest mirrors the daemon's SetConfigInput body for
@@ -176,6 +186,12 @@ type projectSetConfigOptions struct {
 	json                  bool
 	terminateOnPRMerge    bool
 	terminateOnPRMergeSet bool
+
+	coordinators             bool
+	coordinatorsSet          bool
+	maxCoordinators          int
+	maxWorkersPerCoordinator int
+	maxWorkers               int
 }
 
 type projectListResult struct {
@@ -321,7 +337,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 		Use:   "set-config <id>",
 		Short: "Set the per-project config",
 		Long: "Replace a project's per-project config (branch, session prefix, env, " +
-			"symlinks, post-create, rules, agent model/permissions, role overrides, tracker intake, reviewers). The config " +
+			"symlinks, post-create, rules, agent model/permissions, role overrides, tracker intake, reviewers, coordinators). The config " +
 			"is resolved when a session spawns.\n\n" +
 			"Set fields via flags, pass the whole object with --config-json, or --clear " +
 			"to remove all config.",
@@ -338,6 +354,9 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			id := strings.TrimSpace(args[0])
 			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
 			opts.githubAccountSet = cmd.Flags().Changed("github-account")
+			for _, name := range []string{"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers"} {
+				opts.coordinatorsSet = opts.coordinatorsSet || cmd.Flags().Changed(name)
+			}
 			config, err := buildProjectConfig(opts)
 			if err != nil {
 				return err
@@ -375,6 +394,10 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringArrayVar(&opts.reviewers, "reviewer", nil, "Reviewer harness that reviews worker PRs (repeatable; e.g. claude-code)")
 	f.StringVar(&opts.configJSON, "config-json", "", "Full config as a JSON object (overrides field flags)")
 	f.BoolVar(&opts.terminateOnPRMerge, "terminate-on-pr-merge", false, "Terminate spawned sessions for this project after all their PRs merge and their agents quiesce")
+	f.BoolVar(&opts.coordinators, "coordinators", false, "Allow the root to spawn coordinators in this project (off by default)")
+	f.IntVar(&opts.maxCoordinators, "max-coordinators", 0, "Live coordinators per project, 1-2 (0 keeps the default 2)")
+	f.IntVar(&opts.maxWorkersPerCoordinator, "max-workers-per-coordinator", 0, "Live workers per coordinator, 1-3 (0 keeps the default 3)")
+	f.IntVar(&opts.maxWorkers, "max-workers", 0, "Live workers per project once a coordinator exists, 1-6 (0 keeps the default 6)")
 	f.BoolVar(&opts.clear, "clear", false, "Clear all config")
 	f.BoolVar(&opts.json, "json", false, "Output the updated project as JSON")
 	addHostFlag(cmd, ctx)
@@ -421,11 +444,17 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 			Assignee: opts.trackerAssignee,
 		},
 		Reviewers: reviewersForFlags(opts.reviewers),
+		Coordinators: coordinatorsConfig{
+			Enabled:                  opts.coordinators,
+			MaxCoordinators:          opts.maxCoordinators,
+			MaxWorkersPerCoordinator: opts.maxWorkersPerCoordinator,
+			MaxWorkers:               opts.maxWorkers,
+		},
 	}
 	if opts.terminateOnPRMergeSet {
 		cfg.TerminateOnPRMerge = opts.terminateOnPRMerge
 	}
-	if !opts.terminateOnPRMergeSet && !opts.githubAccountSet && reflect.DeepEqual(cfg, projectConfig{}) {
+	if !opts.terminateOnPRMergeSet && !opts.githubAccountSet && !opts.coordinatorsSet && reflect.DeepEqual(cfg, projectConfig{}) {
 		return projectConfig{}, usageError{errors.New("usage: provide at least one config flag, --config-json, or --clear")}
 	}
 	return cfg, nil

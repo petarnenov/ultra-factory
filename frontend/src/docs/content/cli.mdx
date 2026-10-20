@@ -120,7 +120,7 @@ Important flags include:
 | `--name <name>` | Required sidebar name, at most 100 characters. |
 | `--project <id>` | Project to use. Otherwise Orchestrator resolves environment and current directory context. |
 | `--agent`, `--harness <name>` | Override the project's agent. The two names are aliases. The configured role model and effort still apply and are validated for this harness. |
-| `--kind worker\|orchestrator\|coordinator` | Select the session role. A coordinator is spawned from the project's live root session, runs on the root's machine (no `--host`), and requires `--scope`. |
+| `--kind worker\|orchestrator\|coordinator` | Select the session role. A coordinator is spawned from the project's live root session, runs on the root's machine (no `--host`), requires `--scope`, and needs the project to enable coordinators (`ao project set-config <id> --coordinators`; otherwise `COORDINATORS_DISABLED`). |
 | `--scope <text>` | Bounded area of work for `--kind coordinator`, at most 200 characters. |
 | `--mode chat\|tui` | Select structured Chat or the agent's native terminal UI. |
 | `--branch <name>` | Branch for Git projects. Scratch projects do not support it. |

@@ -15216,6 +15216,17 @@ components:
       - state
       - lastActivityAt
       type: object
+    DomainCoordinatorsConfig:
+      properties:
+        enabled:
+          type: boolean
+        maxCoordinators:
+          type: integer
+        maxWorkers:
+          type: integer
+        maxWorkersPerCoordinator:
+          type: integer
+      type: object
     DomainGitHubSCMConfig:
       properties:
         account:
@@ -16740,6 +16751,8 @@ components:
           type: string
         containerReap:
           $ref: '#/components/schemas/ContainerReapConfig'
+        coordinators:
+          $ref: '#/components/schemas/DomainCoordinatorsConfig'
         defaultBranch:
           type: string
         env:

@@ -19,11 +19,16 @@ type fakeStore struct {
 	sessions    map[domain.SessionID]domain.SessionRecord
 	stored      []domain.RemoteWorkerLink
 	ownerEvents []domain.RemoteWorkerOwnerEvent
+	project     domain.ProjectRecord
 }
 
 func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
 	rec, ok := f.sessions[id]
 	return rec, ok, nil
+}
+
+func (f *fakeStore) GetProject(context.Context, string) (domain.ProjectRecord, bool, error) {
+	return f.project, f.project.ID != "", nil
 }
 
 func (f *fakeStore) ListSessions(_ context.Context, project domain.ProjectID) ([]domain.SessionRecord, error) {

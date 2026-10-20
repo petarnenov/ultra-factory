@@ -103,13 +103,19 @@ affected until the root answers.
 The reason `coordinator_terminated` is written by the daemon, never by a
 coordinator.
 
+The root can spawn coordinators only in a project that enables them
+(`ao project set-config <id> --coordinators`, `coordinators.enabled` in the
+API). The feature is off by default: the daemon refuses a spawn with
+`COORDINATORS_DISABLED`. `maxCoordinators`, `maxWorkersPerCoordinator` and
+`maxWorkers` may lower the limits and cannot raise them.
+
 ## What a coordinator must not do
 
 - Merge a pull request, or ask a worker to. The root alone merges.
 - Close an issue, a story, an epic, or any project-wide item.
 - Spawn another coordinator, or assign, reassign or adopt workers.
-- Start a seventh worker in the project or a fourth under itself; the daemon
-  refuses with `COORDINATOR_WORKER_LIMIT_REACHED` or
+- Start a worker beyond the project's configured limits (6 in the project and
+  3 under itself by default); the daemon refuses with `COORDINATOR_WORKER_LIMIT_REACHED` or
   `PROJECT_WORKER_LIMIT_REACHED`, and the coordinator waits instead of retrying.
 - Take unrelated project tasks. Anything outside the assigned task list is a
   `scope_decision` escalation.

@@ -63,11 +63,11 @@ ao spawn --project agent-orchestrator --kind orchestrator --name "coordinate-fix
 ```
 
 ```bash
-# From the root orchestrator session: spawn a scoped coordinator (max 2 active)
+# From the root orchestrator session: spawn a scoped coordinator (the project must enable coordinators)
 ao spawn --project agent-orchestrator --kind coordinator --scope "auth module" --name "coord-auth"
 ```
 
-A coordinator is spawned by the live root only (`AO_SESSION_ID` must be the root's session ID) and runs on the root's machine, so `--host` is a usage error. A worker spawned from a coordinator session is assigned to that coordinator. Limits: at most 2 active coordinators, 3 active workers per coordinator, and 6 active workers per project once a coordinator exists. A rejected spawn exits 1 with a stable code (`COORDINATOR_LIMIT_REACHED`, `COORDINATOR_WORKER_LIMIT_REACHED`, `PROJECT_WORKER_LIMIT_REACHED`, `COORDINATOR_ROOT_REQUIRED`) and creates no session. A terminated session frees its slot.
+A coordinator is spawned by the live root only (`AO_SESSION_ID` must be the root's session ID) and runs on the root's machine, so `--host` is a usage error. A worker spawned from a coordinator session is assigned to that coordinator. Coordinators are off until the project enables them (`ao project set-config <id> --coordinators`); a spawn in a project that has not is refused with `COORDINATORS_DISABLED`. Limits come from the project's configuration and default to 2 active coordinators, 3 active workers per coordinator, and 6 active workers per project once a coordinator exists. A rejected spawn exits 1 with a stable code (`COORDINATORS_DISABLED`, `COORDINATOR_LIMIT_REACHED`, `COORDINATOR_WORKER_LIMIT_REACHED`, `PROJECT_WORKER_LIMIT_REACHED`, `COORDINATOR_ROOT_REQUIRED`) and creates no session. A terminated session frees its slot.
 
 ```bash
 # Spawn on another machine; the remote project is matched by repository

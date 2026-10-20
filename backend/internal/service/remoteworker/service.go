@@ -20,6 +20,7 @@ import (
 // Store is the link persistence and parent-session boundary.
 type Store interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
+	GetProject(context.Context, string) (domain.ProjectRecord, bool, error)
 	ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error)
 	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
 	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
@@ -170,7 +171,11 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 		if err != nil {
 			return Registration{}, err
 		}
-		if err := counts.CheckNewWorker(link.ProjectID, link.OwnerSessionID); err != nil {
+		gate, err := coordownership.LoadConfig(ctx, s.store, link.ProjectID)
+		if err != nil {
+			return Registration{}, err
+		}
+		if err := counts.CheckNewWorker(link.ProjectID, link.OwnerSessionID, gate.Limits()); err != nil {
 			return Registration{}, err
 		}
 	}

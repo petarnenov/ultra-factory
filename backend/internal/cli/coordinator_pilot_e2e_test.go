@@ -29,7 +29,9 @@ func seedPilotWorld(t *testing.T, e env) pilotWorld {
 	}
 	defer store.Close()
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao-pilot", RegisteredAt: now}); err != nil {
+	// Coordinators are off by default; the pilot opts in, as set-config does.
+	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao-pilot", RegisteredAt: now,
+		Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{Enabled: true}}}); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
 	create := func(kind domain.SessionKind, scope string) domain.SessionRecord {

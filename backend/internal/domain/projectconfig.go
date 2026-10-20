@@ -94,6 +94,10 @@ type ProjectConfig struct {
 	// the feature but check with the user or orchestrator before using it.
 	// Read at spawn, when the worker prompt is built.
 	WorkersRequestReview bool `json:"workersRequestReview,omitempty"`
+
+	// Coordinators gates and bounds the coordinator hierarchy (ADR 0010
+	// section 8). The feature is off until Enabled is set.
+	Coordinators CoordinatorsConfig `json:"coordinators,omitempty"`
 }
 
 // SCMConfig selects the provider identity for a project. v1 supports one
@@ -327,6 +331,9 @@ func (c ProjectConfig) Validate() error {
 		}
 	}
 	if err := c.TrackerIntake.Validate(); err != nil {
+		return err
+	}
+	if err := c.Coordinators.Validate(); err != nil {
 		return err
 	}
 	return nil
