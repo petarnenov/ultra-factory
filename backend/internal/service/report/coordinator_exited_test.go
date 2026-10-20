@@ -177,3 +177,37 @@ func TestCoordinatorRecoveryNoticeAcceptanceTimeoutIsNotResent(t *testing.T) {
 		t.Fatalf("attempts = %d, want one notice attempt plus two report attempts", delivery.attempts)
 	}
 }
+
+func TestCoordinatorSplitReleasedBatchUsesDistinctDeliveryIDs(t *testing.T) {
+	now := time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC)
+	owner := domain.SessionID("coord-exited")
+	store := exitedCoordinatorStore(now, owner)
+	// A released batch spanned a root-owned worker and one that was then
+	// reassigned to the coordinator, which exited.
+	store.sessions = append(store.sessions, domain.SessionRecord{ID: "worker-root", ProjectID: "p", Kind: domain.KindWorker})
+	rootReport := reportAt("r-root", "worker-root", now, now, "root work")
+	exitedReport := reportAt("r-exited", "worker", now.Add(time.Second), now, "exited work")
+	rootReport.DeliveryBatchID = "report-batch:released"
+	exitedReport.DeliveryBatchID = "report-batch:released"
+	store.add(rootReport, exitedReport)
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery, Now: func() time.Time { return now }})
+	if _, err := c.RunDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	reports := 0
+	for _, sub := range delivery.submissions {
+		if strings.HasPrefix(sub.key, "coordinator-exited:") {
+			continue
+		}
+		reports++
+		if keys[sub.key] {
+			t.Fatalf("delivery id %s reused for two groups of one root", sub.key)
+		}
+		keys[sub.key] = true
+	}
+	if reports != 2 || store.acked != 2 {
+		t.Fatalf("report submissions = %d acked = %d, want both groups delivered", reports, store.acked)
+	}
+}

@@ -571,7 +571,9 @@ type PreparedBatch struct {
 	ProjectID domain.ProjectID
 	Token     string
 	ID        string
-	Reports   []domain.ReportRecord
+	// ExitedOwner scopes the delivery id to one exited coordinator's group.
+	ExitedOwner domain.SessionID
+	Reports     []domain.ReportRecord
 }
 
 func (c *Coordinator) claim(ctx context.Context, projectID domain.ProjectID, recipient, root, exitedOwner domain.SessionID) (PreparedBatch, error) {
@@ -587,7 +589,7 @@ func (c *Coordinator) claim(ctx context.Context, projectID domain.ProjectID, rec
 	if len(reports) > 0 {
 		batchID = reports[0].DeliveryBatchID
 	}
-	return PreparedBatch{ProjectID: projectID, Token: token, ID: batchID, Reports: reports}, err
+	return PreparedBatch{ProjectID: projectID, Token: token, ID: batchID, ExitedOwner: exitedOwner, Reports: reports}, err
 }
 
 // PreparePiggyback claims one live Chat-mode recipient's group. The caller
@@ -659,6 +661,10 @@ func (b PreparedBatch) AppendToUserMessage(message string) string {
 // IdempotencyKey returns the stable durable delivery identity.
 func (b PreparedBatch) IdempotencyKey() string {
 	if b.ID != "" {
+		if b.ExitedOwner != "" {
+			// A shared batch id can be claimed by two groups of one root.
+			return b.ID + ":exited:" + string(b.ExitedOwner)
+		}
 		return b.ID
 	}
 	ids := make([]string, len(b.Reports))
