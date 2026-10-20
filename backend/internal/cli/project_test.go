@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -425,7 +426,7 @@ func TestProjectSetConfig_CoordinatorFlags(t *testing.T) {
 		t.Fatalf("decode request body: %v\nbody=%s", err, capture.body)
 	}
 	want := coordinatorsConfig{Enabled: true, MaxCoordinators: 1, MaxWorkersPerCoordinator: 2, MaxWorkers: 4}
-	if got.Config.Coordinators != want {
+	if !reflect.DeepEqual(got.Config.Coordinators, want) {
 		t.Fatalf("coordinators = %+v, want %+v", got.Config.Coordinators, want)
 	}
 }
