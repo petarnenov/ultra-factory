@@ -80,6 +80,16 @@ vi.mock("../lib/api-client", () => ({
 	},
 }));
 
+vi.mock("../lib/host-clients", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../lib/host-clients")>()),
+	clientForHost: () => ({ GET: getMock, PUT: putMock, POST: postMock }),
+}));
+
+vi.mock("../hooks/useHostConnection", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../hooks/useHostConnection")>()),
+	useConnectedHosts: () => ["linux"],
+}));
+
 import { ProjectSettingsForm, type ProjectSettingsSaveState, type ProjectSettingsSection } from "./ProjectSettingsForm";
 import { useProjectIdentity, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import type { WorkspaceSummary } from "../types/workspace";
@@ -92,16 +102,18 @@ async function beginEdit(label: string) {
 function TestProjectSettings({
 	projectId,
 	section,
+	hostId,
 }: {
 	projectId: string;
 	section?: ProjectSettingsSection;
+	hostId?: string;
 }) {
 	const [saveState, setSaveState] = useState<ProjectSettingsSaveState>({
 		phase: "idle",
 	});
 	return (
 		<>
-			<ProjectSettingsForm projectId={projectId} section={section} onSaveState={setSaveState} />
+			<ProjectSettingsForm projectId={projectId} hostId={hostId} section={section} onSaveState={setSaveState} />
 			{saveState.error && <span>{saveState.error}</span>}
 			{saveState.phase === "saved" && <span>{"Saved"}</span>}
 			{saveState.replacementError && <span>{`Orchestrator restart failed: ${saveState.replacementError}`}</span>}
@@ -114,7 +126,7 @@ function AggregateAssociationStatus({ projectId }: { projectId: string }) {
 	return <output>{identity.data?.aggregateProjects.map((project) => `${project.hostId}:${project.projectId}`).join(",") ?? "Loading"}</output>;
 }
 
-function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], section?: ProjectSettingsSection) {
+function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], section?: ProjectSettingsSection, hostId?: string) {
 	const queryClient = new QueryClient({
 		defaultOptions: {
 			queries: { retry: false },
@@ -126,7 +138,7 @@ function renderSettings(projectId = "proj-1", workspaces?: WorkspaceSummary[], s
 	}
 	render(
 		<QueryClientProvider client={queryClient}>
-			<TestProjectSettings projectId={projectId} section={section} />
+			<TestProjectSettings projectId={projectId} section={section} hostId={hostId} />
 		</QueryClientProvider>,
 	);
 	return queryClient;
@@ -593,6 +605,71 @@ describe("ProjectSettingsForm", () => {
 		expect(putMock.mock.calls[0][1].body.config.worker.agentConfig).toEqual(
 			expect.objectContaining({ model: "claude-opus", effort: "high" }),
 		);
+	});
+
+	describe("unset model", () => {
+		const opusCatalog = { agent: "claude-code", selectionMode: "catalog", allowCustom: false, models: [
+			{ id: "claude-opus-5-5", label: "Opus 5.5", isDefault: true, efforts: ["low", "medium", "high"] },
+			{ id: "claude-sonnet-5-5", label: "Sonnet 5.5", efforts: ["low", "medium", "high"] },
+		] };
+		function mockUnsetModel() {
+			getMock.mockImplementation(async (path: string) => {
+				if (path === "/api/v1/agents" || path === "/api/v1/agents/readiness") return agentCatalogResponse;
+				if (path === "/api/v1/agents/{agent}/models") return { data: opusCatalog };
+				return { data: { status: "ok", project: {
+					id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one",
+					repo: "", defaultBranch: "main", config: {
+						worker: { agent: "claude-code" },
+						orchestrator: { agent: "claude-code" },
+						reviewers: [{ harness: "claude-code", agentConfig: { effort: "medium" } }],
+					},
+				} } };
+			});
+		}
+
+		it.each(["Worker model", "Orchestrator model", "Reviewer model"])("%s says it is unset instead of naming the catalog default", async (name) => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents");
+			const picker = await screen.findByRole("button", { name });
+			expect(picker).toHaveTextContent("Default");
+			expect(picker).not.toHaveTextContent("Opus 5.5");
+		});
+
+		it.each(["Opus 5.5", "Sonnet 5.5"])("persists %s when picked from an unset reviewer model", async (model) => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents");
+			await userEvent.click(await screen.findByRole("button", { name: "Reviewer model" }));
+			await userEvent.click(screen.getByRole("menuitem", { name: model }));
+			submitSettings();
+			await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+			expect(putMock.mock.calls[0][1].body.config.reviewers[0].agentConfig.model)
+				.toBe(model === "Opus 5.5" ? "claude-opus-5-5" : "claude-sonnet-5-5");
+		});
+
+		it("persists the reviewer model for a remote-host project", async () => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents", "linux");
+			const picker = await screen.findByRole("button", { name: "Reviewer model" });
+			expect(picker).toHaveTextContent("Default");
+			await userEvent.click(picker);
+			await userEvent.click(screen.getByRole("menuitem", { name: "Opus 5.5" }));
+			submitSettings();
+			await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+			expect(putMock.mock.calls[0][1].body.config.reviewers).toEqual([
+				{ harness: "claude-code", agentConfig: { model: "claude-opus-5-5", effort: "medium" } },
+			]);
+		});
+
+		it("lets a stored model go back to unset", async () => {
+			mockUnsetModel();
+			renderSettings("proj-1", undefined, "agents");
+			await userEvent.click(await screen.findByRole("button", { name: "Reviewer model" }));
+			await userEvent.click(screen.getByRole("menuitem", { name: "Sonnet 5.5" }));
+			await userEvent.keyboard("{Escape}{Escape}");
+			await userEvent.click(screen.getByRole("button", { name: "Reviewer model" }));
+			await userEvent.click(screen.getByRole("menuitem", { name: "Default" }));
+			expect(screen.getByRole("button", { name: "Reviewer model" })).toHaveTextContent("Default");
+		});
 	});
 
 	it("shows Claude's permission setting and preserves saved permission modes", async () => {
@@ -1206,7 +1283,7 @@ describe("ProjectSettingsForm", () => {
 		renderSettings("proj-1", undefined, "agents");
 
 		expect(await screen.findAllByText("model refresh unavailable")).toHaveLength(3);
-		expect(screen.getByRole("button", { name: "Worker model" })).toHaveTextContent("Select model");
+		expect(screen.getByRole("button", { name: "Worker model" })).toHaveTextContent("Default");
 	});
 
 	it("shows cached models immediately and deduplicates background revalidation", async () => {
@@ -1250,7 +1327,7 @@ describe("ProjectSettingsForm", () => {
 
 		renderSettings("proj-1", undefined, "agents");
 
-		expect(await screen.findByRole("button", { name: "Worker model" })).toHaveTextContent("Select model");
+		expect(await screen.findByRole("button", { name: "Worker model" })).toHaveTextContent("Default");
 		await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
 		expect(postMock).toHaveBeenCalledWith("/api/v1/agents/{agent}/models/refresh", {
 			params: {
