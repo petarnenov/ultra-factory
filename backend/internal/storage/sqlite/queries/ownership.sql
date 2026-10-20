@@ -47,20 +47,23 @@ FROM remote_worker_owner_events
 WHERE host_id = ? AND remote_session_id = ?
 ORDER BY id;
 
--- name: SetCoordinatorWorkerLimit :execrows
--- Narrow write: only a live coordinator's own limit changes.
+-- name: SetCoordinatorLimits :execrows
+-- Narrow write: only a live coordinator's own limit and host slots change.
 UPDATE sessions
 SET coordinator_worker_limit = sqlc.narg(coordinator_worker_limit),
+    coordinator_host_slots = sqlc.narg(coordinator_host_slots),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id) AND kind = 'coordinator' AND is_terminated = 0;
 
 -- name: InsertCoordinatorLimitEvent :exec
 INSERT INTO coordinator_limit_events (
-    session_id, previous_limit, new_limit, actor_session_id, origin, created_at
-) VALUES (?, ?, ?, ?, ?, ?);
+    session_id, previous_limit, new_limit, previous_host_slots, new_host_slots,
+    actor_session_id, origin, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListCoordinatorLimitEvents :many
-SELECT id, session_id, previous_limit, new_limit, actor_session_id, origin, created_at
+SELECT id, session_id, previous_limit, new_limit, previous_host_slots, new_host_slots,
+    actor_session_id, origin, created_at
 FROM coordinator_limit_events
 WHERE session_id = ?
 ORDER BY id;

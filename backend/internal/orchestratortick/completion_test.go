@@ -348,6 +348,8 @@ func TestMergeBlockersAreExact(t *testing.T) {
 		mutate func(*PullRequest)
 		want   string
 	}{
+		"head invalid":          {func(pr *PullRequest) { pr.HeadSHA = "bad" }, "head SHA is invalid"},
+		"approval required":     {func(pr *PullRequest) { pr.ReviewDecision = "REVIEW_REQUIRED" }, "review approval required"},
 		"head unknown":          {func(pr *PullRequest) { pr.HeadSHA = "" }, "head SHA is unknown"},
 		"draft":                 {func(pr *PullRequest) { pr.Draft = true }, "pull request is a draft"},
 		"failing checks":        {func(pr *PullRequest) { pr.Checks = []Check{{Result: "FAILURE"}} }, "required checks are red"},
@@ -378,6 +380,15 @@ func TestMergeBlockersAreExact(t *testing.T) {
 			}
 			if !strings.Contains(got, tc.want) {
 				t.Fatalf("blockers = %q, want %q", got, tc.want)
+			}
+			r, d, gh, fm, _ := completionFixture(t)
+			worker := cleanWorker("rw/1", 1)
+			worker.Reviews = nil
+			d.workers["Linux"] = []Worker{worker}
+			gh.state.OpenPRs = []PullRequest{pr}
+			result := tick(t, r)
+			if fm.calls() != 0 || !strings.Contains(strings.Join(CompletionLines(result.Completions), " "), tc.want) {
+				t.Fatalf("blocker not enforced: merges=%d notes=%+v", fm.calls(), result.Completions)
 			}
 		})
 	}
@@ -629,5 +640,188 @@ func TestSameCheckNameInAnotherWorkflowDoesNotHideAFailure(t *testing.T) {
 	pr.Checks = append(pr.Checks, Check{Name: "check", Workflow: "Code comment policy", Result: "SUCCESS", CompletedAt: now})
 	if got := MergeBlockers(DefaultConfig(), pr, now); len(got) != 0 {
 		t.Fatalf("rerun in the same workflow must supersede: %v", got)
+	}
+}
+
+type completionDaemon struct {
+	*fakeDaemon
+	notifications []string
+	accepted      map[string]bool
+	fail          bool
+}
+
+func (d *completionDaemon) NotifyCompletion(_ context.Context, host, session, key, kind string, prs []CompletedPR, recipient *CompletionRecipient) error {
+	if recipient == nil || recipient.OwnerSessionID != "coordinator" {
+		return errors.New("owner snapshot missing")
+	}
+	id := recipient.OwnerSessionID + ":" + host + "/" + session + ":" + key
+	d.notifications = append(d.notifications, id)
+	if d.accepted == nil {
+		d.accepted = map[string]bool{}
+	}
+	d.accepted[id] = true
+	if len(prs) != 1 || prs[0].Number != 201 || prs[0].MergeCommitSHA == "" {
+		return errors.New("missing merge facts")
+	}
+	if d.fail {
+		return errors.New("delivery unavailable")
+	}
+	return nil
+}
+
+func (d *completionDaemon) ResolveCompletionOwner(context.Context, string, string) (CompletionRecipient, error) {
+	return CompletionRecipient{OwnerSessionID: "coordinator", ProjectID: "project"}, nil
+}
+
+func TestTickCompletionNotificationRetriesWithoutReplayingMerge(t *testing.T) {
+	r, d, gh, fm, store := completionFixture(t)
+	notifier := &completionDaemon{fakeDaemon: d, fail: true}
+	r.Daemon = notifier
+	first := tick(t, r)
+	if !strings.Contains(strings.Join(CompletionLines(first.Completions), " "), "merged=#201 commit=merge-") {
+		t.Fatalf("root completion missing merge: %+v", first.Completions)
+	}
+	state, _, _ := store.Completion()
+	action := state.Sessions["Linux/uf-1"].Actions["merge:201@"+head("1")]
+	if action.Status != CompletionActionCompleted || action.Notified || action.Recipient == nil || action.Recipient.OwnerSessionID != "coordinator" {
+		t.Fatalf("action: %+v", action)
+	}
+	notifier.fail = false
+	tick(t, r)
+	tick(t, r)
+	if fm.calls() != 1 || len(notifier.notifications) != 2 || len(notifier.accepted) != 1 || notifier.notifications[0] != notifier.notifications[1] {
+		t.Fatalf("merges=%d notifications=%v", fm.calls(), notifier.notifications)
+	}
+	gh.state = GitHubState{MergedPRs: []MergedPR{{Number: 201, Head: "rw/190", HeadSHA: head("1"), MergeCommitSHA: "merge-123"}}}
+	tick(t, r)
+	tick(t, r)
+	if len(d.killed) != 1 || len(notifier.notifications) != 3 {
+		t.Fatalf("close=%v notifications=%v", d.killed, notifier.notifications)
+	}
+}
+
+func TestTickCoordinatorsNeverMergeOrClose(t *testing.T) {
+	for _, merged := range []bool{false, true} {
+		t.Run(map[bool]string{false: "open", true: "merged"}[merged], func(t *testing.T) {
+			r, d, gh, fm, store := completionFixture(t)
+			d.workers["Linux"][0].Kind = "CoOrDiNaToR"
+			if merged {
+				gh.state = GitHubState{MergedPRs: []MergedPR{{Number: 201, Head: "rw/190"}}}
+			}
+			tick(t, r)
+			state, _, _ := store.Completion()
+			if fm.calls() != 0 || len(d.killed) != 0 || len(state.Sessions) != 0 {
+				t.Fatalf("coordinator candidate: merges=%d kills=%v state=%+v", fm.calls(), d.killed, state)
+			}
+		})
+	}
+}
+
+func TestTickMergeRetryUpdatesRootEvenWhenProviderFactsAreUnchanged(t *testing.T) {
+	r, _, _, merger, _ := completionFixture(t)
+	merger.err = errors.New("temporary provider failure")
+	tick(t, r)
+	merger.err = nil
+	res := tick(t, r)
+	if res.Outcome != OutcomeSent || !strings.Contains(res.Message, "merged=#201 commit=merge-") {
+		t.Fatalf("root missed completion: %+v", res)
+	}
+}
+
+func TestTickCoordinatorCannotReplayPreviouslyQueuedWorkerActions(t *testing.T) {
+	r, d, _, merger, store := completionFixture(t)
+	state := CompletionState{Sessions: map[string]SessionCompletion{
+		"Linux/uf-1": {Host: "Linux", Session: "uf-1", Actions: map[string]CompletionAction{
+			"merge:201@" + head("1"): {Kind: ActionMerge, Status: CompletionActionPending, PR: 201, HeadSHA: head("1")},
+			"close":                  {Kind: ActionClose, Status: CompletionActionPending},
+		}},
+	}}
+	if err := store.SaveCompletion(state); err != nil {
+		t.Fatal(err)
+	}
+	d.workers["Linux"][0].Kind = "coordinator"
+	tick(t, r)
+	if merger.calls() != 0 || len(d.killed) != 0 {
+		t.Fatalf("coordinator mutated: merges=%d killed=%v", merger.calls(), d.killed)
+	}
+}
+
+func TestTickDoesNotReplayLegacyCloseNotificationsWithoutPRSnapshots(t *testing.T) {
+	r, d, _, _, store := completionFixture(t)
+	notifier := &completionDaemon{fakeDaemon: d}
+	r.Daemon = notifier
+	if err := store.SaveCompletion(CompletionState{Sessions: map[string]SessionCompletion{
+		"Linux/old-worker": {Host: "Linux", Session: "old-worker", Actions: map[string]CompletionAction{
+			"close": {Kind: ActionClose, Status: CompletionActionCompleted},
+		}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, r)
+	state, _, err := store.Completion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Sessions["Linux/old-worker"].Actions["close"].Notified || len(notifier.notifications) != 1 {
+		t.Fatalf("legacy completion replayed: %+v", state)
+	}
+}
+
+func TestTickDoesNotReplayLegacyMergeNotificationsWithoutOwnerSnapshot(t *testing.T) {
+	r, d, _, _, store := completionFixture(t)
+	notifier := &completionDaemon{fakeDaemon: d}
+	r.Daemon = notifier
+	legacy := CompletionAction{
+		Kind: ActionMerge, Status: CompletionActionCompleted,
+		PR: 150, MergeCommitSHA: "merge-old",
+	}
+	if err := store.SaveCompletion(CompletionState{Sessions: map[string]SessionCompletion{
+		"Linux/old-worker": {Host: "Linux", Session: "old-worker", Actions: map[string]CompletionAction{
+			"merge:150@" + head("0"): legacy,
+		}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	tick(t, r)
+	state, _, err := store.Completion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Sessions["Linux/old-worker"].Actions["merge:150@"+head("0")].Notified {
+		t.Fatalf("legacy merge not consumed: %+v", state)
+	}
+	for _, id := range notifier.notifications {
+		if strings.Contains(id, "old-worker") {
+			t.Fatalf("legacy merge replayed: %v", notifier.notifications)
+		}
+	}
+}
+
+type ownerFailDaemon struct {
+	*completionDaemon
+	failSession string
+}
+
+func (d *ownerFailDaemon) ResolveCompletionOwner(ctx context.Context, host, session string) (CompletionRecipient, error) {
+	if session == d.failSession {
+		return CompletionRecipient{}, errors.New("owner lookup unavailable")
+	}
+	return d.completionDaemon.ResolveCompletionOwner(ctx, host, session)
+}
+
+func TestTickOwnerResolveFailureOnlySkipsThatWorker(t *testing.T) {
+	r, d, gh, fm, _ := completionFixture(t)
+	second := cleanWorker("rw/191", 202)
+	second.ID = "uf-2"
+	second.Reviews = []WorkerReview{{PRNumber: 202, TargetSHA: head("2"), Status: "up_to_date"}}
+	d.workers["Linux"] = append(d.workers["Linux"], second)
+	gh.state.OpenPRs = append(gh.state.OpenPRs, readyPR(202, "rw/191", head("2")))
+	r.Daemon = &ownerFailDaemon{completionDaemon: &completionDaemon{fakeDaemon: d}, failSession: "uf-2"}
+	res := tick(t, r)
+	if fm.calls() != 1 || fm.requests[0].Number != 201 {
+		t.Fatalf("merge requests = %+v", fm.requests)
+	}
+	if !strings.Contains(strings.Join(CompletionLines(res.Completions), " "), "resolve completion owner") {
+		t.Fatalf("owner failure not reported: %+v", res.Completions)
 	}
 }

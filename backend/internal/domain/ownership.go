@@ -17,16 +17,24 @@ type SessionOwnerEvent struct {
 	CreatedAt              time.Time
 }
 
-// CoordinatorLimitEvent audits one worker-limit change. Origin is ui, cli
-// or api; the actor is always the live root.
+// HostSlot is one coordinator's worker slots on a paired remote host.
+type HostSlot struct {
+	HostID string `json:"hostId"`
+	Slots  int    `json:"slots"`
+}
+
+// CoordinatorLimitEvent audits a worker-limit or host-slot change. Limits
+// are stored values (nil: project value); the actor is the live root.
 type CoordinatorLimitEvent struct {
-	ID             int64
-	SessionID      SessionID
-	PreviousLimit  *int
-	NewLimit       int
-	ActorSessionID SessionID
-	Origin         string
-	CreatedAt      time.Time
+	ID                int64
+	SessionID         SessionID
+	PreviousLimit     *int
+	NewLimit          *int
+	PreviousHostSlots []HostSlot
+	NewHostSlots      []HostSlot
+	ActorSessionID    SessionID
+	Origin            string
+	CreatedAt         time.Time
 }
 
 // RemoteWorkerOwnerEvent is one append-only audit row for a remote worker

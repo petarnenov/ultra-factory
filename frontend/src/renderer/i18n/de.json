@@ -1299,6 +1299,7 @@
   "settings.models.cantFind": "Modell nicht gefunden?",
   "settings.models.configureThenRefresh": "Konfigurieren Sie das Modell in {{agent}} und aktualisieren Sie anschließend.",
   "settings.models.currentDefaults": "Angeheftete Modelle",
+  "settings.models.defaultModel": "Standard",
   "settings.models.recent": "Zuletzt verwendet",
   "settings.models.otherModels": "Andere Modelle",
   "settings.models.loadFailed": "Modelle konnten nicht geladen werden.",

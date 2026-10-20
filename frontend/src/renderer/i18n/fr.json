@@ -1324,6 +1324,7 @@
   "settings.models.cantFind": "Vous ne trouvez pas votre modèle ?",
   "settings.models.configureThenRefresh": "Configurez le modèle dans {{agent}}, puis actualisez.",
   "settings.models.currentDefaults": "Modèles épinglés",
+  "settings.models.defaultModel": "Par défaut",
   "settings.models.recent": "Récents",
   "settings.models.otherModels": "Autres modèles",
   "settings.models.loadFailed": "Impossible de charger les modèles.",

@@ -1305,6 +1305,90 @@ func TestCancelInterruptsReviewerAndCancelsRunningRuns(t *testing.T) {
 	}
 }
 
+func TestCancelDestroysNonReusableReviewerPane(t *testing.T) {
+	store := &fakeStore{
+		review: &domain.Review{ID: "rev-1", SessionID: "mer-1", Harness: domain.ReviewerOpenCodeV2, ReviewerHandleID: "review-mer-1"},
+		runs:   []domain.ReviewRun{{ID: "run-1", ReviewID: "rev-1", SessionID: "mer-1", PRURL: "https://github.com/o/r/pull/1", TargetSHA: "sha1", Status: domain.ReviewRunRunning}},
+	}
+	launcher := &fakeLauncher{}
+	eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), fakeProjects{}, launcher)
+
+	if _, err := eng.Cancel(context.Background(), "mer-1"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if !launcher.destroyed || launcher.destroyedHandle != "review-mer-1" {
+		t.Fatalf("destroy = %v handle=%q, want the pane destroyed after cancel", launcher.destroyed, launcher.destroyedHandle)
+	}
+	if store.review.ReviewerHandleID != "" {
+		t.Fatalf("handle = %q, want cleared", store.review.ReviewerHandleID)
+	}
+}
+
+func TestCancelKeepsReusableReviewerPane(t *testing.T) {
+	store := &fakeStore{
+		review: &domain.Review{ID: "rev-1", SessionID: "mer-1", Harness: domain.ReviewerClaudeCode, ReviewerHandleID: "review-mer-1", AgentSessionID: "native-1"},
+		runs:   []domain.ReviewRun{{ID: "run-1", ReviewID: "rev-1", SessionID: "mer-1", PRURL: "https://github.com/o/r/pull/1", TargetSHA: "sha1", Status: domain.ReviewRunRunning}},
+	}
+	launcher := &fakeLauncher{}
+	eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), fakeProjects{}, launcher)
+
+	if _, err := eng.Cancel(context.Background(), "mer-1"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if launcher.destroyed || store.review.ReviewerHandleID != "review-mer-1" {
+		t.Fatalf("destroyed=%v handle=%q, want a resumable pane kept", launcher.destroyed, store.review.ReviewerHandleID)
+	}
+}
+
+func TestReleaseFinishedReviewerPanes(t *testing.T) {
+	cases := []struct {
+		name        string
+		review      domain.Review
+		runStatus   domain.ReviewRunStatus
+		wantDestroy bool
+	}{
+		{"completed non-reusable pane is destroyed", domain.Review{Harness: domain.ReviewerOpenCodeV2}, domain.ReviewRunComplete, true},
+		{"reusable pane with agent session is kept", domain.Review{Harness: domain.ReviewerClaudeCode, AgentSessionID: "native-1"}, domain.ReviewRunComplete, false},
+		{"pane with a run still running is kept", domain.Review{Harness: domain.ReviewerOpenCodeV2}, domain.ReviewRunRunning, false},
+		{"chat reviewer has no pane to destroy", domain.Review{Harness: domain.ReviewerCodex, InterfaceMode: domain.ReviewerInterfaceChat}, domain.ReviewRunComplete, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			review := tc.review
+			review.ID, review.SessionID, review.ReviewerHandleID = "rev-1", "mer-1", "review-mer-1"
+			store := &fakeStore{
+				review: &review,
+				runs:   []domain.ReviewRun{{ID: "run-1", ReviewID: "rev-1", SessionID: "mer-1", Harness: review.Harness, Status: tc.runStatus}},
+			}
+			launcher := &fakeLauncher{}
+			eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), fakeProjects{}, launcher)
+
+			eng.ReleaseFinishedReviewerPanes(context.Background(), "mer-1")
+
+			if launcher.destroyed != tc.wantDestroy {
+				t.Fatalf("destroyed = %v, want %v", launcher.destroyed, tc.wantDestroy)
+			}
+			if cleared := store.review.ReviewerHandleID == ""; cleared != tc.wantDestroy {
+				t.Fatalf("handle cleared = %v, want %v", cleared, tc.wantDestroy)
+			}
+		})
+	}
+}
+
+func TestReleaseFinishedReviewerPanesKeepsHandleWhenDestroyFails(t *testing.T) {
+	store := &fakeStore{
+		review: &domain.Review{ID: "rev-1", SessionID: "mer-1", Harness: domain.ReviewerOpenCodeV2, ReviewerHandleID: "review-mer-1"},
+	}
+	launcher := &fakeLauncher{destroyErr: errors.New("boom")}
+	eng := newEngineForTest(store, fakeSessions{rec: liveWorker(), ok: true}, prAt("sha1"), fakeProjects{}, launcher)
+
+	eng.ReleaseFinishedReviewerPanes(context.Background(), "mer-1")
+
+	if store.review.ReviewerHandleID != "review-mer-1" {
+		t.Fatalf("handle = %q, want kept so a later teardown can retry", store.review.ReviewerHandleID)
+	}
+}
+
 func TestCancelTargetsRunningReviewerHarness(t *testing.T) {
 	store := &fakeStore{
 		review: &domain.Review{ID: "rev-1", SessionID: "mer-1", Harness: domain.ReviewerCodex, ReviewerHandleID: "codex-pane"},

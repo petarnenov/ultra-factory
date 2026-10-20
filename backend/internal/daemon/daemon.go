@@ -635,6 +635,7 @@ func Run() error {
 	sessionSvc.SetRemoteSpawnedStore(store)
 	capacityGuard := &coordownership.Guard{}
 	sessionSvc.SetCapacityGuard(capacityGuard)
+	sessionSvc.SetHostDirectory(coordownership.SavedHosts{Self: func() string { return hostIdentity.HostID }})
 	memoryReader := usagesvc.NewMemoryReader(usagesvc.MemoryReaderDeps{
 		Store: store, Runtime: runtimeAdapter, Reviewers: store, CacheTTL: 2 * time.Second,
 		ChatHostPID: func(id domain.SessionID) (int, bool) {
@@ -699,7 +700,7 @@ func Run() error {
 	lcStack.LCM.SetSessionInputLease(sessMgr)
 	lcStack.LCM.SetSessionOperationGate(sessMgr)
 	termMgr.SetSessionInputLease(sessMgr)
-	projectSvc := projectsvc.NewWithDeps(projectsvc.Deps{Store: store, Sessions: sessionSvc, DefaultHarness: domain.AgentHarness(cfg.Agent), Telemetry: telemetrySink, Logger: log, OnModelScopeChanged: agentSvc.InvalidateProjectModelCatalogs})
+	projectSvc := projectsvc.NewWithDeps(projectsvc.Deps{Store: store, Sessions: sessionSvc, DefaultHarness: domain.AgentHarness(cfg.Agent), Telemetry: telemetrySink, Logger: log, OnModelScopeChanged: agentSvc.InvalidateProjectModelCatalogs, Hosts: coordownership.SavedHosts{Self: func() string { return hostIdentity.HostID }}})
 	reportSessions, ok := sessMgr.(reportSemanticSession)
 	if !ok {
 		return errors.New("wire report delivery: session manager lacks semantic send support")
@@ -1067,6 +1068,7 @@ func Run() error {
 		Reviews:            reviewSvc,
 		Notifications:      notifier,
 		Reports:            reportSvc,
+		CompletionReports:  reportCoordinator,
 		Summaries:          summarySvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
 		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),

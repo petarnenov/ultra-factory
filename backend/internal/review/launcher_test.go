@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -629,6 +630,70 @@ func TestLauncherSpawnReplacesStalePane(t *testing.T) {
 	}
 	if !rt.destroyBefore {
 		t.Fatal("stale pane must be destroyed before the fresh pane is created")
+	}
+}
+
+// directHostRuntime models hybrid Create (prefixed handle, duplicate name
+// refused) and Destroy of the bare name reaching that direct pane.
+type directHostRuntime struct {
+	fakeRuntime
+	panes map[string]bool
+}
+
+func (d *directHostRuntime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.RuntimeHandle, error) {
+	id := string(cfg.SessionID)
+	if d.panes[id] {
+		return ports.RuntimeHandle{}, fmt.Errorf("session %q already exists; destroy before re-creating", id)
+	}
+	d.panes[id] = true
+	if _, err := d.fakeRuntime.Create(ctx, cfg); err != nil {
+		return ports.RuntimeHandle{}, err
+	}
+	return ports.RuntimeHandle{ID: "ptyhost-v1:" + id}, nil
+}
+
+func (d *directHostRuntime) Destroy(ctx context.Context, handle ports.RuntimeHandle) error {
+	delete(d.panes, strings.TrimPrefix(handle.ID, "ptyhost-v1:"))
+	return d.fakeRuntime.Destroy(ctx, handle)
+}
+
+func TestLauncherSpawnLeavesNoOrphanDirectHostPane(t *testing.T) {
+	rt := &directHostRuntime{panes: map[string]bool{}}
+	l := newTestLauncher(t, &fakeReviewer{}, rt)
+
+	for pass := 1; pass <= 2; pass++ {
+		res, err := l.Spawn(context.Background(), launchSpec())
+		if err != nil {
+			t.Fatalf("Spawn pass %d: %v", pass, err)
+		}
+		if res.HandleID != "ptyhost-v1:review-mer-1" {
+			t.Fatalf("pass %d handle = %q, want the direct-host handle (no tmux fallback)", pass, res.HandleID)
+		}
+	}
+	if len(rt.panes) != 1 {
+		t.Fatalf("live panes = %v, want exactly one after two passes", rt.panes)
+	}
+}
+
+func TestLauncherSpawnFailsWithAgentOutputWhenReviewerExitsAtLaunch(t *testing.T) {
+	rt := &fakeRuntime{alive: false, output: "Error: Session ID abc is already in use."}
+	l := NewLauncher(fakeReviewerResolver{reviewer: &fakeReviewer{}, ok: true}, rt, t.TempDir(), WithLaunchExitCheck(time.Millisecond))
+
+	_, err := l.Spawn(context.Background(), launchSpec())
+	if err == nil || !strings.Contains(err.Error(), "exited at launch") || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("Spawn err = %v, want the agent's own error", err)
+	}
+	if rt.destroyed != "review-mer-1" {
+		t.Fatalf("destroyed = %q, want the dead pane removed", rt.destroyed)
+	}
+}
+
+func TestLauncherSpawnKeepsReviewerThatIsStillRunning(t *testing.T) {
+	rt := &fakeRuntime{alive: true}
+	l := NewLauncher(fakeReviewerResolver{reviewer: &fakeReviewer{}, ok: true}, rt, t.TempDir(), WithLaunchExitCheck(time.Millisecond))
+
+	if _, err := l.Spawn(context.Background(), launchSpec()); err != nil {
+		t.Fatalf("Spawn: %v", err)
 	}
 }
 

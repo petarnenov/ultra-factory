@@ -151,7 +151,8 @@ export function AgentModelField({
 						aria-label={label}
 						value={model}
 						models={models}
-						emptyLabel={unsetLabel}
+						emptyLabel={unsetLabel ?? (followCatalogDefaults ? t("settings.models.defaultModel") : undefined)}
+						explicitModelOnly={followCatalogDefaults}
 						allowCustom={catalog?.allowCustom}
 						customModelEntry={customModelEntry}
 						agentLabel={agentId}

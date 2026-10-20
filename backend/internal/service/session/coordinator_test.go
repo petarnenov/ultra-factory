@@ -52,10 +52,10 @@ func (s *capStore) ListPRFactsForSession(ctx context.Context, id domain.SessionI
 	return s.fakeStore.ListPRFactsForSession(ctx, id)
 }
 
-func (s *capStore) SetCoordinatorWorkerLimit(ctx context.Context, id domain.SessionID, limit int, event domain.CoordinatorLimitEvent, at time.Time) (*int, error) {
+func (s *capStore) SetCoordinatorLimits(ctx context.Context, id domain.SessionID, limit *int, slots []domain.HostSlot, event domain.CoordinatorLimitEvent, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.fakeStore.SetCoordinatorWorkerLimit(ctx, id, limit, event, at)
+	return s.fakeStore.SetCoordinatorLimits(ctx, id, limit, slots, event, at)
 }
 
 func (s *capStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
@@ -108,7 +108,7 @@ func newCapFixture(t *testing.T) *capFixture {
 	mu := &sync.Mutex{}
 	st := newFakeStore()
 	st.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{
-		Coordinators: domain.CoordinatorsConfig{Enabled: true},
+		Coordinators: domain.CoordinatorsConfig{Enabled: true, AllowLocalWorkers: true},
 	}}
 	f := &capFixture{t: t, mu: mu, store: &capStore{fakeStore: st, mu: mu}}
 	f.seed(domain.SessionRecord{ID: "ao-root", ProjectID: "ao", Kind: domain.KindOrchestrator})
@@ -118,7 +118,7 @@ func newCapFixture(t *testing.T) *capFixture {
 		rec := domain.SessionRecord{
 			ID: domain.SessionID(fmt.Sprintf("ao-n%d", f.next)), ProjectID: cfg.ProjectID, Kind: cfg.Kind,
 			OwnerSessionID: cfg.OwnerSessionID, CoordinatorScope: cfg.CoordinatorScope,
-			CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit,
+			CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit, CoordinatorHostSlots: cfg.CoordinatorHostSlots,
 		}
 		st.sessions[rec.ID] = rec
 		return rec
@@ -127,8 +127,14 @@ func newCapFixture(t *testing.T) *capFixture {
 	return f
 }
 
-// configure replaces the project's coordinator gate and limits.
+// configure sets the coordinator config; local workers stay allowed so the
+// capacity tests can spawn them. configureStrict keeps cfg as given.
 func (f *capFixture) configure(cfg domain.CoordinatorsConfig) {
+	cfg.AllowLocalWorkers = true
+	f.configureStrict(cfg)
+}
+
+func (f *capFixture) configureStrict(cfg domain.CoordinatorsConfig) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.store.projects["ao"] = domain.ProjectRecord{ID: "ao", Config: domain.ProjectConfig{Coordinators: cfg}}

@@ -158,7 +158,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
 	}
 	if !hasLink(existing, link) {
-		if err := s.checkCapacity(ctx, link.ProjectID, link.OwnerSessionID); err != nil {
+		if err := s.checkCapacity(ctx, link.ProjectID, link.OwnerSessionID, link.HostID); err != nil {
 			return Registration{}, err
 		}
 	}
@@ -203,9 +203,9 @@ func (s *Service) linkParent(ctx context.Context, id domain.SessionID) (domain.S
 	return parent, nil
 }
 
-// CheckCapacity reports whether a worker spawned by parentID could be linked
-// now. It stores nothing; Register re-validates under the project lock.
-func (s *Service) CheckCapacity(ctx context.Context, parentID domain.SessionID) error {
+// CheckCapacity reports whether a worker of parentID on hostID could be
+// linked now; an empty hostID skips host rules. Register re-validates.
+func (s *Service) CheckCapacity(ctx context.Context, parentID domain.SessionID, hostID string) error {
 	if s == nil || s.store == nil {
 		return errors.New("remoteworker: store is required")
 	}
@@ -216,10 +216,10 @@ func (s *Service) CheckCapacity(ctx context.Context, parentID domain.SessionID) 
 	projectLock := s.capacity.Project(parent.ProjectID)
 	projectLock.Lock()
 	defer projectLock.Unlock()
-	return s.checkCapacity(ctx, parent.ProjectID, coordownership.SpawnOwner(parent, parent.ProjectID))
+	return s.checkCapacity(ctx, parent.ProjectID, coordownership.SpawnOwner(parent, parent.ProjectID), strings.TrimSpace(hostID))
 }
 
-func (s *Service) checkCapacity(ctx context.Context, projectID domain.ProjectID, owner *domain.SessionID) error {
+func (s *Service) checkCapacity(ctx context.Context, projectID domain.ProjectID, owner *domain.SessionID, hostID string) error {
 	counts, err := coordownership.Count(ctx, s.store, s.store, projectID)
 	if err != nil {
 		return err
@@ -228,7 +228,10 @@ func (s *Service) checkCapacity(ctx context.Context, projectID domain.ProjectID,
 	if err != nil {
 		return err
 	}
-	return counts.CheckNewWorker(projectID, owner, gate.Limits())
+	if hostID == "" {
+		return counts.CheckNewWorker(projectID, owner, gate.Limits())
+	}
+	return counts.CheckNewRemoteWorker(projectID, owner, hostID, gate)
 }
 
 func hasLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) bool {

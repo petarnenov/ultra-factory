@@ -1569,6 +1569,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notify a worker's coordinator of tick completion (loopback only) */
+        post: operations["deliverCompletionReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/pending": {
         parameters: {
             query?: never;
@@ -4247,6 +4264,7 @@ export interface components {
             sessionId: string;
         };
         CheckRemoteWorkerCapacityRequest: {
+            hostId?: string;
             parentSessionId: string;
         };
         CheckRemoteWorkerCapacityResponse: {
@@ -4611,11 +4629,36 @@ export interface components {
             inputTokens: null | number;
             outputTokens: null | number;
         };
+        CompletionPR: {
+            mergeCommitSha: string;
+            number: number;
+        };
+        CompletionRecipient: {
+            hostId: string;
+            ownerSessionId: string;
+            projectId: string;
+        };
+        CompletionReportRequest: {
+            actionKey: string;
+            hostId: string;
+            kind: string;
+            prs: components["schemas"]["CompletionPR"][];
+            recipient?: components["schemas"]["CompletionRecipient"];
+            sessionId: string;
+        };
+        CompletionReportResponse: {
+            accepted: boolean;
+        };
         ConsumeCodexAccountResetCreditRequest: {
             idempotencyKey: string;
         };
         ContainerReapConfig: {
             disabled?: boolean;
+        };
+        ControllersCoordinatorHostSlot: {
+            hostId: string;
+            slots: number;
+            used: number;
         };
         ControllersCoordinatorSummaryHistoryResponse: {
             summaries: components["schemas"]["ControllersCoordinatorSummaryResponse"][];
@@ -4656,6 +4699,10 @@ export interface components {
             state: "planning" | "working" | "blocked" | "done";
             submissionKey: string;
             workerSessionIds: string[];
+        };
+        ControllersHostSlotInput: {
+            hostId: string;
+            slots: number;
         };
         ControllersKeepAwakeStatus: {
             active: boolean;
@@ -5087,6 +5134,8 @@ export interface components {
             maxWorkersPerCoordinator: number;
         };
         CoordinatorLimitsRequest: {
+            /** @description Omitted keeps stored slots; [] clears. */
+            hostSlots?: null | components["schemas"]["ControllersHostSlotInput"][];
             /** @description Operator acts for the live root; needs origin. */
             operatorInitiated?: boolean;
             /** @enum {string} */
@@ -5099,7 +5148,9 @@ export interface components {
             activeWorkerCount: number;
             coordinatorScope: string;
             coordinatorSessionId: string;
+            effectivePlacementLimit: number;
             effectiveWorkerLimit: number;
+            hostSlots: components["schemas"]["ControllersCoordinatorHostSlot"][];
             isTerminated: boolean;
             latestSummary: null | components["schemas"]["ControllersCoordinatorSummaryResponse"];
             needsRecovery: boolean;
@@ -5243,6 +5294,8 @@ export interface components {
             state: string;
         };
         DomainCoordinatorsConfig: {
+            allowLocalWorkers?: boolean;
+            allowedHosts?: string[];
             enabled?: boolean;
             maxCoordinators?: number;
             maxWorkers?: number;
@@ -6264,7 +6317,9 @@ export interface components {
             activeWorkerCount?: null | number;
             capacity: components["schemas"]["CoordinatorCapacity"];
             coordinatorScope?: string;
+            effectivePlacementLimit?: null | number;
             effectiveWorkerLimit?: null | number;
+            hostSlots?: components["schemas"]["ControllersCoordinatorHostSlot"][];
             /** @enum {string} */
             kind: "worker" | "orchestrator" | "coordinator";
             /** @enum {string} */
@@ -6790,6 +6845,7 @@ export interface components {
             /** @enum {string} */
             harness?: "claude-code" | "codex" | "aider" | "opencode" | "opencode-v2" | "grok" | "droid" | "amp" | "agy" | "crush" | "cursor" | "qwen" | "gemini" | "copilot" | "goose" | "auggie" | "continue" | "devin" | "cline" | "kimi" | "muse" | "kiro" | "kilocode" | "vibe" | "pi" | "kimchi" | "omp" | "fx" | "prime-agent" | "autohand" | "unreal-agent" | "codewhale" | "mimo-code" | "deepseek-harness" | "openhands" | "command-code";
             harnessExplicit?: null | boolean;
+            hostSlots?: components["schemas"]["ControllersHostSlotInput"][];
             issueId?: string;
             /** @enum {string} */
             kind?: "worker" | "orchestrator" | "coordinator";
@@ -12824,6 +12880,57 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    deliverCompletionReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompletionReportRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompletionReportResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

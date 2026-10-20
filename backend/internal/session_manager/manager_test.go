@@ -12296,6 +12296,28 @@ func TestSpawnCoordinatorPersistsItsOwnWorkerLimitAndPromptShowsTheEffectiveOne(
 	}
 }
 
+func TestSpawnCoordinatorPersistsItsHostSlots(t *testing.T) {
+	st := newFakeStore()
+	cfg := testRoleAgents()
+	cfg.Coordinators = domain.CoordinatorsConfig{Enabled: true}
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: t.TempDir(), Config: cfg}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: singleAgent{agent: &recordingAgent{}}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		DataDir: t.TempDir(), LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+	slots := []domain.HostSlot{{HostID: "host-a", Slots: 2}, {HostID: "host-b", Slots: 1}}
+	sess, _, _, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "auth", CoordinatorHostSlots: slots,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := st.sessions[sess.ID].CoordinatorHostSlots; !reflect.DeepEqual(got, slots) {
+		t.Fatalf("persisted host slots = %+v, want %+v", got, slots)
+	}
+}
+
 func TestSpawn_AutoReviewOverrideBeatsProjectConfig(t *testing.T) {
 	on, off := true, false
 	for _, tc := range []struct {
