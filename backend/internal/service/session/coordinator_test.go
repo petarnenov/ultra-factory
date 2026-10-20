@@ -12,12 +12,13 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/store"
 )
 
 // The daemon passes *store.Store as the session store; losing this method
 // would silently stop counting remote links toward capacity.
-var _ remoteLinkLister = (*store.Store)(nil)
+var _ coordownership.LinkLister = (*store.Store)(nil)
 
 // capStore serialises the fake store and lists remote links, so concurrent
 // spawn tests stay race-free and link capacity can be counted.

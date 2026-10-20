@@ -88,7 +88,7 @@ func (s *Service) checkReassignCapacity(ctx context.Context, worker domain.Sessi
 	if err != nil {
 		return err
 	}
-	return counts.checkOwnerCapacity(&owner)
+	return counts.CheckOwner(&owner)
 }
 
 // Ownership is one session's durable ownership plus the project's live root.

@@ -65,6 +65,7 @@ import (
 	importsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/importer"
 	linkpreviewsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/linkpreview"
 	notificationsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/notification"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
@@ -628,6 +629,8 @@ func Run() error {
 	}
 	sessionSvc.SetChatProviderPreserver(chatSvc.PreservesProviderOnRestart)
 	sessionSvc.SetRemoteSpawnedStore(store)
+	capacityGuard := &coordownership.Guard{}
+	sessionSvc.SetCapacityGuard(capacityGuard)
 	memoryReader := usagesvc.NewMemoryReader(usagesvc.MemoryReaderDeps{
 		Store: store, Runtime: runtimeAdapter, Reviewers: store, CacheTTL: 2 * time.Second,
 		ChatHostPID: func(id domain.SessionID) (int, bool) {
@@ -1021,7 +1024,7 @@ func Run() error {
 	if mobilebridge.KeepAwakeSupported() {
 		bs.KeepAwake = mobilebridge.NewKeepAwake(os.Getpid())
 	}
-	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, log)
+	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, capacityGuard, log)
 	remoteReportsDone := remoteReports.Start(ctx)
 	defer func() {
 		stop()

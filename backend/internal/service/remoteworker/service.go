@@ -20,6 +20,7 @@ import (
 // Store is the link persistence and parent-session boundary.
 type Store interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
+	ListSessions(context.Context, domain.ProjectID) ([]domain.SessionRecord, error)
 	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
 	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
@@ -60,6 +61,9 @@ type Deps struct {
 	Lookup     func(hostID string) (remotehost.Entry, bool, error)
 	Now        func() time.Time
 	OnLinked   func()
+	// Capacity is shared with the session service so link writes and local
+	// spawns serialise per project. Nil gives this service its own guard.
+	Capacity *coordownership.Guard
 }
 
 // Service validates and stores remote worker links.
@@ -69,6 +73,7 @@ type Service struct {
 	lookup     func(string) (remotehost.Entry, bool, error)
 	now        func() time.Time
 	onLinked   func()
+	capacity   *coordownership.Guard
 	// mu makes the link-limit check and the insert one step.
 	mu sync.Mutex
 }
@@ -81,7 +86,10 @@ func New(d Deps) *Service {
 	if d.Now == nil {
 		d.Now = time.Now
 	}
-	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked}
+	if d.Capacity == nil {
+		d.Capacity = &coordownership.Guard{}
+	}
+	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked, capacity: d.Capacity}
 }
 
 // MaxDisplayNameLength matches the spawn display-name limit.
@@ -136,6 +144,9 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 		OwnerSessionID: coordownership.SpawnOwner(parent, parent.ProjectID),
 		CreatedAt:      s.now().UTC(),
 	}
+	projectLock := s.capacity.Project(link.ProjectID)
+	projectLock.Lock()
+	defer projectLock.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, err := s.store.ListRemoteWorkerLinks(ctx)
@@ -153,6 +164,15 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	}
 	if len(existing) >= MaxLinks && !hasLink(existing, link) {
 		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
+	}
+	if !hasLink(existing, link) {
+		counts, err := coordownership.Count(ctx, s.store, s.store, link.ProjectID)
+		if err != nil {
+			return Registration{}, err
+		}
+		if err := counts.CheckNewWorker(link.ProjectID, link.OwnerSessionID); err != nil {
+			return Registration{}, err
+		}
 	}
 	if err := s.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
 		return Registration{}, err

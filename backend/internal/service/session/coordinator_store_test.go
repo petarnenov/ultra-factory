@@ -60,7 +60,7 @@ func TestCountCapacityOnTheRealStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if counts.coordinators != 1 || counts.workers != 3 || counts.byOwner[c1.ID] != 2 {
+	if counts.Coordinators != 1 || counts.Workers != 3 || counts.ByOwner[c1.ID] != 2 {
 		t.Fatalf("counts = %+v, want 1 coordinator, 3 workers, 2 owned by %s", counts, c1.ID)
 	}
 }

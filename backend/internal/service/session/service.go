@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
+	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
@@ -197,23 +198,23 @@ type outputTypeReconciler interface {
 // session operations to the internal sessionmanager.Manager and owns read-model
 // assembly, including user-facing display status derivation.
 type Service struct {
-	manager             commander
-	store               Store
-	prClaimer           ports.PRClaimer
-	scm                 scmProvider
-	tracker             ports.Tracker
-	clock               func() time.Time
-	dataDir             string
-	telemetry           ports.EventSink
-	logger              *slog.Logger
-	backgroundContext   context.Context
-	agentReadiness      ports.AgentReadinessProvider
-	runBackground       func(func())
-	orchestratorLocksMu sync.Mutex
-	orchestratorLocks   map[domain.ProjectID]*sync.RWMutex
-	workspaceCache      *workspaceCache
-	workspaceManifests  *workspaceManifestIndex
-	workspaceEditsMu    sync.Mutex
+	manager            commander
+	store              Store
+	prClaimer          ports.PRClaimer
+	scm                scmProvider
+	tracker            ports.Tracker
+	clock              func() time.Time
+	dataDir            string
+	telemetry          ports.EventSink
+	logger             *slog.Logger
+	backgroundContext  context.Context
+	agentReadiness     ports.AgentReadinessProvider
+	runBackground      func(func())
+	capacityGuardMu    sync.Mutex
+	capacityGuard      *coordownership.Guard
+	workspaceCache     *workspaceCache
+	workspaceManifests *workspaceManifestIndex
+	workspaceEditsMu   sync.Mutex
 	// workspaceGroup coalesces concurrent cache-miss compare/status lookups
 	// for the same (session, root): "Expand All" on many files fires that
 	// many GetWorkspaceFile calls at once, and without this each one would
@@ -822,17 +823,21 @@ func (s *Service) lockOrchestratorProject(projectID domain.ProjectID) func() {
 // projectLock is the per-project lock behind root spawn, coordinator spawn,
 // and every spawn or ownership write that is checked against capacity.
 func (s *Service) projectLock(projectID domain.ProjectID) *sync.RWMutex {
-	s.orchestratorLocksMu.Lock()
-	defer s.orchestratorLocksMu.Unlock()
-	if s.orchestratorLocks == nil {
-		s.orchestratorLocks = make(map[domain.ProjectID]*sync.RWMutex)
+	s.capacityGuardMu.Lock()
+	if s.capacityGuard == nil {
+		s.capacityGuard = &coordownership.Guard{}
 	}
-	mu := s.orchestratorLocks[projectID]
-	if mu == nil {
-		mu = &sync.RWMutex{}
-		s.orchestratorLocks[projectID] = mu
-	}
-	return mu
+	guard := s.capacityGuard
+	s.capacityGuardMu.Unlock()
+	return guard.Project(projectID)
+}
+
+// SetCapacityGuard shares the project capacity locks with the remote worker
+// service, so link writes serialise with spawns.
+func (s *Service) SetCapacityGuard(guard *coordownership.Guard) {
+	s.capacityGuardMu.Lock()
+	s.capacityGuard = guard
+	s.capacityGuardMu.Unlock()
 }
 
 // Restore relaunches a terminated session and returns the API-facing read model.

@@ -14,80 +14,11 @@ import (
 const defaultCoordinatorPrompt = "Coordinate the scope in your system prompt. " +
 	"Delegate to workers you spawn and report to the project root."
 
-// remoteLinkLister reads the remote worker links that count toward capacity.
-type remoteLinkLister interface {
-	ListRemoteWorkerLinks(ctx context.Context) ([]domain.RemoteWorkerLink, error)
-}
-
-// capacityCounts is a project's active census: sessions until terminated,
-// remote links while they exist.
-type capacityCounts struct {
-	coordinators int
-	workers      int
-	byOwner      map[domain.SessionID]int
-}
-
-func (s *Service) countCapacity(ctx context.Context, project domain.ProjectID) (capacityCounts, error) {
-	counts := capacityCounts{byOwner: map[domain.SessionID]int{}}
-	recs, err := s.store.ListSessions(ctx, project)
-	if err != nil {
-		return counts, fmt.Errorf("count capacity for %s: %w", project, err)
-	}
-	for _, rec := range recs {
-		if rec.IsTerminated || rec.IsTaskPreparation {
-			continue
-		}
-		switch rec.Kind {
-		case domain.KindCoordinator:
-			counts.coordinators++
-		case domain.KindWorker:
-			counts.workers++
-			if rec.OwnerSessionID != nil {
-				counts.byOwner[*rec.OwnerSessionID]++
-			}
-		}
-	}
-	lister, ok := s.store.(remoteLinkLister)
-	if !ok {
-		return counts, nil
-	}
-	links, err := lister.ListRemoteWorkerLinks(ctx)
-	if err != nil {
-		return counts, fmt.Errorf("count remote links for %s: %w", project, err)
-	}
-	for _, link := range links {
-		if link.ProjectID != project {
-			continue
-		}
-		counts.workers++
-		if link.OwnerSessionID != nil {
-			counts.byOwner[*link.OwnerSessionID]++
-		}
-	}
-	return counts, nil
-}
-
-// checkOwnerCapacity rejects a worker that would be the coordinator's fourth.
-func (c capacityCounts) checkOwnerCapacity(owner *domain.SessionID) error {
-	if owner != nil && c.byOwner[*owner] >= coordownership.MaxWorkersPerCoordinator {
-		return coordownership.CoordinatorWorkerLimitError(*owner, c.byOwner[*owner])
-	}
-	return nil
-}
-
-// checkNewWorker applies the owner cap and project total to one more worker.
-// The total binds only once a coordinator is active.
-func (c capacityCounts) checkNewWorker(project domain.ProjectID, owner *domain.SessionID) error {
-	if c.coordinators == 0 {
-		return nil
-	}
-	if err := c.checkOwnerCapacity(owner); err != nil {
-		return err
-	}
-	if c.workers >= coordownership.MaxProjectWorkers {
-		return coordownership.ProjectWorkerLimitError(project, c.workers)
-	}
-	return nil
+// countCapacity reads the project's census, including remote links when the
+// store lists them.
+func (s *Service) countCapacity(ctx context.Context, project domain.ProjectID) (coordownership.Counts, error) {
+	links, _ := s.store.(coordownership.LinkLister)
+	return coordownership.Count(ctx, s.store, links, project)
 }
 
 // spawnOwner derives a new worker's durable owner from its spawn parent.
@@ -115,14 +46,14 @@ func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, own
 		mu.RUnlock()
 		return nil, err
 	}
-	if counts.coordinators == 0 && owner == nil {
+	if counts.Coordinators == 0 && owner == nil {
 		return mu.RUnlock, nil
 	}
 	mu.RUnlock()
 	mu.Lock()
 	counts, err = s.countCapacity(ctx, project)
 	if err == nil {
-		err = counts.checkNewWorker(project, owner)
+		err = counts.CheckNewWorker(project, owner)
 	}
 	if err != nil {
 		mu.Unlock()
@@ -159,8 +90,8 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	if err != nil {
 		return domain.Session{}, 0, 0, err
 	}
-	if counts.coordinators >= coordownership.MaxCoordinators {
-		return domain.Session{}, 0, 0, coordownership.CoordinatorLimitError(cfg.ProjectID, counts.coordinators)
+	if counts.Coordinators >= coordownership.MaxCoordinators {
+		return domain.Session{}, 0, 0, coordownership.CoordinatorLimitError(cfg.ProjectID, counts.Coordinators)
 	}
 	return s.spawn(ctx, cfg)
 }
@@ -172,8 +103,8 @@ func (s *Service) admitRestore(ctx context.Context, rec domain.SessionRecord) (f
 	case domain.KindCoordinator:
 		unlock := s.lockOrchestratorProject(rec.ProjectID)
 		counts, err := s.countCapacity(ctx, rec.ProjectID)
-		if err == nil && counts.coordinators >= coordownership.MaxCoordinators {
-			err = coordownership.CoordinatorLimitError(rec.ProjectID, counts.coordinators)
+		if err == nil && counts.Coordinators >= coordownership.MaxCoordinators {
+			err = coordownership.CoordinatorLimitError(rec.ProjectID, counts.Coordinators)
 		}
 		if err != nil {
 			unlock()
