@@ -4080,6 +4080,56 @@ paths:
       summary: Assign or clear a linked remote worker's local owner
       tags:
       - reports
+  /api/v1/remote-worker-links/check:
+    post:
+      operationId: checkRemoteWorkerCapacity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckRemoteWorkerCapacityRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckRemoteWorkerCapacityResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Check that a worker spawned by a session could be linked, before spawning
+        it (loopback only)
+      tags:
+      - reports
   /api/v1/reports:
     get:
       operationId: listReports
@@ -12604,6 +12654,20 @@ components:
       required:
       - ok
       - sessionId
+      type: object
+    CheckRemoteWorkerCapacityRequest:
+      properties:
+        parentSessionId:
+          type: string
+      required:
+      - parentSessionId
+      type: object
+    CheckRemoteWorkerCapacityResponse:
+      properties:
+        ok:
+          type: boolean
+      required:
+      - ok
       type: object
     ClaimPRRequest:
       properties:

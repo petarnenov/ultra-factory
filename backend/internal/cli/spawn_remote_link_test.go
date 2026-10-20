@@ -132,27 +132,80 @@ func TestRemoteSpawnResolvesHarnessOnTargetMachine(t *testing.T) {
 	}
 }
 
-func TestRemoteSpawnLinkFailureWarnsButKeepsTheWorker(t *testing.T) {
+func serveRemoteRollback(remote *fakeRemoteHost) {
+	remote.handle(http.MethodPost, "/api/v1/sessions/widgets-3/rollback", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "sessionId": "widgets-3", "killed": true})
+	})
+}
+
+func spawnRemoteInsideSession(t *testing.T, local *localDaemon, remote *fakeRemoteHost) (string, error) {
+	t.Helper()
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+	_, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--name", "auth refactor", "--prompt", "do it", "--agent", "claude-code", "--skip-agent-check")
+	return errOut, err
+}
+
+func newLinkedSpawnFixture(t *testing.T) (*localDaemon, *fakeRemoteHost) {
+	t.Helper()
 	cfg := setConfigEnv(t)
 	t.Setenv("AO_SESSION_ID", "ao-7")
 	t.Setenv("AO_PROJECT_ID", "local-widgets")
 	local := startLocalDaemon(t, cfg, "host-local", map[string]projectDetails{
 		"local-widgets": {ID: "local-widgets", Repo: "git@github.com:Acme/Widgets.git"},
 	})
-	local.answerLinks(http.StatusConflict)
 	remote := newFakeRemoteHost(t, "host-build", "s3cret")
 	serveRemoteSpawn(remote)
-	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+	serveRemoteRollback(remote)
+	return local, remote
+}
 
-	out, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--name", "auth refactor", "--prompt", "do it", "--agent", "claude-code", "--skip-agent-check")
-	if err != nil {
-		t.Fatalf("a failed link must not fail the spawn: %v", err)
+func TestRemoteSpawnOverCapacityCreatesNoRemoteWorker(t *testing.T) {
+	local, remote := newLinkedSpawnFixture(t)
+	local.answerLinks(http.StatusCreated)
+	local.rejectCheckWith("COORDINATOR_WORKER_LIMIT_REACHED")
+
+	_, err := spawnRemoteInsideSession(t, local, remote)
+	if err == nil || !strings.Contains(err.Error(), "COORDINATOR_WORKER_LIMIT_REACHED") {
+		t.Fatalf("err = %v, want COORDINATOR_WORKER_LIMIT_REACHED", err)
 	}
-	if !strings.Contains(out, "spawned session widgets-3") {
-		t.Fatalf("stdout = %q", out)
+	if _, ok := remote.find(http.MethodPost, "/api/v1/sessions"); ok {
+		t.Fatal("a remote worker was spawned although the capacity pre-check failed")
 	}
-	if !strings.Contains(errOut, "warning: reports from widgets-3 will not reach this machine's orchestrator") {
-		t.Fatalf("stderr = %q", errOut)
+	if links := local.links(); len(links) != 0 {
+		t.Fatalf("link requests = %v, want none", links)
+	}
+}
+
+func TestRemoteSpawnTerminatesTheWorkerWhenLinkingHitsCapacity(t *testing.T) {
+	for _, code := range []string{"COORDINATOR_WORKER_LIMIT_REACHED", "PROJECT_WORKER_LIMIT_REACHED", "OWNER_TERMINATED"} {
+		t.Run(code, func(t *testing.T) {
+			local, remote := newLinkedSpawnFixture(t)
+			local.rejectLinksWith(http.StatusConflict, code)
+
+			errOut, err := spawnRemoteInsideSession(t, local, remote)
+			if err == nil || !strings.Contains(err.Error(), code) || !strings.Contains(err.Error(), "widgets-3") {
+				t.Fatalf("err = %v, want %s naming widgets-3", err, code)
+			}
+			if strings.Contains(errOut, "warning") {
+				t.Fatalf("unexpected warning: %s", errOut)
+			}
+			if _, ok := remote.find(http.MethodPost, "/api/v1/sessions/widgets-3/rollback"); !ok {
+				t.Fatal("the remote session was not terminated")
+			}
+		})
+	}
+}
+
+func TestRemoteSpawnKeepsTheWorkerOnANonCapacityLinkFailure(t *testing.T) {
+	local, remote := newLinkedSpawnFixture(t)
+	local.rejectLinksWith(http.StatusConflict, "PARENT_SESSION_TERMINATED")
+
+	_, err := spawnRemoteInsideSession(t, local, remote)
+	if err == nil || !strings.Contains(err.Error(), "widgets-3") || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("err = %v, want a failure naming the running widgets-3", err)
+	}
+	if _, ok := remote.find(http.MethodPost, "/api/v1/sessions/widgets-3/rollback"); ok {
+		t.Fatal("a non-capacity link failure must keep the remote worker")
 	}
 }
 

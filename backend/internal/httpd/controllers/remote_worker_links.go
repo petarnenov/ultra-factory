@@ -19,6 +19,11 @@ type RemoteWorkerLinkService interface {
 	Register(context.Context, remoteworker.RegisterInput) (remoteworker.Registration, error)
 }
 
+// RemoteWorkerCapacityService is the optional pre-spawn capacity check.
+type RemoteWorkerCapacityService interface {
+	CheckCapacity(context.Context, domain.SessionID) error
+}
+
 // RemoteWorkerOwnershipService is the link ownership read and write surface.
 // It is optional so existing link-creation fakes stay unchanged.
 type RemoteWorkerOwnershipService interface {
@@ -39,6 +44,7 @@ type RemoteWorkerLinksController struct{ Svc RemoteWorkerLinkService }
 // Register mounts the remote worker link routes on r.
 func (c *RemoteWorkerLinksController) Register(r chi.Router) {
 	r.Post("/remote-worker-links", c.create)
+	r.Post("/remote-worker-links/check", c.check)
 	r.Get("/remote-worker-links", c.list)
 	r.Put("/remote-worker-links/{hostId}/{remoteSessionId}/owner", c.assignOwner)
 }
@@ -67,6 +73,26 @@ func (c *RemoteWorkerLinksController) create(w http.ResponseWriter, r *http.Requ
 	resp := remoteWorkerLinkResponse(registration.Link)
 	resp.PullBlocked = registration.PullBlocked
 	envelope.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (c *RemoteWorkerLinksController) check(w http.ResponseWriter, r *http.Request) {
+	svc, ok := c.Svc.(RemoteWorkerCapacityService)
+	if !ok {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/remote-worker-links/check")
+		return
+	}
+	var req CheckRemoteWorkerCapacityRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	if err := svc.CheckCapacity(r.Context(), domain.SessionID(req.ParentSessionID)); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, CheckRemoteWorkerCapacityResponse{OK: true})
 }
 
 func (c *RemoteWorkerLinksController) list(w http.ResponseWriter, r *http.Request) {
