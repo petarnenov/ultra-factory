@@ -205,7 +205,7 @@ type CompletionNotifier interface {
 	NotifyCompletion(context.Context, string, string, string, string, []CompletedPR, *CompletionRecipient) error
 }
 
-// CompletionRecipient pins the local owner before a worker's link can disappear.
+// CompletionRecipient pins the owner before a worker link can disappear.
 type CompletionRecipient struct {
 	HostID         string `json:"hostId"`
 	OwnerSessionID string `json:"ownerSessionId"`
