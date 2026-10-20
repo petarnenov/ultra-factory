@@ -80,6 +80,10 @@ const session: DashboardSession = {
 	lastActivityAt: "2026-10-08T00:00:00Z",
 };
 
+// renderItem closes over a minute-granular clock bucket, so a render that
+// crosses a minute boundary changes it. Pin the clock for identity checks.
+const PINNED_NOW = Date.UTC(2026, 9, 20, 12, 0, 40);
+
 describe("WorkerListRow", () => {
 	it("keeps the default scroll buffer and does not enable clipping", () => {
 		let renderer!: ReactTestRenderer;
@@ -134,17 +138,43 @@ describe("WorkerListRow", () => {
 	it("keeps the board data and bound worker actions stable across notification publications", () => {
 		const sessions = Array.from({ length: 120 }, (_, index) => ({ ...session, id: String(index) }));
 		const board = <WorkerBoardList sessions={sessions} contentBottomInset={0} refreshing={false} onRefresh={vi.fn()} />;
-		let renderer!: ReactTestRenderer;
-		act(() => { renderer = create(<appContext.Provider value={{ currentHostId: "host-1", notificationsUnread: 0 }}>{board}</appContext.Provider>); });
-		const before = renderer.root.findByType("virtual-list" as never).props;
-		counters.renders = 0;
-		act(() => { renderer.update(<appContext.Provider value={{ currentHostId: "host-1", notificationsUnread: 3 }}>{board}</appContext.Provider>); });
-		const after = renderer.root.findByType("virtual-list" as never).props;
-		expect(after.data).toBe(before.data);
-		expect(after.renderItem).toBe(before.renderItem);
-		expect(counters.renders).toBe(0);
-		expect(after.itemLayoutAnimation).toBeUndefined();
-		act(() => renderer.unmount());
+		// Without a pinned clock this asserts the wall clock too: two renders that
+		// straddle a minute boundary legitimately differ (see the next test). #377
+		const clock = vi.spyOn(Date, "now").mockReturnValue(PINNED_NOW);
+		try {
+			let renderer!: ReactTestRenderer;
+			act(() => { renderer = create(<appContext.Provider value={{ currentHostId: "host-1", notificationsUnread: 0 }}>{board}</appContext.Provider>); });
+			const before = renderer.root.findByType("virtual-list" as never).props;
+			counters.renders = 0;
+			act(() => { renderer.update(<appContext.Provider value={{ currentHostId: "host-1", notificationsUnread: 3 }}>{board}</appContext.Provider>); });
+			const after = renderer.root.findByType("virtual-list" as never).props;
+			expect(after.data).toBe(before.data);
+			expect(after.renderItem).toBe(before.renderItem);
+			expect(counters.renders).toBe(0);
+			expect(after.itemLayoutAnimation).toBeUndefined();
+			act(() => renderer.unmount());
+		} finally {
+			clock.mockRestore();
+		}
+	});
+	it("redraws every row when the clock enters a new minute", () => {
+		const sessions = Array.from({ length: 120 }, (_, index) => ({ ...session, id: String(index) }));
+		const board = <WorkerBoardList sessions={sessions} contentBottomInset={0} refreshing={false} onRefresh={vi.fn()} />;
+		const clock = vi.spyOn(Date, "now").mockReturnValue(PINNED_NOW);
+		try {
+			let renderer!: ReactTestRenderer;
+			act(() => { renderer = create(<appContext.Provider value={{ currentHostId: "host-1", notificationsUnread: 0 }}>{board}</appContext.Provider>); });
+			const before = renderer.root.findByType("virtual-list" as never).props;
+			counters.renders = 0;
+			// Nothing about the board changed: only the minute its rows read from.
+			clock.mockReturnValue(PINNED_NOW + 60_000);
+			act(() => { renderer.update(<appContext.Provider value={{ currentHostId: "host-1", notificationsUnread: 0 }}>{board}</appContext.Provider>); });
+			expect(renderer.root.findByType("virtual-list" as never).props.data).toBe(before.data);
+			expect(counters.renders).toBe(sessions.length);
+			act(() => renderer.unmount());
+		} finally {
+			clock.mockRestore();
+		}
 	});
 	it("does not redraw unchanged workers when the app notification count changes", () => {
 		const props = {
