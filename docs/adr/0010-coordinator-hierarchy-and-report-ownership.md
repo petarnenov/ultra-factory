@@ -1361,6 +1361,21 @@ turn, can be dropped or reworded, and gives the operator no result.
   operator change, and `cli` or `api` for a root change. The row is tied to the
   coordinator with cascade on delete. A no-op write (same values) writes no
   row.
+- **Live worker agent change** (approved 2026-10-20). The live root, or the
+  operator on behalf of the root, may change a live coordinator's `workerAgent`
+  selection, under the same rules as a live limit change: the same marker
+  (`operatorInitiated: true` and `origin`), the same root resolution and
+  `COORDINATOR_ROOT_REQUIRED`, and a short system message to the coordinator
+  with its new selection. The route is `PUT
+  /api/v1/sessions/{sessionId}/coordinator-worker-agent`. The new selection
+  applies only to workers spawned after the change. Running workers keep their
+  recorded profile, and a restore of an existing worker keeps its stored
+  profile. The new selection is validated against the project's
+  `agentProfiles` (`WORKER_PROFILE_INVALID`). The change is audited in
+  `coordinator_agent_events(session_id, previous_selection, new_selection,
+  actor_session_id, origin, created_at)`, with the same rules as
+  `coordinator_limit_events`; the selections are JSON, and a no-op write adds
+  no row.
 - **Root notice.** The root is told about the new coordinator through the
   summary path of section 6, as a system line in its next turn.
 - All other section 1 rules stay: `remoteSpawn` is rejected, the project must
@@ -1390,7 +1405,7 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
     default, and the spawn request can set it per coordinator. `inherit` keeps
     today's behavior (the orchestrator role config).
   - Its workers' agent: `coordinators.workerAgent` is the project default, and
-    a per-coordinator `workerAgent` is set at spawn (a live change is out of scope here). `inherit`
+    a per-coordinator `workerAgent` is set at spawn and can change live (see decision 6). `inherit`
     keeps today's behavior (`config.worker` and explicit flags).
 - **Explicit flags.** A coordinator may still pass `--harness`, `--model` and
   `--effort` on a worker spawn only when the combination matches a profile that
@@ -1430,7 +1445,8 @@ Rejected: an automatic refusal now, because the thresholds would be guesses.
 - The migration is additive: nullable columns on `sessions` for the
   coordinator's `workerLimit`, host slots, and agent selection, a nullable
   `agent_profile_id` on worker sessions, and the audit tables
-  `coordinator_operator_events` and `coordinator_limit_events` in decision 6. No
+  `coordinator_operator_events`, `coordinator_limit_events` and
+  `coordinator_agent_events` in decision 6. No
   backfill. Rollback to 0.18.0 ignores the columns.
 - Existing configs hold `maxCoordinators`, `maxWorkersPerCoordinator` and
   `maxWorkers` with values at or below 2 / 3 / 6. They stay valid.
@@ -1499,6 +1515,7 @@ new:
 | --- | --- | --- | --- |
 | `POST /api/v1/sessions` with `kind=coordinator` | New optional fields `workerLimit`, `hostSlots` (`[{hostId, slots}]` or a `host:slots` string), `workerAgent`, `coordinatorAgent`, `operatorInitiated` | Live root, or the app API with `operatorInitiated: true` | CO-5.2, CO-5.3, CO-5.7 |
 | `PUT /api/v1/sessions/{sessionId}/coordinator-limits` | New. Body `{workerLimit, hostSlots, requestedBySessionId, operatorInitiated, origin}`; changes a live coordinator's limit and host slots within the project ceiling; sends the system message; audited in `coordinator_limit_events`. With `operatorInitiated: true` and `origin` (`ui`, `cli`, `api`) the daemon resolves the live root, or returns `COORDINATOR_ROOT_REQUIRED` | Live root, or the app API with `operatorInitiated: true` | CO-5.2, CO-5.3 |
+| `PUT /api/v1/sessions/{sessionId}/coordinator-worker-agent` | New. Body `{workerAgent, requestedBySessionId, operatorInitiated, origin}`; changes a live coordinator's worker agent selection for workers spawned after the change; sends the system message; audited in `coordinator_agent_events`. Same marker and `COORDINATOR_ROOT_REQUIRED` rule as the limits route | Live root, or the app API with `operatorInitiated: true` | CO-5.7 |
 | `GET /api/v1/projects/{projectId}/coordinators` | Roster gains `workerLimit`, `hostSlots` with per-host `used`, `agentProfileId`, per-worker `agentProfileId`, and `hubMemoryPressure` (`{usedBytes, limitBytes, percent, warning}` or `null`) | App API caller | CO-5.2, CO-5.3, CO-5.6, CO-5.7 |
 | `POST /api/v1/sessions` (worker) | The session read model gains `agentProfileId`. A worker spawn under a coordinator applies decisions 3, 4 and 8 | Unchanged | CO-5.3, CO-5.7 |
 | `PUT /api/v1/sessions/{id}/owner`, `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` | Target is also checked against `workerLimit`, host slots and the local-worker rule | Live root | CO-5.3 |
@@ -1509,7 +1526,7 @@ CLI, all thin daemon clients:
 | Command | Change | Task |
 | --- | --- | --- |
 | `ao spawn --kind coordinator` | New flags `--worker-limit <n>`, `--host-slots <host:n,...>`, `--worker-agent <fixed:id|random[:id,...]|inherit>`, `--coordinator-agent <same>` | CO-5.4, CO-5.7 |
-| `ao coordinator set <id>` | New. `--worker-limit`, `--host-slots`; the limit and host slots go to the coordinator-limits route, which sends `origin: cli`. Operator use outside a session sends `operatorInitiated: true` | CO-5.4, CO-5.7 |
+| `ao coordinator set <id>` | New. `--worker-limit`, `--host-slots`, `--worker-agent`; the limit and host slots go to the coordinator-limits route and the agent to the coordinator-worker-agent route, which send `origin: cli`. Operator use outside a session sends `operatorInitiated: true` | CO-5.4, CO-5.7 |
 | `ao coordinator ls` | Prints `workerLimit`, host usage, profile, memory warning | CO-5.4 |
 | `ao project set-config` | Accepts the fields in the project config table | CO-5.2, CO-5.3, CO-5.7 |
 | `ao spawn` (worker) | `--harness/--model/--effort` under a coordinator must match a selected profile | CO-5.7 |
