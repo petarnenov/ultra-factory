@@ -352,7 +352,7 @@ describe("ShellTopbar status pill", () => {
 		expect(identity.textContent).toContain("my-app");
 		expect(identity.textContent).toContain("Working");
 		expect(screen.queryByText("ao/orch-root")).toBeNull();
-		expect(screen.getByRole("button", { name: "Open Kanban" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Aggregate Kanban" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "New task" })).toBeInTheDocument();
 	});
 
@@ -544,32 +544,50 @@ describe("ShellTopbar orchestrator actions", () => {
 		expect(navigateMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("shows a clear Kanban button on embedded orchestrator sessions", async () => {
+	it("shows a clear Aggregate Kanban button on embedded orchestrator sessions", async () => {
 		renderTopbar(orchestrator, true);
 
-		const kanbanButton = screen.getByRole("button", { name: "Open Kanban" });
-		expect(kanbanButton).toHaveTextContent("Open Kanban");
+		const kanbanButton = screen.getByRole("button", { name: "Aggregate Kanban" });
+		expect(kanbanButton).toHaveTextContent("Aggregate Kanban");
 		expect(kanbanButton).toHaveClass("topbar-control--feature");
 		expect(screen.queryByText("my-app")).not.toBeInTheDocument();
 		await userEvent.click(kanbanButton);
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/projects/$projectId/aggregate",
+			params: { projectId: "proj-1" },
+		});
+	});
+
+	it("opens the aggregate board from the full orchestrator topbar", async () => {
+		renderTopbar(orchestrator);
+
+		const kanbanButton = screen.getByRole("button", { name: "Aggregate Kanban" });
+		expect(kanbanButton).toHaveTextContent("Aggregate Kanban");
+		expect(kanbanButton).toHaveClass("topbar-control--feature");
+		expect(screen.getByRole("button", { name: "New task" })).toHaveClass("bg-raised");
+		await userEvent.click(kanbanButton);
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/projects/$projectId/aggregate",
+			params: { projectId: "proj-1" },
+		});
+	});
+
+	it("keeps Open Kanban on orchestrators where the aggregate board is unavailable", async () => {
+		renderTopbarSessions([orchestrator], orchestrator.id, false, undefined, CLOUD_PROJECT_KIND);
+
+		expect(screen.queryByRole("button", { name: "Aggregate Kanban" })).not.toBeInTheDocument();
+		await userEvent.click(screen.getByRole("button", { name: "Open Kanban" }));
 		expect(navigateMock).toHaveBeenCalledWith({
 			to: "/projects/$projectId",
 			params: { projectId: "proj-1" },
 		});
 	});
 
-	it("opens the board from the Kanban button on the full orchestrator topbar", async () => {
-		renderTopbar(orchestrator);
+	it("shows no Kanban button on worker sessions", () => {
+		renderTopbar(worker);
 
-		const kanbanButton = screen.getByRole("button", { name: "Open Kanban" });
-		expect(kanbanButton).toHaveTextContent("Open Kanban");
-		expect(kanbanButton).toHaveClass("topbar-control--feature");
-		expect(screen.getByRole("button", { name: "New task" })).toHaveClass("bg-raised");
-		await userEvent.click(kanbanButton);
-		expect(navigateMock).toHaveBeenCalledWith({
-			to: "/projects/$projectId",
-			params: { projectId: "proj-1" },
-		});
+		expect(screen.queryByRole("button", { name: "Aggregate Kanban" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Open Kanban" })).not.toBeInTheDocument();
 	});
 
 	it("opens project settings instead of spawning when no orchestrator agent is configured", async () => {
