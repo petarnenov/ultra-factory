@@ -56,14 +56,14 @@ func (e *CoordinatorLimitsError) Error() string {
 
 // Validate rejects limits above the rollout ceiling or below zero.
 func (c CoordinatorsConfig) Validate() error {
-	max := DefaultCoordinatorLimits
+	caps := DefaultCoordinatorLimits
 	for _, f := range []struct {
 		field    string
 		got, max int
 	}{
-		{"maxCoordinators", c.MaxCoordinators, max.Coordinators},
-		{"maxWorkersPerCoordinator", c.MaxWorkersPerCoordinator, max.WorkersPerCoordinator},
-		{"maxWorkers", c.MaxWorkers, max.Workers},
+		{"maxCoordinators", c.MaxCoordinators, caps.Coordinators},
+		{"maxWorkersPerCoordinator", c.MaxWorkersPerCoordinator, caps.WorkersPerCoordinator},
+		{"maxWorkers", c.MaxWorkers, caps.Workers},
 	} {
 		if f.got < 0 || f.got > f.max {
 			return &CoordinatorLimitsError{Field: f.field, Max: f.max}
