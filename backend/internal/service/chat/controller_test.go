@@ -5766,6 +5766,31 @@ func TestRelaySessionChatTurnDeliveryReportsTheAcceptedQueueOutcome(t *testing.T
 	if !delivery.Known || !delivery.Queued {
 		t.Fatalf("busy relay delivery = %+v, want known and queued", delivery)
 	}
+	if len(delivery.PendingInputRequestIDs) != 0 {
+		t.Fatalf("pending inputs = %v, want none before the agent asks", delivery.PendingInputRequestIDs)
+	}
+
+	// The running turn asks a structured question; the next queued message
+	// reports that question with its own delivery outcome.
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventInputRequested, ProviderTurnID: "provider-turn-1",
+		ProviderItemID: "input-1", RequestID: "input-1",
+		Input: &ports.ChatInputRequest{Message: "Choose a value"},
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Activities) != 0 && s.Activities[len(s.Activities)-1].Status == domain.ActivityStatusPending
+	})
+
+	delivery, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "third", "c3", ports.MessageDeliveryOptions{})
+	if err != nil {
+		t.Fatalf("parked relay: %v", err)
+	}
+	if !delivery.Known || !delivery.Queued {
+		t.Fatalf("parked relay delivery = %+v, want known and queued", delivery)
+	}
+	if len(delivery.PendingInputRequestIDs) != 1 || delivery.PendingInputRequestIDs[0] != "input-1" {
+		t.Fatalf("pending inputs = %v, want [input-1]", delivery.PendingInputRequestIDs)
+	}
 }
 
 // A relayed message is AO carrying someone else's words: `ao send`, or an

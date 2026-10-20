@@ -17506,6 +17506,10 @@ components:
       type: object
     SendSessionMessageDelivery:
       properties:
+        pendingInputRequestIds:
+          items:
+            type: string
+          type: array
         queued:
           type: boolean
       required:

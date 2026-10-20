@@ -1304,6 +1304,9 @@ type SendSessionMessageDelivery struct {
 	// Queued means the agent has not read the message yet: it waits behind a
 	// turn already in flight.
 	Queued bool `json:"queued"`
+	// PendingInputRequestIDs name the structured questions that turn is parked
+	// on, captured with the queue decision.
+	PendingInputRequestIDs []string `json:"pendingInputRequestIds,omitempty"`
 }
 
 // DelegateTaskRequest is the body of POST /api/v1/orchestrators/delegate.

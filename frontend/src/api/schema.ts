@@ -6016,6 +6016,7 @@ export interface components {
             turnId?: string;
         };
         SendSessionMessageDelivery: {
+            pendingInputRequestIds?: string[];
             queued: boolean;
         };
         SendSessionMessageRequest: {

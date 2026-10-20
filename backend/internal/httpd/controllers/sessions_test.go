@@ -4253,6 +4253,8 @@ func TestSessionsAPI_SendReportsDeliveryOutcome(t *testing.T) {
 		want     string
 	}{
 		{"queued", ports.MessageDelivery{Known: true, Queued: true}, `"delivery":{"queued":true}`},
+		{"queued behind an input", ports.MessageDelivery{Known: true, Queued: true, PendingInputRequestIDs: []string{"q1"}},
+			`"delivery":{"queued":true,"pendingInputRequestIds":["q1"]}`},
 		{"delivered", ports.MessageDelivery{Known: true}, `"delivery":{"queued":false}`},
 	}
 	for _, tc := range cases {

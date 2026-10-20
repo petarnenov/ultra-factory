@@ -2875,6 +2875,16 @@ func (s *Store) HasPendingConversationInteractions(ctx context.Context, conversa
 	return pending, nil
 }
 
+// PendingInputRequestIDs lists the structured questions still waiting on the
+// user, oldest first.
+func (s *Store) PendingInputRequestIDs(ctx context.Context, conversationID string) ([]string, error) {
+	ids, err := s.qr.SelectPendingConversationInputRequestIDs(ctx, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("pending inputs for %s: %w", conversationID, err)
+	}
+	return ids, nil
+}
+
 // FailPendingApprovals closes out anything the user can no longer answer, because
 // the provider call it was blocking is gone.
 func (s *Store) FailPendingApprovals(ctx context.Context, conversationID string, now time.Time) error {

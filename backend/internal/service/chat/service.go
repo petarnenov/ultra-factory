@@ -2469,7 +2469,7 @@ func (s *Service) relayChatTurn(
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
 ) (string, error) {
-	turn, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
+	turn, _, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
 	if err != nil {
 		return "", err
 	}
@@ -2477,16 +2477,16 @@ func (s *Service) relayChatTurn(
 }
 
 // relayConversationTurn records and dispatches one relayed message, returning
-// the accepted turn so a caller can see whether the agent can read it now.
+// the accepted turn and the questions it queued behind.
 func (s *Service) relayConversationTurn(
 	ctx context.Context,
 	id domain.SessionID,
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
-) (domain.ConversationTurn, error) {
+) (domain.ConversationTurn, []string, error) {
 	controller, release, err := s.workingController(ctx, id)
 	if err != nil {
-		return domain.ConversationTurn{}, err
+		return domain.ConversationTurn{}, nil, err
 	}
 	defer release()
 	msg := s.resolveSteerSender(ctx, ports.ChatUserMessage{
@@ -2494,11 +2494,11 @@ func (s *Service) relayConversationTurn(
 		SenderSessionID: options.SenderSessionID, InteractionAt: options.InteractionAt,
 		Origin: domain.MessageOriginAutomation, AuthoredByUser: options.AuthoredByUser,
 	})
-	turn, err := controller.Send(ctx, msg)
+	turn, pendingInputs, err := controller.SendWithDelivery(ctx, msg)
 	if err != nil {
-		return domain.ConversationTurn{}, err
+		return domain.ConversationTurn{}, nil, err
 	}
-	return turn, nil
+	return turn, pendingInputs, nil
 }
 
 // RelaySessionChatTurn preserves cooperative sender identity and automation origin.
@@ -2514,11 +2514,15 @@ func (s *Service) RelaySessionChatTurnDelivery(
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
 ) (ports.MessageDelivery, error) {
-	turn, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
+	turn, pendingInputs, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
 	if err != nil {
 		return ports.MessageDelivery{}, err
 	}
-	return ports.MessageDelivery{Known: true, Queued: turn.State == domain.TurnStateQueued}, nil
+	return ports.MessageDelivery{
+		Known:                  true,
+		Queued:                 turn.State == domain.TurnStateQueued,
+		PendingInputRequestIDs: pendingInputs,
+	}, nil
 }
 
 // StopChat releases a session's controller.

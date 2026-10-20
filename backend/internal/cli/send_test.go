@@ -59,91 +59,47 @@ func sendServer(t *testing.T, status int, respBody string) (*httptest.Server, *s
 	return srv, capture
 }
 
-// sendTargetServer answers POST /send and the conversation read that names a
-// queued message's blocker.
-func sendTargetServer(
-	t *testing.T,
-	conversationStatus int,
-	conversationBody string,
-	sendStatus int,
-	sendBody string,
-) (*httptest.Server, *sendCapture) {
-	t.Helper()
-	capture := &sendCapture{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/send"):
-			body, _ := io.ReadAll(r.Body)
-			capture.body = string(body)
-			capture.path = r.URL.Path
-			w.WriteHeader(sendStatus)
-			_, _ = io.WriteString(w, sendBody)
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/conversation"):
-			w.WriteHeader(conversationStatus)
-			_, _ = io.WriteString(w, conversationBody)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	return srv, capture
-}
-
-const sendParkedSnapshotJSON = `{
-  "sessionId": "demo-1",
-  "controller": "busy",
-  "activities": [
-    {
-      "activityKind": "user_input",
-      "status": "pending",
-      "summary": "Should I run the review?",
-      "requestId": "acp-request:host:1",
-      "detail": {"inputMode": "form", "message": "Should I run the review?"}
-    }
-  ]
-}`
-
-const sendBusySnapshotJSON = `{"sessionId":"demo-1","controller":"busy","activities":[]}`
-
 func TestSend_ReportsWhenMessageOnlyQueues(t *testing.T) {
-	const terminalModeBody = `{"error":"conflict","code":"SESSION_MODE_MISMATCH","message":"not a chat session"}`
-	const queuedSendBody = `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true}}`
 	cases := []struct {
-		name               string
-		conversationStatus int
-		conversationBody   string
-		wantOut            []string
+		name    string
+		send    string
+		wantOut []string
+		wantNot []string
 	}{
 		{
-			name:               "parked on a structured input",
-			conversationStatus: http.StatusOK,
-			conversationBody:   sendParkedSnapshotJSON,
+			name: "queued behind a structured input",
+			send: `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true,"pendingInputRequestIds":["acp-request:host:1"]}}`,
 			wantOut: []string{
 				"queued behind 1 unanswered structured input",
-				"will not read it until the question is answered",
+				"will not read it until it is answered",
 				"ao session input demo-1 --request-id acp-request:host:1 --action accept",
 			},
 		},
 		{
-			name:               "input resolved after acceptance",
-			conversationStatus: http.StatusOK,
-			conversationBody:   sendBusySnapshotJSON,
-			wantOut:            []string{"queued behind the turn already running on session demo-1"},
+			name: "queued behind two structured inputs",
+			send: `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true,"pendingInputRequestIds":["q1","q2"]}}`,
+			wantOut: []string{
+				"queued behind 2 unanswered structured inputs",
+				"will not read it until they are answered",
+				"ao session input demo-1 --request-id q1 --action accept",
+				"ao session input demo-1 --request-id q2 --action accept",
+			},
 		},
 		{
-			name:               "conversation unavailable",
-			conversationStatus: http.StatusConflict,
-			conversationBody:   terminalModeBody,
-			wantOut:            []string{"queued behind the turn already running on session demo-1"},
+			name: "queued behind a running turn",
+			send: `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true}}`,
+			wantOut: []string{
+				"queued behind the turn already running on session demo-1",
+				"reads it when that turn ends",
+			},
+			wantNot: []string{"structured input"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("AO_SESSION_ID", "")
 			cfg := setConfigEnv(t)
-			srv, capture := sendTargetServer(t, tc.conversationStatus, tc.conversationBody,
-				http.StatusOK, queuedSendBody)
+			srv, capture := sendServer(t, http.StatusOK, tc.send)
 			writeRunFileFor(t, cfg, srv)
 
 			out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
@@ -158,16 +114,21 @@ func TestSend_ReportsWhenMessageOnlyQueues(t *testing.T) {
 					t.Errorf("output = %q, want it to contain %q", out, want)
 				}
 			}
+			for _, not := range tc.wantNot {
+				if strings.Contains(out, not) {
+					t.Errorf("output = %q, want it not to contain %q", out, not)
+				}
+			}
 		})
 	}
 }
 
 func TestSend_StaysSilentWhenDaemonReportsNoQueue(t *testing.T) {
-	// A pending input in the snapshot must not become a queue claim when the
-	// accepted send says the agent read the message: the delivery is the truth.
+	// The daemon's accepted-send outcome is the only source of the queue claim:
+	// a delivered message stays silent even if the session looks blocked later.
 	t.Setenv("AO_SESSION_ID", "")
 	cfg := setConfigEnv(t)
-	srv, _ := sendTargetServer(t, http.StatusOK, sendParkedSnapshotJSON, http.StatusOK,
+	srv, _ := sendServer(t, http.StatusOK,
 		`{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":false}}`)
 	writeRunFileFor(t, cfg, srv)
 
@@ -185,8 +146,7 @@ func TestSend_StaysSilentWhenDaemonCannotReportDelivery(t *testing.T) {
 	// not "delivered" and is not "queued".
 	t.Setenv("AO_SESSION_ID", "")
 	cfg := setConfigEnv(t)
-	srv, _ := sendTargetServer(t, http.StatusOK, sendParkedSnapshotJSON, http.StatusOK,
-		`{"ok":true,"sessionId":"demo-1","message":"hi"}`)
+	srv, _ := sendServer(t, http.StatusOK, `{"ok":true,"sessionId":"demo-1","message":"hi"}`)
 	writeRunFileFor(t, cfg, srv)
 
 	out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "hi")
@@ -201,8 +161,7 @@ func TestSend_StaysSilentWhenDaemonCannotReportDelivery(t *testing.T) {
 func TestSend_FailureKeepsErrorEnvelopeAndReportsNoQueue(t *testing.T) {
 	t.Setenv("AO_SESSION_ID", "")
 	cfg := setConfigEnv(t)
-	srv, _ := sendTargetServer(t, http.StatusOK, sendParkedSnapshotJSON,
-		http.StatusInternalServerError,
+	srv, _ := sendServer(t, http.StatusInternalServerError,
 		`{"error":"internal","code":"SESSION_OPERATION_FAILED","message":"Session operation failed"}`)
 	writeRunFileFor(t, cfg, srv)
 

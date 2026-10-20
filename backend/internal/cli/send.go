@@ -54,7 +54,8 @@ type sendAPIResponse struct {
 }
 
 type sendAPIDelivery struct {
-	Queued bool `json:"queued"`
+	Queued                 bool     `json:"queued"`
+	PendingInputRequestIDs []string `json:"pendingInputRequestIds,omitempty"`
 }
 
 func newSendCommand(ctx *commandContext) *cobra.Command {
@@ -137,23 +138,19 @@ func (c *commandContext) plainSend(
 	if res.Delivery == nil || !res.Delivery.Queued {
 		return nil
 	}
-	return c.writeQueuedSend(ctx, session)
+	return c.writeQueuedSend(session, res.Delivery.PendingInputRequestIDs)
 }
 
-// writeQueuedSend names what the accepted message waits behind. The input list
-// only explains the confirmed queue; failing to read it keeps the turn note.
-func (c *commandContext) writeQueuedSend(ctx context.Context, session string) error {
+// writeQueuedSend names what the accepted message waits behind, using only the
+// facts the daemon returned with that send.
+func (c *commandContext) writeQueuedSend(session string, requestIDs []string) error {
 	out := c.deps.Out
-	var snapshot conversationInputSnapshotDTO
-	pendingInputs := []pendingSessionInput(nil)
-	if err := c.getJSON(ctx, "sessions/"+url.PathEscape(session)+"/conversation", &snapshot); err == nil {
-		pendingInputs = pendingInputsFromActivities(snapshot.Activities)
-	}
-	if len(pendingInputs) > 0 {
-		count := len(pendingInputs)
-		unblocker := "the question is"
+	requestIDs = nonEmptyStrings(requestIDs)
+	if len(requestIDs) > 0 {
+		count := len(requestIDs)
+		unblocker := "it is"
 		if count > 1 {
-			unblocker = "the questions are"
+			unblocker = "they are"
 		}
 		if _, err := fmt.Fprintf(out,
 			"Message accepted and queued behind %d unanswered structured input%s on session %s.\n"+
@@ -161,8 +158,9 @@ func (c *commandContext) writeQueuedSend(ctx context.Context, session string) er
 			count, pluralS(count), session, unblocker); err != nil {
 			return err
 		}
-		for _, input := range pendingInputs {
-			if _, err := fmt.Fprintf(out, "  %s\n", c.sessionInputAnswerHint(session, input)); err != nil {
+		for _, requestID := range requestIDs {
+			if _, err := fmt.Fprintf(out, "  Answer with: ao session input %s --request-id %s --action accept\n",
+				shellQuote(session), shellQuote(requestID)); err != nil {
 				return err
 			}
 		}
@@ -172,6 +170,18 @@ func (c *commandContext) writeQueuedSend(ctx context.Context, session string) er
 		"Message accepted and queued behind the turn already running on session %s;"+
 			" the agent reads it when that turn ends.\n", session)
 	return err
+}
+
+// nonEmptyStrings drops blanks so a malformed daemon cannot produce an empty
+// request id in the hint.
+func nonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func (c *commandContext) steerMessage(

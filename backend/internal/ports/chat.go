@@ -488,6 +488,9 @@ type MessageDelivery struct {
 	// Queued means the message waits behind work in flight; the agent has not
 	// read it yet.
 	Queued bool
+	// PendingInputRequestIDs are the unanswered structured questions that work
+	// is parked on, captured when the queue decision was made.
+	PendingInputRequestIDs []string
 }
 
 // ChatTurnSettings are the per-turn choices a provider accepts alongside the

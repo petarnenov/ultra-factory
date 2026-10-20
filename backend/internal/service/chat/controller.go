@@ -1420,6 +1420,13 @@ func (c *Controller) Capabilities() ports.ChatCapabilities {
 // concurrent turn is not a thing it can run, and a queued row is a promise AO can
 // keep across a restart, which a message dropped into a busy provider is not.
 func (c *Controller) Send(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, error) {
+	turn, _, err := c.SendWithDelivery(ctx, msg)
+	return turn, err
+}
+
+// SendWithDelivery is Send plus the structured questions the accepted message
+// queued behind, captured with the queue decision itself.
+func (c *Controller) SendWithDelivery(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, []string, error) {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 	return c.sendLocked(ctx, msg, true)
@@ -1429,19 +1436,19 @@ func (c *Controller) sendLocked(
 	ctx context.Context,
 	msg ports.ChatUserMessage,
 	queueWhenBusy bool,
-) (domain.ConversationTurn, error) {
+) (domain.ConversationTurn, []string, error) {
 	if msg.ClientPayloadHash == "" {
 		var err error
 		msg.ClientPayloadHash, err = clientPayloadHash(msg)
 		if err != nil {
-			return domain.ConversationTurn{}, err
+			return domain.ConversationTurn{}, nil, err
 		}
 	}
 	c.mu.Lock()
 	handoff := c.handoff != controllerHandoffNone
 	c.mu.Unlock()
 	if handoff {
-		return domain.ConversationTurn{}, ErrControllerHandoff
+		return domain.ConversationTurn{}, nil, ErrControllerHandoff
 	}
 
 	now := c.now()
@@ -1464,7 +1471,7 @@ func (c *Controller) sendLocked(
 	if len(msg.Content) > 0 {
 		encoded, err := json.Marshal(msg.Content)
 		if err != nil {
-			return domain.ConversationTurn{}, fmt.Errorf("encode chat delivery content: %w", err)
+			return domain.ConversationTurn{}, nil, fmt.Errorf("encode chat delivery content: %w", err)
 		}
 		deliveryContent = string(encoded)
 	}
@@ -1492,14 +1499,14 @@ func (c *Controller) sendLocked(
 		created, err = c.store.AppendReviewUserMessage(ctx, c.conversation.ID, c.sessionID, c.reviewID, c.generation, record, turnID, now)
 	}
 	if err != nil {
-		return domain.ConversationTurn{}, fmt.Errorf("record user message: %w", err)
+		return domain.ConversationTurn{}, nil, fmt.Errorf("record user message: %w", err)
 	}
 	if !created {
 		// Already delivered under this client message id. Returning the empty turn
 		// signals "nothing new happened" without claiming a second dispatch.
 		c.log.Debug("duplicate chat send ignored",
 			"session", c.sessionID, "clientMessageId", msg.ClientMessageID)
-		return domain.ConversationTurn{}, nil
+		return domain.ConversationTurn{}, nil, nil
 	}
 
 	if queueWhenBusy && c.busy() {
@@ -1517,12 +1524,30 @@ func (c *Controller) sendLocked(
 			HandledByReviewID:  c.reviewID,
 			State:              domain.TurnStateQueued,
 			RequestedAt:        now,
-		}, nil
+		}, c.pendingInputRequestIDs(ctx), nil
 	}
 
 	turn, err := c.dispatch(ctx, turnID, msg, now)
 	dispatched = err == nil
-	return turn, err
+	return turn, nil, err
+}
+
+// pendingInputRequestIDs reads the questions the running turn is parked on. The
+// queue outcome stands even when this read fails.
+func (c *Controller) pendingInputRequestIDs(ctx context.Context) []string {
+	reader, ok := c.store.(interface {
+		PendingInputRequestIDs(context.Context, string) ([]string, error)
+	})
+	if !ok {
+		return nil
+	}
+	ids, err := reader.PendingInputRequestIDs(ctx, c.conversation.ID)
+	if err != nil {
+		c.log.Warn("chat send: queued but could not list pending inputs",
+			"session", c.sessionID, "error", err)
+		return nil
+	}
+	return ids
 }
 
 // RetryTurn re-dispatches a failed turn's durable prompt as a new turn.
