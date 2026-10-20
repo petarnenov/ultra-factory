@@ -1440,6 +1440,11 @@ UPDATE conversation_activities
 SET streamed_text = ?, streamed_text_truncated = 0, revision = revision + 1, updated_at = ?
 WHERE conversation_id = ? AND provider_item_id = ? AND status <> 'cancelled';
 
+-- name: SelectConversationActivityByID :one
+SELECT * FROM conversation_activities
+WHERE conversation_id = ? AND id = ?
+LIMIT 1;
+
 -- name: SelectConversationActivityByProviderItem :one
 SELECT * FROM conversation_activities
 WHERE conversation_id = ? AND provider_item_id = ?

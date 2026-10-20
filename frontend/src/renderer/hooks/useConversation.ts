@@ -319,6 +319,15 @@ async function fetchConversationPage(sessionId: string, hostId?: string, beforeS
 	return toSnapshot(data as WireSnapshot);
 }
 
+/** One activity whole; pages bound a file change. */
+export async function fetchConversationActivity(sessionId: string, hostId: string | undefined, activityId: string): Promise<ConversationActivity> {
+	const { data, error } = await clientForSessionHost(hostId).GET("/api/v1/sessions/{sessionId}/conversation/activities/{activityId}", {
+		params: { path: { sessionId, activityId } },
+	});
+	if (error) throw error;
+	return toActivity(data as WireActivity);
+}
+
 /** Refresh only the live page; refetching an infinite query downloads all older history. */
 export async function refreshRemoteConversation(queryClient: QueryClient, sessionId: string, hostId: string): Promise<void> {
 	let latest: ConversationSnapshot;

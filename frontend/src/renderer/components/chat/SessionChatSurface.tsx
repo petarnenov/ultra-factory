@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { ActivityDetailProvider } from "./ActivityDetailContext";
 import { useIndependentSideChats } from "./IndependentSideChats";
 import type { ChatDraftExcerptReference } from "../../lib/chat-drafts";
 import { useSideChatsAvailable } from "../../lib/side-chats";
@@ -12,7 +13,7 @@ import { useSideChatsAvailable } from "../../lib/side-chats";
  */
 
 import { AlertTriangle, CheckCircle2, Loader2, X } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	findActiveAgentSwitch,
@@ -27,6 +28,7 @@ import { agentModelsQueryOptions } from "../../hooks/useAgentModelsQuery";
 import { useOfferedModels } from "../../hooks/useOfferedModels";
 import { useSwitchAgentState } from "../../hooks/useSwitchAgent";
 import {
+	fetchConversationActivity,
 	useConversation,
 	useConversationCommands,
 	useConversationConfigOptions,
@@ -201,6 +203,10 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 	onConversationWorkChange?: (state: ConversationWorkState) => void;
 }) {
 	const uiSessionId = sessionUiKey(session.id, hostId);
+	const loadActivityDetail = useCallback(
+		(activityId: string) => fetchConversationActivity(session.id, hostId, activityId),
+		[session.id, hostId],
+	);
 	const {
 		snapshot: queriedSnapshot,
 		isLoading,
@@ -640,6 +646,7 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 			{sideChatContainer ? createPortal(sideChats.panel, sideChatContainer) : null}
 			<div className="flex h-full min-h-0 min-w-0 flex-col lg:flex-row">
 			<div className="min-h-0 min-w-0 flex-1">
+			<ActivityDetailProvider value={loadActivityDetail}>
 			<ChatWorkspace
 				onAddToSideChat={sideEnabled && (sideChats.activeId || sideCreationEnabled) ? attachToSide : undefined}
 				annotationNavigationRequest={annotationNavigationRequest}
@@ -779,6 +786,7 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 				cancelQueuedTurnPendingTurnId={commands.cancelQueuedTurnPendingTurnId}
 				editQueuedTurnPendingTurnId={commands.editQueuedTurnPendingTurnId}
 			/>
+			</ActivityDetailProvider>
 			</div>
 			{session.kind === "orchestrator" ? <div className="h-[38%] min-h-36 min-w-0 shrink-0 border-t border-border lg:h-full lg:w-[min(34%,26rem)] lg:border-l lg:border-t-0"><WorkerReportsPanel ownerHostId={hostId} projectId={session.workspaceId} /></div> : null}
 			</div>

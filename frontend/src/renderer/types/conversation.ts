@@ -344,6 +344,8 @@ export interface FileChangeDetail {
 	/** Accumulated patch text for a change still being written. */
 	patchOutput?: string;
 	patchOutputTruncated?: boolean;
+	/** A page carries a compact diff; the full detail is fetched per activity. */
+	detailTruncated?: boolean;
 }
 
 /**

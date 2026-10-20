@@ -471,7 +471,8 @@ func Run() error {
 				HasMoreBefore:                    rows.HasMoreBefore,
 			}, nil
 		}),
-		Drivers: chatDrivers,
+		ActivityReader: store,
+		Drivers:        chatDrivers,
 		// The LCM satisfies both recorders directly; a chat turn is a
 		// lifecycle reduction, same as a terminal hook.
 		Activity: lcStack.LCM,

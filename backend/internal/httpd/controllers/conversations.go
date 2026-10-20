@@ -65,6 +65,10 @@ type pagedConversationService interface {
 	SnapshotPage(ctx context.Context, session domain.SessionID, beforeSequence, limit int64) (chatsvc.Snapshot, error)
 }
 
+type activityConversationService interface {
+	Activity(ctx context.Context, session domain.SessionID, activityID string) (domain.ConversationActivity, error)
+}
+
 type reviewerConversationService interface {
 	ModelsForOwner(context.Context, domain.ConversationOwner) ([]ports.ChatModel, domain.ConversationSettings, error)
 	SetTurnSettingsForOwner(context.Context, domain.ConversationOwner, domain.ConversationSettings) (domain.ConversationSettings, error)
@@ -116,6 +120,7 @@ func (c *ConversationsController) Register(r chi.Router) {
 	r.Post("/side-chats/launch/retire", c.retireSideLaunch)
 	r.Post("/sessions/{sessionId}/chat-view", c.setChatView)
 	r.Get("/sessions/{sessionId}/conversation", c.snapshot)
+	r.Get("/sessions/{sessionId}/conversation/activities/{activityId}", c.activity)
 	r.Post("/sessions/{sessionId}/conversation/messages", c.send)
 	r.Post("/sessions/{sessionId}/conversation/prompt-suggestion", c.promptSuggestion)
 	r.Post("/sessions/{sessionId}/conversation/approvals/{requestId}/resolve", c.resolve)
@@ -798,6 +803,27 @@ func (c *ConversationsController) snapshot(w http.ResponseWriter, r *http.Reques
 	envelope.WriteJSON(w, http.StatusOK, response)
 }
 
+// activity serves one activity whole. A snapshot page bounds a file_change's
+// detail; this is where a client that wants every line asks for it.
+func (c *ConversationsController) activity(w http.ResponseWriter, r *http.Request) {
+	svc, ok := c.Svc.(activityConversationService)
+	if !ok {
+		apispec.NotImplemented(w, r, "GET", "/api/v1/sessions/{sessionId}/conversation/activities/{activityId}")
+		return
+	}
+	activity, err := svc.Activity(r.Context(), domain.SessionID(chi.URLParam(r, "sessionId")), chi.URLParam(r, "activityId"))
+	if errors.Is(err, domain.ErrNoConversationActivity) {
+		envelope.WriteAPIError(w, r, http.StatusNotFound, "not_found",
+			"CONVERSATION_ACTIVITY_NOT_FOUND", "activity not found", nil)
+		return
+	}
+	if err != nil {
+		writeConversationError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, conversationActivityResponse(activity, false))
+}
+
 func optionalPositiveInt64(raw string) (int64, error) {
 	if raw == "" {
 		return 0, nil
@@ -1256,20 +1282,7 @@ func conversationSnapshotResponse(s chatsvc.Snapshot) ConversationSnapshotRespon
 	}
 
 	for _, activity := range s.Activities {
-		out.Activities = append(out.Activities, ConversationActivityResponse{
-			Kind:           "activity",
-			ID:             activity.ID,
-			TurnID:         activity.TurnID,
-			Sequence:       activity.Sequence,
-			Revision:       activity.Revision,
-			ActivityKind:   string(activity.Kind),
-			Status:         string(activity.Status),
-			Summary:        activity.Summary,
-			Detail:         activityDetailPayload(activity),
-			RequestID:      activity.RequestID,
-			ProviderItemID: activity.ProviderItemID,
-			CreatedAt:      activity.CreatedAt.UTC().Format(time.RFC3339),
-		})
+		out.Activities = append(out.Activities, conversationActivityResponse(activity, true))
 	}
 	return out
 }
@@ -1480,6 +1493,28 @@ func mcpServersPayload(servers []domain.ConversationMCPServer) []ConversationMCP
 		})
 	}
 	return out
+}
+
+// conversationActivityResponse maps an activity; only pages bound its detail.
+func conversationActivityResponse(activity domain.ConversationActivity, bounded bool) ConversationActivityResponse {
+	detail := activityDetailPayload(activity)
+	if bounded {
+		detail = boundActivityDetail(activity.Kind, detail)
+	}
+	return ConversationActivityResponse{
+		Kind:           "activity",
+		ID:             activity.ID,
+		TurnID:         activity.TurnID,
+		Sequence:       activity.Sequence,
+		Revision:       activity.Revision,
+		ActivityKind:   string(activity.Kind),
+		Status:         string(activity.Status),
+		Summary:        activity.Summary,
+		Detail:         detail,
+		RequestID:      activity.RequestID,
+		ProviderItemID: activity.ProviderItemID,
+		CreatedAt:      activity.CreatedAt.UTC().Format(time.RFC3339),
+	}
 }
 
 // activityDetailPayload folds accumulated command output into the typed payload.

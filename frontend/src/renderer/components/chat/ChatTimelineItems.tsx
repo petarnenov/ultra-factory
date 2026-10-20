@@ -1,3 +1,4 @@
+import { useActivityDetailLoader } from "./ActivityDetailContext";
 import { AppLink } from "../AppLink";
 /**
  * Timeline entries for the Chat surface.
@@ -1115,13 +1116,17 @@ export function ActivityTransition({
  * A `running` activity with no completion is a real terminal state here, not a
  * spinner that hangs forever — a provider can start a command and supersede it.
  */
-function GenericActivityRow({ activity }: { activity: ConversationActivity }) {
+function GenericActivityRow({ activity: pageActivity }: { activity: ConversationActivity }) {
 	// null means "nobody has decided", which is what lets a running command open
 	// itself and then close again once it settles. Once the user clicks, their
 	// choice sticks: auto-collapsing a log someone is reading is worse than leaving
 	// a finished row open.
 	const [override, setOverride] = useState<boolean | null>(null);
 	const reducedMotion = useReducedMotion();
+	const loadActivityDetail = useActivityDetailLoader();
+	// The full copy replaces the page's bounded one on open; revision-keyed.
+	const [full, setFull] = useState<ConversationActivity | null>(null);
+	const activity = full && full.revision === pageActivity.revision ? full : pageActivity;
 	const Icon = activityIcon[activity.activityKind] ?? SquareTerminal;
 	const detail = activity.detail;
 	const files = fileChangeFiles(activity);
@@ -1147,6 +1152,20 @@ function GenericActivityRow({ activity }: { activity: ConversationActivity }) {
 	// running and already printing opens itself.
 	const streamingOutput = activity.status === "running" && Boolean(detail?.output);
 	const open = override ?? streamingOutput;
+	const needsFullDetail = open && Boolean(pageActivity.detail?.detailTruncated) && activity === pageActivity;
+	useEffect(() => {
+		if (!needsFullDetail || !loadActivityDetail) return;
+		let cancelled = false;
+		loadActivityDetail(pageActivity.id)
+			.then((loaded) => {
+				if (!cancelled) setFull(loaded);
+			})
+			// The bounded diff stays on screen; a failed fetch loses nothing it showed.
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+		};
+	}, [needsFullDetail, loadActivityDetail, pageActivity.id, pageActivity.revision]);
 
 	return (
 		<div
