@@ -84,7 +84,7 @@ func MergeBlockers(cfg Config, pr PullRequest) []string {
 	if !strings.EqualFold(strings.TrimSpace(pr.Mergeable), "MERGEABLE") {
 		out = append(out, fmt.Sprintf("mergeability is %s", oneOf(pr.Mergeable, "unknown")))
 	}
-	if summary := CheckSummary(pr.Checks); summary != "green" {
+	if summary := PRCheckSummary(pr); summary != "green" {
 		out = append(out, "required checks are "+summary)
 	}
 	if blocker := reviewBlocker(pr); blocker != "" {

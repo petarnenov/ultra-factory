@@ -495,6 +495,7 @@ const tickGitHubQuery = `query($owner: String!, $name: String!, $base: String!, 
         headRefName
         headRefOid
         isDraft
+        readyEvents: timelineItems(last: 1, itemTypes: [READY_FOR_REVIEW_EVENT]) { nodes { ... on ReadyForReviewEvent { createdAt } } }
         mergeable
         reviewDecision
         labels(first: 50) { nodes { name } }
@@ -521,10 +522,15 @@ type tickGitHubResponse struct {
 	Repository *struct {
 		Open struct {
 			Nodes []struct {
-				Number         int    `json:"number"`
-				HeadRefName    string `json:"headRefName"`
-				HeadRefOID     string `json:"headRefOid"`
-				IsDraft        bool   `json:"isDraft"`
+				Number      int    `json:"number"`
+				HeadRefName string `json:"headRefName"`
+				HeadRefOID  string `json:"headRefOid"`
+				IsDraft     bool   `json:"isDraft"`
+				ReadyEvents struct {
+					Nodes []struct {
+						CreatedAt time.Time `json:"createdAt"`
+					} `json:"nodes"`
+				} `json:"readyEvents"`
 				Mergeable      string `json:"mergeable"`
 				ReviewDecision string `json:"reviewDecision"`
 				Labels         struct {
@@ -631,6 +637,9 @@ func tickGitHubState(resp tickGitHubResponse, q orchestratortick.GitHubQuery) (o
 		out := orchestratortick.PullRequest{
 			Number: pr.Number, Head: pr.HeadRefName, HeadSHA: pr.HeadRefOID,
 			Draft: pr.IsDraft, Mergeable: pr.Mergeable, ReviewDecision: pr.ReviewDecision,
+		}
+		for _, ev := range pr.ReadyEvents.Nodes {
+			out.ReadyAt = ev.CreatedAt
 		}
 		for _, label := range pr.Labels.Nodes {
 			out.Labels = append(out.Labels, label.Name)

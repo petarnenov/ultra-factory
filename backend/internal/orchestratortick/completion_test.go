@@ -585,3 +585,33 @@ func TestSkippedDraftPhaseChecksBlockMergeUntilNewRunsFinish(t *testing.T) {
 		})
 	}
 }
+
+func TestCheapSuccessWithDraftPhaseSkipsBlocksMergeAfterReady(t *testing.T) {
+	cfg := DefaultConfig()
+	flip := now.Add(-time.Minute)
+	pr := readyPR(1, "rw/1", head("a"))
+	pr.AOReviewStatus, pr.ReadyAt = "up_to_date", flip
+	before, after := flip.Add(-time.Minute), flip.Add(time.Minute)
+	for name, tc := range map[string]struct {
+		checks []Check
+		want   string
+	}{
+		"cheap success, expensive skipped before flip": {
+			[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "SKIPPED", CompletedAt: before}},
+			"required checks are pending"},
+		"new run registered": {
+			[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "QUEUED"}}, "required checks are pending"},
+		"new runs finished": {
+			[]Check{{Result: "SUCCESS", CompletedAt: after}, {Result: "SKIPPED", CompletedAt: before}}, ""},
+		"skip after flip is genuine": {
+			[]Check{{Result: "SUCCESS", CompletedAt: before}, {Result: "SKIPPED", CompletedAt: after}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			pr := pr
+			pr.Checks = tc.checks
+			if got := strings.Join(MergeBlockers(cfg, pr), ", "); got != tc.want {
+				t.Fatalf("blockers = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

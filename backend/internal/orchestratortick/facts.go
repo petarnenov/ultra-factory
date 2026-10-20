@@ -73,13 +73,15 @@ type ReviewThread struct {
 
 // PullRequest is an open pull request to the base branch.
 type PullRequest struct {
-	Number         int
-	Head           string
-	HeadSHA        string
-	Title          string
-	Body           string
-	Labels         []string
-	Draft          bool
+	Number  int
+	Head    string
+	HeadSHA string
+	Title   string
+	Body    string
+	Labels  []string
+	Draft   bool
+	// ReadyAt is the latest ready-for-review flip; zero when never a draft.
+	ReadyAt        time.Time
 	Mergeable      string
 	ReviewDecision string
 	Threads        []ReviewThread

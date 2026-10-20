@@ -59,7 +59,7 @@ func greenPRsLeftOpen(cfg Config, facts Facts, now time.Time) []Violation {
 		return nil
 	}
 	for _, pr := range facts.GitHub.OpenPRs {
-		if pr.Mergeable != "MERGEABLE" || CheckSummary(pr.Checks) != "green" {
+		if pr.Mergeable != "MERGEABLE" || PRCheckSummary(pr) != "green" {
 			continue
 		}
 		var last time.Time
@@ -264,3 +264,23 @@ func CheckSummary(checks []Check) string {
 }
 
 func minutes(d time.Duration) int { return int(d / time.Minute) }
+
+// PRCheckSummary is CheckSummary that also holds a ready PR pending while a
+// draft-phase skip predates the flip and no check has finished since.
+func PRCheckSummary(pr PullRequest) string {
+	summary := CheckSummary(pr.Checks)
+	if summary != "green" || pr.ReadyAt.IsZero() {
+		return summary
+	}
+	stale := false
+	for _, c := range pr.Checks {
+		if !c.CompletedAt.Before(pr.ReadyAt) && !c.CompletedAt.IsZero() {
+			return summary
+		}
+		stale = stale || (c.Result == "SKIPPED" && c.CompletedAt.Before(pr.ReadyAt))
+	}
+	if stale {
+		return "pending"
+	}
+	return summary
+}
