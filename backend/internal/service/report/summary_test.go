@@ -353,26 +353,21 @@ func TestSummaryRetryReusesBatchIdentityAndAcknowledgesOnlyAfterAcceptance(t *te
 	}
 }
 
-func TestSummaryAcceptanceTimeoutDefersAndRestartRequeuesClaims(t *testing.T) {
+func TestSummaryAcceptanceTimeoutConsumesBatchAndRestartRequeuesClaims(t *testing.T) {
 	f := newSummaryFixture(t)
 	ctx := context.Background()
 	f.submit(f.coordA.ID, "k1", domain.SummaryWorking)
 	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow)
 
 	f.delivery.submitErr = domain.ErrSemanticAcceptanceTimeout
-	if _, err := f.coord.RunDue(ctx); !errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
-		t.Fatalf("err = %v, want the acceptance timeout", err)
+	if _, err := f.coord.RunDue(ctx); err != nil {
+		t.Fatalf("err = %v, want the timed-out batch consumed without error", err)
 	}
 	f.delivery.submitErr = nil
-	f.clock = f.clock.Add(time.Minute)
+	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow)
 	f.run()
-	if len(f.delivery.submissions) != 0 {
-		t.Fatal("retried before the acceptance backoff")
-	}
-	f.clock = f.clock.Add(domain.ReportAcceptanceRetryDelay)
-	f.run()
-	if len(f.delivery.submissions) != 1 {
-		t.Fatalf("submissions = %d, want one after the backoff", len(f.delivery.submissions))
+	if hist := f.history(f.coordA.ID); len(f.delivery.submissions) != 0 || hist[0].DeliveryState != domain.ReportAcknowledged {
+		t.Fatalf("submissions=%d history=%+v, want acknowledged and never re-sent", len(f.delivery.submissions), hist)
 	}
 
 	// A claim left by a dead daemon is requeued under the same identity.
@@ -386,7 +381,7 @@ func TestSummaryAcceptanceTimeoutDefersAndRestartRequeuesClaims(t *testing.T) {
 		t.Fatalf("requeue n=%d err=%v", n, err)
 	}
 	f.run()
-	if len(f.delivery.submissions) != 2 || f.delivery.submissions[1].key != claimed[0].DeliveryBatchID {
+	if len(f.delivery.submissions) != 1 || f.delivery.submissions[0].key != claimed[0].DeliveryBatchID {
 		t.Fatalf("submissions = %#v, want a re-delivery under batch %q", f.delivery.submissions, claimed[0].DeliveryBatchID)
 	}
 }

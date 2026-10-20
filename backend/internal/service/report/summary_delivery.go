@@ -120,8 +120,12 @@ func (c *Coordinator) deliverSummaryGroup(ctx context.Context, projectID domain.
 	if err := c.delivery.Submit(ctx, root, batch.Render(), batch.IdempotencyKey()); err != nil {
 		slog.Warn("coordinator summary delivery failed", "delivery_id", batch.IdempotencyKey(), "err", err)
 		if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
-			_, deferErr := c.summaries.DeferCoordinatorSummaryBatch(ctx, projectID, token, c.now().UTC().Add(domain.ReportAcceptanceRetryDelay), err.Error())
-			return true, errors.Join(err, deferErr)
+			// The prompt was written; a retry would re-paste it, so it is
+			// consumed once (ADR 0010 section 5).
+			if _, ackErr := c.summaries.AcknowledgeCoordinatorSummaryBatch(ctx, projectID, token, c.now().UTC()); ackErr != nil {
+				return true, errors.Join(err, ackErr)
+			}
+			return true, nil
 		}
 		return true, c.releaseSummaries(ctx, batch, err)
 	}
