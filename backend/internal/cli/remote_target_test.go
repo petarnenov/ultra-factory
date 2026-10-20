@@ -137,12 +137,28 @@ type localDaemon struct {
 	linkStatus      int
 	linkPullBlocked string
 	linkBodies      []string
+	// linkCode is the error code answered with a non-201 linkStatus.
+	linkCode string
+	// checkCode, when set, makes POST remote-worker-links/check answer 409.
+	checkCode string
 }
 
 func (d *localDaemon) answerLinks(status int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.linkStatus = status
+}
+
+func (d *localDaemon) rejectLinksWith(status int, code string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.linkStatus, d.linkCode = status, code
+}
+
+func (d *localDaemon) rejectCheckWith(code string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.checkCode = code
 }
 
 func (d *localDaemon) links() []string {
@@ -158,18 +174,32 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 		d.mu.Lock()
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
 		d.mu.Unlock()
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links/check" {
+			d.mu.Lock()
+			code := d.checkCode
+			d.mu.Unlock()
+			if code != "" {
+				writeTestJSON(w, http.StatusConflict, map[string]string{"error": "conflict", "code": code, "message": "worker limit reached"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, map[string]bool{"ok": true})
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links" {
 			body, _ := io.ReadAll(r.Body)
 			d.mu.Lock()
 			d.linkBodies = append(d.linkBodies, string(body))
-			status, blocked := d.linkStatus, d.linkPullBlocked
+			status, blocked, code := d.linkStatus, d.linkPullBlocked, d.linkCode
+			if code == "" {
+				code = "PARENT_SESSION_TERMINATED"
+			}
 			d.mu.Unlock()
 			switch {
 			case status == http.StatusCreated:
 				writeTestJSON(w, status, map[string]string{"hostId": "host-build", "pullBlocked": blocked})
 				return
 			case status != 0:
-				writeTestJSON(w, status, map[string]string{"error": "conflict", "code": "PARENT_SESSION_TERMINATED", "message": "The parent session is terminated"})
+				writeTestJSON(w, status, map[string]string{"error": "conflict", "code": code, "message": "link rejected"})
 				return
 			}
 		}
@@ -340,6 +370,7 @@ func TestRemoteSpawnTargetsPairedHostAndMatchesProjectByRepository(t *testing.T)
 	local := startLocalDaemon(t, cfg, "host-local", map[string]projectDetails{
 		"local-widgets": {ID: "local-widgets", Repo: "git@github.com:Acme/Widgets.git"},
 	})
+	local.answerLinks(http.StatusCreated)
 	remote := newFakeRemoteHost(t, "host-build", "s3cret")
 	serveRemoteProjects(remote,
 		projectDetails{ID: "other", Repo: "https://github.com/acme/other"},
