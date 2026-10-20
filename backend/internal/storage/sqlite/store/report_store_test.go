@@ -297,6 +297,55 @@ func TestReportStoreRootClaimsAnExitedOwnersWorkersWithoutClearingOwnership(t *t
 	}
 }
 
+func TestReportStoreKeepsAnExitedOwnerBatchApartFromRootReports(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "ao")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	coordinator := sampleRecord("ao")
+	coordinator.Kind = domain.KindCoordinator
+	coordinator.CoordinatorScope = "auth"
+	coordinator, err := s.CreateSession(ctx, coordinator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := sampleRecord("ao")
+	owned.OwnerSessionID = &coordinator.ID
+	owned, err = s.CreateSession(ctx, owned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootOwned, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The root report is older but settles later, so it is still unbatched
+	// when the exited owner's group runs first.
+	for _, rec := range []domain.ReportRecord{
+		{ID: "rpt_root", SessionID: rootOwned.ID, ProjectID: "ao", Message: "root", CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: now.Add(time.Minute), RepeatCount: 1},
+		{ID: "rpt_exited", SessionID: owned.ID, ProjectID: "ao", Message: "stuck", CreatedAt: now.Add(time.Second), DeliveryState: domain.ReportPending, AvailableAt: now, RepeatCount: 1},
+	} {
+		if _, err := s.CreateReport(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exited, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "exited-token", now, coordinator.ID)
+	if err != nil || len(exited) != 1 || exited[0].ID != "rpt_exited" {
+		t.Fatalf("exited group = %+v, err = %v", exited, err)
+	}
+	if _, err := s.DeferReportBatch(ctx, "ao", "exited-token", now.Add(time.Minute), "stuck"); err != nil {
+		t.Fatal(err)
+	}
+	root, err := s.ClaimPendingReportBatch(ctx, "ao", "root-session", "root-session", "root-token", now.Add(time.Minute))
+	if err != nil || len(root) != 1 || root[0].ID != "rpt_root" {
+		t.Fatalf("root group = %+v, err = %v", root, err)
+	}
+	if root[0].DeliveryBatchID == exited[0].DeliveryBatchID {
+		t.Fatalf("root and exited-owner reports share batch %s", root[0].DeliveryBatchID)
+	}
+}
+
 func TestReportStoreInterruptLimitSurvivesRestart(t *testing.T) {
 
 	ctx := context.Background()
