@@ -50,17 +50,29 @@ than adding a fixed cost.
 
 ## Attribution
 
-A session belongs to a pull request when its store names the head branch:
-Claude Code records `gitBranch`, Codex records `payload.git.branch` in
-`session_meta`, and the Copilot CLI records one branch per session. Only the
-events recorded on that branch are counted, so time spent on another branch in
-the same session is left out.
+A session belongs to a pull request when its store names the head branch, when
+the log names the pull request, or when its worktree still sits on the head
+branch. An explicit `--cwd <path>` also matches sessions under that directory.
+How much of the matched session counts depends on the source.
 
-OpenCode records no branch at all, so its sessions attribute through the
-worktree that still sits on the head branch, or through an explicit
-`--cwd <path>`. Those are the two fallbacks for any store that names neither
-the branch nor the pull request. Claude Code also records `prNumber`, which
-matches on its own.
+Claude Code records a branch per event (`gitBranch`), so only the events
+recorded on the head branch are counted; time on another branch in the same
+session is left out. Claude Code also records `prNumber`, which matches on its
+own.
+
+Codex records the branch once, in `payload.git.branch` of `session_meta`. The
+reader applies that branch to every event in the file, so a Codex session that
+changes branches is counted whole against the branch it started on.
+
+The Copilot CLI records one branch per session, and every turn inherits it.
+The whole session is attributed to that branch, including turns recorded after
+a branch switch, so its time is not split per branch.
+
+OpenCode records no branch at all, so its sessions attribute only through the
+worktree or an explicit `--cwd <path>`. A session with no branch is counted
+whole once it matches, because there is no branch to filter its events
+against. Those two fallbacks apply to any store that names neither the branch
+nor the pull request.
 
 Events after the merge time are dropped, so a session left open afterwards does
 not inflate the number. Sessions from an orchestrator or a root checkout never
