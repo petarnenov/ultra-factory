@@ -175,6 +175,7 @@ func pilotReports(t *testing.T, e env) []domain.ReportRecord {
 // through the real binary; service/coordinatorpilot covers live delivery.
 func TestE2E_CoordinatorPilot(t *testing.T) {
 	e := newEnv(t)
+	parent := t
 	repo := pilotRepo(t)
 	e.startDaemon(t)
 	w := seedPilotWorld(t, e, repo)
@@ -360,6 +361,8 @@ func TestE2E_CoordinatorPilot(t *testing.T) {
 			t.Fatalf("spawn did not print a session id: %q", out)
 		}
 		w.coordC = domain.SessionRecord{ID: domain.SessionID(m[1])}
+		// Sessions outlive the daemon; kill the spawned one while it is up.
+		parent.Cleanup(func() { e.run(parent, "session", "kill", m[1]) })
 		for _, wk := range w.workers[:3] {
 			if out, code := assign(wk, w.coordC.ID); code != 0 {
 				t.Fatalf("reassign %s: exit %d: %s", wk.ID, code, out)
@@ -406,7 +409,9 @@ func TestE2E_CoordinatorPilot(t *testing.T) {
 		if len(claimed) == 0 {
 			t.Fatal("the replacement's workers had no report to claim")
 		}
-		e.startDaemon(t)
+		// Started on the parent, so it outlives this subtest for the kill above.
+		e.startDaemon(parent)
+		parent.Cleanup(func() { e.run(parent, "session", "kill", string(w.coordC.ID)) })
 		// Startup requeues the claim; the next pass claims it again for the
 		// same recipient. Every report is still there exactly once.
 		deadline := time.Now().Add(15 * time.Second)
