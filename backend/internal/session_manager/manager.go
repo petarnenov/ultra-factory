@@ -5501,10 +5501,8 @@ func (m *Manager) buildSystemPrompt(ctx context.Context, kind domain.SessionKind
 	return m.buildSystemPromptWithCIGate(ctx, kind, projectID, sessionID, requestedOutput, chat, nil)
 }
 
-// buildSystemPromptWithCIGate is buildSystemPrompt with an explicit CI gate
-// for a worker. A nil ciGate reads the session's stored CIGateActive, which is
-// correct for restore and rebuild; spawn passes the value it resolved from its
-// config because the row may not be promoted yet.
+// buildSystemPromptWithCIGate uses ciGate for a worker when it is non-nil.
+// Nil reads the stored CIGateActive (restore and rebuild callers).
 func (m *Manager) buildSystemPromptWithCIGate(ctx context.Context, kind domain.SessionKind, projectID domain.ProjectID, sessionID domain.SessionID, requestedOutput domain.RequestedOutput, chat bool, ciGate *bool) (string, error) {
 	project, err := m.loadProject(ctx, projectID)
 	if err != nil {
