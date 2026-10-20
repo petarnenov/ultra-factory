@@ -6015,6 +6015,10 @@ export interface components {
             state?: "queued" | "running" | "completed" | "recovered" | "interrupted" | "failed";
             turnId?: string;
         };
+        SendSessionMessageDelivery: {
+            pendingInputRequestIds?: string[];
+            queued: boolean;
+        };
         SendSessionMessageRequest: {
             attachment?: components["schemas"]["AttachmentInput"];
             message: string;
@@ -6022,6 +6026,7 @@ export interface components {
             userAuthored?: boolean;
         };
         SendSessionMessageResponse: {
+            delivery?: components["schemas"]["SendSessionMessageDelivery"];
             message: string;
             ok: boolean;
             sessionId: string;

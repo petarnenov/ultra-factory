@@ -95,6 +95,7 @@ type commander interface {
 	WaitForMessageDeliveryReady(ctx context.Context, id domain.SessionID) error
 	Send(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment) error
 	SendWithOptions(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) error
+	SendWithDelivery(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error)
 	Cleanup(ctx context.Context, project domain.ProjectID) (sessionmanager.CleanupResult, error)
 	RollbackSpawn(ctx context.Context, id domain.SessionID) (deleted, killed bool, err error)
 	StageAttachments(ctx context.Context, id domain.SessionID, attachments []ports.SpawnAttachment) ([]string, error)
@@ -1071,6 +1072,16 @@ func (s *Service) Send(ctx context.Context, id domain.SessionID, message string,
 // SendWithOptions preserves authorship facts supplied by trusted UI surfaces.
 func (s *Service) SendWithOptions(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) error {
 	return toAPIError(s.manager.SendWithOptions(ctx, id, message, attachment, options))
+}
+
+// SendWithDelivery preserves authorship facts and reports what the delivery did
+// with the accepted message.
+func (s *Service) SendWithDelivery(ctx context.Context, id domain.SessionID, message string, attachment *ports.SpawnAttachment, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
+	delivery, err := s.manager.SendWithDelivery(ctx, id, message, attachment, options)
+	if err != nil {
+		return ports.MessageDelivery{}, toAPIError(err)
+	}
+	return delivery, nil
 }
 
 // Rename updates the user-facing session display name.
