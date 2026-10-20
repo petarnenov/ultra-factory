@@ -61,6 +61,30 @@ func TestDraftWithSkippedExpensiveChecksIsNotAGreenPR(t *testing.T) {
 	}
 }
 
+func TestSupersededCancelledRunsDoNotOutvoteTheRerun(t *testing.T) {
+	t0 := now.Add(-time.Hour)
+	run := func(name, wf, result string, at time.Time) Check {
+		return Check{Name: name, Workflow: wf, Result: result, CompletedAt: at}
+	}
+	for name, tc := range map[string]struct {
+		checks []Check
+		want   string
+	}{
+		"cancelled then success":   {[]Check{run("go", "Go", "CANCELLED", t0), run("go", "Go", "SUCCESS", t0.Add(time.Minute))}, "green"},
+		"order does not matter":    {[]Check{run("go", "Go", "SUCCESS", t0.Add(time.Minute)), run("go", "Go", "CANCELLED", t0)}, "green"},
+		"success then failure":     {[]Check{run("go", "Go", "SUCCESS", t0), run("go", "Go", "FAILURE", t0.Add(time.Minute))}, "red"},
+		"success then running":     {[]Check{run("go", "Go", "SUCCESS", t0), run("go", "Go", "IN_PROGRESS", time.Time{})}, "pending"},
+		"running then cancelled":   {[]Check{run("go", "Go", "IN_PROGRESS", time.Time{}), run("go", "Go", "CANCELLED", t0)}, "pending"},
+		"other workflow same name": {[]Check{run("check", "Policy", "FAILURE", t0), run("check", "Mobile", "SUCCESS", t0.Add(time.Minute))}, "red"},
+		"no workflow falls back":   {[]Check{run("lint", "", "CANCELLED", t0), run("lint", "", "SUCCESS", t0.Add(time.Minute))}, "green"},
+		"unnamed checks all count": {[]Check{run("", "", "CANCELLED", t0), run("", "", "SUCCESS", t0.Add(time.Minute))}, "red"},
+	} {
+		if got := CheckSummary(tc.checks); got != tc.want {
+			t.Errorf("%s: CheckSummary = %s, want %s", name, got, tc.want)
+		}
+	}
+}
+
 func TestGreenPRViolationMatchesReviewState(t *testing.T) {
 	cfg := DefaultConfig()
 	greenFacts := func(mutate func(*PullRequest, *Worker)) Facts {
