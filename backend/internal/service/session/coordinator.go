@@ -37,14 +37,9 @@ func (s *Service) spawnOwner(ctx context.Context, cfg ports.SpawnConfig) (*domai
 }
 
 // admitWorker counts under the project lock; hold the release until the row
-// exists. Without coordinators it is shared, otherwise exclusive.
+// exists. The config is read under the exclusive lock.
 func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, owner *domain.SessionID) (func(), error) {
 	mu := s.projectLock(project)
-	cfg, err := coordownership.LoadConfig(ctx, s.store, project)
-	if err != nil {
-		return nil, err
-	}
-	limits := cfg.Limits()
 	mu.RLock()
 	counts, err := s.countCapacity(ctx, project)
 	if err != nil {
@@ -56,7 +51,7 @@ func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, own
 	}
 	mu.RUnlock()
 	mu.Lock()
-	counts, err = s.countCapacity(ctx, project)
+	limits, counts, err := s.limitsAndCounts(ctx, project)
 	if err == nil {
 		err = counts.CheckNewWorker(project, owner, limits)
 	}
@@ -67,17 +62,33 @@ func (s *Service) admitWorker(ctx context.Context, project domain.ProjectID, own
 	return mu.Unlock, nil
 }
 
-// spawnCoordinator requires the live root and shares the project lock with
-// root spawn across its check and insert.
+// limitsAndCounts reads the project's limits and census; the caller holds
+// the project lock exclusively.
+func (s *Service) limitsAndCounts(ctx context.Context, project domain.ProjectID) (domain.CoordinatorLimits, coordownership.Counts, error) {
+	cfg, err := coordownership.LoadConfig(ctx, s.store, project)
+	if err != nil {
+		return domain.CoordinatorLimits{}, coordownership.Counts{}, err
+	}
+	counts, err := s.countCapacity(ctx, project)
+	return cfg.Limits(), counts, err
+}
+
+// requireRoot loads the caller and accepts only the project's live root.
+func (s *Service) requireRoot(ctx context.Context, cfg ports.SpawnConfig) error {
+	caller, found, err := s.store.GetSession(ctx, cfg.ParentSessionID)
+	if err != nil {
+		return fmt.Errorf("load spawn caller %s: %w", cfg.ParentSessionID, err)
+	}
+	return coordownership.RequireRootCaller(caller, found, cfg.ParentSessionID, cfg.ProjectID)
+}
+
+// spawnCoordinator checks root, scope, then the gate; the root and config are
+// re-read under the project lock.
 func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (domain.Session, int, int, error) {
 	if s.store == nil {
 		return domain.Session{}, 0, 0, fmt.Errorf("spawn coordinator: store is required")
 	}
-	caller, found, err := s.store.GetSession(ctx, cfg.ParentSessionID)
-	if err != nil {
-		return domain.Session{}, 0, 0, fmt.Errorf("load spawn caller %s: %w", cfg.ParentSessionID, err)
-	}
-	if err := coordownership.RequireRootCaller(caller, found, cfg.ParentSessionID, cfg.ProjectID); err != nil {
+	if err := s.requireRoot(ctx, cfg); err != nil {
 		return domain.Session{}, 0, 0, err
 	}
 	scope, err := coordownership.NormalizeScope(cfg.CoordinatorScope)
@@ -91,6 +102,9 @@ func (s *Service) spawnCoordinator(ctx context.Context, cfg ports.SpawnConfig) (
 	}
 	unlock := s.lockOrchestratorProject(cfg.ProjectID)
 	defer unlock()
+	if err := s.requireRoot(ctx, cfg); err != nil {
+		return domain.Session{}, 0, 0, err
+	}
 	gate, err := coordownership.LoadConfig(ctx, s.store, cfg.ProjectID)
 	if err != nil {
 		return domain.Session{}, 0, 0, err

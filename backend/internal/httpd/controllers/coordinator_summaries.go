@@ -33,7 +33,7 @@ type CoordinatorSummaryRequest struct {
 	State                string   `json:"state" enum:"planning,working,blocked,done"`
 	WorkerSessionIDs     []string `json:"workerSessionIds,omitempty" maxItems:"3"`
 	Result               string   `json:"result,omitempty" maxLength:"2000"`
-	EscalationReason     string   `json:"escalationReason,omitempty" enum:"overlapping_files,unclear_acceptance,worker_failed,scope_decision,coordinator_terminated,other"`
+	EscalationReason     string   `json:"escalationReason,omitempty" enum:"overlapping_files,unclear_acceptance,worker_failed,scope_decision,other"`
 	EscalationNote       string   `json:"escalationNote,omitempty" maxLength:"500"`
 }
 
@@ -87,6 +87,10 @@ func (c *CoordinatorSummariesController) submit(w http.ResponseWriter, r *http.R
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	if domain.EscalationReason(req.EscalationReason) == domain.EscalationCoordinatorTerminated {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_SUMMARY", "The coordinator_terminated reason is reserved for the daemon", nil)
 		return
 	}
 	workers := make([]domain.SessionID, len(req.WorkerSessionIDs))

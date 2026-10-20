@@ -208,7 +208,7 @@ func TestReconcileSessionKindConstraintRepairsBurnedMigration(t *testing.T) {
 }
 
 func TestCoordinatorWorkerLimitMigrationKeepsExistingCoordinatorsOnTheProjectLimit(t *testing.T) {
-	db := openMigratedDatabaseCopy(t, 216)
+	db := openMigratedDatabaseCopy(t, 217)
 	if _, err := db.Exec(`
 INSERT INTO projects (id, path, registered_at) VALUES ('ao', '/repo/ao', '2026-10-19T10:00:00Z');
 INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, harness, activity_last_at, created_at, updated_at)
@@ -243,7 +243,7 @@ VALUES ('ao-1', NULL, 2, 'ao-root', '', '2026-10-20T10:00:00Z')`); err == nil {
 
 func TestCoordinatorWorkerLimitMigrationDownDropsTheColumnAndAudit(t *testing.T) {
 	db := openMigratedTestDB(t)
-	if err := goose.DownTo(db, "migrations", 216); err != nil {
+	if err := goose.DownTo(db, "migrations", 217); err != nil {
 		t.Fatalf("down migration: %v", err)
 	}
 	if _, err := db.Exec(`SELECT coordinator_worker_limit FROM sessions`); err == nil {

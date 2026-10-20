@@ -346,7 +346,10 @@ recipient(project, worker):
   owner := worker.owner_session_id          # local row, or link row
   if owner is not NULL:
     if owner is a live coordinator in project:
-      return owner
+      if owner.activity_state != 'exited':
+        return owner
+      # exited, not terminated: route to root, keep ownership (#387)
+      notify root once per exit; return live root of project
     # durable repair, not a silent reroute
     set owner := NULL; audit(owner_not_live_reconciled)
   return live root of project                # newest live kind='orchestrator'
@@ -354,10 +357,15 @@ recipient(project, worker):
 
 "Live" means `is_terminated = 0`. The root selector also skips
 `activity_state='exited'`, as `activeOrchestrator` does today. A coordinator
-whose row is live but whose agent exited is **not** rerouted: delivery retries
-the same owner until termination or repair, using the deferred backoff in
-section 4 rather than an immediate release. That keeps routing predictable and
-leaves the failure visible, instead of silently moving work.
+whose row is live but whose agent exited (amended for #387) is not a live
+recipient: its workers' reports go to the live root **without clearing the
+ownership**, because a crashed coordinator may be restored and then resumes
+receiving them. The root is told once per exit that the coordinator needs
+recovery. The exit time keys the notice and its delivery id, so a later exit
+is a new notice and a replacement root is told again. Capacity counting
+is unchanged: the exited, not-terminated coordinator keeps its slot. Delivery to
+an exited coordinator therefore never retries in a loop; `DeliverExternal`
+rejects it like an exited root.
 
 Resolution table:
 
@@ -366,9 +374,11 @@ Resolution table:
 | Local worker | `NULL` | Project root |
 | Local worker | Live coordinator C | C |
 | Local worker | Terminated coordinator C | Root, after repair to `NULL` |
+| Local worker | Exited, not terminated coordinator C | Root, owner kept, one recovery notice |
 | Remote link | `NULL` | Project root |
 | Remote link | Live coordinator C | C |
 | Remote link | Invalid or terminated owner | Root, after repair to `NULL` |
+| Remote link | Exited, not terminated coordinator C | Root, owner kept, one recovery notice |
 | Coordinator summary | Not applicable | Project root, always |
 | Root-owned direct worker | `NULL` | Project root (unchanged behavior) |
 | Standalone worker | Not applicable | No project, no report (existing rejection) |
@@ -391,8 +401,10 @@ the root is unavailable. A root outage must not stop helper delivery.
 A **delivery group** is
 `(project_id, recipient_session_id, queue, coordinator_session_id)`. `queue`
 is `worker_reports` or `coordinator_summaries`. For `worker_reports`,
-`coordinator_session_id` is empty: all of a recipient's workers share one
-group. For `coordinator_summaries`, `coordinator_session_id` is the
+`coordinator_session_id` is empty, except for the exited-owner group (#387):
+the root's group for the workers of one exited, not terminated coordinator
+carries that coordinator as an exited-owner dimension. All other workers of a
+recipient share one group. For `coordinator_summaries`, `coordinator_session_id` is the
 coordinator, so each helper has its own group and its own cadence, and the
 recipient is always the root. All work in a group has the same recipient,
 queue, and coordinator dimension. A remote worker group is assembled across
@@ -410,9 +422,13 @@ Changes to the report row:
 
 Claims are group-scoped, and the predicate depends on the queue:
 
-- `worker_reports`: join `sessions` through `reports.session_id` and compare
-  `COALESCE(sessions.owner_session_id, <root id>)` with the resolved
-  recipient; `coordinator_session_id` is empty and adds no filter. The claim
+- `worker_reports`: join `sessions` through `reports.session_id`. A normal
+  group compares `COALESCE(sessions.owner_session_id, <root id>)` with the
+  resolved recipient. An exited-owner group instead matches only
+  `sessions.owner_session_id = <exited coordinator>` (`fallback_owner_id`),
+  never the root-owned workers, so one batch id cannot span the root group and
+  an exited-owner group. Its delivery id is `<batch id>:exited:<coordinator>`,
+  because both groups address the same root. The claim
   selects pending reports in the group, including reports not yet at
   `available_at`, preserving today's rule that a due, attention, or piggyback
   trigger includes earlier batch work for the same recipient.
@@ -463,8 +479,7 @@ Scheduler loop, replacing `RunDue`'s project loop:
 5. Acknowledge after the turn is accepted. An acceptance timeout is returned
    only after the prompt was written, so acknowledge that group; deferring it
    re-sends the same batch, which is the duplicate this rule exists to
-   prevent. On other transient failures - a live-but-exited owner or an
-   unavailable semantic target - defer **that group** with a backoff and
+   prevent. On other transient failures - an unavailable semantic target - defer **that group** with a backoff and
    continue with the next group, up to a bounded number of groups per pass. On
    a terminal recipient failure - the owner row is terminated or no longer
    exists - release it so the next pass re-resolves to the root. A failing
@@ -552,7 +567,7 @@ Failure windows and their bound:
 | Delivery error after the prompt write, other than an acceptance timeout | The next pass writes the prompt again | At-least-once: a cancelled wait (`ctx.Err()`), a terminated target, or any other error releases the batch while the prompt may already be written |
 | Crash with claimed rows | Requeued at startup | No loss; the old claim is gone, so re-resolution may route to a new owner if ownership changed |
 | Reassignment during a claim (automatic only) | The claimed batch goes to the old owner; the new owner gets later reports | The old owner receives an ownership-removed notice; no duplicate |
-| Live-but-exited coordinator | Submit fails; the group keeps the same recipient | Defer with backoff; no reroute. The reaper's termination trigger later sets the owner to `NULL`, then resolution uses the root |
+| Live-but-exited coordinator | Resolution skips it as a recipient | Its workers' reports go to the live root and ownership is kept, so a restored coordinator resumes them. The root gets one recovery notice per exit. Termination later repairs the owner to `NULL` |
 | Coordinator terminated mid-submit | Submit fails; release; next pass resolves to the root | One retry; a failed submit is never acknowledged |
 | Remote record inserted, ack fails | Next pass skips delivery and retries the ack | Delivery record prevents duplicate work |
 | Remote record fails, ack succeeds | Nothing redelivered | Remote reports are no longer pending |
@@ -581,6 +596,9 @@ Tables:
   keys to the summary and the session, both cascading on delete. It is the
   durable link back to the workers the summary covers. It records history; a
   later reassignment does not rewrite it.
+- `coordinator_summary_remote_workers(summary_id, host_id,
+  remote_session_id, position)`, cascading on the summary. Only the
+  termination escalation fills it, with the remote links released to the root.
 
 Bounded payload:
 
@@ -590,7 +608,7 @@ Bounded payload:
 | `state` | `planning`, `working`, `blocked`, `done` |
 | `workerSessionIds` | 0..3; each must be a worker currently owned by the submitting coordinator |
 | `result` | 0..2000 characters |
-| `escalationReason` | empty, or `overlapping_files`, `unclear_acceptance`, `worker_failed`, `scope_decision`, `coordinator_terminated`, `other` |
+| `escalationReason` | empty, or `overlapping_files`, `unclear_acceptance`, `worker_failed`, `scope_decision`, `other`; `coordinator_terminated` is reserved for the daemon and rejected with 400 |
 | `escalationNote` | 0..500 characters; required for `other` |
 
 Delivery:
@@ -701,8 +719,11 @@ trigger that runs when a coordinator becomes terminated:
 3. Do the same for `remote_worker_links` and their audit table.
 4. Insert one root-addressed `coordinator_summaries` row with
    `state='blocked'`, `escalation_reason='coordinator_terminated'`, and the
-   returned worker IDs recorded in `coordinator_summary_workers`. It is
-   available immediately, so the root learns about the handback without
+   returned worker IDs recorded in `coordinator_summary_workers` and the
+   returned remote links in `coordinator_summary_remote_workers`. Its
+   `submission_key` is `daemon:coordinator_terminated:<random>`: each
+   termination writes exactly one row, and the API rejects caller keys that
+   start with `daemon:`. It is available immediately, so the root learns about the handback without
    polling.
 5. Leave the coordinator's other pending summaries and its workers' pending
    reports durable. The next delivery pass resolves them to the root.
@@ -790,11 +811,22 @@ Rules:
   same transaction that sets the terminal fact.
 - A failed spawn creates no session row, or a terminated row once provisioning
   began; either way it consumes no slot.
-- CO-3.1.1 must add a store operation, or extend session creation, so the
-  capacity count and the insert happen in one `inTx` under the store write
-  lock. A check-then-insert split across transactions is not acceptable.
-  Coordinator spawn also takes the project orchestrator lock, so it serializes
-  with root replacement. Concurrency tests are required.
+- The capacity count and the insert are serialized by the per-project
+  `ownership.Guard` lock, not by one store transaction. The spawn path runs the
+  runtime and workspace provisioning between the count and the insert, so a
+  single `inTx` cannot span them. This holds only while the daemon is the
+  single writer to SQLite (see the single-writer decision above); a second
+  writer, such as a CLI maintenance command opening the database, must take
+  the same boundary or add a store-level count-and-insert first. The SQLite
+  triggers enforce ownership rules, not the 2/3/6 limits.
+- Everything a decision rests on is read under that lock: the project's
+  `coordinators` config, the live-root check for a coordinator spawn, and the
+  census. A caller check made before the lock is only an early refusal; it is
+  repeated inside. The error order for a coordinator spawn is root caller
+  (`COORDINATOR_ROOT_REQUIRED`), then scope, then `COORDINATORS_DISABLED`, so a
+  non-root caller in a disabled project gets the 403. Coordinator spawn also
+  takes the project orchestrator lock, so it serializes with root
+  replacement. Concurrency tests are required.
 - Reassignment checks the target coordinator's count in the same transaction
   as the owner write. Reassignment to the root never changes the project total.
 - Existing workers and links are grandfathered. The limits apply to new
@@ -1136,10 +1168,10 @@ Costs and risks:
   ADR bounds what a summary may contain and how it is delivered; it does not
   impose a minimum cadence. The pilot should measure whether the batching
   window needs a daemon-enforced rate.
-- **Exited but not terminated owners.** This ADR waits for the reaper instead
-  of timing out a live-but-exited coordinator. If the pilot shows long waits,
-  CO-3 may add a bounded repair window; it would need its own decision because
-  it changes the "no silent reroute" rule.
+- **Exited but not terminated owners.** Resolved by #387: reports route to
+  the root while ownership is kept, with one recovery notice per exit. Open: if
+  the pilot shows coordinators staying exited for long, CO-3 may add a bounded
+  window after which ownership is repaired to the root.
 - **Scope uniqueness.** Two live coordinators may share a scope; disjoint
   scopes are an operating rule, not a database constraint. If the pilot shows
   overlap is common, a uniqueness rule can be added later.

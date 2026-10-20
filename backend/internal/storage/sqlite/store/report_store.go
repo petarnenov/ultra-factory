@@ -250,11 +250,15 @@ func (s *Store) ListPendingReportSchedule(ctx context.Context, limit int64) ([]d
 	return s.reportsWithOutputs(ctx, rows)
 }
 
-// ClaimPendingReportBatch atomically claims one recipient group's pending
-// reports: the project plus the resolved coordinator owner or root.
-func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.ProjectID, recipientID, rootID domain.SessionID, token string, at time.Time) ([]domain.ReportRecord, error) {
+// ClaimPendingReportBatch claims one recipient group's pending reports; an
+// exitedOwner adds that coordinator's workers to a root group.
+func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.ProjectID, recipientID, rootID domain.SessionID, token string, at time.Time, exitedOwner ...domain.SessionID) ([]domain.ReportRecord, error) {
 	if projectID == "" || recipientID == "" || token == "" || at.IsZero() {
 		return nil, domain.ErrInvalidReport
+	}
+	var fallback domain.SessionID
+	if len(exitedOwner) > 0 {
+		fallback = exitedOwner[0]
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -262,7 +266,7 @@ func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.Pr
 	err := s.inTx(ctx, "claim recipient report batch", func(q *gen.Queries) error {
 		scheduled, err := q.ListPendingReportsByRecipientSchedule(ctx, gen.ListPendingReportsByRecipientScheduleParams{
 			ProjectID: string(projectID), RootSessionID: nullableSessionID(rootID),
-			RecipientSessionID: nullableSessionID(recipientID), Limit: 1,
+			RecipientSessionID: nullableSessionID(recipientID), FallbackOwnerID: nullableSessionID(fallback), Limit: 1,
 		})
 		if err != nil || len(scheduled) == 0 {
 			return err
@@ -273,6 +277,7 @@ func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.Pr
 			if err := q.AssignPendingReportsToRecipient(ctx, gen.AssignPendingReportsToRecipientParams{
 				DeliveryBatchID: batchID, ProjectID: string(projectID),
 				RootSessionID: nullableSessionID(rootID), RecipientSessionID: nullableSessionID(recipientID),
+				FallbackOwnerID: nullableSessionID(fallback),
 			}); err != nil {
 				return err
 			}
@@ -280,7 +285,7 @@ func (s *Store) ClaimPendingReportBatch(ctx context.Context, projectID domain.Pr
 		rows, err = q.ClaimPendingReportsByRecipient(ctx, gen.ClaimPendingReportsByRecipientParams{
 			ProjectID: string(projectID), DeliveryBatchID: batchID,
 			RootSessionID: nullableSessionID(rootID), RecipientSessionID: string(recipientID),
-			ClaimToken: token, ClaimedAt: nullTime(at),
+			FallbackOwnerID: nullableSessionID(fallback), ClaimToken: token, ClaimedAt: nullTime(at),
 		})
 		return err
 	})
