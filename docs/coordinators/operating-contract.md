@@ -128,8 +128,10 @@ Placement of coordinator-owned workers is enforced by the daemon:
   entry per host, a host ID or label as input, stored as IDs), set at spawn or
   changed live by the root or the operator through
   `PUT /api/v1/sessions/{id}/coordinator-limits`. The total may not exceed the
-  coordinator's `workerLimit`; with slots set, workers run only on slotted
-  hosts and the slot total is the effective placement limit. A host outside the
+  coordinator's `workerLimit`; with slots set, remote workers run only on
+  slotted hosts and the slot total is the effective placement limit for them.
+  A local worker (when `allowLocalWorkers` is on) uses no slot: it counts
+  toward `workerLimit` and the project totals only. A host outside the
   slots or `allowedHosts` is `COORDINATOR_HOST_NOT_ALLOWED`; a host whose slots
   are all used is `COORDINATOR_HOST_SLOTS_FULL`. Both are checked before the
   remote worker is created and again when its link is registered or reassigned.

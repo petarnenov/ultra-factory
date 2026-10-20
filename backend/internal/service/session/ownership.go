@@ -456,7 +456,7 @@ func limitsMessage(limit int, slots []domain.HostSlot) string {
 		for i, slot := range slots {
 			parts[i] = fmt.Sprintf("%s:%d", slot.HostID, slot.Slots)
 		}
-		msg += " Your host slots are " + strings.Join(parts, ", ") + "; workers run only on those hosts."
+		msg += " Your host slots are " + strings.Join(parts, ", ") + "; remote workers run only on those hosts."
 	}
 	return msg + " Running workers keep running; new workers are admitted only below the limit."
 }

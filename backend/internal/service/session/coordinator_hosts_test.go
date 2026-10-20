@@ -192,3 +192,19 @@ func TestRosterListsHostSlotsWithUseAndThePlacementLimit(t *testing.T) {
 		t.Fatalf("host slots = %+v, want %+v", entry.HostSlots, want)
 	}
 }
+
+func TestLocalWorkersUseNoHostSlotButCountTowardTheWorkerLimit(t *testing.T) {
+	f := newHostFixture(t, domain.CoordinatorsConfig{MaxWorkersPerCoordinator: 4, MaxWorkers: 8, AllowLocalWorkers: true})
+	c, err := f.spawnHostCoordinator(intp(3), domain.HostSlot{HostID: "Linux", Slots: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The slot total is 1, yet local workers are outside the slots (ADR 0010
+	// decision 3): they fill the worker limit of 3 and no more.
+	for i := 0; i < 3; i++ {
+		if err := f.spawnWorker(c); err != nil {
+			t.Fatalf("local worker %d: %v", i, err)
+		}
+	}
+	wantAPIError(t, f.spawnWorker(c), "COORDINATOR_WORKER_LIMIT_REACHED", map[string]any{"allowed": 3})
+}
