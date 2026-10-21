@@ -5,9 +5,8 @@ import { findRemote, removeSavedRemote, toHostViews, updateSavedRemote } from ".
 import type { RemoteRegistry } from "./remote-registry";
 import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEntry } from "./remotes-store";
 
-// The machine-level saved-host file, shared with every daemon on this computer
-// (backend/internal/remotehost/registry.go mirrors this rule). An isolated
-// AO_DATA_DIR keeps its own file so a lab never reads the real credentials.
+// Machine-level saved-host file, shared with every daemon (mirrors
+// remotehost.FilePath). An isolated AO_DATA_DIR keeps its own file.
 export function remotesFilePath(): string {
 	const override = process.env.AO_REMOTES_FILE?.trim();
 	if (override) return path.resolve(override);

@@ -43,11 +43,8 @@ type identity struct {
 	APIVersion int    `json:"apiVersion"`
 }
 
-// FilePath resolves the saved-host file. Every AO daemon on this machine (the
-// production ~/.ao one and the dev ~/.ao/dev one) and the desktop share
-// ~/.ao/remotes.json, or AO_REMOTES_FILE when that is set. A daemon whose
-// AO_DATA_DIR is some other directory is an isolated install and keeps its own
-// remotes.json there, so it never reads the user's real credentials.
+// FilePath resolves the saved-host file: AO_REMOTES_FILE, else the shared
+// ~/.ao/remotes.json. An isolated AO_DATA_DIR keeps its own remotes.json.
 func FilePath() (string, error) {
 	if p := strings.TrimSpace(os.Getenv("AO_REMOTES_FILE")); p != "" {
 		return filepath.Abs(p)

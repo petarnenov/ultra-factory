@@ -21,16 +21,14 @@ const lockStale = 30 * time.Second
 // lockPollInterval is how often a waiting writer retries the lock.
 const lockPollInterval = 10 * time.Millisecond
 
-// LockPath is the lock file that serializes writers of path across processes.
-// The desktop app (frontend/src/main/remotes-store.ts) uses the same name and
-// protocol, so both sides exclude each other.
+// LockPath is the lock file serializing writers of path across processes.
+// The desktop (frontend/src/main/remotes-store.ts) uses the same protocol.
 func LockPath(path string) string {
 	return path + ".lock"
 }
 
-// Update runs fn against the saved hosts at path under the cross-process lock
-// and writes the result back atomically with mode 0600. A missing file starts
-// from an empty list. An error from fn leaves the file untouched.
+// Update runs fn on the saved hosts at path under the lock, then writes the
+// result atomically at mode 0600. A missing file starts empty.
 func Update(path string, fn func([]Entry) ([]Entry, error)) error {
 	return withLock(path, func() error {
 		entries, err := ReadEntries(path)
@@ -45,30 +43,40 @@ func Update(path string, fn func([]Entry) ([]Entry, error)) error {
 	})
 }
 
-// withLock holds the lock file for path while fn runs. It creates the lock
-// exclusively, removes it afterwards, and breaks a lock older than lockStale.
+// withLock runs fn while holding the lock file for path.
 func withLock(path string, fn func() error) error {
+	release, err := acquireLock(path)
+	if err != nil {
+		return err
+	}
+	defer release()
+	return fn()
+}
+
+// acquireLock creates the lock file exclusively and returns its release. It
+// breaks a lock older than lockStale, left by a crashed writer.
+func acquireLock(path string) (func(), error) {
 	lock := LockPath(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return nil, err
 	}
 	deadline := time.Now().Add(lockWait)
 	for {
-		file, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- AO-owned lock file.
+		// #nosec G304 -- AO-owned lock file.
+		file, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
 			_ = file.Close()
-			defer func() { _ = os.Remove(lock) }()
-			return fn()
+			return func() { _ = os.Remove(lock) }, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
-			return err
+			return nil, err
 		}
 		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > lockStale {
 			_ = os.Remove(lock)
 			continue
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for %s", lock)
+			return nil, fmt.Errorf("timed out waiting for %s", lock)
 		}
 		time.Sleep(lockPollInterval)
 	}
@@ -90,7 +98,8 @@ func saveEntries(path string, entries []Entry) error {
 		return err
 	}
 	temporary := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
-	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) // #nosec G304 -- AO-owned temp file.
+	// #nosec G304 -- AO-owned temp file.
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -115,11 +124,8 @@ type MigrationReport struct {
 	Merged []string
 }
 
-// MigrateInstanceFile folds an instance-local saved-hosts file into the shared
-// one. It runs once per daemon start. When only the local file exists it is
-// moved to the shared path. When both exist, hosts are matched by host ID (by
-// URL when unpaired), the shared entry wins, and local-only hosts are added.
-// The local file is removed once its hosts are in the shared file.
+// MigrateInstanceFile folds a local saved-hosts file into the shared one, then
+// removes it. Hosts match by host ID; the shared entry wins.
 func MigrateInstanceFile(local, shared string, log *slog.Logger) (MigrationReport, error) {
 	var report MigrationReport
 	if filepath.Clean(local) == filepath.Clean(shared) {
