@@ -175,6 +175,18 @@ ao review ls <worker-session-id>
 
 The effective value is resolved once when a session is spawned and stored on it as the read-only `ciGateActive` flag, so changing the setting affects only new sessions. A remote worker uses the project config of the host it runs on, the same as `autoReview`. Unknown `mode` or `withoutAutoReview` values are rejected when the config is saved.
 
+Worker flow for a gated session:
+
+```
+draft PR (gh pr create --draft)
+  -> local checks (build, lint, touched-package unit tests)
+  -> ao review trigger (when the project asks workers to request review)
+  -> AO review approves the head -> AO marks the PR ready
+  -> full CI runs; failures arrive as usual
+```
+
+While the PR is a draft only the cheap checks run: comment policy, gitleaks, and issue policy. The worker does not run `gh pr ready` or `ao pr ready`; the only allowed form is `gh pr ready --undo`.
+
 To mark a gated pull request ready by hand, or convert it back to a draft:
 
 ```bash
