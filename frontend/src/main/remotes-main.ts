@@ -21,13 +21,19 @@ export const NO_TAILSCALE_ADDRESS = "This host has no Tailscale address, so it c
 // Accounts store only a Tailscale address; other subnets cannot reach LAN.
 // Throws when the host reported none, never falling back.
 export function tailnetAccountUrl(raw: unknown): string {
+	const url = parseTailnetUrl(raw);
+	if (!url) throw new Error(NO_TAILSCALE_ADDRESS);
+	return url.origin;
+}
+
+function parseTailnetUrl(raw: unknown): URL | null {
 	let url: URL;
-	try { url = new URL(typeof raw === "string" ? raw : ""); } catch { throw new Error(NO_TAILSCALE_ADDRESS); }
+	try { url = new URL(typeof raw === "string" ? raw : ""); } catch { return null; }
 	const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
 	const family = isIP(host);
 	const tailnet = family ? TAILNET.check(host, family === 6 ? "ipv6" : "ipv4") : host.endsWith(".ts.net");
-	if (!tailnet || url.protocol !== "http:" || url.username || url.password || (url.pathname !== "/" && url.pathname !== "")) throw new Error(NO_TAILSCALE_ADDRESS);
-	return url.origin;
+	if (!tailnet || url.protocol !== "http:" || url.username || url.password || (url.pathname !== "/" && url.pathname !== "")) return null;
+	return url;
 }
 
 // The slice of Electron's ipcMain these handlers need, so tests need no Electron.
@@ -186,7 +192,10 @@ export function registerRemotesIpc(
 		// Keep the original password on the machine that performed pairing; a
 		// Cloud refresh must not replace it with the narrower account token.
 		if (local?.password && !/^[0-9a-f]{64}$/.test(local.password)) {
-			if (local.label !== input.label || local.url !== input.url) await updateRemote(file, local.url, { label: input.label, url: input.url });
+			// A tailnet account URL must not replace a working local pairing:
+			// this machine may not be on the tailnet. Rotated tunnels still move.
+			const url = parseTailnetUrl(input.url) ? local.url : input.url;
+			if (local.label !== input.label || local.url !== url) await updateRemote(file, local.url, { label: input.label, url });
 			return;
 		}
 		await addRemote(file, { ...input, accountUserId: account });

@@ -53,6 +53,16 @@ describe("remotesFilePath", () => {
 });
 
 describe("registerRemotesIpc", () => {
+	it("keeps a locally paired LAN URL when the account directory returns the Tailscale URL", async () => {
+		const file = await tempFile();
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
+		await ipc.invoke("remotes:importAccountHost", TEST_ACCOUNT, { hostId: "h_workbox", label: "New name", url: "http://100.100.160.17:57451", password: "a".repeat(64) });
+		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([
+			{ hostId: "h_workbox", label: "New name", url: "http://192.0.2.1:1", password: "old", accountUserId: TEST_ACCOUNT },
+		]);
+	});
+
 	it("hides this installation without deleting its account record or original password", async () => {
 		const file = await tempFile();
 		const original = await readFile(file, "utf8");
