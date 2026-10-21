@@ -431,6 +431,20 @@ func (q *Queries) DeferReportBatch(ctx context.Context, arg DeferReportBatchPara
 	return items, nil
 }
 
+const deleteReportInterrupt = `-- name: DeleteReportInterrupt :exec
+DELETE FROM report_worker_interrupts WHERE session_id = ? AND last_interrupted_at = ?
+`
+
+type DeleteReportInterruptParams struct {
+	SessionID         string
+	LastInterruptedAt time.Time
+}
+
+func (q *Queries) DeleteReportInterrupt(ctx context.Context, arg DeleteReportInterruptParams) error {
+	_, err := q.db.ExecContext(ctx, deleteReportInterrupt, arg.SessionID, arg.LastInterruptedAt)
+	return err
+}
+
 const getReport = `-- name: GetReport :one
 SELECT id, session_id, project_id, state, note, message, created_at, delivery_state, available_at, settlement_deadline, repeat_count, claim_token, claimed_at, delivery_attempts, acknowledged_at, last_error, delivery_batch_id, delivery_owner_id FROM reports WHERE id = ?
 `
