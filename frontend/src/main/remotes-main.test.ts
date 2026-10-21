@@ -91,6 +91,18 @@ describe("registerRemotesIpc", () => {
 		expect(await readFile(file, "utf8")).toBe(original);
 	});
 
+	it("refuses to add or update another AO installation on this machine", async () => {
+		const file = await tempFile();
+		const original = await readFile(file, "utf8");
+		const probe = vi.fn(async () => "online" as const);
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, siblingHostIds: async () => ["h_prod"], identity: async () => "h_prod", probe });
+		await expect(ipc.invoke("remotes:add", { label: "prod", url: "http://127.0.0.1:3001", password: "secret" })).rejects.toThrow(/already available locally/);
+		await expect(ipc.invoke("remotes:update", "http://192.0.2.1:1", { url: "http://127.0.0.1:3001" })).rejects.toThrow(/already available locally/);
+		expect(probe).not.toHaveBeenCalled();
+		expect(await readFile(file, "utf8")).toBe(original);
+	});
+
 	it("hides this installation without deleting its account record or original password", async () => {
 		const file = await tempFile();
 		const original = await readFile(file, "utf8");

@@ -109,7 +109,8 @@ export function registerRemotesIpc(
 	const checkedProbe = async (entry: RemoteEntry, account: string): Promise<RemoteHealth> => {
 		if (!entry.hostId) throw new Error("remote host must be paired again to record its identity");
 		const localHostId = await requireLocalIdentity();
-		refuseSelf(entry.hostId, localHostId);
+		const siblings = await siblingHostIds();
+		refuseSelf(entry.hostId, localHostId, siblings);
 		let actual: string;
 		try {
 			actual = await identity(entry);
@@ -117,7 +118,7 @@ export function registerRemotesIpc(
 			if (error instanceof IncompatibleRemoteVersionError) return "incompatible";
 			return "offline";
 		}
-		refuseSelf(actual, localHostId);
+		refuseSelf(actual, localHostId, siblings);
 		if (actual !== entry.hostId) throw new Error(`remote host identity changed for ${entry.url}; connection refused`);
 		await checkConnectionContext(localHostId, account);
 		const health = await probe(entry);
@@ -156,7 +157,8 @@ export function registerRemotesIpc(
 	ipcMain.handle("remotes:add", async (_event, input: RemoteEntry) => ordered(async () => {
 		const account = await accountID();
 		const localHostId = await requireLocalIdentity();
-		refuseSelf(input.hostId, localHostId);
+		const siblings = await siblingHostIds();
+		refuseSelf(input.hostId, localHostId, siblings);
 		// Probe before saving: a host that never answered is worse than no host,
 		// because it looks configured.
 		let hostId: string;
@@ -166,7 +168,7 @@ export function registerRemotesIpc(
 			if (error instanceof IncompatibleRemoteVersionError) return "incompatible" as RemoteHealth;
 			return "offline" as RemoteHealth;
 		}
-		refuseSelf(hostId, localHostId);
+		refuseSelf(hostId, localHostId, siblings);
 		const entry = { label: input.label, url: input.url, password: input.password, hostId, accountUserId: account };
 		const health = await checkedProbe(entry, account);
 		if (health === "online") {
