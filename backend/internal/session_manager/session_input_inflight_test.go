@@ -87,24 +87,27 @@ func TestKillCancelsWakeAndReleasesGate(t *testing.T) {
 	}
 }
 
-func TestKillClearsStaleWakeMarkerWithLoggedReason(t *testing.T) {
+func TestKillReportsWakeThatIgnoresCancelWithoutClearingGate(t *testing.T) {
 	ctx := context.Background()
 	id := domain.SessionID("worker-1")
 	logs := &bytes.Buffer{}
 	m := newInFlightWakeTestManager(logs)
 
-	// A wake that ignores cancellation must not pin the session forever.
+	// A wake that ignores cancellation keeps the gate: clearing it would let
+	// kill tear down while the wake is still relaunching the agent.
 	if err := m.beginAgentOperation(ctx, id, agentOperationResume); err != nil {
 		t.Fatal(err)
 	}
 	m.setAgentOperationCancel(id, func() {})
 
-	if _, err := m.kill(ctx, id, false); err != nil {
-		t.Fatalf("kill over stale wake = %v, want nil", err)
+	_, err := m.kill(ctx, id, false)
+	if !errors.Is(err, ErrResumeInProgress) || !strings.Contains(err.Error(), "resume in progress for") {
+		t.Fatalf("kill over wedged wake = %v, want ErrResumeInProgress naming the wake", err)
 	}
-	if !strings.Contains(logs.String(), "cleared stale resume marker") {
-		t.Fatalf("log = %q, want a stale-marker reason", logs.String())
+	if !m.SessionMutationInProgress(id) {
+		t.Fatal("gate was cleared while the wake was still running")
 	}
+	m.endAgentResume(id)
 }
 
 func TestBusyGateErrorNamesOperationAndAge(t *testing.T) {

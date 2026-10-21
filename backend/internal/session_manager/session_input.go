@@ -289,7 +289,7 @@ func (m *Manager) agentOperationBusyLocked(id domain.SessionID) error {
 }
 
 // preemptResume lets kill or exit take the gate from a background wake. It
-// cancels the wake; a wake still holding the gate after the wait is cleared.
+// cancels the wake and returns a busy error if the wake outlives the wait.
 func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller agentOperationKind) error {
 	wait := m.resumePreemptWait
 	if wait <= 0 {
@@ -318,10 +318,12 @@ func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			m.logger.Warn("cleared stale resume marker before "+string(caller),
+			// Clearing the marker would let kill or exit tear down while the wake
+			// still relaunches the agent, so refuse and name the wake instead.
+			m.logger.Warn("resume did not release before "+string(caller),
 				"sessionID", id, "resumeStartedAt", startedAt, "waited", wait)
-			m.endAgentOperation(id, agentOperationResume)
-			return nil
+			return fmt.Errorf("%w: resume in progress for %s and did not stop after cancel",
+				ErrResumeInProgress, time.Since(startedAt).Round(time.Second))
 		case <-ticker.C:
 		}
 	}
