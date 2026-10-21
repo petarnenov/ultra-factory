@@ -127,8 +127,15 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 		o.note("discover "+entry.HostID, label, err)
 		return result
 	}
+	coordinated, live := remoteCoordination(sessions)
 	for _, session := range sessions {
 		if session.Kind != string(domain.KindWorker) || session.IsTerminated {
+			continue
+		}
+		// The host's own coordinator drives this worker; linking it would
+		// let this daemon pull and claim reports the host still needs.
+		if coordinated[session.ProjectID] || (session.OwnerSessionID != nil && live[*session.OwnerSessionID]) {
+			result.Skipped++
 			continue
 		}
 		created, err := o.linker.LinkDiscovered(ctx, domain.RemoteWorkerLink{
@@ -154,6 +161,22 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 	}
 	o.note("discover "+entry.HostID, label, nil)
 	return result
+}
+
+// remoteCoordination returns the projects with a live orchestrator or
+// coordinator on a host, and the IDs of its live sessions.
+func remoteCoordination(sessions []wireSession) (map[string]bool, map[string]bool) {
+	coordinated, live := map[string]bool{}, map[string]bool{}
+	for _, session := range sessions {
+		if session.IsTerminated {
+			continue
+		}
+		live[string(session.ID)] = true
+		if session.Kind == string(domain.KindOrchestrator) || session.Kind == string(domain.KindCoordinator) {
+			coordinated[session.ProjectID] = true
+		}
+	}
+	return coordinated, live
 }
 
 // savedHostsSignature identifies the saved hosts a pass scanned. It hashes the

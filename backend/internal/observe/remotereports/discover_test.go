@@ -111,7 +111,7 @@ func TestSyncLinksOnlyLiveRegisteredWorkers(t *testing.T) {
 	host := newFakeHost(t, "host-build", "s3cret")
 	host.sessionList = sessionsJSON(
 		session("widgets-1", "worker", "widgets", false),
-		session("widgets-2", "orchestrator", "widgets", false),
+		session("widgets-2", "orchestrator", "unregistered", false),
 		session("other-1", "worker", "unregistered", false),
 		session("widgets-3", "worker", "widgets", true),
 	)
@@ -282,5 +282,33 @@ func TestDiscoverIfDueRunsOnStartThenOnTheInterval(t *testing.T) {
 	observer.discoverIfDue(ctx)
 	if n := host.authenticated(); n != 2 {
 		t.Fatalf("passes after the interval = %d, want 2", n)
+	}
+}
+
+// A host's own orchestrator or coordinator drives its workers. Discovery must
+// not link them, so this daemon never pulls or claims their reports.
+func TestSyncSkipsWorkersTheHostCoordinates(t *testing.T) {
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.sessionList = sessionsJSON(
+		session("widgets-orch", "orchestrator", "widgets", false),
+		session("widgets-1", "worker", "widgets", false),
+		`{"id":"other-coord","projectId":"other","kind":"coordinator","displayName":"c","isTerminated":false}`,
+		`{"id":"other-1","projectId":"other","kind":"worker","displayName":"w","isTerminated":false,"ownerSessionId":"other-coord"}`,
+	)
+	store := newMemStore()
+	results, err := discoveryObserver(store, newLinker(), host).Sync(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findResult(t, results, "host-build"); got.Linked != 0 || got.Skipped != 2 {
+		t.Fatalf("result = %+v, want nothing linked and both workers skipped", got)
+	}
+	if len(store.links) != 0 {
+		t.Fatalf("links = %+v, want none", store.links)
+	}
+	for _, r := range host.seen() {
+		if r.path == "/api/v1/reports/pending" || r.path == "/api/v1/reports/acknowledge" {
+			t.Fatalf("host was pulled for a coordinated worker: %s", r.path)
+		}
 	}
 }

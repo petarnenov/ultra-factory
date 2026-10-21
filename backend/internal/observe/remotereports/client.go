@@ -157,11 +157,12 @@ func (h *hostClient) acknowledge(ctx context.Context, sessionID domain.SessionID
 
 // wireSession is the part of a remote session view that discovery reads.
 type wireSession struct {
-	ID           domain.SessionID `json:"id"`
-	ProjectID    string           `json:"projectId"`
-	Kind         string           `json:"kind"`
-	DisplayName  string           `json:"displayName"`
-	IsTerminated bool             `json:"isTerminated"`
+	ID             domain.SessionID `json:"id"`
+	ProjectID      string           `json:"projectId"`
+	Kind           string           `json:"kind"`
+	DisplayName    string           `json:"displayName"`
+	IsTerminated   bool             `json:"isTerminated"`
+	OwnerSessionID *string          `json:"ownerSessionId"`
 }
 
 // sessions lists the host's active sessions, every project included.
