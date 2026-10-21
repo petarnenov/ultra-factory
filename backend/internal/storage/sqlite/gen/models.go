@@ -642,6 +642,7 @@ type RemoteWorkerLink struct {
 	DisplayName     string
 	CreatedAt       time.Time
 	OwnerSessionID  *domain.SessionID
+	Source          string
 }
 
 type RemoteWorkerOwnerEvent struct {

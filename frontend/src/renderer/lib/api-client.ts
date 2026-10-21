@@ -388,14 +388,25 @@ export function apiErrorRequestId(error: unknown): string | undefined {
 	return undefined;
 }
 
+/** The rejected field of an INVALID_JSON error, if the daemon named one. */
+function invalidJsonField(body: { code?: unknown; details?: unknown }): string | null {
+	if (body.code !== "INVALID_JSON" || typeof body.details !== "object" || body.details === null) return null;
+	const { field, reason } = body.details as { field?: unknown; reason?: unknown };
+	if (typeof field !== "string" || field === "") return null;
+	if (reason === "unknown field") return `unknown field ${field}`;
+	return typeof reason === "string" && reason !== "" ? `${field}: ${reason}` : field;
+}
+
 export function apiErrorMessage(error: unknown, fallback = "Request failed"): string {
 	if (error instanceof Error) return error.message;
 	if (typeof error === "string" && error !== "") return error;
 	if (typeof error === "object" && error !== null) {
-		const body = error as { code?: unknown; message?: unknown; error?: unknown };
+		const body = error as { code?: unknown; message?: unknown; error?: unknown; details?: unknown };
 		if (typeof body.error === "object" && body.error !== null) {
 			return apiErrorMessage(body.error, fallback);
 		}
+		const rejected = invalidJsonField(body);
+		if (rejected) return `${typeof body.message === "string" && body.message !== "" ? body.message : fallback}: ${rejected}`;
 		if (typeof body.message === "string" && body.message !== "") {
 			return body.message;
 		}

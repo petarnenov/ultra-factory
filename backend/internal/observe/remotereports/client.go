@@ -179,6 +179,27 @@ func (h *hostClient) acknowledge(ctx context.Context, sessionID domain.SessionID
 	return nil
 }
 
+// wireSession is the part of a remote session view that discovery reads.
+type wireSession struct {
+	ID             domain.SessionID `json:"id"`
+	ProjectID      string           `json:"projectId"`
+	Kind           string           `json:"kind"`
+	DisplayName    string           `json:"displayName"`
+	IsTerminated   bool             `json:"isTerminated"`
+	OwnerSessionID *string          `json:"ownerSessionId"`
+}
+
+// sessions lists the host's active sessions, every project included.
+func (h *hostClient) sessions(ctx context.Context) ([]wireSession, error) {
+	var body struct {
+		Sessions []wireSession `json:"sessions"`
+	}
+	if err := h.do(ctx, http.MethodGet, "/api/v1/sessions?active=true", nil, &body); err != nil {
+		return nil, err
+	}
+	return body.Sessions, nil
+}
+
 // terminated reports whether the remote worker session has ended.
 func (h *hostClient) terminated(ctx context.Context, sessionID domain.SessionID) (bool, error) {
 	var body struct {

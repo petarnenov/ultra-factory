@@ -48,6 +48,13 @@ func (s *wiringRemoteStore) UpsertRemoteWorkerLink(_ context.Context, link domai
 	return nil
 }
 
+func (s *wiringRemoteStore) InsertDiscoveredRemoteWorkerLink(_ context.Context, link domain.RemoteWorkerLink) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.links = append(s.links, link)
+	return true, nil
+}
+
 func (s *wiringRemoteStore) GetRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

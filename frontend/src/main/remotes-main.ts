@@ -1,3 +1,4 @@
+import { BlockList, isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { IncompatibleRemoteVersionError, probeRemote, readRemoteIdentity, type RemoteHealth } from "./remote-request";
@@ -5,10 +6,43 @@ import { findRemote, removeSavedRemote, toHostViews, updateSavedRemote } from ".
 import type { RemoteRegistry } from "./remote-registry";
 import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEntry } from "./remotes-store";
 
-// An isolated desktop run must not read or write the real user's credentials.
-// Without an override, keep the existing ~/.ao location.
+// Machine-level saved-host file, shared with every daemon (mirrors
+// remotehost.FilePath). An isolated AO_DATA_DIR keeps its own file.
 export function remotesFilePath(): string {
-	return path.join(process.env.AO_DATA_DIR?.trim() || path.join(os.homedir(), ".ao"), "remotes.json");
+	const override = process.env.AO_REMOTES_FILE?.trim();
+	if (override) return path.resolve(override);
+	const stateDir = path.join(os.homedir(), ".ao");
+	const dataDir = process.env.AO_DATA_DIR?.trim();
+	if (!dataDir) return path.join(stateDir, "remotes.json");
+	const resolved = path.resolve(dataDir);
+	const daemonDefaults = [path.join(stateDir, "data"), path.join(stateDir, "dev", "data")];
+	return daemonDefaults.includes(resolved)
+		? path.join(stateDir, "remotes.json")
+		: path.join(resolved, "remotes.json");
+}
+
+const TAILNET = new BlockList();
+TAILNET.addSubnet("100.64.0.0", 10, "ipv4");
+TAILNET.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
+
+export const NO_TAILSCALE_ADDRESS = "This host has no Tailscale address, so it cannot be synced to your account. Install Tailscale on it, join the same tailnet, update AO there, and save the host again.";
+
+// Accounts store only a Tailscale address; other subnets cannot reach LAN.
+// Throws when the host reported none, never falling back.
+export function tailnetAccountUrl(raw: unknown): string {
+	const url = parseTailnetUrl(raw);
+	if (!url) throw new Error(NO_TAILSCALE_ADDRESS);
+	return url.origin;
+}
+
+function parseTailnetUrl(raw: unknown): URL | null {
+	let url: URL;
+	try { url = new URL(typeof raw === "string" ? raw : ""); } catch { return null; }
+	const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	const family = isIP(host);
+	const tailnet = family ? TAILNET.check(host, family === 6 ? "ipv6" : "ipv4") : host.endsWith(".ts.net");
+	if (!tailnet || url.protocol !== "http:" || url.username || url.password || (url.pathname !== "/" && url.pathname !== "")) return null;
+	return url;
 }
 
 // The slice of Electron's ipcMain these handlers need, so tests need no Electron.
@@ -167,7 +201,10 @@ export function registerRemotesIpc(
 		// Keep the original password on the machine that performed pairing; a
 		// Cloud refresh must not replace it with the narrower account token.
 		if (local?.password && !/^[0-9a-f]{64}$/.test(local.password)) {
-			if (local.label !== input.label || local.url !== input.url) await updateRemote(file, local.url, { label: input.label, url: input.url });
+			// A tailnet account URL must not replace a working local pairing:
+			// this machine may not be on the tailnet. Rotated tunnels still move.
+			const url = parseTailnetUrl(input.url) ? local.url : input.url;
+			if (local.label !== input.label || local.url !== url) await updateRemote(file, local.url, { label: input.label, url });
 			return;
 		}
 		await addRemote(file, { ...input, accountUserId: account });
@@ -200,9 +237,9 @@ export function registerRemotesIpc(
 			signal: AbortSignal.timeout(8_000),
 		});
 		if (!response.ok) throw new Error("The host did not accept account linking. Check its password and version.");
-		const result = await response.json() as { hostId?: string; token?: string };
+		const result = await response.json() as { hostId?: string; token?: string; url?: string };
 		if (result.hostId !== entry.hostId || !/^[0-9a-f]{64}$/.test(result.token ?? "")) throw new Error("The host returned an invalid account credential.");
-		return result.token;
+		return { token: result.token, url: tailnetAccountUrl(result.url) };
 	}));
 	ipcMain.handle("remotes:disconnect", async (_event, url: string) => ordered(() => disconnect(url)));
 	ipcMain.handle("remotes:previewUrl", async (_event, hostId: string, sessionId: string, sourceUrl: string) => {

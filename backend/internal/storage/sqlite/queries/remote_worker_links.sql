@@ -24,3 +24,9 @@ WHERE host_id = ? AND remote_session_id = ?;
 INSERT INTO remote_worker_report_deliveries (host_id, remote_session_id, report_id, delivered_at)
 VALUES (?, ?, ?, ?)
 ON CONFLICT(host_id, remote_session_id, report_id) DO NOTHING;
+
+-- name: InsertDiscoveredRemoteWorkerLink :execrows
+INSERT INTO remote_worker_links (
+    host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, owner_session_id, created_at, source
+) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'discovered')
+ON CONFLICT(host_id, remote_session_id) DO NOTHING;

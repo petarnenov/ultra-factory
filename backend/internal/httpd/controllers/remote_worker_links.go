@@ -44,14 +44,23 @@ type RemoteWorkerOwnershipService interface {
 	) (domain.RemoteWorkerLink, error)
 }
 
-// RemoteWorkerLinksController owns /remote-worker-links. The route makes this
-// daemon contact a saved host, so the LAN listener never serves it.
-type RemoteWorkerLinksController struct{ Svc RemoteWorkerLinkService }
+// RemoteWorkerSyncService runs one discovery pass over the saved hosts.
+type RemoteWorkerSyncService interface {
+	Sync(context.Context) ([]remoteworker.HostSync, error)
+}
+
+// RemoteWorkerLinksController owns /remote-worker-links. These routes make
+// this daemon contact saved hosts, so the LAN listener never serves them.
+type RemoteWorkerLinksController struct {
+	Svc  RemoteWorkerLinkService
+	Sync RemoteWorkerSyncService
+}
 
 // Register mounts the remote worker link routes on r.
 func (c *RemoteWorkerLinksController) Register(r chi.Router) {
 	r.Post("/remote-worker-links", c.create)
 	r.Post("/remote-worker-links/check", c.check)
+	r.Post("/remote-worker-links/sync", c.sync)
 	r.Get("/remote-worker-links", c.list)
 	r.Put("/remote-worker-links/{hostId}/{remoteSessionId}/owner", c.assignOwner)
 }
@@ -80,6 +89,26 @@ func (c *RemoteWorkerLinksController) create(w http.ResponseWriter, r *http.Requ
 	resp := remoteWorkerLinkResponse(registration.Link)
 	resp.PullBlocked = registration.PullBlocked
 	envelope.WriteJSON(w, http.StatusCreated, resp)
+}
+
+func (c *RemoteWorkerLinksController) sync(w http.ResponseWriter, r *http.Request) {
+	if c.Sync == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/remote-worker-links/sync")
+		return
+	}
+	results, err := c.Sync.Sync(r.Context())
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	resp := RemoteWorkerSyncResponse{Hosts: make([]RemoteWorkerHostSync, 0, len(results))}
+	for _, result := range results {
+		resp.Hosts = append(resp.Hosts, RemoteWorkerHostSync{
+			HostID: result.HostID, HostLabel: result.Label, Linked: result.Linked, Skipped: result.Skipped,
+			Blocked: result.Blocked, Error: result.Error,
+		})
+	}
+	envelope.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (c *RemoteWorkerLinksController) check(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +210,6 @@ func remoteWorkerLinkResponse(link domain.RemoteWorkerLink) RemoteWorkerLinkResp
 		HostID: link.HostID, HostLabel: link.HostLabel,
 		RemoteSessionID: string(link.RemoteSessionID), RemoteProjectID: string(link.RemoteProjectID),
 		ProjectID: string(link.ProjectID), DisplayName: link.DisplayName,
-		OwnerSessionID: sessionIDString(link.OwnerSessionID), CreatedAt: link.CreatedAt,
+		OwnerSessionID: sessionIDString(link.OwnerSessionID), Source: string(link.Source), CreatedAt: link.CreatedAt,
 	}
 }

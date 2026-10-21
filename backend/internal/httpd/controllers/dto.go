@@ -207,11 +207,31 @@ type RemoteWorkerLinkResponse struct {
 	ProjectID       string `json:"projectId"`
 	DisplayName     string `json:"displayName,omitempty"`
 	// OwnerSessionID is the local coordinator owner. Null means root-owned.
-	OwnerSessionID *string   `json:"ownerSessionId"`
-	CreatedAt      time.Time `json:"createdAt"`
+	OwnerSessionID *string `json:"ownerSessionId"`
+	// Source is "spawn" for a link written by `ao spawn --host` and
+	// "discovered" for a link the daemon's discovery pass created.
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"createdAt"`
 	// PullBlocked explains why this daemon will not poll the host with no one
 	// acting (plain http without the opt-in). The link is stored either way.
 	PullBlocked string `json:"pullBlocked,omitempty"`
+}
+
+// RemoteWorkerSyncResponse is the outcome of one discovery pass, one entry
+// per saved host.
+type RemoteWorkerSyncResponse struct {
+	Hosts []RemoteWorkerHostSync `json:"hosts"`
+}
+
+// RemoteWorkerHostSync is one saved host's discovery outcome. Blocked explains
+// why the host was not contacted; Error is any other failure.
+type RemoteWorkerHostSync struct {
+	HostID    string `json:"hostId"`
+	HostLabel string `json:"hostLabel"`
+	Linked    int    `json:"linked"`
+	Skipped   int    `json:"skipped"`
+	Blocked   string `json:"blocked,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ListRemoteWorkerLinksQuery scopes the remote worker link list.

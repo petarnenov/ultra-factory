@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -52,6 +54,30 @@ func validRemoteAddress(raw string) bool {
 	u, err := url.Parse(raw)
 	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Hostname() != "" &&
 		u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Path == "" || u.Path == "/")
+}
+
+// Tailscale ranges, matching the daemon's remotehost.IsTailnetHost.
+var (
+	tailnetIPv4 = netip.MustParsePrefix("100.64.0.0/10")
+	tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
+)
+
+// publishableHostAddress accepts what a host may publish for itself: an HTTPS
+// tunnel address, or a plain-HTTP Tailscale address (the tailnet encrypts it).
+func publishableHostAddress(raw string) bool {
+	if !validRemoteAddress(raw) {
+		return false
+	}
+	if strings.HasPrefix(raw, "https://") {
+		return true
+	}
+	u, _ := url.Parse(raw)
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if addr, err := netip.ParseAddr(host); err == nil {
+		addr = addr.Unmap()
+		return tailnetIPv4.Contains(addr) || tailnetIPv6.Contains(addr)
+	}
+	return net.ParseIP(host) == nil && strings.HasSuffix(host, ".ts.net")
 }
 
 func (s *Server) listRemoteHosts(w http.ResponseWriter, r *http.Request) {
@@ -154,8 +180,8 @@ func (s *Server) updateRemoteHostAddress(w http.ResponseWriter, r *http.Request)
 	var input struct {
 		URL string `json:"url"`
 	}
-	if err := decodeJSON(w, r, &input); err != nil || !validRemoteAddress(input.URL) || !strings.HasPrefix(input.URL, "https://") {
-		writeError(w, r, http.StatusBadRequest, "invalid_request", "The tunnel address is invalid.")
+	if err := decodeJSON(w, r, &input); err != nil || !publishableHostAddress(input.URL) {
+		writeError(w, r, http.StatusBadRequest, "invalid_request", "The host address must be a Tailscale or HTTPS tunnel address.")
 		return
 	}
 	hosts, err := store.FindRemoteHostRegistrations(r.Context(), hostID)

@@ -1534,6 +1534,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/remote-worker-links/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Link live remote workers on saved hosts (loopback only) */
+        post: operations["syncRemoteWorkerLinks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports": {
         parameters: {
             query?: never;
@@ -4768,6 +4785,7 @@ export interface components {
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
             token: string;
+            url?: string;
         };
         ControllersRequestRereviewRequest: {
             /** @description Tracked pull request URL. Required when the session has multiple PRs. */
@@ -6054,6 +6072,14 @@ export interface components {
             model: string;
             profileId?: string;
         };
+        RemoteWorkerHostSync: {
+            blocked?: string;
+            error?: string;
+            hostId: string;
+            hostLabel: string;
+            linked: number;
+            skipped: number;
+        };
         RemoteWorkerLinkResponse: {
             /** Format: date-time */
             createdAt: string;
@@ -6065,6 +6091,10 @@ export interface components {
             pullBlocked?: string;
             remoteProjectId: string;
             remoteSessionId: string;
+            source: string;
+        };
+        RemoteWorkerSyncResponse: {
+            hosts: components["schemas"]["RemoteWorkerHostSync"][];
         };
         RemoveProjectResult: {
             projectId: string;
@@ -12784,6 +12814,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    syncRemoteWorkerLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteWorkerSyncResponse"];
                 };
             };
             /** @description Internal Server Error */
