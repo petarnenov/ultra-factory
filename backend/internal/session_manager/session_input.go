@@ -238,6 +238,9 @@ func (m *Manager) clearAgentOperationLocked(id domain.SessionID) {
 // AgentOperationInProgress reports the gate holder and when it took the gate.
 // Wakes and exits have no durable row, so this is their only view.
 func (m *Manager) AgentOperationInProgress(id domain.SessionID) (AgentOperationStatus, bool) {
+	if m == nil {
+		return AgentOperationStatus{}, false
+	}
 	id = domain.SessionID(strings.TrimSpace(string(id)))
 	m.agentOpMu.Lock()
 	defer m.agentOpMu.Unlock()
