@@ -3458,5 +3458,7 @@
   "coordinators.start.errors.customAgentRequired": "Digite um harness para o agente de coordenador personalizado.",
   "coordinators.errors.selectionProfileRequired": "Escolha um perfil para esta seleção.",
   "coordinators.errors.selectionProfileUnknown": "Esta seleção usa um perfil que não existe mais. Escolha outro.",
-  "coordinators.errors.fixBeforeSave": "Corrija os campos destacados antes de salvar."
+  "coordinators.errors.fixBeforeSave": "Corrija os campos destacados antes de salvar.",
+  "coordinators.errors.renderFailed": "Não foi possível mostrar a seção de coordenadores.",
+  "coordinators.errors.retry": "Tentar novamente"
 }

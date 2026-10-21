@@ -3413,5 +3413,7 @@
   "coordinators.start.errors.customAgentRequired": "カスタムのコーディネーターエージェントにはハーネスを入力してください。",
   "coordinators.errors.selectionProfileRequired": "この選択に使うプロファイルを選んでください。",
   "coordinators.errors.selectionProfileUnknown": "この選択は存在しないプロファイルを使っています。別のものを選んでください。",
-  "coordinators.errors.fixBeforeSave": "保存する前に、強調表示された項目を修正してください。"
+  "coordinators.errors.fixBeforeSave": "保存する前に、強調表示された項目を修正してください。",
+  "coordinators.errors.renderFailed": "コーディネーターのセクションを表示できませんでした。",
+  "coordinators.errors.retry": "再試行"
 }

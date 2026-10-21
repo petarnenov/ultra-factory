@@ -3413,5 +3413,7 @@
   "coordinators.start.errors.customAgentRequired": "Gib einen Harness für den eigenen Koordinator-Agenten ein.",
   "coordinators.errors.selectionProfileRequired": "Wähle ein Profil für diese Auswahl.",
   "coordinators.errors.selectionProfileUnknown": "Diese Auswahl nutzt ein Profil, das es nicht mehr gibt. Wähle ein anderes.",
-  "coordinators.errors.fixBeforeSave": "Korrigiere die markierten Felder, bevor du speicherst."
+  "coordinators.errors.fixBeforeSave": "Korrigiere die markierten Felder, bevor du speicherst.",
+  "coordinators.errors.renderFailed": "Der Bereich Koordinatoren konnte nicht angezeigt werden.",
+  "coordinators.errors.retry": "Erneut versuchen"
 }

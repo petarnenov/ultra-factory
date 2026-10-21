@@ -90,6 +90,15 @@ vi.mock("../hooks/useHostConnection", async (importOriginal) => ({
 	useConnectedHosts: () => ["linux"],
 }));
 
+const coordinatorsSection = vi.hoisted(() => ({ throwOnRender: false }));
+
+vi.mock("./coordinators/CoordinatorsSettingsForm", () => ({
+	CoordinatorsSettingsForm: () => {
+		if (coordinatorsSection.throwOnRender) throw new Error("roster exploded");
+		return <div>coordinators stub</div>;
+	},
+}));
+
 import { ProjectSettingsForm, type ProjectSettingsSaveState, type ProjectSettingsSection } from "./ProjectSettingsForm";
 import { useProjectIdentity, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import type { WorkspaceSummary } from "../types/workspace";
@@ -2389,5 +2398,27 @@ describe("ProjectSettingsForm", () => {
 			}),
 			"proj-1",
 		);
+	});
+});
+
+describe("Coordinators section render errors", () => {
+	it("shows the error inline with Retry instead of unmounting the form", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: { coordinators: { enabled: true } },
+		});
+		coordinatorsSection.throwOnRender = true;
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		renderSettings("proj-1", undefined, "coordinators");
+		expect(await screen.findByRole("alert")).toHaveTextContent("roster exploded");
+		coordinatorsSection.throwOnRender = false;
+		await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(await screen.findByText("coordinators stub")).toBeInTheDocument();
+		consoleError.mockRestore();
 	});
 });
