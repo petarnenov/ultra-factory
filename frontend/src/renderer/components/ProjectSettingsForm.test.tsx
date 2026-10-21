@@ -92,10 +92,10 @@ vi.mock("../hooks/useHostConnection", async (importOriginal) => ({
 
 const coordinatorsSection = vi.hoisted(() => ({ throwOnRender: false }));
 
-vi.mock("./coordinators/CoordinatorsSettingsForm", () => ({
-	CoordinatorsSettingsForm: () => {
+vi.mock("./coordinators/CoordinatorRoster", () => ({
+	CoordinatorRoster: () => {
 		if (coordinatorsSection.throwOnRender) throw new Error("roster exploded");
-		return <div>coordinators stub</div>;
+		return <div>roster stub</div>;
 	},
 }));
 
@@ -2402,7 +2402,7 @@ describe("ProjectSettingsForm", () => {
 });
 
 describe("Coordinators section render errors", () => {
-	it("shows the error inline with Retry instead of unmounting the form", async () => {
+	it("shows the roster error inline with Retry and keeps the form mounted", async () => {
 		mockProject({
 			id: "proj-1",
 			name: "Project One",
@@ -2416,9 +2416,10 @@ describe("Coordinators section render errors", () => {
 		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 		renderSettings("proj-1", undefined, "coordinators");
 		expect(await screen.findByRole("alert")).toHaveTextContent("roster exploded");
+		expect(document.getElementById("project-settings-form")).not.toBeNull();
 		coordinatorsSection.throwOnRender = false;
 		await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-		expect(await screen.findByText("coordinators stub")).toBeInTheDocument();
+		expect(await screen.findByText("roster stub")).toBeInTheDocument();
 		consoleError.mockRestore();
 	});
 });

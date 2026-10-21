@@ -22,7 +22,6 @@ import { buildIntake } from "./IntakeFields";
 import { ReviewerSelect, reviewerTrustWarning } from "./ReviewerSelect";
 import { ProjectSettingsEditor, type ProjectAgentPickerProps, type ProjectSettingsDraft } from "./ProjectSettingsEditor";
 import { CloudProjectSettingsAdapter } from "./CloudProjectSettingsForm";
-import { CoordinatorsErrorBoundary } from "./coordinators/CoordinatorsErrorBoundary";
 import { CoordinatorsSettingsForm } from "./coordinators/CoordinatorsSettingsForm";
 
 type Project = components["schemas"]["Project"];
@@ -335,19 +334,17 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 	};
 	if (section === "coordinators") {
 		return (
-			<CoordinatorsErrorBoundary>
-				<CoordinatorsSettingsForm
-					config={config}
-					hostId={hostId}
-					onSaveState={onSaveState}
-					onSaved={() => {
-						void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId, hostId) });
-						void onSaved();
-					}}
-					projectId={projectId}
-					projectName={project.name}
-				/>
-			</CoordinatorsErrorBoundary>
+			<CoordinatorsSettingsForm
+				config={config}
+				hostId={hostId}
+				onSaveState={onSaveState}
+				onSaved={() => {
+					void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId, hostId) });
+					void onSaved();
+				}}
+				projectId={projectId}
+				projectName={project.name}
+			/>
 		);
 	}
 	return <ProjectSettingsEditor initialValues={initialValues} section={section} disabled={!hostConnected}
