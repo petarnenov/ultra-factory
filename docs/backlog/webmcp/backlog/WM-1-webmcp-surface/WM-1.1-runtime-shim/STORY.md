@@ -14,6 +14,6 @@ are written once and work in Chromium 130 today and native WebMCP later.
 
 - [ ] The shim is the only file that knows whether the native API exists.
 - [ ] `window.__aoWebMcp.listTools()` and `callTool(name, args)` are available
-  only when `AO_WEBMCP=1` or in dev/e2e builds.
+  only in dev/e2e builds (`import.meta.env.DEV || usesPreviewWorkspaceData`).
 - [ ] `callTool` validates `args` against the tool's `inputSchema` and rejects
   unknown tools with a typed error.

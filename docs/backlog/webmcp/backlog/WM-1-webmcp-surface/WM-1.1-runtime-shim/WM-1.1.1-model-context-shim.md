@@ -15,7 +15,7 @@ native implementation, keeps a local registry either way, and exposes
 
 - Own shim, no `@mcp-b/webmcp-polyfill` dependency.
 - Tools are **always registered** (all builds). The `__aoWebMcp` call surface
-  is **dev/e2e only** (`import.meta.env.DEV || usesPreviewWorkspaceData()`,
+  is **dev/e2e only** (`import.meta.env.DEV || usesPreviewWorkspaceData`,
   see `frontend/src/renderer/lib/preview-mode.ts:1`).
 - Target entry point is `document.modelContext` (May 2026 draft);
   `navigator.modelContext` is treated as a legacy alias for native detection
@@ -71,7 +71,7 @@ export async function callTool(name: string, args: unknown = {}): Promise<unknow
 }
 export function installModelContext(): void {
   if (!native) document.modelContext = { registerTool: (d) => void registerTool(d), unregisterTool };
-  if (import.meta.env.DEV || usesPreviewWorkspaceData()) window.__aoWebMcp = { listTools, callTool };
+  if (import.meta.env.DEV || usesPreviewWorkspaceData) window.__aoWebMcp = { listTools, callTool };
 }
 ```
 
