@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -86,7 +87,8 @@ func TestProjectAggregate_MissingIDIsUsageError(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%v: expected usage error", args)
 		}
-		if _, ok := err.(usageError); !ok {
+		var usage usageError
+		if !errors.As(err, &usage) {
 			t.Fatalf("%v: error = %T %v, want usageError", args, err, err)
 		}
 	}
