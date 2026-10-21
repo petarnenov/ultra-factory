@@ -3394,5 +3394,7 @@
   "coordinators.start.errors.customAgentRequired": "Enter a harness for the custom coordinator agent.",
   "coordinators.errors.selectionProfileRequired": "Choose a profile for this selection.",
   "coordinators.errors.selectionProfileUnknown": "This selection uses a profile that no longer exists. Pick another.",
-  "coordinators.errors.fixBeforeSave": "Fix the highlighted fields before saving."
+  "coordinators.errors.fixBeforeSave": "Fix the highlighted fields before saving.",
+  "coordinators.errors.renderFailed": "The Coordinators section could not be shown.",
+  "coordinators.errors.retry": "Retry"
 }
