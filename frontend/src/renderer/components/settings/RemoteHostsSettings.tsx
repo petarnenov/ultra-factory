@@ -118,9 +118,9 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 		setBusy(true);
 		setReportsError("");
 		try {
-			// The update probes the host first and saves nothing unless it answers.
-			const health = await aoBridge.remotes.update(host.url, { allowInsecureHTTP: allowed });
-			if (health !== "online") throw new Error(t(health === "unauthorized" ? "remote.hostUnauthorized" : health === "not-a-daemon" ? "remote.hostNotDaemon" : health === "incompatible" ? "remote.hostIncompatible" : "remote.hostOffline"));
+			// No probe and no reconnect: turning the switch off must work even when
+			// the host is offline or its password has changed.
+			await aoBridge.remotes.setAllowInsecureHTTP(host.url, allowed);
 			await load();
 			requestRemoteHostsRefresh();
 		} catch (cause) {

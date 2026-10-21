@@ -387,6 +387,26 @@ describe("registerRemotesIpc", () => {
 		expect(JSON.parse(await readFile(file, "utf8")).remotes[1].hostId).toBe("h_mini");
 	});
 
+	it("writes the plain-http opt-in without probing or reconnecting, so revoking it works against an unauthorized host", async () => {
+		const file = await tempFile();
+		await writeFile(file, JSON.stringify({ remotes: [
+			{ hostId: "h_lan", label: "LAN", url: "http://192.168.0.164:3011", password: "rotated", accountUserId: "user-a", allowInsecureHTTP: true },
+			{ hostId: "h_other", label: "Other", url: "http://192.168.0.165:3011", password: "pw", accountUserId: "user-b" },
+		] }));
+		const probe = vi.fn(async () => "unauthorized" as const);
+		const registry = new RemoteRegistry(async () => { throw new Error("unused"); });
+		const disconnect = vi.spyOn(registry, "disconnect");
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry, requireAccount: signedIn, getAccountId: async () => "user-a", identity: async () => "h_workbox", probe, localIdentity: async () => "h_workbox" });
+
+		await expect(ipc.invoke("remotes:setAllowInsecureHTTP", "http://192.168.0.164:3011", false)).resolves.toBeUndefined();
+		expect(probe).not.toHaveBeenCalled();
+		expect(disconnect).not.toHaveBeenCalled();
+		const saved = JSON.parse(await readFile(file, "utf8")) as { remotes: Array<{ url: string; allowInsecureHTTP?: boolean; password: string }> };
+		expect(saved.remotes[0]).toMatchObject({ url: "http://192.168.0.164:3011", allowInsecureHTTP: false, password: "rotated" });
+		await expect(ipc.invoke("remotes:setAllowInsecureHTTP", "http://192.168.0.165:3011", true)).rejects.toThrow(/does not belong/);
+	});
+
 	it("drops the proxy of a removed host", async () => {
 		const ipc = fakeIpc();
 		const closed = vi.fn().mockResolvedValue(undefined);

@@ -438,6 +438,7 @@ export const aoBridge: AoBridge =
 			issueAccountToken: async () => { throw new Error("remote hosts need the desktop app"); },
 			add: async () => "offline" as const,
 			update: async () => "offline" as const,
+			setAllowInsecureHTTP: async () => undefined,
 			remove: async () => undefined,
 			connect: async () => { throw new Error("remote hosts need the desktop app"); },
 			disconnect: async () => undefined,

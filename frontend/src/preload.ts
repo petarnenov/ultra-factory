@@ -727,6 +727,8 @@ const api = {
 		// the old one.
 		update: (url: string, changes: { label?: string; url?: string; password?: string; allowInsecureHTTP?: boolean }) =>
 			ipcRenderer.invoke("remotes:update", url, changes) as Promise<RemoteHealth>,
+		setAllowInsecureHTTP: (url: string, allowed: boolean) =>
+			ipcRenderer.invoke("remotes:setAllowInsecureHTTP", url, allowed) as Promise<void>,
 		remove: (url: string) => ipcRenderer.invoke("remotes:remove", url) as Promise<void>,
 		connect: (url: string, hostId?: string) => ipcRenderer.invoke("remotes:connect", url, hostId) as Promise<ConnectedHostView>,
 		disconnect: (url: string) => ipcRenderer.invoke("remotes:disconnect", url) as Promise<void>,

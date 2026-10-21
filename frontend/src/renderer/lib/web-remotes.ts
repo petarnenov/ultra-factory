@@ -73,6 +73,7 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 		},
 		// The registry has no edit route: a host is removed and added again.
 		update: unsupported,
+		setAllowInsecureHTTP: unsupported,
 		remove: async (url) => {
 			const host = await findHost(url);
 			const response = await fetch(hostsUrl(`/${encodeURIComponent(host.id)}`), { method: "DELETE", credentials: "same-origin" });
