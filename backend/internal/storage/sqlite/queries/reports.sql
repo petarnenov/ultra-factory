@@ -31,6 +31,7 @@ SELECT * FROM reports WHERE project_id = ? ORDER BY created_at, id;
 -- name: ListPendingReportSchedule :many
 SELECT * FROM reports
 WHERE delivery_state = 'pending'
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = reports.id)
 ORDER BY available_at, created_at, id
 LIMIT ?;
 
@@ -42,6 +43,7 @@ SELECT r.id, r.session_id, r.project_id, r.state, r.note, r.message, r.created_a
 FROM reports r
 JOIN sessions s ON s.id = r.session_id
 WHERE r.project_id = sqlc.arg(project_id) AND r.delivery_state = 'pending'
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = r.id)
   AND ((sqlc.arg(fallback_owner_id) IS NULL
         AND COALESCE(s.owner_session_id, sqlc.arg(root_session_id)) = sqlc.arg(recipient_session_id))
        OR s.owner_session_id = sqlc.arg(fallback_owner_id))
@@ -53,6 +55,7 @@ UPDATE reports
 SET delivery_batch_id = sqlc.arg(delivery_batch_id)
 WHERE reports.project_id = sqlc.arg(project_id) AND reports.delivery_state = 'pending'
   AND reports.delivery_batch_id = ''
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = reports.id)
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE (sqlc.arg(fallback_owner_id) IS NULL
@@ -67,6 +70,7 @@ SET delivery_state = 'claimed', claim_token = sqlc.arg(claim_token),
     delivery_owner_id = sqlc.arg(recipient_session_id), last_error = ''
 WHERE reports.project_id = sqlc.arg(project_id) AND reports.delivery_state = 'pending'
   AND reports.delivery_batch_id = sqlc.arg(delivery_batch_id)
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = reports.id)
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE (sqlc.arg(fallback_owner_id) IS NULL

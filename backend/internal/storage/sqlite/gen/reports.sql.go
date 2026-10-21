@@ -195,6 +195,7 @@ UPDATE reports
 SET delivery_batch_id = ?1
 WHERE reports.project_id = ?2 AND reports.delivery_state = 'pending'
   AND reports.delivery_batch_id = ''
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = reports.id)
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE (?3 IS NULL
@@ -229,6 +230,7 @@ SET delivery_state = 'claimed', claim_token = ?1,
     delivery_owner_id = ?3, last_error = ''
 WHERE reports.project_id = ?4 AND reports.delivery_state = 'pending'
   AND reports.delivery_batch_id = ?5
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = reports.id)
   AND reports.session_id IN (
       SELECT id FROM sessions
       WHERE (?6 IS NULL
@@ -577,6 +579,7 @@ func (q *Queries) GetReportPullerExpired(ctx context.Context, arg GetReportPulle
 const listPendingReportSchedule = `-- name: ListPendingReportSchedule :many
 SELECT id, session_id, project_id, state, note, message, created_at, delivery_state, available_at, settlement_deadline, repeat_count, claim_token, claimed_at, delivery_attempts, acknowledged_at, last_error, delivery_batch_id, delivery_owner_id FROM reports
 WHERE delivery_state = 'pending'
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = reports.id)
 ORDER BY available_at, created_at, id
 LIMIT ?
 `
@@ -685,6 +688,7 @@ SELECT r.id, r.session_id, r.project_id, r.state, r.note, r.message, r.created_a
 FROM reports r
 JOIN sessions s ON s.id = r.session_id
 WHERE r.project_id = ?1 AND r.delivery_state = 'pending'
+  AND NOT EXISTS (SELECT 1 FROM report_pull_acks a WHERE a.report_id = r.id)
   AND ((?2 IS NULL
         AND COALESCE(s.owner_session_id, ?3) = ?4)
        OR s.owner_session_id = ?2)

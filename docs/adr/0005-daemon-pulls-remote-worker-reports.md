@@ -142,8 +142,10 @@ orchestrator never received it. This amendment keeps reports pending per puller.
    `POST /api/v1/reports/acknowledge`.
 2. **Per-puller acknowledgement.** An acknowledgement with a puller ID records
    `(report, puller)` in `report_pull_acks`. It does not change the report's
-   `delivery_state`. The report stays due for every other puller and for the
-   worker's own queue. A pull by puller P omits the reports P acknowledged.
+   `delivery_state`. The report stays due for every other puller. It leaves
+   this daemon's own local schedule and claims, so a backlog of reports that
+   only peers deliver cannot fill the scan window. A pull by puller P omits
+   the reports P acknowledged.
 3. **Legacy semantics.** A pull or acknowledgement without a puller ID keeps the
    original behaviour: the acknowledgement moves the report to `acknowledged`
    for everyone.
@@ -164,7 +166,8 @@ orchestrator never received it. This amendment keeps reports pending per puller.
    puller reads no count for reports it never pulled before.
 
 Consequences: each puller gets every report once, unless it misses the
-retention window. A host that runs its own orchestrator for the worker can
-still deliver a report locally after a peer pulled it, as documented above.
+retention window. Once a peer has acknowledged a report, this daemon's own
+orchestrator no longer receives it, so a worker host's local orchestrator only
+sees reports that no peer has pulled yet.
 Mixing legacy pullers with per-puller pullers on one worker gives legacy
 semantics for the reports a legacy puller acknowledges.

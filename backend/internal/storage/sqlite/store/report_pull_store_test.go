@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -108,5 +109,56 @@ func TestCompactExpiredReportsCountsUnacknowledgedPullers(t *testing.T) {
 	// Reporting the count as seen subtracts it, so the next pull owes nothing.
 	if owedA, _, _ = s.TouchReportPuller(ctx, worker.ID, "puller-a", now, owedA); owedA != 0 {
 		t.Fatalf("owed a after seen = %d, want 0", owedA)
+	}
+}
+
+// Peer-acked reports leave the local schedule, so a remote worker's backlog
+// cannot fill the scan window and starve a local worker's report.
+func TestPeerAckedReportsDoNotStarveTheLocalSchedule(t *testing.T) {
+	ctx := context.Background()
+	s, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedProject(t, s, "ao")
+	remote, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	const backlog = 300
+	for i := range backlog {
+		id := fmt.Sprintf("rpt_remote_%03d", i)
+		if _, err := s.CreateReport(ctx, pendingReport(id, remote, now.Add(time.Duration(i)*time.Millisecond))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateReport(ctx, pendingReport("rpt_local", local, now.Add(time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, backlog)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("rpt_remote_%03d", i)
+	}
+	if acked, err := s.AcknowledgePendingSessionReportsFor(ctx, remote.ID, ids, "daemon-a", now); err != nil || len(acked) != backlog {
+		t.Fatalf("per-puller ack = %d, %v", len(acked), err)
+	}
+
+	due, err := s.ListPendingReportSchedule(ctx, 256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range due {
+		if rec.SessionID == remote.ID {
+			t.Fatalf("peer-acked report %s still scheduled locally", rec.ID)
+		}
+	}
+	if len(due) != 1 || due[0].ID != "rpt_local" {
+		t.Fatalf("schedule = %v, want only rpt_local", due)
 	}
 }
