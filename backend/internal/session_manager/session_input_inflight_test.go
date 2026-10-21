@@ -107,6 +107,12 @@ func TestKillReportsWakeThatIgnoresCancelWithoutClearingGate(t *testing.T) {
 	if !m.SessionMutationInProgress(id) {
 		t.Fatal("gate was cleared while the wake was still running")
 	}
+	if _, err := m.ExitAgent(ctx, id); !errors.Is(err, ErrResumeInProgress) {
+		t.Fatalf("exit over wedged wake = %v, want ErrResumeInProgress", err)
+	}
+	if !m.SessionMutationInProgress(id) {
+		t.Fatal("exit cleared the resume marker")
+	}
 	m.endAgentResume(id)
 }
 
