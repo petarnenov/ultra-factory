@@ -4,6 +4,12 @@ Inspect and reassign ownership of workers that run on linked remote AO hosts.
 A link is identified by its remote host ID and the remote session ID; its owner
 is a local coordinator, or `root` when no coordinator owns it.
 
+The local daemon pulls a linked worker's reports from its host. For a host
+found on the Tailscale network (see `ao host ls`) it does so at the host's
+Tailscale address with this machine's Tailscale identity and no password; for
+a host paired by address it uses the saved password. Either way the host must
+have remote access on and be reachable.
+
 ## Syntax
 
 ```
