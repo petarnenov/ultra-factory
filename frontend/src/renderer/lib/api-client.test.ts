@@ -581,3 +581,19 @@ describe("web build (VITE_AO_WEB=1)", () => {
 		expect(desktop.getApiBaseUrl()).toBe("http://127.0.0.1:4317");
 	});
 });
+
+describe("apiErrorMessage for INVALID_JSON", () => {
+	it("names the rejected field from details", () => {
+		const error = {
+			error: "bad_request",
+			code: "INVALID_JSON",
+			message: "Invalid JSON body",
+			details: { field: "config.coordinators.maxWorkers", reason: "expected int, got string" },
+		};
+		expect(apiErrorMessage(error)).toBe("Invalid JSON body: config.coordinators.maxWorkers: expected int, got string");
+	});
+
+	it("keeps the generic message when no field is named", () => {
+		expect(apiErrorMessage({ error: "bad_request", code: "INVALID_JSON", message: "Invalid JSON body" })).toBe("Invalid JSON body");
+	});
+});
