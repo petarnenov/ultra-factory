@@ -56,7 +56,7 @@ beforeEach(() => {
 
 afterEach(async () => {
 	await act(async () => {
-		useUiStore.setState({ developerMode: false, remoteHosts: false });
+		useUiStore.setState({ developerMode: false, remoteHosts: false, remoteHostsCloudSync: false });
 		await Promise.all(connectedHosts().map(disconnectHost));
 	});
 });
@@ -68,6 +68,7 @@ function renderWorkspaceSources() {
 }
 
 it.each([true, false])("excludes this daemon from remote sidebar data while preserving another host (cloud sync: %s)", async (cloudSync) => {
+	useUiStore.setState({ remoteHostsCloudSync: cloudSync });
 	if (!cloudSync) mocks.cloudBaseUrl = "";
 	else mocks.saved.splice(0);
 	const { result } = renderWorkspaceSources();

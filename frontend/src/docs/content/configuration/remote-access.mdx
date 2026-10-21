@@ -17,7 +17,20 @@ Turning mobile access off closes the authenticated listener. Regenerating its pa
 
 Where available, Orchestrator can manage a remote-access connector using `cloudflared`. If Connect Mobile says remote access is unavailable, use its **Install cloudflared** control and wait for the connector status to become ready. A LAN code can be ready first; scan the refreshed QR after the remote endpoint appears. Test once with the phone off the home Wi-Fi. A successful home-network connection alone does not prove away-from-home access. The managed connector's address can change when it restarts, so use a refreshed offer if the old endpoint stops working.
 
-## Use this desktop from another machine
+## Remote hosts over Tailscale
+
+If your machines share a Tailscale network, remote hosts need no AO Cloud account, password, or pairing. On each machine that should act as a host, run:
+
+```bash
+ao remote-host enable
+ao remote-host status
+```
+
+This binds the authenticated listener to that machine's Tailscale address only (port `3011`, `AO_TAILNET_PORT`) and admits callers on their Tailscale identity, checked through the local `tailscaled` on every request. By default only nodes of the same Tailscale user are allowed; tagged devices and other users are rejected unless the host's daemon runs with `AO_TAILNET_ALLOW_USERS=login1,login2` or `AO_TAILNET_ALLOW_TAGS=tag:ci`. Requests from a LAN address, and every request while `tailscaled` is down, are rejected. The connection password is not needed; `ao remote-host enable --allow-password` keeps it usable for clients Tailscale cannot identify.
+
+Every other AO desktop and CLI of the same user then lists that machine automatically under **Settings → Remote hosts → Tailscale hosts** and in `ao host ls`, with its `100.x` address and online state, and `--host <name>` works without a password. Turning remote access off makes the host show as offline within a refresh; turning it back on brings it back. Hosts can be renamed or hidden there; this machine and its other AO installs never appear. Settings → Remote hosts does not require an AO Cloud sign-in. **Sync hosts through AO Cloud** is a separate, off-by-default switch for a signed-in account; while it is off, nothing about remote hosts is sent to AO Cloud.
+
+## Use this desktop from another machine outside Tailscale
 
 Open Orchestrator on the machine you want to connect to. With the current `ao` CLI, show its existing connection address and password without changing remote access:
 
@@ -32,9 +45,9 @@ ao remote-host enable --tunnel-only
 ao remote-host status
 ```
 
-The tunnel starts asynchronously; run `status` again until an HTTPS address appears. On the other desktop, sign in to Orchestrator and open **Settings → Remote hosts → Add host**, then enter that address and connection password. Treat these details as credentials. Cloudflare terminates TLS and can read tunneled traffic; quick-tunnel addresses can change on restart.
+The tunnel starts asynchronously; run `status` again until an HTTPS address appears. On the other desktop, open **Settings → Remote hosts → Add a host outside Tailscale**, then enter that address and connection password. Treat these details as credentials. Cloudflare terminates TLS and can read tunneled traffic; quick-tunnel addresses can change on restart.
 
-If the host already has LAN access enabled, its displayed HTTP address works only on a trusted reachable network. Use `ao remote-host enable --tunnel` to add HTTPS access while retaining that LAN listener; switching to tunnel-only mode requires disabling it first and invalidates the old password.
+For a password-protected listener on every interface, run `ao remote-host enable --lan`; its displayed HTTP address works only on a trusted reachable network. Use `ao remote-host enable --tunnel` to add HTTPS access while retaining that LAN listener; switching between Tailscale-only, LAN, and tunnel-only modes requires `ao remote-host disable` first and invalidates the old password.
 
 If `ao` is missing from your Mac's PATH or points to an old install, use the current desktop app's bundled CLI instead: `"/Applications/Agent Orchestrator.app/Contents/Resources/daemon/ao" remote-host status`. Adjust the app path if you installed or named it differently; the same binary supports `remote-host enable --tunnel-only`.
 
@@ -51,7 +64,7 @@ Do not point `tailscale serve`, a public proxy, or port forwarding at the unauth
 ## Security model
 
 - The primary API stays on `127.0.0.1`, with no network-facing bind or added authentication. Its host cannot be changed; do not expose it with `HOST=0.0.0.0`, a public reverse proxy, or port forwarding.
-- Connect Mobile's separate listener is disabled by default, binds to the LAN only while enabled, requires a bearer connection password, and exposes app API routes without daemon-control routes. Direct HTTP transport is for trusted networks; a managed connector endpoint marked `secure: true` can wrap this authenticated path for remote access. Current Tailscale entries are advertised as plaintext.
+- Connect Mobile's separate listener is disabled by default, binds to the LAN only while enabled, requires a bearer connection password, and exposes app API routes without daemon-control routes. `ao remote-host enable` binds that same listener to the Tailscale address instead and admits callers on their Tailscale identity (WhoIs through the local `tailscaled`, same user by default); the password then works only with `--allow-password`. Direct HTTP transport is for trusted networks; a managed connector endpoint marked `secure: true` can wrap this authenticated path for remote access. Current Tailscale entries are advertised as plaintext.
 - Exactly `GET /api/v1/identity` is unauthenticated. It returns an opaque host identity and mobile contract version, which QR pairing checks before presenting a credential. The current link includes the host identity and available endpoints, and carries the credential in its fragment. It does not expose sessions. New manual connections can continue after ordinary identity-check errors, so enter only a host you trust.
 - Other mobile REST and terminal connections require the rotating bearer password. Repeated failed authentication is locked out per source.
 - Shutdown, telemetry, mobile-control, and browser-control routes remain loopback-only.

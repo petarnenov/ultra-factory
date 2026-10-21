@@ -3,7 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import { useUiStore } from "../../stores/ui-store";
 
-const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string; allowInsecureHTTP?: boolean }> }));
+const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string; tailscale?: boolean; online?: boolean }> }));
+const tailnet = vi.hoisted(() => ({ status: { available: true, hidden: [] } as { available: boolean; error?: string; hidden: Array<{ hostId: string; label: string; name: string; address: string; url: string; online: boolean }> } }));
 const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" | "unauthenticated" }));
 const remotes = vi.hoisted(() => ({
 	list: vi.fn(async () => saved.entries),
@@ -19,6 +20,9 @@ const remotes = vi.hoisted(() => ({
 		saved.entries = saved.entries.map((host) => ({ ...host, label: changes.label ?? host.label, url: changes.url ?? host.url }));
 		return "online" as const;
 	}),
+	tailnet: vi.fn(async () => tailnet.status),
+	hide: vi.fn(async (hostId: string) => { saved.entries = saved.entries.filter((host) => host.hostId !== hostId); }),
+	unhide: vi.fn(async () => undefined),
 }));
 vi.mock("../../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, signIn: vi.fn() }) }));
@@ -35,7 +39,10 @@ afterEach(() => {
 	account.status = "authenticated";
 	platform.web = false;
 	saved.entries = [];
-	useUiStore.setState({ remoteHosts: false });
+	tailnet.status = { available: true, hidden: [] };
+	useUiStore.setState({ remoteHosts: false, remoteHostsCloudSync: false });
+	remotes.hide.mockClear();
+	remotes.unhide.mockClear();
 	remotes.connect.mockClear();
 	remotes.list.mockClear();
 	remotes.add.mockClear();
@@ -43,13 +50,58 @@ afterEach(() => {
 	remotes.remove.mockClear();
 });
 
-it("does not expose saved hosts or pairing controls before account sign-in", () => {
+it("lists hosts without an AO Cloud sign-in and keeps cloud sync out of sight", async () => {
 	account.status = "unauthenticated";
 	saved.entries = [{ hostId: "box-a", label: "Box A", url: "http://box-a:3001" }];
 	renderSettings();
-	expect(screen.getByRole("button", { name: "Sign in to AO Cloud" })).toBeVisible();
-	expect(screen.queryByRole("button", { name: "Edit Box A" })).toBeNull();
-	expect(remotes.list).not.toHaveBeenCalled();
+	expect(await screen.findByRole("button", { name: "Edit Box A" })).toBeVisible();
+	expect(screen.queryByRole("button", { name: "Sign in to AO Cloud" })).toBeNull();
+	expect(screen.queryByRole("switch", { name: "Sync hosts through AO Cloud" })).toBeNull();
+});
+
+it("offers cloud sync only to a signed-in account, off by default", async () => {
+	renderSettings();
+	const sync = await screen.findByRole("switch", { name: "Sync hosts through AO Cloud" });
+	expect(sync).toHaveAttribute("aria-checked", "false");
+	fireEvent.click(sync);
+	expect(useUiStore.getState().remoteHostsCloudSync).toBe(true);
+});
+
+it("shows Tailscale hosts with their state and hides one through the daemon", async () => {
+	saved.entries = [
+		{ hostId: "h_z600", label: "hpz600", url: "http://100.106.144.10:3011", tailscale: true, online: true },
+		{ hostId: "h_air", label: "petars-macbook-air", url: "http://100.126.82.17:3011", tailscale: true, online: false },
+	];
+	tailnet.status = { available: true, hidden: [{ hostId: "h_imac", label: "petars-imac", name: "petars-imac", address: "100.100.160.17", url: "http://100.100.160.17:3011", online: true }] };
+	renderSettings();
+	expect(await screen.findByText("hpz600")).toBeVisible();
+	expect(screen.getByText("Online")).toBeVisible();
+	expect(screen.getByText("Offline")).toBeVisible();
+	expect(screen.getByText("http://100.106.144.10:3011 · Tailscale identity, no password")).toBeVisible();
+	expect(screen.queryByRole("button", { name: "Remove hpz600" })).toBeNull();
+	fireEvent.click(screen.getByRole("button", { name: "Show petars-imac" }));
+	await waitFor(() => expect(remotes.unhide).toHaveBeenCalledWith("h_imac"));
+	fireEvent.click(screen.getByRole("button", { name: "Hide hpz600" }));
+	await waitFor(() => expect(remotes.hide).toHaveBeenCalledWith("h_z600"));
+	await waitFor(() => expect(screen.queryByText("hpz600")).toBeNull());
+});
+
+it("renames a Tailscale host without asking for an address or password", async () => {
+	saved.entries = [{ hostId: "h_z600", label: "hpz600", url: "http://100.106.144.10:3011", tailscale: true, online: true }];
+	renderSettings();
+	fireEvent.click(await screen.findByRole("button", { name: "Rename hpz600" }));
+	expect(screen.queryByLabelText("Connection password")).toBeNull();
+	expect(screen.queryByRole("textbox", { name: "Address" })).toBeNull();
+	fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Z600" } });
+	fireEvent.click(screen.getByRole("button", { name: "Save host" }));
+	await waitFor(() => expect(remotes.update).toHaveBeenCalledWith("http://100.106.144.10:3011", { label: "Z600" }));
+});
+
+it("says when Tailscale is unavailable instead of hiding the section", async () => {
+	tailnet.status = { available: false, error: "tailscale is unavailable: backend state Stopped", hidden: [] };
+	renderSettings();
+	expect(await screen.findByText("Tailscale unavailable")).toBeVisible();
+	expect(screen.getByText("tailscale is unavailable: backend state Stopped")).toBeVisible();
 });
 
 it("shows the plain-http switch with its helper text and blocked state only for plain-http hosts", async () => {

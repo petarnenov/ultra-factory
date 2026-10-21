@@ -48,7 +48,7 @@ describe("shouldLeaveHostRoute", () => {
 	});
 
 	it("requires an AO Cloud account on the desktop", () => {
-		expect(shouldLeaveHostRoute({ remoteHostsEnabled: true, accountStatus: "unauthenticated", webBuild: false })).toBe(true);
+		expect(shouldLeaveHostRoute({ remoteHostsEnabled: true, accountStatus: "unauthenticated", webBuild: false })).toBe(false);
 		expect(shouldLeaveHostRoute({ remoteHostsEnabled: true, accountStatus: "authenticated", webBuild: false })).toBe(false);
 	});
 

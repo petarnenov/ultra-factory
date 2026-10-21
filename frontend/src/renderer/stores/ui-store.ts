@@ -133,6 +133,9 @@ export type UiState = {
 	developerMode: boolean;
 	/** Experimental: connect to AO daemons on other machines. Default off. */
 	remoteHosts: boolean;
+	// remoteHostsCloudSync publishes and imports remote hosts through the AO
+	// Cloud account. Off by default: Tailscale discovery needs no account.
+	remoteHostsCloudSync: boolean;
 	/** Memory and CPU monitoring (card chips, memory light, Diagnostics page). Only takes effect in Developer mode. Default off. */
 	diagnostics: boolean;
 	/** Experimental side chats in the inspector. Only takes effect in Developer mode. Default off. */
@@ -191,6 +194,7 @@ export type UiState = {
 	setThemeStyle: (style: ThemeStyle) => void;
 	setDeveloperMode: (enabled: boolean) => void;
 	setRemoteHosts: (enabled: boolean) => void;
+	setRemoteHostsCloudSync: (enabled: boolean) => void;
 	setDiagnostics: (enabled: boolean) => void;
 	setSideChats: (enabled: boolean) => void;
 	setWindowTranslucency: (enabled: boolean) => void;
@@ -251,6 +255,7 @@ export type OrchestratorReplacementFailure = {
 
 const sidebarStorageKey = "ao.sidebar.open";
 const remoteHostsStorageKey = "ao.remoteHosts";
+const remoteHostsCloudSyncStorageKey = "ao.remoteHostsCloudSync";
 const diagnosticsStorageKey = "ao.diagnostics";
 const sideChatsStorageKey = "ao.sideChats";
 const terminalCopyOnSelectStorageKey = "ao.terminalCopyOnSelect";
@@ -280,6 +285,10 @@ function initialRemoteHosts() {
 	// Developer mode remains the feature gate. Once enabled, signed-in devices
 	// should discover account hosts without an extra per-device setup switch.
 	return getLocalStorage()?.getItem(remoteHostsStorageKey) !== "false";
+}
+
+function initialRemoteHostsCloudSync() {
+	return getLocalStorage()?.getItem(remoteHostsCloudSyncStorageKey) === "true";
 }
 
 function initialDiagnostics() {
@@ -352,6 +361,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 	themeStyle: initialThemeStyle,
 	developerMode: initialDeveloperModeValue,
 	remoteHosts: initialRemoteHosts(),
+	remoteHostsCloudSync: initialRemoteHostsCloudSync(),
 	diagnostics: initialDiagnostics(),
 	sideChats: initialSideChats(),
 	windowTranslucency: initialWindowTranslucency(),
@@ -406,6 +416,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 	setRemoteHosts: (remoteHosts) => {
 		getLocalStorage()?.setItem(remoteHostsStorageKey, String(remoteHosts));
 		set({ remoteHosts });
+	},
+	setRemoteHostsCloudSync: (remoteHostsCloudSync) => {
+		getLocalStorage()?.setItem(remoteHostsCloudSyncStorageKey, String(remoteHostsCloudSync));
+		set({ remoteHostsCloudSync });
 	},
 	setDiagnostics: (diagnostics) => {
 		getLocalStorage()?.setItem(diagnosticsStorageKey, String(diagnostics));
