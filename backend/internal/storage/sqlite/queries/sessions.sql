@@ -23,8 +23,8 @@ INSERT INTO sessions (
     requested_output,
     created_at, updated_at, is_pinned, pinned_at, auto_inject_review, auto_inject_ci,
     provision_state, provision_error, is_task_preparation, automation_run_id, automation_launch_completed,
-    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots,
-    agent_profile_id, coordinator_worker_agent, ci_gate_active
+    client_request_id, client_request_hash, owner_session_id, coordinator_scope, coordinator_worker_limit, coordinator_host_slots, ci_gate_active,
+    agent_profile_id, coordinator_worker_agent
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
