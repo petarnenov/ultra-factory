@@ -1,6 +1,8 @@
 package httpd
 
 import (
+	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -11,11 +13,44 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
+	"github.com/aoagents/agent-orchestrator/backend/internal/tailnet"
 )
 
 // authState keeps previously valid hashes so a client retrying an old password
 // after rotation cannot lock out a newly paired client behind the same address.
-type authState struct{ hashes atomic.Pointer[authHashes] }
+type authState struct {
+	hashes atomic.Pointer[authHashes]
+	// tailnetOnly is set while the listener is bound to the Tailscale address;
+	// the password then works only with passwordFallback, the explicit opt-in.
+	tailnetOnly      atomic.Bool
+	passwordFallback atomic.Bool
+}
+
+// passwordAllowed reports whether a connection password may authenticate a
+// request on this listener.
+func (a *authState) passwordAllowed() bool {
+	return !a.tailnetOnly.Load() || a.passwordFallback.Load()
+}
+
+// TailnetAuthorizer vouches for a tailnet source address through the local
+// tailscaled. tailnet.Authorizer is the production implementation.
+type TailnetAuthorizer interface {
+	Authorize(ctx context.Context, srcIP string) (tailnet.Identity, error)
+}
+
+// writeTailnetDenied answers a tailnet caller the authorizer rejected. The
+// code tells the client whether to blame its identity or a missing tailscaled.
+func writeTailnetDenied(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, tailnet.ErrForbidden) {
+		envelope.WriteAPIError(w, r, http.StatusForbidden, "forbidden", "TAILNET_FORBIDDEN",
+			"this host does not allow your Tailscale identity: "+err.Error(), nil)
+		return
+	}
+	envelope.WriteAPIError(w, r, http.StatusForbidden, "forbidden", "TAILSCALE_UNAVAILABLE",
+		"Tailscale is unavailable on this host, so remote requests are rejected: "+err.Error(), nil)
+}
+
 type authHashes struct {
 	current string
 	account string
@@ -296,9 +331,12 @@ func isIdentityProbe(r *http.Request) bool {
 	return r.Method == http.MethodGet && r.URL.Path == identityProbePath
 }
 
+// tailnetAuth (may be nil) admits a tailnet caller on its Tailscale identity;
+// a rejected caller may use the password only where passwordAllowed says so.
+
 // trustedProxy is AO_REMOTE_TRUSTED_PROXY: when set, the lockout key comes from
 // X-Forwarded-For. log, which may be nil, gets one line per new lockout.
-func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter, trustedProxy bool, log *slog.Logger) func(http.Handler) http.Handler {
+func authMiddleware(state *authState, lock *lockout, connected *mobileConnectReporter, trustedProxy bool, tailnetAuth TailnetAuthorizer, log *slog.Logger) func(http.Handler) http.Handler {
 	log = loggerOrDefault(log)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +349,24 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 			if lock.blocked(src) {
 				envelope.WriteAPIError(w, r, http.StatusTooManyRequests, "too_many_requests", "LOCKED_OUT",
 					"too many failed attempts; try again shortly", nil)
+				return
+			}
+			if tailnetAuth != nil && remotehost.IsTailnetHost(remoteSrc) {
+				identity, err := tailnetAuth.Authorize(r.Context(), remoteSrc)
+				if err == nil {
+					lock.reset(src)
+					connected.report(remoteSrc)
+					next.ServeHTTP(w, r)
+					return
+				}
+				if !state.passwordAllowed() {
+					log.Warn("remote-host auth: tailnet caller rejected", "peer", remoteSrc, "node", identity.NodeName, "err", err)
+					writeTailnetDenied(w, r, err)
+					return
+				}
+			} else if !state.passwordAllowed() {
+				envelope.WriteAPIError(w, r, http.StatusForbidden, "forbidden", "TAILNET_REQUIRED",
+					"this host accepts remote requests only from its Tailscale network", nil)
 				return
 			}
 			tok := connectionToken(r)

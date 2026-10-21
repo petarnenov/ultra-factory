@@ -229,6 +229,7 @@ func mountMobile(r chi.Router, c *controllers.MobileController) {
 	r.Post("/api/v1/mobile/enable", c.Enable)
 	r.Post("/api/v1/mobile/enable-lan-only", c.EnableLANOnly)
 	r.Post("/api/v1/mobile/enable-tunnel-only", c.EnableTunnelOnly)
+	r.Post("/api/v1/mobile/enable-tailnet", c.EnableTailnet)
 	r.Post("/api/v1/mobile/remote-access", c.StartRemoteAccess)
 	r.Post("/api/v1/mobile/disable", c.Disable)
 	r.Post("/api/v1/mobile/regenerate", c.Regenerate)

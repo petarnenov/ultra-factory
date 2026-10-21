@@ -36,6 +36,7 @@ func (f *fakeBridge) Regenerate() (MobileStatusResponse, error) {
 	r.Password = "wxyz5678"
 	return r, nil
 }
+func (f *fakeBridge) EnableTailnet(bool) (MobileStatusResponse, error) { return f.Enable() }
 func (f *fakeBridge) SetKeepAwake(on bool) (MobileStatusResponse, error) {
 	r := f.Status()
 	r.KeepAwake.Enabled = on

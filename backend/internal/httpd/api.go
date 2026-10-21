@@ -72,6 +72,9 @@ type APIDeps struct {
 	// Endpoints reports how this daemon can currently be reached, for the
 	// phone's endpoint-refresh route.
 	Endpoints controllers.EndpointSource
+	// Tailnet is the directory of AO hosts discovered on the user's Tailscale
+	// network; nil answers 501.
+	Tailnet   controllers.TailnetDirectory
 	Installer controllers.Installer
 	AgentAuth controllers.AgentAuthService
 	// GitHub is the local GitHub PAT + repos surface.
@@ -151,6 +154,7 @@ type API struct {
 	system        *controllers.SystemController
 	identity      *controllers.IdentityController
 	endpoints     *controllers.EndpointsController
+	tailnet       *controllers.TailnetController
 	systemInstall *controllers.SystemInstallController
 	agentAuth     *controllers.AgentAuthController
 	linkPreview   *controllers.LinkPreviewController
@@ -214,6 +218,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		system:        &controllers.SystemController{Checks: deps.SystemChecks},
 		identity:      &controllers.IdentityController{HostID: deps.HostID},
 		endpoints:     &controllers.EndpointsController{Source: deps.Endpoints},
+		tailnet:       &controllers.TailnetController{Dir: deps.Tailnet},
 		systemInstall: &controllers.SystemInstallController{Installer: deps.Installer},
 		agentAuth:     &controllers.AgentAuthController{Svc: deps.AgentAuth},
 		linkPreview:   &controllers.LinkPreviewController{Svc: deps.LinkPreview},
@@ -278,6 +283,7 @@ func (a *API) Register(root chi.Router) {
 			a.system.Register(r)
 			a.identity.Register(r)
 			a.endpoints.Register(r)
+			a.tailnet.Register(r)
 			a.systemInstall.Register(r)
 			a.agentAuth.Register(r)
 			a.linkPreview.Register(r)

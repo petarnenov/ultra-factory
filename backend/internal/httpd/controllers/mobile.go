@@ -22,6 +22,7 @@ type mobileBridge interface {
 	Enable() (MobileStatusResponse, error)
 	EnableLANOnly() (MobileStatusResponse, error)
 	EnableTunnelOnly() (MobileStatusResponse, error)
+	EnableTailnet(passwordFallback bool) (MobileStatusResponse, error)
 	Disable() error
 	Regenerate() (MobileStatusResponse, error)
 	StartRemoteAccess() (MobileStatusResponse, error)
@@ -119,6 +120,24 @@ func (c *MobileController) EnableTunnelOnly(w http.ResponseWriter, r *http.Reque
 	res, err := c.Bridge.EnableTunnelOnly()
 	if err != nil {
 		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "MOBILE_ENABLE_TUNNEL_ONLY", err.Error(), nil)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, withWarning(res))
+}
+
+// EnableTailnet binds the authenticated listener to the Tailscale address
+// only; callers are admitted on identity. The body may opt into the password.
+func (c *MobileController) EnableTailnet(w http.ResponseWriter, r *http.Request) {
+	var body EnableTailnetRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			envelope.WriteAPIError(w, r, http.StatusBadRequest, "invalid_request", "MOBILE_ENABLE_TAILNET", "invalid body", nil)
+			return
+		}
+	}
+	res, err := c.Bridge.EnableTailnet(body.PasswordFallback)
+	if err != nil {
+		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "MOBILE_ENABLE_TAILNET", err.Error(), nil)
 		return
 	}
 	envelope.WriteJSON(w, http.StatusOK, withWarning(res))
@@ -223,6 +242,9 @@ type BridgeService struct {
 	// never disagree.
 	PickLANHosts       func() []string
 	PickTailscaleHosts func() []string
+	// TailnetPort is the well-known port a tailnet-only listener binds, so
+	// other machines' discovery finds it; zero falls back to DefaultPort.
+	TailnetPort int
 	// Secure-pairing collaborators. All nil in production (daemon.go wires the
 	// real ones); tests inject fakes so no test shells out to the tailscale CLI.
 	ApplyServe  func(port int) error
@@ -302,14 +324,19 @@ func (b *BridgeService) Status() MobileStatusResponse {
 	if st.LoopbackOnly {
 		lan, ts = nil, nil
 	}
+	if st.TailnetOnly {
+		lan = nil
+	}
 	res := MobileStatusResponse{
-		Enabled:        enabled,
-		LoopbackOnly:   st.LoopbackOnly,
-		NoPublicTunnel: st.NoPublicTunnel,
-		Host:           first(lan),
-		TailscaleHost:  first(ts),
-		Port:           b.LAN.BoundPort(),
-		Warning:        mobileUnencryptedWarning,
+		Enabled:          enabled,
+		LoopbackOnly:     st.LoopbackOnly,
+		TailnetOnly:      st.TailnetOnly,
+		PasswordFallback: st.TailnetOnly && st.PasswordFallback,
+		NoPublicTunnel:   st.NoPublicTunnel,
+		Host:             first(lan),
+		TailscaleHost:    first(ts),
+		Port:             b.LAN.BoundPort(),
+		Warning:          mobileUnencryptedWarning,
 		Endpoints: mobilebridge.Endpoints(mobilebridge.EndpointInputs{
 			LANHosts:       lan,
 			TailscaleHosts: ts,
@@ -322,7 +349,8 @@ func (b *BridgeService) Status() MobileStatusResponse {
 	// Only surface the password while the bridge is actually enabled. This route
 	// is reachable only on the loopback listener (the LAN listener 404s
 	// /api/v1/mobile via lanControlBlock), so the plaintext never reaches a phone.
-	if enabled {
+	if enabled && (!st.TailnetOnly || st.PasswordFallback) {
+		// A tailnet-only listener has no use for it unless the fallback is on.
 		res.Password = st.Password
 	}
 	res.SecurePairing = b.securePairingStatus(st.SecurePairing, enabled)
@@ -340,6 +368,9 @@ func (b *BridgeService) AdvertisedEndpoints() []mobilebridge.Endpoint {
 	var lan, ts []string
 	if !st.LoopbackOnly {
 		lan, ts = b.lanHosts(), b.tailscaleHosts()
+	}
+	if st.TailnetOnly {
+		lan = nil
 	}
 	return mobilebridge.Endpoints(mobilebridge.EndpointInputs{
 		LANHosts:       lan,
@@ -601,9 +632,65 @@ func (b *BridgeService) SetSecurePairing(on bool) (MobileStatusResponse, error) 
 	return b.Status(), nil
 }
 
+// bindMode selects which address the authenticated listener binds.
+type bindMode struct {
+	loopbackOnly bool
+	tailnetOnly  bool
+	// passwordFallback applies only with tailnetOnly.
+	passwordFallback bool
+}
+
+func bindModeOf(st mobilebridge.State) bindMode {
+	return bindMode{loopbackOnly: st.LoopbackOnly, tailnetOnly: st.TailnetOnly, passwordFallback: st.PasswordFallback}
+}
+
+// tailnetLAN is the optional tailnet surface of a LANController; the real
+// httpd.LANManager implements it, test fakes need not.
+type tailnetLAN interface {
+	StartTailnet(port int, host string) (int, error)
+	SetPasswordFallback(enabled bool)
+}
+
+// tailnetStarter returns the Start function for a tailnet-only bind.
+func (b *BridgeService) tailnetStarter() (func(int) (int, error), error) {
+	lan, ok := b.LAN.(tailnetLAN)
+	if !ok {
+		return nil, errors.New("this daemon cannot bind a Tailscale-only listener")
+	}
+	host := first(b.tailscaleHosts())
+	if host == "" {
+		return nil, errors.New("tailscale is not running on this machine; start it, or run `ao remote-host enable --lan` for a LAN listener")
+	}
+	port := b.TailnetPort
+	if port <= 0 {
+		port = b.DefaultPort
+	}
+	return func(int) (int, error) { return lan.StartTailnet(port, host) }, nil
+}
+
+// starter picks the bind function for mode.
+func (b *BridgeService) starter(mode bindMode) (func(int) (int, error), error) {
+	switch {
+	case mode.tailnetOnly:
+		return b.tailnetStarter()
+	case mode.loopbackOnly:
+		return b.LAN.StartLoopback, nil
+	default:
+		return b.LAN.Start, nil
+	}
+}
+
+// applyPasswordFallback pushes the fallback flag to a tailnet-capable listener.
+func (b *BridgeService) applyPasswordFallback(mode bindMode) {
+	if lan, ok := b.LAN.(tailnetLAN); ok {
+		lan.SetPasswordFallback(mode.tailnetOnly && mode.passwordFallback)
+	}
+}
+
 // enableWithPasswordLocked performs an enable or password rotation while the
 // caller owns transitionMu.
-func (b *BridgeService) enableWithPasswordLocked(pw string, noPublicTunnel, loopbackOnly bool) (MobileStatusResponse, error) {
+func (b *BridgeService) enableWithPasswordLocked(pw string, noPublicTunnel bool, mode bindMode) (MobileStatusResponse, error) {
+	loopbackOnly := mode.loopbackOnly
 	// Snapshot state so we can roll back the in-memory side effects (armed hash,
 	// running listener) if we fail before durable state is written. Otherwise a
 	// failed enable would leave a LAN listener open on 0.0.0.0 with the new
@@ -616,13 +703,14 @@ func (b *BridgeService) enableWithPasswordLocked(pw string, noPublicTunnel, loop
 	// listener, wait until persistence succeeds before rotating the hash: a
 	// failed save must not disconnect currently authenticated clients.
 	nextHash := mobilebridge.HashPassword(pw)
+	start, err := b.starter(mode)
+	if err != nil {
+		return MobileStatusResponse{}, err
+	}
 	if !wasRunning {
 		b.LAN.SetPasswordHash(nextHash)
 	}
-	start := b.LAN.Start
-	if loopbackOnly {
-		start = b.LAN.StartLoopback
-	}
+	b.applyPasswordFallback(mode)
 	port, err := start(b.DefaultPort)
 	if err != nil {
 		if !wasRunning {
@@ -646,7 +734,7 @@ func (b *BridgeService) enableWithPasswordLocked(pw string, noPublicTunnel, loop
 		accountToken = ""
 		accountTokenOwner = ""
 	}
-	nextSt := mobilebridge.State{Enabled: true, Password: pw, LastPort: port, RetiredPasswordHash: retired, AccountTokenHash: accountTokenHash, AccountToken: accountToken, AccountTokenOwner: accountTokenOwner, SecurePairing: prevSt.SecurePairing, ServeCleanupPending: prevSt.ServeCleanupPending, KeepAwake: prevSt.KeepAwake, NoPublicTunnel: noPublicTunnel, LoopbackOnly: loopbackOnly}
+	nextSt := mobilebridge.State{Enabled: true, Password: pw, LastPort: port, RetiredPasswordHash: retired, AccountTokenHash: accountTokenHash, AccountToken: accountToken, AccountTokenOwner: accountTokenOwner, SecurePairing: prevSt.SecurePairing, ServeCleanupPending: prevSt.ServeCleanupPending, KeepAwake: prevSt.KeepAwake, NoPublicTunnel: noPublicTunnel, LoopbackOnly: loopbackOnly, TailnetOnly: mode.tailnetOnly, PasswordFallback: mode.tailnetOnly && mode.passwordFallback}
 	if err := mobilebridge.Save(b.ConfigPath, nextSt); err != nil {
 		// Persist failed after the listener came up. A running listener still
 		// serves the old hash; a fresh enable must tear the listener back down.
@@ -731,10 +819,16 @@ func (b *BridgeService) RestoreOnBoot(state mobilebridge.State) error {
 	if setter, ok := b.LAN.(interface{ SetAccountTokenHash(string) }); ok {
 		setter.SetAccountTokenHash(state.AccountTokenHash)
 	}
-	start := b.LAN.Start
-	if state.LoopbackOnly {
-		start = b.LAN.StartLoopback
+	mode := bindModeOf(state)
+	start, err := b.starter(mode)
+	if err != nil {
+		b.LAN.SetPasswordHash(prevHash)
+		if hasAccountSetter {
+			accountSetter.SetAccountTokenHash(previousAccountHash)
+		}
+		return err
 	}
+	b.applyPasswordFallback(mode)
 	port, err := start(state.LastPort)
 	if err != nil {
 		b.LAN.SetPasswordHash(prevHash)
@@ -811,12 +905,53 @@ func (b *BridgeService) Enable() (MobileStatusResponse, error) {
 	if st.LoopbackOnly && b.LAN.Running() {
 		return MobileStatusResponse{}, errors.New("disable the loopback-only listener before enabling LAN access")
 	}
+	if st.TailnetOnly && b.LAN.Running() {
+		return MobileStatusResponse{}, errTailnetListenerRunning
+	}
 
 	pw, err := mobilebridge.GeneratePassword()
 	if err != nil {
 		return MobileStatusResponse{}, err
 	}
-	return b.enableWithPasswordLocked(pw, false, false)
+	return b.enableWithPasswordLocked(pw, false, bindMode{})
+}
+
+// errTailnetListenerRunning refuses to widen a Tailscale-only listener to the
+// LAN without an explicit disable in between.
+var errTailnetListenerRunning = errors.New("listener is Tailscale-only; run `ao remote-host disable` before enabling LAN access")
+
+// EnableTailnet binds the listener to the Tailscale address and admits callers
+// on identity. Repeating it keeps the password and updates the fallback flag.
+func (b *BridgeService) EnableTailnet(passwordFallback bool) (MobileStatusResponse, error) {
+	b.transitionMu.Lock()
+	defer b.transitionMu.Unlock()
+	st, err := mobilebridge.Load(b.ConfigPath)
+	if err != nil {
+		return MobileStatusResponse{}, err
+	}
+	if b.LAN.Running() && !st.TailnetOnly {
+		// A LAN-bound listener is disabled explicitly, never silently narrowed.
+		return MobileStatusResponse{}, errors.New("listener already exposed on LAN or loopback; run `ao remote-host disable` before Tailscale-only setup")
+	}
+	if t := b.tunnel(); t != nil {
+		t.Stop()
+	}
+	if st.Enabled && b.LAN.Running() {
+		if st.PasswordFallback != passwordFallback || !st.NoPublicTunnel {
+			st.PasswordFallback = passwordFallback
+			st.NoPublicTunnel = true
+			if err := mobilebridge.Save(b.ConfigPath, st); err != nil {
+				return MobileStatusResponse{}, err
+			}
+		}
+		b.applyPasswordFallback(bindModeOf(st))
+		return b.Status(), nil
+	}
+	pw, err := mobilebridge.GeneratePassword()
+	if err != nil {
+		return MobileStatusResponse{}, err
+	}
+	return b.enableWithPasswordLocked(pw, true, bindMode{tailnetOnly: true, passwordFallback: passwordFallback})
 }
 
 // EnableLANOnly opts into the existing authenticated listener without
@@ -832,6 +967,9 @@ func (b *BridgeService) EnableLANOnly() (MobileStatusResponse, error) {
 	}
 	if st.LoopbackOnly && b.LAN.Running() {
 		return MobileStatusResponse{}, errors.New("disable the loopback-only listener before enabling LAN access")
+	}
+	if st.TailnetOnly && b.LAN.Running() {
+		return MobileStatusResponse{}, errTailnetListenerRunning
 	}
 	// A connector may still be running even if the listener went down. Stop it
 	// before any attempt to re-arm the private listener.
@@ -851,7 +989,7 @@ func (b *BridgeService) EnableLANOnly() (MobileStatusResponse, error) {
 	if err != nil {
 		return MobileStatusResponse{}, err
 	}
-	return b.enableWithPasswordLocked(pw, true, false)
+	return b.enableWithPasswordLocked(pw, true, bindMode{})
 }
 
 // EnableTunnelOnly is for a headless host reached solely through a local
@@ -866,7 +1004,7 @@ func (b *BridgeService) EnableTunnelOnly() (MobileStatusResponse, error) {
 	}
 	if b.LAN.Running() {
 		if !st.LoopbackOnly {
-			return MobileStatusResponse{}, errors.New("listener already exposed on LAN; run `ao remote-host disable` before tunnel-only setup")
+			return MobileStatusResponse{}, errors.New("listener already exposed on LAN or Tailscale; run `ao remote-host disable` before tunnel-only setup")
 		}
 		if _, err := b.LAN.StartLoopback(b.LAN.BoundPort()); err != nil {
 			return MobileStatusResponse{}, err
@@ -897,7 +1035,7 @@ func (b *BridgeService) EnableTunnelOnly() (MobileStatusResponse, error) {
 	if err != nil {
 		return MobileStatusResponse{}, err
 	}
-	return b.enableWithPasswordLocked(pw, false, true)
+	return b.enableWithPasswordLocked(pw, false, bindMode{loopbackOnly: true})
 }
 
 // StartRemoteAccess looks for a connector again and starts it against the port
@@ -949,7 +1087,8 @@ func (b *BridgeService) Regenerate() (MobileStatusResponse, error) {
 	if err != nil {
 		return MobileStatusResponse{}, err
 	}
-	return b.enableWithPasswordLocked(pw, st.NoPublicTunnel, st.LoopbackOnly) // rotate → drops current phone (new hash)
+	// Rotation drops the current phone: it authenticates against the new hash.
+	return b.enableWithPasswordLocked(pw, st.NoPublicTunnel, bindModeOf(st))
 }
 
 // Disable stops the LAN listener and persists the disabled state.

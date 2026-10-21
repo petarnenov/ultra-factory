@@ -2803,6 +2803,11 @@ type MobileStatusResponse struct {
 	Enabled bool `json:"enabled"`
 	// LoopbackOnly means direct LAN/Tailscale addresses are not listening.
 	LoopbackOnly bool `json:"loopbackOnly"`
+	// TailnetOnly means the listener is bound to the Tailscale address and
+	// admits callers on their tailnet identity.
+	TailnetOnly bool `json:"tailnetOnly"`
+	// PasswordFallback means a tailnet-only listener also accepts the password.
+	PasswordFallback bool `json:"passwordFallback"`
 	// NoPublicTunnel means the user disabled the managed public connector.
 	NoPublicTunnel bool `json:"noPublicTunnel"`
 	// Endpoints is every way the phone can reach this daemon, in the client's
@@ -2839,6 +2844,61 @@ type KeepAwakeStatus struct {
 // SetKeepAwakeRequest is the body of POST /api/v1/mobile/keep-awake.
 type SetKeepAwakeRequest struct {
 	Enabled bool `json:"enabled"`
+}
+
+// EnableTailnetRequest is the optional body of
+// POST /api/v1/mobile/enable-tailnet.
+type EnableTailnetRequest struct {
+	// PasswordFallback also accepts the connection password on the Tailscale
+	// listener, for clients tailscaled cannot identify.
+	PasswordFallback bool `json:"passwordFallback"`
+}
+
+// TailnetHost is one AO daemon discovered on the user's Tailscale network.
+type TailnetHost struct {
+	HostID string `json:"hostId"`
+	// Label is the local display name: the machine name unless overridden.
+	Label string `json:"label"`
+	// Name is the Tailscale machine name.
+	Name    string `json:"name"`
+	DNSName string `json:"dnsName"`
+	// Address is the node's Tailscale IPv4 address; URL is always built from it.
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+	URL     string `json:"url"`
+	// Online is false when the node or its daemon stopped answering the
+	// identity probe; the host stays listed until the node leaves.
+	Online bool `json:"online"`
+	Hidden bool `json:"hidden"`
+	// LastSeen is the RFC 3339 time the identity probe last answered.
+	LastSeen string `json:"lastSeen,omitempty"`
+}
+
+// TailnetHostsResponse is the body of GET /api/v1/tailnet/hosts.
+type TailnetHostsResponse struct {
+	// Available is false when tailscaled could not be read; Error says why.
+	Available bool   `json:"available"`
+	Error     string `json:"error,omitempty"`
+	// SelfLogin is this machine's Tailscale login: the identity other hosts
+	// admit by default.
+	SelfLogin string `json:"selfLogin,omitempty"`
+	// LocalHostIDs are this install and its sibling installs on this machine.
+	// Clients drop saved entries carrying any of them.
+	LocalHostIDs []string      `json:"localHostIds"`
+	UpdatedAt    string        `json:"updatedAt,omitempty"`
+	Hosts        []TailnetHost `json:"hosts"`
+}
+
+// UpdateTailnetHostRequest is the PATCH /api/v1/tailnet/hosts/{hostId} body.
+// Absent fields keep their value; an empty label restores the machine name.
+type UpdateTailnetHostRequest struct {
+	Hidden *bool   `json:"hidden,omitempty"`
+	Label  *string `json:"label,omitempty"`
+}
+
+// TailnetHostIDParam is the {hostId} path parameter of the tailnet routes.
+type TailnetHostIDParam struct {
+	HostID string `path:"hostId" description:"Host identifier from the identity probe."`
 }
 
 // SecurePairingStatus describes the optional TLS-over-Tailscale pairing mode,

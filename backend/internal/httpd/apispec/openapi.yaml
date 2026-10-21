@@ -2434,6 +2434,36 @@ paths:
       summary: Enable the authenticated LAN bridge without a managed public tunnel
       tags:
       - mobile
+  /api/v1/mobile/enable-tailnet:
+    post:
+      operationId: enableMobileTailnet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnableTailnetRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileStatusResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+      summary: Enable the authenticated listener on the Tailscale address only
+      tags:
+      - mobile
   /api/v1/mobile/enable-tunnel-only:
     post:
       operationId: enableMobileTunnelOnly
@@ -11932,6 +11962,83 @@ paths:
       summary: Check local machine readiness (git, tmux, agent harness, gh)
       tags:
       - system
+  /api/v1/tailnet/hosts:
+    get:
+      operationId: listTailnetHosts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List AO hosts discovered on this machine's Tailscale network
+      tags:
+      - tailnet
+  /api/v1/tailnet/hosts/{hostId}:
+    patch:
+      operationId: updateTailnetHost
+      parameters:
+      - description: Host identifier from the identity probe.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Host identifier from the identity probe.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTailnetHostRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Hide, show, or relabel a discovered host on this machine
+      tags:
+      - tailnet
+  /api/v1/tailnet/hosts/refresh:
+    post:
+      operationId: refreshTailnetHosts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Re-read the tailnet peer list and probe every online peer now
+      tags:
+      - tailnet
   /api/v1/task-preparations/{token}:
     delete:
       operationId: cancelTaskPreparation
@@ -16215,6 +16322,13 @@ components:
       required:
       - text
       type: object
+    EnableTailnetRequest:
+      properties:
+        passwordFallback:
+          type: boolean
+      required:
+      - passwordFallback
+      type: object
     EndpointsResponse:
       properties:
         endpoints:
@@ -17304,10 +17418,14 @@ components:
           type: boolean
         password:
           type: string
+        passwordFallback:
+          type: boolean
         port:
           type: integer
         securePairing:
           $ref: '#/components/schemas/ControllersSecurePairingStatus'
+        tailnetOnly:
+          type: boolean
         tailscaleHost:
           type: string
         tunnel:
@@ -17317,6 +17435,8 @@ components:
       required:
       - enabled
       - loopbackOnly
+      - tailnetOnly
+      - passwordFallback
       - noPublicTunnel
       - endpoints
       - hostId
@@ -20596,6 +20716,62 @@ components:
       - ready
       - requirements
       type: object
+    TailnetHost:
+      properties:
+        address:
+          type: string
+        dnsName:
+          type: string
+        hidden:
+          type: boolean
+        hostId:
+          type: string
+        label:
+          type: string
+        lastSeen:
+          type: string
+        name:
+          type: string
+        online:
+          type: boolean
+        port:
+          type: integer
+        url:
+          type: string
+      required:
+      - hostId
+      - label
+      - name
+      - dnsName
+      - address
+      - port
+      - url
+      - online
+      - hidden
+      type: object
+    TailnetHostsResponse:
+      properties:
+        available:
+          type: boolean
+        error:
+          type: string
+        hosts:
+          items:
+            $ref: '#/components/schemas/TailnetHost'
+          type: array
+        localHostIds:
+          items:
+            type: string
+          type: array
+        selfLogin:
+          type: string
+        updatedAt:
+          type: string
+      required:
+      - available
+      - localHostIds
+      - hosts
+      type: object
     TrackerIntakeConfig:
       properties:
         assignee:
@@ -20815,6 +20991,17 @@ components:
           type: string
       required:
       - title
+      type: object
+    UpdateTailnetHostRequest:
+      properties:
+        hidden:
+          type:
+          - "null"
+          - boolean
+        label:
+          type:
+          - "null"
+          - string
       type: object
     UpdateWorkspaceFileRequest:
       properties:
