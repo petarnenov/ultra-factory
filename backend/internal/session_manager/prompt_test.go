@@ -690,6 +690,9 @@ func TestBuildSystemPrompt_CIGateCoordinationOnlyInGatedProjects(t *testing.T) {
 		if !strings.Contains(gated, mention) || !strings.Contains(gated, "`withoutAutoReview=manual`") {
 			t.Fatalf("%s prompt in gated project missing CI gate paragraph", role)
 		}
+		if n := strings.Count(gated, "## CI Gate"); n != 1 {
+			t.Fatalf("%s prompt in gated project has %d CI Gate sections, want 1", role, n)
+		}
 		ungated := buildSystemPromptText(systemPromptConfig{
 			Role:    role,
 			Project: promptProject{ID: "mer", Name: "Mercury"},

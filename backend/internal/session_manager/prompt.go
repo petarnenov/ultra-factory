@@ -121,9 +121,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 			if section != "" {
 				sections = append(sections, section)
 			}
-			if cfg.Project.CIGateReview {
-				sections = append(sections, ciGateCoordinationPrompt())
-			}
+		}
+		if cfg.Project.CIGateReview {
+			sections = append(sections, ciGateCoordinationPrompt())
 		}
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
