@@ -20,8 +20,21 @@ type RemoteWorkerLink struct {
 	// OwnerSessionID is a local coordinator in ProjectID. Nil means root-owned;
 	// the remote parent is never stored because remote IDs are the host's own.
 	OwnerSessionID *SessionID
-	CreatedAt      time.Time
+	// Source records how the link was made: by a spawn from this daemon, or
+	// by the discovery pass that found a live worker on a saved host.
+	Source    LinkSource
+	CreatedAt time.Time
 }
+
+// LinkSource says how a remote worker link came to exist.
+type LinkSource string
+
+const (
+	// LinkSourceSpawn is a link written by `ao spawn --host`.
+	LinkSourceSpawn LinkSource = "spawn"
+	// LinkSourceDiscovered is a link written by remote worker discovery.
+	LinkSourceDiscovered LinkSource = "discovered"
+)
 
 // ErrInvalidRemoteWorkerLink reports a link missing a required identity.
 var ErrInvalidRemoteWorkerLink = errors.New("invalid remote worker link")

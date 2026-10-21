@@ -44,12 +44,31 @@ func (s *Store) GetRemoteWorkerLink(ctx context.Context, hostID string, remoteSe
 	return remoteLinkFromRow(row), true, nil
 }
 
+// InsertDiscoveredRemoteWorkerLink stores a discovered link if none exists;
+// an existing link keeps its owner and source.
+func (s *Store) InsertDiscoveredRemoteWorkerLink(ctx context.Context, link domain.RemoteWorkerLink) (bool, error) {
+	if err := link.Validate(); err != nil {
+		return false, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	affected, err := s.qw.InsertDiscoveredRemoteWorkerLink(ctx, gen.InsertDiscoveredRemoteWorkerLinkParams{
+		HostID: link.HostID, RemoteSessionID: string(link.RemoteSessionID),
+		RemoteProjectID: string(link.RemoteProjectID), ProjectID: string(link.ProjectID),
+		HostLabel: link.HostLabel, DisplayName: link.DisplayName, CreatedAt: link.CreatedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("insert discovered remote worker link %s/%s: %w", link.HostID, link.RemoteSessionID, err)
+	}
+	return affected > 0, nil
+}
+
 func remoteLinkFromRow(row gen.RemoteWorkerLink) domain.RemoteWorkerLink {
 	return domain.RemoteWorkerLink{
 		HostID: row.HostID, HostLabel: row.HostLabel,
 		RemoteSessionID: domain.SessionID(row.RemoteSessionID), RemoteProjectID: domain.ProjectID(row.RemoteProjectID),
 		ProjectID: domain.ProjectID(row.ProjectID), DisplayName: row.DisplayName,
-		OwnerSessionID: row.OwnerSessionID, CreatedAt: row.CreatedAt,
+		OwnerSessionID: row.OwnerSessionID, Source: domain.LinkSource(row.Source), CreatedAt: row.CreatedAt,
 	}
 }
 
