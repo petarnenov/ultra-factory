@@ -520,9 +520,8 @@ func (c *Coordinator) recipientHibernated(ctx context.Context, recipient domain.
 	return ok && rec.HibernatedAt != nil, nil
 }
 
-// interruptForStuck interrupts the recipient once per stuck worker window. A
-// slot is kept only when its interrupt was delivered; a failed interrupt
-// releases it so the next pass can try again.
+// interruptForStuck interrupts once per stuck worker window. A failed
+// interrupt releases its slot so the next pass retries.
 func (c *Coordinator) interruptForStuck(ctx context.Context, batch PreparedBatch, recipient domain.SessionID) (interrupted bool, nextInterrupt time.Time, err error) {
 	for _, worker := range batch.stuckWorkers() {
 		at := c.now().UTC()

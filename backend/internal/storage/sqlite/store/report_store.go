@@ -405,9 +405,8 @@ func (s *Store) AcquireReportInterrupt(ctx context.Context, sessionID domain.Ses
 	return acquired, next, err
 }
 
-// ReleaseReportInterrupt returns a slot taken at `at` whose interrupt was not
-// delivered. Only that exact row is removed: an absent or expired row already
-// allows an interrupt, so deleting it restores the prior window state.
+// ReleaseReportInterrupt frees the slot taken at `at` when its interrupt was
+// not delivered. Only that exact row goes; absent rows allow interrupts.
 func (s *Store) ReleaseReportInterrupt(ctx context.Context, sessionID domain.SessionID, at time.Time) error {
 	if sessionID == "" || at.IsZero() {
 		return domain.ErrInvalidReport
