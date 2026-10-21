@@ -405,6 +405,19 @@ func (s *Store) AcquireReportInterrupt(ctx context.Context, sessionID domain.Ses
 	return acquired, next, err
 }
 
+// ReleaseReportInterrupt frees the slot taken at `at` when its interrupt was
+// not delivered. Only that exact row goes; absent rows allow interrupts.
+func (s *Store) ReleaseReportInterrupt(ctx context.Context, sessionID domain.SessionID, at time.Time) error {
+	if sessionID == "" || at.IsZero() {
+		return domain.ErrInvalidReport
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.inTx(ctx, "release report interrupt", func(q *gen.Queries) error {
+		return q.DeleteReportInterrupt(ctx, gen.DeleteReportInterruptParams{SessionID: string(sessionID), LastInterruptedAt: at})
+	})
+}
+
 // ListPendingReports returns reports eligible for a later delivery batch.
 func (s *Store) ListPendingReports(ctx context.Context, at time.Time, limit int64) ([]domain.ReportRecord, error) {
 	rows, err := s.qr.ListPendingReports(ctx, gen.ListPendingReportsParams{AvailableAt: at, Limit: limit})

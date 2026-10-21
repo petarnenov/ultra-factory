@@ -35,6 +35,7 @@ type DeliveryStore interface {
 	ReleaseReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error)
 	DeferReportBatch(context.Context, domain.ProjectID, string, time.Time, string) (int, error)
 	AcquireReportInterrupt(context.Context, domain.SessionID, time.Time, time.Duration) (bool, time.Time, error)
+	ReleaseReportInterrupt(context.Context, domain.SessionID, time.Time) error
 	ClearSessionOwnerIf(context.Context, domain.SessionID, domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.SessionRecord, bool, error)
 	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	ClearRemoteWorkerOwnerIf(context.Context, string, domain.SessionID, domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
@@ -474,25 +475,20 @@ func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.Project
 		return false, false, err
 	}
 	if batch.hasState(domain.ReportStuck) {
-		interrupted := false
-		var nextInterrupt time.Time
-		for _, worker := range batch.stuckWorkers() {
-			acquired, next, acquireErr := c.store.AcquireReportInterrupt(ctx, worker, c.now().UTC(), ReportInterruptWindow)
-			if acquireErr != nil {
-				return true, false, c.release(ctx, batch, acquireErr)
-			}
-			if acquired {
-				interrupted = true
-				if interruptErr := c.delivery.Interrupt(ctx, group.Recipient); interruptErr != nil {
-					return true, false, c.release(ctx, batch, interruptErr)
-				}
-			} else if nextInterrupt.IsZero() || next.Before(nextInterrupt) {
-				nextInterrupt = next
-			}
+		// A hibernated coordinator has no live turn to interrupt; Submit wakes it.
+		hibernated, hibernationErr := c.recipientHibernated(ctx, group.Recipient)
+		if hibernationErr != nil {
+			return true, false, c.release(ctx, batch, hibernationErr)
 		}
-		if !interrupted && !batch.hasState(domain.ReportNeedsInput) {
-			_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, nextInterrupt, "repeated stuck report coalesced inside interrupt window")
-			return true, false, deferErr
+		if !hibernated {
+			interrupted, nextInterrupt, interruptErr := c.interruptForStuck(ctx, batch, group.Recipient)
+			if interruptErr != nil {
+				return true, false, c.release(ctx, batch, interruptErr)
+			}
+			if !interrupted && !batch.hasStateOtherThan(domain.ReportStuck) {
+				_, deferErr := c.store.DeferReportBatch(ctx, batch.ProjectID, batch.Token, nextInterrupt, "repeated stuck report coalesced inside interrupt window")
+				return true, false, deferErr
+			}
 		}
 	}
 	if err := c.delivery.Submit(ctx, group.Recipient, batch.Render(), batch.IdempotencyKey()); err != nil {
@@ -512,6 +508,40 @@ func (c *Coordinator) deliverGroup(ctx context.Context, projectID domain.Project
 		return true, false, err
 	}
 	return true, true, nil
+}
+
+// recipientHibernated reports whether the recipient's chat controller was
+// stopped for idleness, so an interrupt has no live turn to reach.
+func (c *Coordinator) recipientHibernated(ctx context.Context, recipient domain.SessionID) (bool, error) {
+	rec, ok, err := c.store.GetSession(ctx, recipient)
+	if err != nil {
+		return false, err
+	}
+	return ok && rec.HibernatedAt != nil, nil
+}
+
+// interruptForStuck interrupts once per stuck worker window. A failed
+// interrupt releases its slot so the next pass retries.
+func (c *Coordinator) interruptForStuck(ctx context.Context, batch PreparedBatch, recipient domain.SessionID) (interrupted bool, nextInterrupt time.Time, err error) {
+	for _, worker := range batch.stuckWorkers() {
+		at := c.now().UTC()
+		acquired, next, acquireErr := c.store.AcquireReportInterrupt(ctx, worker, at, ReportInterruptWindow)
+		if acquireErr != nil {
+			return interrupted, nextInterrupt, acquireErr
+		}
+		if !acquired {
+			if nextInterrupt.IsZero() || next.Before(nextInterrupt) {
+				nextInterrupt = next
+			}
+			continue
+		}
+		if interruptErr := c.delivery.Interrupt(ctx, recipient); interruptErr != nil {
+			releaseErr := c.store.ReleaseReportInterrupt(ctx, worker, at)
+			return interrupted, nextInterrupt, errors.Join(interruptErr, releaseErr)
+		}
+		interrupted = true
+	}
+	return interrupted, nextInterrupt, nil
 }
 
 // consume acknowledges a submitted batch, so no later pass sends it again.
@@ -830,6 +860,16 @@ func escapeReportArtifactPath(path string) string {
 func (b PreparedBatch) hasState(state domain.ReportState) bool {
 	for _, report := range b.Reports {
 		if report.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+// hasStateOtherThan reports whether any report is not in the given state.
+func (b PreparedBatch) hasStateOtherThan(state domain.ReportState) bool {
+	for _, report := range b.Reports {
+		if report.State != state {
 			return true
 		}
 	}

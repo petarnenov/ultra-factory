@@ -110,6 +110,9 @@ INSERT INTO report_worker_interrupts (session_id, last_interrupted_at)
 VALUES (?, ?)
 ON CONFLICT(session_id) DO UPDATE SET last_interrupted_at = excluded.last_interrupted_at;
 
+-- name: DeleteReportInterrupt :exec
+DELETE FROM report_worker_interrupts WHERE session_id = ? AND last_interrupted_at = ?;
+
 -- name: ListPendingReports :many
 SELECT * FROM reports
 WHERE delivery_state = 'pending' AND available_at <= ?

@@ -5519,8 +5519,10 @@ func (m *Manager) buildSystemPromptWithCIGate(ctx context.Context, kind domain.S
 	switch kind {
 	case domain.KindOrchestrator:
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
+		cfg.Coordination = coordinationPromptFor(project.Config)
 	case domain.KindCoordinator:
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
+		cfg.Coordination = coordinationPromptFor(project.Config)
 		cfg.CoordinatorWorkerLimit = project.Config.Coordinators.Limits().WorkersPerCoordinator
 		rec, ok, err := m.store.GetSession(ctx, sessionID)
 		if err != nil {
@@ -5530,6 +5532,10 @@ func (m *Manager) buildSystemPromptWithCIGate(ctx context.Context, kind domain.S
 			cfg.CoordinatorScope = rec.CoordinatorScope
 			if own := rec.CoordinatorWorkerLimit; own != nil && *own < cfg.CoordinatorWorkerLimit {
 				cfg.CoordinatorWorkerLimit = *own
+			}
+			cfg.Coordination.HostSlots = rec.CoordinatorHostSlots
+			if own := rec.CoordinatorWorkerAgent; own != nil {
+				cfg.Coordination.WorkerAgent = *own
 			}
 		}
 	case domain.KindWorker:
