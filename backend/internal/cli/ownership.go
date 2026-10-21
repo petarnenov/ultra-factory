@@ -35,6 +35,19 @@ type sessionOwnershipDTO struct {
 	RootSessionID    *string `json:"rootSessionId"`
 	// WorkerAgent is a coordinator's stored worker agent selection.
 	WorkerAgent *agentSelection `json:"workerAgent,omitempty"`
+	// WorkerLimit is a coordinator's stored limit (nil: project value);
+	// EffectivePlacementLimit is what new spawns are checked against.
+	WorkerLimit             *int                  `json:"workerLimit"`
+	EffectiveWorkerLimit    *int                  `json:"effectiveWorkerLimit,omitempty"`
+	EffectivePlacementLimit *int                  `json:"effectivePlacementLimit,omitempty"`
+	HostSlots               []coordinatorHostSlot `json:"hostSlots,omitempty"`
+}
+
+// coordinatorHostSlot mirrors one stored host slot and its live usage.
+type coordinatorHostSlot struct {
+	HostID string `json:"hostId"`
+	Slots  int    `json:"slots"`
+	Used   int    `json:"used"`
 }
 
 // coordinatorRosterDTO mirrors GET /api/v1/projects/{id}/coordinators.
@@ -54,6 +67,23 @@ type coordinatorRosterItem struct {
 	// NeedsRecovery flags a terminated coordinator that still owns live workers.
 	NeedsRecovery bool                   `json:"needsRecovery"`
 	LatestSummary *coordinatorSummaryDTO `json:"latestSummary"`
+	// Limits, host slots and the agent selection. Workers pair each live
+	// worker with the profile that picked its agent.
+	WorkerLimit             *int                      `json:"workerLimit"`
+	EffectiveWorkerLimit    int                       `json:"effectiveWorkerLimit"`
+	ActiveWorkerCount       int                       `json:"activeWorkerCount"`
+	EffectivePlacementLimit int                       `json:"effectivePlacementLimit"`
+	HostSlots               []coordinatorHostSlot     `json:"hostSlots"`
+	AgentProfileID          *string                   `json:"agentProfileId"`
+	WorkerAgent             *agentSelection           `json:"workerAgent,omitempty"`
+	Workers                 []coordinatorRosterWorker `json:"workers"`
+}
+
+// coordinatorRosterWorker is one live worker and the profile that chose its
+// agent, when a profile did.
+type coordinatorRosterWorker struct {
+	SessionID      string  `json:"sessionId"`
+	AgentProfileID *string `json:"agentProfileId"`
 }
 
 // sessionTreeOutput is the --json body of `session ls --tree`.
@@ -166,6 +196,7 @@ func newCoordinatorCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newCoordinatorListCommand(ctx))
 	cmd.AddCommand(newCoordinatorReportCommand(ctx))
 	cmd.AddCommand(newCoordinatorSetCommand(ctx))
+	cmd.AddCommand(newCoordinatorSetLimitsCommand(ctx))
 	return cmd
 }
 
@@ -295,7 +326,7 @@ func (c *commandContext) listCoordinators(ctx context.Context, cmd *cobra.Comman
 	if opts.json {
 		return writeJSON(cmd.OutOrStdout(), res)
 	}
-	return writeCoordinatorRoster(cmd, res, nil)
+	return writeCoordinatorRoster(cmd, res, nil, c.savedHostLabels())
 }
 
 func (c *commandContext) listRemoteWorkers(ctx context.Context, cmd *cobra.Command, opts remoteWorkerListOptions) error {
@@ -440,16 +471,16 @@ func (c *commandContext) listSessionTree(ctx context.Context, cmd *cobra.Command
 		return err
 	}
 	for _, roster := range rosters {
-		if err := writeCoordinatorRoster(cmd, roster, byID); err != nil {
+		if err := writeCoordinatorRoster(cmd, roster, byID, c.savedHostLabels()); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// writeCoordinatorRoster prints the ownership tree. known, when set, adds
-// each worker's role and status from an already fetched session listing.
-func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known map[string]sessionDTO) error {
+// writeCoordinatorRoster prints the ownership tree. known adds each worker's
+// role and status when set; labels names host slots.
+func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known map[string]sessionDTO, labels map[string]string) error {
 	out := cmd.OutOrStdout()
 	if _, err := fmt.Fprintf(out, "%s\n", res.ProjectID); err != nil {
 		return err
@@ -462,8 +493,8 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			return err
 		}
 	}
-	workerLine := func(id string) error {
-		_, err := fmt.Fprintf(out, "    %s%s\n", id, workerFacts(known, id))
+	workerLine := func(id, profile string) error {
+		_, err := fmt.Fprintf(out, "    %s%s%s\n", id, workerFacts(known, id), profileFact(profile))
 		return err
 	}
 	for _, coordinator := range res.Coordinators {
@@ -478,11 +509,15 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			coordinator.CoordinatorSessionID, status, coordinator.CoordinatorScope, coordinator.WorkerCount); err != nil {
 			return err
 		}
+		if err := writeCoordinatorLimits(out, "    ", coordinator, labels); err != nil {
+			return err
+		}
 		if err := writeLatestSummary(out, "    ", coordinator.LatestSummary); err != nil {
 			return err
 		}
+		profiles := workerProfiles(coordinator.Workers)
 		for _, worker := range coordinator.WorkerSessionIDs {
-			if err := workerLine(worker); err != nil {
+			if err := workerLine(worker, profiles[worker]); err != nil {
 				return err
 			}
 		}
@@ -496,12 +531,48 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			return err
 		}
 		for _, worker := range res.RootWorkerIDs {
-			if err := workerLine(worker); err != nil {
+			if err := workerLine(worker, ""); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// writeCoordinatorLimits prints a coordinator's limit and host slots when the
+// daemon sent them, then its worker agent selection.
+func writeCoordinatorLimits(out io.Writer, indent string, entry coordinatorRosterItem, labels map[string]string) error {
+	if entry.EffectivePlacementLimit > 0 {
+		if _, err := fmt.Fprintf(out, "%slimit: %d\n", indent, entry.EffectivePlacementLimit); err != nil {
+			return err
+		}
+	}
+	if len(entry.HostSlots) > 0 {
+		if _, err := fmt.Fprintf(out, "%shosts: %s\n", indent, hostSlotText(entry.HostSlots, labels)); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(out, "%sworker agent: %s\n", indent, formatAgentSelection(entry.WorkerAgent))
+	return err
+}
+
+// workerProfiles maps each worker to the profile that picked its agent.
+func workerProfiles(workers []coordinatorRosterWorker) map[string]string {
+	profiles := make(map[string]string, len(workers))
+	for _, worker := range workers {
+		if worker.AgentProfileID != nil {
+			profiles[worker.SessionID] = *worker.AgentProfileID
+		}
+	}
+	return profiles
+}
+
+// profileFact names the profile that picked a worker's agent, if one did.
+func profileFact(profile string) string {
+	if profile == "" {
+		return ""
+	}
+	return "  (profile: " + profile + ")"
 }
 
 func workerFacts(known map[string]sessionDTO, id string) string {
@@ -578,7 +649,7 @@ func sessionOwnerDetails(sess sessionDTO) string {
 
 // writeCoordinatorDetails prints a coordinator's workers, recovery flag, and
 // latest summary under `session get`; a nil entry prints nothing.
-func writeCoordinatorDetails(out io.Writer, entry *coordinatorRosterItem) error {
+func writeCoordinatorDetails(out io.Writer, entry *coordinatorRosterItem, labels map[string]string) error {
 	if entry == nil {
 		return nil
 	}
@@ -587,7 +658,15 @@ func writeCoordinatorDetails(out io.Writer, entry *coordinatorRosterItem) error 
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(out, "workers: %s\n", joinOrDash(entry.WorkerSessionIDs)); err != nil {
+	profiles := workerProfiles(entry.Workers)
+	workers := make([]string, 0, len(entry.WorkerSessionIDs))
+	for _, id := range entry.WorkerSessionIDs {
+		workers = append(workers, id+profileFact(profiles[id]))
+	}
+	if _, err := fmt.Fprintf(out, "workers: %s\n", joinOrDash(workers)); err != nil {
+		return err
+	}
+	if err := writeCoordinatorLimits(out, "", *entry, labels); err != nil {
 		return err
 	}
 	return writeLatestSummary(out, "", entry.LatestSummary)

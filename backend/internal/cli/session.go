@@ -680,7 +680,7 @@ func (c *commandContext) getSession(ctx context.Context, cmd *cobra.Command, id 
 	if err := writeSessionDetails(cmd, sess); err != nil {
 		return err
 	}
-	return writeCoordinatorDetails(cmd.OutOrStdout(), entry)
+	return writeCoordinatorDetails(cmd.OutOrStdout(), entry, c.savedHostLabels())
 }
 
 func (c *commandContext) killSession(ctx context.Context, cmd *cobra.Command, id string, opts sessionOptions) error {

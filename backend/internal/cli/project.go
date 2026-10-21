@@ -211,6 +211,19 @@ type projectSetConfigOptions struct {
 	coordinatorAgent         string
 	coordinatorWorkerAgent   string
 	rootWorkerAgent          string
+	allowedHosts             string
+	allowedHostIDs           []string
+	allowLocalWorkers        bool
+	noAllowLocalWorkers      bool
+	merge                    bool
+}
+
+// coordinatorFlagNames are the set-config flags that write the coordinators
+// block. --merge touches only these and keeps every other stored field.
+var coordinatorFlagNames = []string{
+	"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers",
+	"agent-profile", "coordinator-agent", "coordinator-worker-agent", "root-worker-agent",
+	"allowed-hosts", "allow-local-workers", "no-allow-local-workers",
 }
 
 type projectListResult struct {
@@ -373,14 +386,33 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			id := strings.TrimSpace(args[0])
 			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
 			opts.githubAccountSet = cmd.Flags().Changed("github-account")
-			for _, name := range []string{"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers", "agent-profile", "coordinator-agent", "coordinator-worker-agent", "root-worker-agent"} {
+			for _, name := range coordinatorFlagNames {
 				opts.coordinatorsSet = opts.coordinatorsSet || cmd.Flags().Changed(name)
 			}
-			config, err := buildProjectConfig(opts)
-			if err != nil {
-				return err
+			if opts.allowLocalWorkers && opts.noAllowLocalWorkers {
+				return usageError{errors.New("--allow-local-workers and --no-allow-local-workers cannot be used together")}
 			}
-			req := setConfigRequest{Config: config}
+			if cmd.Flags().Changed("allowed-hosts") {
+				ids, err := resolveAllowedHosts(opts.allowedHosts)
+				if err != nil {
+					return err
+				}
+				opts.allowedHostIDs = ids
+			}
+			var req any
+			if opts.merge {
+				config, err := ctx.mergeCoordinatorFlags(cmd, id, opts)
+				if err != nil {
+					return err
+				}
+				req = rawSetConfigRequest{Config: config}
+			} else {
+				config, err := buildProjectConfig(opts)
+				if err != nil {
+					return err
+				}
+				req = setConfigRequest{Config: config}
+			}
 			var res projectResult
 			if err := ctx.putJSON(cmd.Context(), "projects/"+url.PathEscape(id)+"/config", req, &res); err != nil {
 				return err
@@ -388,7 +420,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			if opts.json {
 				return writeJSON(cmd.OutOrStdout(), res)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "updated config for project %s\n", res.Project.ID)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "updated config for project %s\n", res.Project.ID)
 			return err
 		},
 	}
@@ -421,6 +453,10 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.coordinatorAgent, "coordinator-agent", "", "Agent selection for new coordinators: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.StringVar(&opts.coordinatorWorkerAgent, "coordinator-worker-agent", "", "Default agent selection for the workers of a coordinator: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.StringVar(&opts.rootWorkerAgent, "root-worker-agent", "", "Agent selection for workers the root spawns directly: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
+	f.StringVar(&opts.allowedHosts, "allowed-hosts", "", "Saved hosts (label or ID, comma-separated) coordinator workers may use; \"\" clears the list, which allows any paired host")
+	f.BoolVar(&opts.allowLocalWorkers, "allow-local-workers", false, "Let coordinator-owned workers run on this machine's daemon (off by default)")
+	f.BoolVar(&opts.noAllowLocalWorkers, "no-allow-local-workers", false, "Refuse coordinator-owned workers on this machine's daemon (the default)")
+	f.BoolVar(&opts.merge, "merge", false, "Change only the coordinator flags you pass and keep every other stored field (default: replace the whole config)")
 	f.BoolVar(&opts.clear, "clear", false, "Clear all config")
 	f.BoolVar(&opts.json, "json", false, "Output the updated project as JSON")
 	addHostFlag(cmd, ctx)
@@ -489,6 +525,8 @@ func coordinatorsConfigForFlags(opts projectSetConfigOptions) (coordinatorsConfi
 		MaxCoordinators:          opts.maxCoordinators,
 		MaxWorkersPerCoordinator: opts.maxWorkersPerCoordinator,
 		MaxWorkers:               opts.maxWorkers,
+		AllowedHosts:             opts.allowedHostIDs,
+		AllowLocalWorkers:        opts.allowLocalWorkers,
 	}
 	var err error
 	if cfg.AgentProfiles, err = parseAgentProfiles(opts.agentProfiles); err != nil {
@@ -510,6 +548,128 @@ func coordinatorsConfigForFlags(opts projectSetConfigOptions) (coordinatorsConfi
 		}
 	}
 	return cfg, nil
+}
+
+// coordinatorFlagKeys maps each coordinator flag to the JSON key it writes in
+// the coordinators block.
+var coordinatorFlagKeys = map[string]string{
+	"coordinators":                "enabled",
+	"max-coordinators":            "maxCoordinators",
+	"max-workers-per-coordinator": "maxWorkersPerCoordinator",
+	"max-workers":                 "maxWorkers",
+	"agent-profile":               "agentProfiles",
+	"coordinator-agent":           "coordinatorAgent",
+	"coordinator-worker-agent":    "workerAgent",
+	"root-worker-agent":           "rootWorkerAgent",
+	"allowed-hosts":               "allowedHosts",
+	"allow-local-workers":         "allowLocalWorkers",
+	"no-allow-local-workers":      "allowLocalWorkers",
+}
+
+// rawSetConfigRequest sends a config as raw JSON so a merge keeps the stored
+// fields the CLI does not model (for example preRemove, aggregateProjects).
+type rawSetConfigRequest struct {
+	Config map[string]json.RawMessage `json:"config"`
+}
+
+// mergeCoordinatorFlags applies the passed coordinator flags to the stored
+// config as raw JSON. Every other stored key keeps its exact value.
+func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, opts projectSetConfigOptions) (map[string]json.RawMessage, error) {
+	if !opts.coordinatorsSet {
+		return nil, usageError{errors.New("--merge needs at least one coordinator flag")}
+	}
+	// Flags that are not coordinator flags are counted against NFlag, so a
+	// stray field flag is refused rather than silently ignored.
+	accepted := 0
+	for _, name := range append([]string{"merge", "json", "host"}, coordinatorFlagNames...) {
+		if cmd.Flags().Changed(name) {
+			accepted++
+		}
+	}
+	if cmd.Flags().NFlag() > accepted {
+		return nil, usageError{errors.New("--merge applies to coordinator flags only; set other fields without --merge")}
+	}
+	flagged, err := coordinatorsConfigForFlags(opts)
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		Project struct {
+			Config map[string]json.RawMessage `json:"config"`
+		} `json:"project"`
+	}
+	if err := c.getJSON(cmd.Context(), "projects/"+url.PathEscape(id), &res); err != nil {
+		return nil, err
+	}
+	config := res.Project.Config
+	if config == nil {
+		config = map[string]json.RawMessage{}
+	}
+	coordinators := map[string]json.RawMessage{}
+	if raw, ok := config["coordinators"]; ok && len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &coordinators); err != nil {
+			return nil, fmt.Errorf("stored coordinators config is not an object: %w", err)
+		}
+	}
+	flaggedRaw, err := marshalRawObject(flagged)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range coordinatorFlagNames {
+		if !cmd.Flags().Changed(name) {
+			continue
+		}
+		key := coordinatorFlagKeys[name]
+		if value, ok := flaggedRaw[key]; ok {
+			coordinators[key] = value
+		} else {
+			delete(coordinators, key)
+		}
+	}
+	coordRaw, err := json.Marshal(coordinators)
+	if err != nil {
+		return nil, err
+	}
+	config["coordinators"] = coordRaw
+	return config, nil
+}
+
+// marshalRawObject encodes v and returns its top-level keys as raw JSON.
+func marshalRawObject(v any) (map[string]json.RawMessage, error) {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// resolveAllowedHosts maps --allowed-hosts entries to stored host IDs. An
+// empty value clears the list.
+func resolveAllowedHosts(spec string) ([]string, error) {
+	if strings.TrimSpace(spec) == "" {
+		return []string{}, nil
+	}
+	entries, err := savedHostEntries()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, part := range strings.Split(spec, ",") {
+		selector := strings.TrimSpace(part)
+		if selector == "" {
+			continue
+		}
+		id, err := resolveSavedHostID(entries, selector)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // reviewersForFlags turns repeated --reviewer harness values into the config
