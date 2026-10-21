@@ -4325,21 +4325,17 @@ paths:
         schema:
           description: Worker session identifier on this daemon.
           type: string
-      - description: Pulling daemon's instance ID. Makes acknowledgement per puller;
-          omit for first-delivery semantics.
+      - description: Puller instance ID for per-puller acks.
         in: query
         name: pullerId
         schema:
-          description: Pulling daemon's instance ID. Makes acknowledgement per puller;
-            omit for first-delivery semantics.
+          description: Puller instance ID for per-puller acks.
           type: string
-      - description: Expired-before-pull count the puller already reported; the host
-          subtracts it.
+      - description: Expired count already seen.
         in: query
         name: expiredSeen
         schema:
-          description: Expired-before-pull count the puller already reported; the
-            host subtracts it.
+          description: Expired count already seen.
           type: integer
       responses:
         "200":

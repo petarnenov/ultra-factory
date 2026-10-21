@@ -310,10 +310,8 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 		if err != nil || !terminated {
 			return nil, err
 		}
-		// The worker may have reported between the two reads; drop the link
-		// only if it still has nothing pending now that it has ended.
-		// The first read already subtracted what this daemon had seen, so the
-		// re-read reports nothing as seen.
+		// The worker may have reported since the first read: drop the link
+		// only if nothing is pending now. The seen count was already sent.
 		again, err := client.pending(ctx, link.RemoteSessionID, 0)
 		if err != nil && !errors.Is(err, errSessionGone) {
 			return nil, err

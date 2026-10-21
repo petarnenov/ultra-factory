@@ -113,8 +113,8 @@ type ListReportsQuery struct {
 // ListPendingReportsQuery selects one worker's due, still-pending reports.
 type ListPendingReportsQuery struct {
 	SessionID   string `query:"sessionId" required:"true" description:"Worker session identifier on this daemon."`
-	PullerID    string `query:"pullerId" description:"Pulling daemon's instance ID. Makes acknowledgement per puller; omit for first-delivery semantics."`
-	ExpiredSeen int    `query:"expiredSeen" description:"Expired-before-pull count the puller already reported; the host subtracts it."`
+	PullerID    string `query:"pullerId" description:"Puller instance ID for per-puller acks."`
+	ExpiredSeen int    `query:"expiredSeen" description:"Expired count already seen."`
 }
 
 // ListPendingReportsResponse is one worker's due, still-pending reports.

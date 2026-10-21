@@ -162,7 +162,7 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 		!strings.Contains(msg, "Postgres or SQLite?") || strings.Contains(msg, "tests green") {
 		t.Fatalf("delivered = %q", msg)
 	}
-	if dueForLocalPuller(t, ctx, remoteStore, worker.ID, created.ID) {
+	if dueForLocalPuller(ctx, t, remoteStore, worker.ID, created.ID) {
 		t.Fatalf("remote report still due for the local puller after its acknowledgement")
 	}
 
@@ -341,7 +341,7 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("redelivered after a local restart: %v", delivery.submissions)
 	}
-	if dueForLocalPuller(t, ctx, remoteStore, worker.ID, created.ID) {
+	if dueForLocalPuller(ctx, t, remoteStore, worker.ID, created.ID) {
 		t.Fatalf("remote report still due for the local puller after its acknowledgement")
 	}
 
@@ -361,14 +361,14 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("redelivered after a remote restart: %v", delivery.submissions)
 	}
-	if dueForLocalPuller(t, ctx, remoteStore, worker.ID, created.ID) {
+	if dueForLocalPuller(ctx, t, remoteStore, worker.ID, created.ID) {
 		t.Fatalf("remote report due again after the remote restart")
 	}
 }
 
 // dueForLocalPuller reports whether the remote daemon still lists reportID as
 // due for the local puller's pull of sessionID.
-func dueForLocalPuller(t *testing.T, ctx context.Context, store *sqlite.Store, sessionID domain.SessionID, reportID string) bool {
+func dueForLocalPuller(ctx context.Context, t *testing.T, store *sqlite.Store, sessionID domain.SessionID, reportID string) bool {
 	t.Helper()
 	svc := reportsvc.New(reportsvc.Deps{Store: store, Now: time.Now})
 	result, err := svc.PullFor(ctx, sessionID, reportsvc.PullOptions{PullerID: "host-local"})

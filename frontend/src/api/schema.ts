@@ -13042,9 +13042,9 @@ export interface operations {
             query: {
                 /** @description Worker session identifier on this daemon. */
                 sessionId: string;
-                /** @description Pulling daemon's instance ID. Makes acknowledgement per puller; omit for first-delivery semantics. */
+                /** @description Puller instance ID for per-puller acks. */
                 pullerId?: string;
-                /** @description Expired-before-pull count the puller already reported; the host subtracts it. */
+                /** @description Expired count already seen. */
                 expiredSeen?: number;
             };
             header?: never;

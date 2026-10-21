@@ -9,9 +9,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/gen"
 )
 
-// TouchReportPuller records that pullerID pulled sessionID's reports at at. It
-// subtracts seen, the expired count the puller already logged, and returns the
-// count still owed to it with the IDs of reports it has acknowledged.
+// TouchReportPuller records pullerID's pull of sessionID at at. It subtracts
+// seen, then returns the count still owed and the acknowledged report IDs.
 func (s *Store) TouchReportPuller(ctx context.Context, sessionID domain.SessionID, pullerID string, at time.Time, seen int) (int, map[string]bool, error) {
 	if sessionID == "" || pullerID == "" || at.IsZero() {
 		return 0, nil, domain.ErrInvalidReport
@@ -57,11 +56,8 @@ func (s *Store) TouchReportPuller(ctx context.Context, sessionID domain.SessionI
 	return int(expired), ackedSet, nil
 }
 
-// CompactExpiredReports expires a worker's pending reports that are older than
-// cutoff or beyond the newest keep reports of the session. First it counts each
-// known puller's unacknowledged expiring reports into that puller's expired
-// count, then it moves the reports out of the pending queue. It returns how many
-// reports expired.
+// CompactExpiredReports expires pending reports older than cutoff or beyond the
+// newest keep. Unacked pullers are counted first. It returns the expired count.
 func (s *Store) CompactExpiredReports(ctx context.Context, sessionID domain.SessionID, cutoff time.Time, keep int, at time.Time) (int64, error) {
 	if sessionID == "" || cutoff.IsZero() || keep < 1 || at.IsZero() {
 		return 0, domain.ErrInvalidReport
@@ -87,9 +83,8 @@ func (s *Store) CompactExpiredReports(ctx context.Context, sessionID domain.Sess
 	return expired, nil
 }
 
-// AcknowledgePendingSessionReportsFor records pullerID's acknowledgement of the
-// named reports of sessionID. Other pullers still see them, and the worker's
-// own delivery state is unchanged. It returns the IDs newly acknowledged.
+// AcknowledgePendingSessionReportsFor records pullerID's ack of reports in
+// sessionID. Other pullers and the worker's own queue are unaffected.
 func (s *Store) AcknowledgePendingSessionReportsFor(ctx context.Context, sessionID domain.SessionID, ids []string, pullerID string, at time.Time) ([]string, error) {
 	if sessionID == "" || pullerID == "" || at.IsZero() {
 		return nil, domain.ErrInvalidReport
