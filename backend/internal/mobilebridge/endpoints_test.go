@@ -123,3 +123,26 @@ func TestLocalEndpointsKeepsEveryCandidateFromEveryInterface(t *testing.T) {
 		{Kind: KindTunnel, Host: "abc.trycloudflare.com", Port: 443, Secure: true},
 	})
 }
+
+func TestTailscaleURLPicksTheTailnetEndpoint(t *testing.T) {
+	got := TailscaleURL(Endpoints(EndpointInputs{
+		LANHosts:       []string{"192.168.0.126"},
+		TailscaleHosts: []string{"100.100.160.17"},
+		Port:           57451,
+		Tunnel:         &TunnelEndpoint{Ready: true, Hostname: "abc.trycloudflare.com"},
+	}))
+	if got != "http://100.100.160.17:57451" {
+		t.Fatalf("TailscaleURL = %q, want the tailnet address", got)
+	}
+}
+
+func TestTailscaleURLNeverFallsBackToLAN(t *testing.T) {
+	got := TailscaleURL(Endpoints(EndpointInputs{
+		LANHosts: []string{"192.168.0.126"},
+		Port:     57451,
+		Tunnel:   &TunnelEndpoint{Ready: true, Hostname: "abc.trycloudflare.com"},
+	}))
+	if got != "" {
+		t.Fatalf("TailscaleURL = %q, want empty without a Tailscale address", got)
+	}
+}

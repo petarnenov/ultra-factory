@@ -16,14 +16,16 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
 )
 
-// A quick-tunnel address changes on connector restart. The host publishes its
-// current address outward; clients still reach the daemon directly, never
-// through AO Cloud. A failed publish is retried on the next tick.
+// The host publishes its current account address outward: its Tailscale
+// address, which also moves entries saved under a LAN address onto the
+// tailnet, or a rotating quick-tunnel address for a host with no tailnet
+// endpoint. Clients still reach the daemon directly, never through AO Cloud.
+// A failed publish is retried on the next tick.
 func runRemoteHostAddressPublisher(ctx context.Context, bridge *controllers.BridgeService, controlPlaneURL string, log *slog.Logger) {
 	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	lastSent := ""
 	publish := func() {
-		address, hash := accountTunnelAddress(bridge)
+		address, hash := accountAddress(bridge)
 		key := address + "\x00" + hash
 		if address == "" || hash == "" || key == lastSent {
 			return
@@ -47,12 +49,16 @@ func runRemoteHostAddressPublisher(ctx context.Context, bridge *controllers.Brid
 	}
 }
 
-func accountTunnelAddress(bridge *controllers.BridgeService) (string, string) {
+func accountAddress(bridge *controllers.BridgeService) (string, string) {
 	state, err := mobilebridge.Load(bridge.ConfigPath)
 	if err != nil || !state.Enabled || state.AccountTokenHash == "" || !bridge.LAN.Running() {
 		return "", ""
 	}
-	for _, endpoint := range bridge.AdvertisedEndpoints() {
+	endpoints := bridge.AdvertisedEndpoints()
+	if address := mobilebridge.TailscaleURL(endpoints); address != "" {
+		return address, state.AccountTokenHash
+	}
+	for _, endpoint := range endpoints {
 		if endpoint.Kind == mobilebridge.KindTunnel && endpoint.Secure {
 			return "https://" + net.JoinHostPort(endpoint.Host, fmt.Sprint(endpoint.Port)), state.AccountTokenHash
 		}

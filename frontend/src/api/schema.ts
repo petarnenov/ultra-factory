@@ -4767,6 +4767,7 @@ export interface components {
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
             token: string;
+            url?: string;
         };
         ControllersRequestRereviewRequest: {
             /** @description Tracked pull request URL. Required when the session has multiple PRs. */

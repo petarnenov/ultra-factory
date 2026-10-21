@@ -1,6 +1,9 @@
 package mobilebridge
 
-import "net"
+import (
+	"net"
+	"strconv"
+)
 
 // EndpointKind names a way to reach this daemon. The phone races every
 // advertised endpoint and prefers the lowest-latency kind that answers.
@@ -98,4 +101,17 @@ func AdvertisedEndpoints(port int, tunnel *TunnelEndpoint) []Endpoint {
 	return LocalEndpoints(ifaces, func(i net.Interface) ([]net.Addr, error) {
 		return i.Addrs()
 	}, port, tunnel)
+}
+
+// TailscaleURL is the only address a remote host registers under an AO
+// account: its first tailnet endpoint. It returns "" when the machine has no
+// Tailscale address, and never falls back to a LAN address, which machines on
+// another subnet cannot reach.
+func TailscaleURL(endpoints []Endpoint) string {
+	for _, endpoint := range endpoints {
+		if endpoint.Kind == KindTailscale && endpoint.Host != "" && endpoint.Port > 0 {
+			return "http://" + net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port))
+		}
+	}
+	return ""
 }

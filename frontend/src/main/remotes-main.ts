@@ -1,3 +1,4 @@
+import { BlockList, isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { IncompatibleRemoteVersionError, probeRemote, readRemoteIdentity, type RemoteHealth } from "./remote-request";
@@ -9,6 +10,27 @@ import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEn
 // Without an override, keep the existing ~/.ao location.
 export function remotesFilePath(): string {
 	return path.join(process.env.AO_DATA_DIR?.trim() || path.join(os.homedir(), ".ao"), "remotes.json");
+}
+
+const TAILNET = new BlockList();
+TAILNET.addSubnet("100.64.0.0", 10, "ipv4");
+TAILNET.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
+
+export const NO_TAILSCALE_ADDRESS = "This host has no Tailscale address, so it cannot be synced to your account. Install Tailscale on it, join the same tailnet, update AO there, and save the host again.";
+
+/**
+ * A host registers under the account only by its Tailscale address: a LAN
+ * address is unreachable from machines on another subnet. Throws instead of
+ * falling back when the host reported none (or is too old to report one).
+ */
+export function tailnetAccountUrl(raw: unknown): string {
+	let url: URL;
+	try { url = new URL(typeof raw === "string" ? raw : ""); } catch { throw new Error(NO_TAILSCALE_ADDRESS); }
+	const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+	const family = isIP(host);
+	const tailnet = family ? TAILNET.check(host, family === 6 ? "ipv6" : "ipv4") : host.endsWith(".ts.net");
+	if (!tailnet || url.protocol !== "http:" || url.username || url.password || (url.pathname !== "/" && url.pathname !== "")) throw new Error(NO_TAILSCALE_ADDRESS);
+	return url.origin;
 }
 
 // The slice of Electron's ipcMain these handlers need, so tests need no Electron.
@@ -200,9 +222,9 @@ export function registerRemotesIpc(
 			signal: AbortSignal.timeout(8_000),
 		});
 		if (!response.ok) throw new Error("The host did not accept account linking. Check its password and version.");
-		const result = await response.json() as { hostId?: string; token?: string };
+		const result = await response.json() as { hostId?: string; token?: string; url?: string };
 		if (result.hostId !== entry.hostId || !/^[0-9a-f]{64}$/.test(result.token ?? "")) throw new Error("The host returned an invalid account credential.");
-		return result.token;
+		return { token: result.token, url: tailnetAccountUrl(result.url) };
 	}));
 	ipcMain.handle("remotes:disconnect", async (_event, url: string) => ordered(() => disconnect(url)));
 	ipcMain.handle("remotes:previewUrl", async (_event, hostId: string, sessionId: string, sourceUrl: string) => {
