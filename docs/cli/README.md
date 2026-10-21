@@ -101,7 +101,7 @@ commit and records which tree the verdict read. See
 | `ao project add`                    | `POST /api/v1/projects`                        |
 | `ao project ls`                     | `GET /api/v1/projects`                         |
 | `ao project get <id>`               | `GET /api/v1/projects/{id}`                    |
-| `ao project set-config <id>`        | `PUT /api/v1/projects/{id}/config`             |
+| `ao project set-config <id>`        | `PUT /api/v1/projects/{id}/config`; with `--merge`, `GET` then `PUT` |
 | `ao project rm <id>`                | `DELETE /api/v1/projects/{id}`                 |
 | `ao secret set github <login> [--github-host <host>]` | `PUT /api/v1/secrets/github/{login}?host=` (token from stdin) |
 | `ao secret ls`                      | `GET /api/v1/secrets/github`                   |
@@ -111,13 +111,15 @@ commit and records which tree the verdict read. See
 | `ao automation create/list/get/update/delete/runs` | `POST/GET/PATCH/DELETE /api/v1/automations` |
 | `ao cue create/list`                | `POST/GET /api/v1/projects/{id}/cues`         |
 | `ao spawn`                          | Targeted launch ensure, then `POST /api/v1/sessions` |
-| `ao spawn --kind coordinator --scope <text>` | `POST /api/v1/sessions` with `kind=coordinator`, `scope`, and the calling root as `parentSessionId` |
+| `ao spawn --kind coordinator --scope <text>` | `POST /api/v1/sessions` with `kind=coordinator`, `scope`, and the calling root as `parentSessionId`; optional `--max-workers` (`workerLimit`), `--hosts` (`hostSlots`), `--worker-agent`, `--coordinator-agent` |
 | `ao session ls`                     | `GET /api/v1/sessions` plus per-session PR summaries; shows branch, PR, CI, review, unresolved threads, activity, and age. |
 | `ao session get <id>`               | `GET /api/v1/sessions/{id}`                    |
 | `ao session top`                    | `GET /api/v1/sessions` and `GET /api/v1/usage/sessions/memory`; per-session RSS and process count, largest first. |
 | `ao session owner <id>`             | `GET /api/v1/sessions/{id}/ownership`         |
 | `ao session assign <worker> --owner <coordinator-id\|root>` | `PUT /api/v1/sessions/{id}/owner` |
 | `ao coordinator ls`                 | `GET /api/v1/projects/{id}/coordinators`      |
+| `ao coordinator set <id> --worker-agent <selection>` | `PUT /api/v1/sessions/{id}/coordinator-worker-agent` |
+| `ao coordinator set-limits <id> [--max-workers N] [--hosts <host>:<slots>,...]` | `PUT /api/v1/sessions/{id}/coordinator-limits` |
 | `ao coordinator report --state <state> [--ready-pr <n>@<sha>]` | `POST /api/v1/coordinator-summaries` with optional `readyPRs` |
 | `ao remote-worker ls`               | `GET /api/v1/remote-worker-links`             |
 | `ao remote-worker assign <host> <remote-session>` | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` |
@@ -386,6 +388,54 @@ daemon refuses a live coordinator or worker with `403 MERGE_ROOT_ONLY`; the
 root, a human, and any caller that omits or does not match a live session
 proceed as before.
 
+### Coordinator limits and host slots
+
+`ao spawn --kind coordinator` takes `--max-workers N` (at least 1; defaults to
+the project's per-coordinator limit) and `--hosts <host>:<slots>[,...]`. The
+hosts are saved host labels or IDs, resolved through the same lookup as
+`--host`; an unknown or unpaired host is a usage error (exit 2) before any
+request. `--max-workers` and `--hosts` without `--kind coordinator` are usage
+errors. Slot values are whole numbers of at least 1. A host that appears twice
+is a usage error. The daemon checks the slot total against the limit and
+returns refusals such as `COORDINATOR_HOST_NOT_ALLOWED` (exit 1).
+
+`ao coordinator set-limits <id>` changes a live coordinator. Only the project's
+live root may change it: the caller is `AO_SESSION_ID` or `--requested-by`. Pass
+`--max-workers`, `--hosts`, or both. `--hosts ""` clears the slots; omitting
+`--hosts` keeps them. Lowering the limit keeps running workers and blocks new
+spawns until the count drops. The command prints the effective limit and host
+slots; `--json` prints the coordinator's ownership view.
+
+`ao coordinator ls` (and `ao session get <coordinator>`) shows each
+coordinator's limit, the usage of each host slot (`Linux 0/1, Z600 1/1`), its
+worker agent selection (`project default` when none is stored), and the profile
+that picked each worker's agent. `--json` returns the roster with the same
+fields as the daemon: `workerLimit`, `effectiveWorkerLimit`,
+`effectivePlacementLimit`, `hostSlots` (`hostId`, `slots`, `used`),
+`workerAgent`, `agentProfileId`, and `workers` (`sessionId`, `agentProfileId`).
+
+```bash
+ao spawn --kind coordinator --scope auth --max-workers 2 --hosts Linux:1,Z600:1
+ao coordinator set-limits mer-c1 --max-workers 3
+ao coordinator ls --project mercury
+```
+
+### Project coordinator settings
+
+`ao project set-config` takes `--allowed-hosts <host,...>` (saved host labels or
+IDs; `""` clears the list, which allows any paired host),
+`--allow-local-workers` / `--no-allow-local-workers` (coordinator-owned workers on
+this machine's daemon are refused by default), and the limit, profile and agent
+flags. Without `--merge`, `set-config` replaces the whole config as above. With
+`--merge`, the CLI reads the stored config and changes only the coordinator flags
+you pass; every other stored field keeps its value. `--merge` refuses any
+non-coordinator flag, `--config-json`, and `--clear` with exit 2, because they
+would replace fields it is meant to keep.
+
+```bash
+ao project set-config mercury --merge --max-workers 4 --allowed-hosts Linux,Z600
+```
+
 ## Configuration
 
 The CLI and daemon share the same environment-driven config:
@@ -469,7 +519,8 @@ ao project set-config my-project \
   --canonical-repo-url https://github.com/my-org/my-repo
 ```
 
-`set-config` replaces the whole config. For an existing configured project, read
+`set-config` replaces the whole config (use `--merge` to change only the
+coordinator flags). For an existing configured project, read
 `ao project get my-project --json`, preserve its `project.config` fields, add
 `canonicalRepoURL`, and submit the complete object with `--config-json`. The same
 object is accepted by `PUT /api/v1/projects/{id}/config` as `{"config": {...}}`.

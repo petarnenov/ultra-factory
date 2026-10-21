@@ -44,6 +44,10 @@ type spawnOptions struct {
 	scope              string
 	workerAgent        string
 	coordinatorAgent   string
+	maxWorkers         int
+	maxWorkersSet      bool
+	hosts              string
+	hostsSet           bool
 }
 
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
@@ -59,8 +63,12 @@ type spawnRequest struct {
 	// coordinator spawn.
 	WorkerAgent      *agentSelection `json:"workerAgent,omitempty"`
 	CoordinatorAgent *agentSelection `json:"coordinatorAgent,omitempty"`
-	Mode             string          `json:"mode,omitempty"`
-	Harness          string          `json:"harness,omitempty"`
+	// WorkerLimit and HostSlots place a coordinator's workers. Omitted, the
+	// project defaults apply.
+	WorkerLimit *int            `json:"workerLimit,omitempty"`
+	HostSlots   []hostSlotInput `json:"hostSlots,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	Harness     string          `json:"harness,omitempty"`
 	// HarnessExplicit distinguishes a caller-named harness from one resolved
 	// from Project Settings or the machine default.
 	HarnessExplicit    *bool  `json:"harnessExplicit,omitempty"`
@@ -129,12 +137,22 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if opts.kind != "" && opts.kind != "worker" && opts.kind != "orchestrator" && opts.kind != "coordinator" {
 				return usageError{fmt.Errorf(`--kind must be "worker", "orchestrator", or "coordinator"`)}
 			}
+			opts.maxWorkersSet = cmd.Flags().Changed("max-workers")
+			opts.hostsSet = cmd.Flags().Changed("hosts")
 			if err := validateCoordinatorSpawn(opts, ctx.targetsRemote()); err != nil {
 				return err
 			}
 			workerAgent, coordinatorAgent, selErr := coordinatorAgentSelections(opts)
 			if selErr != nil {
 				return selErr
+			}
+			hostSlots, hostErr := spawnHostSlots(opts)
+			if hostErr != nil {
+				return hostErr
+			}
+			var workerLimit *int
+			if opts.maxWorkersSet {
+				workerLimit = &opts.maxWorkers
 			}
 			if opts.output != "" && opts.output != "artifact" {
 				return usageError{fmt.Errorf(`--output must be "artifact"`)}
@@ -235,6 +253,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				Scope:              opts.scope,
 				WorkerAgent:        workerAgent,
 				CoordinatorAgent:   coordinatorAgent,
+				WorkerLimit:        workerLimit,
+				HostSlots:          hostSlots,
 				Harness:            opts.harness,
 				HarnessExplicit:    spawnBoolPtr(explicitHarness != ""),
 				Mode:               opts.mode,
@@ -341,6 +361,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.scope, "scope", "", "Bounded area of work for --kind coordinator (required, max 200 characters)")
 	f.StringVar(&opts.workerAgent, "worker-agent", "", "Agent selection for the coordinator's workers (--kind coordinator): inherit, fixed:<profile-id> or random[:<profile-id>,...] over the project's agent profiles")
 	f.StringVar(&opts.coordinatorAgent, "coordinator-agent", "", "Agent selection for the coordinator itself (--kind coordinator): inherit, fixed:<profile-id> or random[:<profile-id>,...]")
+	f.IntVar(&opts.maxWorkers, "max-workers", 0, "Live workers this coordinator may hold (--kind coordinator, at least 1; default: the project's per-coordinator limit)")
+	f.StringVar(&opts.hosts, "hosts", "", "Host slots for the coordinator's workers (--kind coordinator): <host>:<slots>[,<host>:<slots>...], host is a saved host label or ID")
 	f.StringVar(&opts.mode, "mode", "", "Initial session interface: chat (structured agent connection) or tui (the agent's native terminal). Omitted uses the daemon default; compatible sessions can switch later.")
 	f.StringVar(&opts.branch, "branch", "", "Branch for git project sessions (default: ao/<session-id>/root; unsupported for standalone or Scratch sessions)")
 	f.StringVar(&opts.prompt, "prompt", "", "Initial prompt for the agent")
@@ -702,6 +724,9 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 		if strings.TrimSpace(opts.workerAgent) != "" || strings.TrimSpace(opts.coordinatorAgent) != "" {
 			return usageError{fmt.Errorf("--worker-agent and --coordinator-agent are supported with --kind coordinator only")}
 		}
+		if opts.maxWorkersSet || opts.hostsSet {
+			return usageError{fmt.Errorf("--max-workers and --hosts are supported with --kind coordinator only")}
+		}
 		return nil
 	}
 	if scope == "" {
@@ -709,6 +734,9 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 	}
 	if utf8.RuneCountInString(scope) > maxCoordinatorScopeLen {
 		return usageError{fmt.Errorf("--scope must be %d characters or fewer", maxCoordinatorScopeLen)}
+	}
+	if opts.maxWorkersSet && opts.maxWorkers < 1 {
+		return usageError{fmt.Errorf("--max-workers must be at least 1")}
 	}
 	if remote {
 		return usageError{fmt.Errorf("--host is not supported with --kind coordinator; coordinators run where the root runs")}
@@ -755,6 +783,19 @@ func (c *commandContext) profileLikelyPicked(ctx context.Context, opts spawnOpti
 		}
 	}
 	return false
+}
+
+// spawnHostSlots resolves --hosts through the saved-host lookup. It returns
+// nothing when the flag is absent, so the daemon uses the project default.
+func spawnHostSlots(opts spawnOptions) ([]hostSlotInput, error) {
+	if !opts.hostsSet {
+		return nil, nil
+	}
+	entries, err := savedHostEntries()
+	if err != nil {
+		return nil, err
+	}
+	return parseHostSlots(opts.hosts, entries)
 }
 
 // coordinatorAgentSelections parses the two agent selection flags; both are
