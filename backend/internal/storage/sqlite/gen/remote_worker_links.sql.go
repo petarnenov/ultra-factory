@@ -27,7 +27,7 @@ func (q *Queries) DeleteRemoteWorkerLink(ctx context.Context, arg DeleteRemoteWo
 }
 
 const getRemoteWorkerLink = `-- name: GetRemoteWorkerLink :one
-SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id FROM remote_worker_links WHERE host_id = ? AND remote_session_id = ?
+SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id, source FROM remote_worker_links WHERE host_id = ? AND remote_session_id = ?
 `
 
 type GetRemoteWorkerLinkParams struct {
@@ -47,8 +47,42 @@ func (q *Queries) GetRemoteWorkerLink(ctx context.Context, arg GetRemoteWorkerLi
 		&i.DisplayName,
 		&i.CreatedAt,
 		&i.OwnerSessionID,
+		&i.Source,
 	)
 	return i, err
+}
+
+const insertDiscoveredRemoteWorkerLink = `-- name: InsertDiscoveredRemoteWorkerLink :execrows
+INSERT INTO remote_worker_links (
+    host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, owner_session_id, created_at, source
+) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'discovered')
+ON CONFLICT(host_id, remote_session_id) DO NOTHING
+`
+
+type InsertDiscoveredRemoteWorkerLinkParams struct {
+	HostID          string
+	RemoteSessionID string
+	RemoteProjectID string
+	ProjectID       string
+	HostLabel       string
+	DisplayName     string
+	CreatedAt       time.Time
+}
+
+func (q *Queries) InsertDiscoveredRemoteWorkerLink(ctx context.Context, arg InsertDiscoveredRemoteWorkerLinkParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertDiscoveredRemoteWorkerLink,
+		arg.HostID,
+		arg.RemoteSessionID,
+		arg.RemoteProjectID,
+		arg.ProjectID,
+		arg.HostLabel,
+		arg.DisplayName,
+		arg.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const insertRemoteWorkerReportDelivery = `-- name: InsertRemoteWorkerReportDelivery :exec
@@ -75,7 +109,7 @@ func (q *Queries) InsertRemoteWorkerReportDelivery(ctx context.Context, arg Inse
 }
 
 const listRemoteWorkerLinks = `-- name: ListRemoteWorkerLinks :many
-SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id
+SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id, source FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id
 `
 
 func (q *Queries) ListRemoteWorkerLinks(ctx context.Context) ([]RemoteWorkerLink, error) {
@@ -96,6 +130,7 @@ func (q *Queries) ListRemoteWorkerLinks(ctx context.Context) ([]RemoteWorkerLink
 			&i.DisplayName,
 			&i.CreatedAt,
 			&i.OwnerSessionID,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}

@@ -107,7 +107,22 @@ type remoteWorkerLinkDTO struct {
 	ProjectID       string  `json:"projectId"`
 	DisplayName     string  `json:"displayName,omitempty"`
 	OwnerSessionID  *string `json:"ownerSessionId"`
+	Source          string  `json:"source"`
 	CreatedAt       string  `json:"createdAt"`
+}
+
+// remoteWorkerSyncResponse mirrors POST /api/v1/remote-worker-links/sync.
+type remoteWorkerSyncResponse struct {
+	Hosts []remoteWorkerHostSyncDTO `json:"hosts"`
+}
+
+type remoteWorkerHostSyncDTO struct {
+	HostID    string `json:"hostId"`
+	HostLabel string `json:"hostLabel"`
+	Linked    int    `json:"linked"`
+	Skipped   int    `json:"skipped"`
+	Blocked   string `json:"blocked,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 type listRemoteWorkerLinksResponse struct {
@@ -130,6 +145,10 @@ type coordinatorListOptions struct {
 type remoteWorkerListOptions struct {
 	project string
 	json    bool
+}
+
+type remoteWorkerSyncOptions struct {
+	json bool
 }
 
 type remoteWorkerAssignOptions struct {
@@ -229,6 +248,23 @@ func newRemoteWorkerCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.AddCommand(newRemoteWorkerListCommand(ctx))
 	cmd.AddCommand(newRemoteWorkerAssignCommand(ctx))
+	cmd.AddCommand(newRemoteWorkerSyncCommand(ctx))
+	return cmd
+}
+
+func newRemoteWorkerSyncCommand(ctx *commandContext) *cobra.Command {
+	var opts remoteWorkerSyncOptions
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Link live remote workers on saved hosts now",
+		Long: "Run one discovery pass: link every live worker on a saved host that has no link yet. " +
+			"Each host prints its linked and skipped counts; a blocked or offline host is reported, not fatal.",
+		Args: noArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return ctx.syncRemoteWorkers(cmd.Context(), cmd, opts)
+		},
+	}
+	cmd.Flags().BoolVar(&opts.json, "json", false, "Output as JSON")
 	return cmd
 }
 
@@ -342,6 +378,17 @@ func (c *commandContext) listRemoteWorkers(ctx context.Context, cmd *cobra.Comma
 		return writeJSON(cmd.OutOrStdout(), res)
 	}
 	return writeRemoteWorkerList(cmd, res)
+}
+
+func (c *commandContext) syncRemoteWorkers(ctx context.Context, cmd *cobra.Command, opts remoteWorkerSyncOptions) error {
+	var res remoteWorkerSyncResponse
+	if err := c.postJSON(ctx, "remote-worker-links/sync", nil, &res); err != nil {
+		return err
+	}
+	if opts.json {
+		return writeJSON(cmd.OutOrStdout(), res)
+	}
+	return writeRemoteWorkerSync(cmd, res)
 }
 
 func (c *commandContext) assignRemoteWorkerOwner(ctx context.Context, cmd *cobra.Command, hostID, remoteSessionID string, opts remoteWorkerAssignOptions) error {
@@ -609,7 +656,7 @@ func writeRemoteWorkerList(cmd *cobra.Command, res listRemoteWorkerLinksResponse
 		return err
 	}
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(table, "HOST\tREMOTE SESSION\tPROJECT\tOWNER\tNAME"); err != nil {
+	if _, err := fmt.Fprintln(table, "HOST\tREMOTE SESSION\tPROJECT\tOWNER\tSOURCE\tNAME"); err != nil {
 		return err
 	}
 	for _, link := range res.Links {
@@ -617,8 +664,35 @@ func writeRemoteWorkerList(cmd *cobra.Command, res listRemoteWorkerLinksResponse
 		if link.OwnerSessionID != nil {
 			owner = *link.OwnerSessionID
 		}
-		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\n",
-			link.HostID, link.RemoteSessionID, link.ProjectID, owner, emptyDash(link.DisplayName)); err != nil {
+		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			link.HostID, link.RemoteSessionID, link.ProjectID, owner, emptyDash(link.Source), emptyDash(link.DisplayName)); err != nil {
+			return err
+		}
+	}
+	return table.Flush()
+}
+
+// writeRemoteWorkerSync prints one line per saved host.
+func writeRemoteWorkerSync(cmd *cobra.Command, res remoteWorkerSyncResponse) error {
+	out := cmd.OutOrStdout()
+	if len(res.Hosts) == 0 {
+		_, err := fmt.Fprintln(out, "(no saved remote hosts)")
+		return err
+	}
+	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, host := range res.Hosts {
+		label := host.HostLabel
+		if label == "" {
+			label = host.HostID
+		}
+		status := fmt.Sprintf("linked %d, skipped %d", host.Linked, host.Skipped)
+		if host.Blocked != "" {
+			status += ", blocked: " + host.Blocked
+		}
+		if host.Error != "" {
+			status += ", error: " + host.Error
+		}
+		if _, err := fmt.Fprintf(table, "%s\t%s\n", label, status); err != nil {
 			return err
 		}
 	}

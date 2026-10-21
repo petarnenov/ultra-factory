@@ -4135,6 +4135,31 @@ paths:
       summary: Check link capacity before a remote spawn (loopback only)
       tags:
       - reports
+  /api/v1/remote-worker-links/sync:
+    post:
+      operationId: syncRemoteWorkerLinks
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerSyncResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Link live remote workers on saved hosts (loopback only)
+      tags:
+      - reports
   /api/v1/reports:
     get:
       operationId: listReports
@@ -17730,6 +17755,26 @@ components:
       - model
       - effort
       type: object
+    RemoteWorkerHostSync:
+      properties:
+        blocked:
+          type: string
+        error:
+          type: string
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        linked:
+          type: integer
+        skipped:
+          type: integer
+      required:
+      - hostId
+      - hostLabel
+      - linked
+      - skipped
+      type: object
     RemoteWorkerLinkResponse:
       properties:
         createdAt:
@@ -17753,6 +17798,8 @@ components:
           type: string
         remoteSessionId:
           type: string
+        source:
+          type: string
       required:
       - hostId
       - hostLabel
@@ -17760,7 +17807,17 @@ components:
       - remoteProjectId
       - projectId
       - ownerSessionId
+      - source
       - createdAt
+      type: object
+    RemoteWorkerSyncResponse:
+      properties:
+        hosts:
+          items:
+            $ref: '#/components/schemas/RemoteWorkerHostSync'
+          type: array
+      required:
+      - hosts
       type: object
     RemoveProjectResult:
       properties:

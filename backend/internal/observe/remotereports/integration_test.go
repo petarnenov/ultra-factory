@@ -86,6 +86,22 @@ func remoteDaemonHandler(store *sqlite.Store, reports *reportsvc.Service, hostID
 				})
 			})
 			(&controllers.ReportsController{Svc: reports}).Register(authed)
+			authed.Get("/sessions", func(w http.ResponseWriter, req *http.Request) {
+				rows, err := store.ListAllSessions(req.Context())
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				sessions := []map[string]any{}
+				for _, rec := range rows {
+					if rec.IsTerminated {
+						continue
+					}
+					sessions = append(sessions, map[string]any{"id": rec.ID, "projectId": rec.ProjectID, "kind": rec.Kind, "displayName": rec.DisplayName, "isTerminated": false})
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
+			})
 			authed.Get("/sessions/{id}", func(w http.ResponseWriter, req *http.Request) {
 				rec, ok, err := store.GetSession(req.Context(), domain.SessionID(chi.URLParam(req, "id")))
 				w.Header().Set("Content-Type", "application/json")

@@ -42,6 +42,7 @@ type APIDeps struct {
 	CompletionReports  controllers.CompletionReportDelivery
 	Summaries          controllers.CoordinatorSummaryService
 	RemoteWorkerLinks  controllers.RemoteWorkerLinkService
+	RemoteWorkerSync   controllers.RemoteWorkerSyncService
 	CompletedTasks     controllers.CompletedTaskService
 	NotificationStream controllers.NotificationStream
 	Push               controllers.PushRegistry
@@ -199,7 +200,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		notifications: &controllers.NotificationsController{Svc: deps.Notifications, Stream: deps.NotificationStream},
 		reports:       &controllers.ReportsController{Svc: deps.Reports, Completion: deps.CompletionReports},
 		summaries:     &controllers.CoordinatorSummariesController{Svc: deps.Summaries},
-		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks},
+		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks, Sync: deps.RemoteWorkerSync},
 		completed:     &controllers.CompletedTasksController{Svc: deps.CompletedTasks, HostID: deps.HostID},
 		push:          &controllers.PushController{Registry: deps.Push},
 		imports:       &controllers.ImportController{Svc: deps.Import},
