@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -65,6 +66,7 @@ type ActionService struct {
 	reader       actionReader
 	resolver     ports.SCMReviewResolver
 	draft        ports.SCMDraftSetter
+	ciGateMu     sync.Mutex
 	threadWriter interface {
 		MarkPRReviewThreadResolved(context.Context, string, string) error
 	}

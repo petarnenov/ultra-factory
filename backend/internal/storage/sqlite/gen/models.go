@@ -839,6 +839,16 @@ type SessionArtifactVersion struct {
 	CreatedAt   time.Time
 }
 
+type SessionCIGateEvent struct {
+	ID        int64
+	SessionID string
+	PRURL     string
+	HeadSha   string
+	Kind      string
+	Reason    string
+	CreatedAt time.Time
+}
+
 type SessionCleanupFact struct {
 	SessionID            domain.SessionID
 	SessionGeneration    int64
