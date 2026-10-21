@@ -291,17 +291,6 @@ func (m *Manager) agentOperationBusyLocked(id domain.SessionID) error {
 // preemptResume lets kill or exit take the gate from a background wake. It
 // cancels the wake; a wake still holding the gate after the wait is cleared.
 func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller agentOperationKind) error {
-	m.agentOpMu.Lock()
-	if m.agentOperations[id] != agentOperationResume {
-		m.agentOpMu.Unlock()
-		return nil
-	}
-	record := m.agentOperationRecords[id]
-	m.agentOpMu.Unlock()
-	if record.cancel != nil {
-		record.cancel()
-	}
-
 	wait := m.resumePreemptWait
 	if wait <= 0 {
 		wait = defaultResumePreemptWait
@@ -310,19 +299,27 @@ func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller
 	defer deadline.Stop()
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
+	// The wake registers its cancel after taking the marker, so re-read the
+	// record on every tick and cancel as soon as it appears.
+	var startedAt time.Time
 	for {
 		m.agentOpMu.Lock()
 		held := m.agentOperations[id] == agentOperationResume
+		record := m.agentOperationRecords[id]
 		m.agentOpMu.Unlock()
 		if !held {
 			return nil
+		}
+		startedAt = record.startedAt
+		if record.cancel != nil {
+			record.cancel()
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
 			m.logger.Warn("cleared stale resume marker before "+string(caller),
-				"sessionID", id, "resumeStartedAt", record.startedAt, "waited", wait)
+				"sessionID", id, "resumeStartedAt", startedAt, "waited", wait)
 			m.endAgentOperation(id, agentOperationResume)
 			return nil
 		case <-ticker.C:

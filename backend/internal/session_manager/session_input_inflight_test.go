@@ -143,3 +143,47 @@ func TestAgentOperationInProgressReportsKindAndStart(t *testing.T) {
 		t.Fatal("released operation still reported")
 	}
 }
+
+// Kill can land after the wake takes the marker and before it registers its
+// cancel. Kill must still stop the wake rather than wait out the full bound.
+func TestKillBeforeWakeRegistersCancelStillStopsIt(t *testing.T) {
+	ctx := context.Background()
+	id := domain.SessionID("worker-1")
+	logs := &bytes.Buffer{}
+	m := newInFlightWakeTestManager(logs)
+	m.resumePreemptWait = 5 * time.Second
+
+	if err := m.beginAgentOperation(ctx, id, agentOperationResume); err != nil {
+		t.Fatal(err)
+	}
+	wakeCtx, cancelWake := context.WithCancel(ctx)
+	defer cancelWake()
+	released := make(chan struct{})
+	go func() {
+		<-wakeCtx.Done()
+		m.endAgentResume(id)
+		close(released)
+	}()
+
+	killed := make(chan error, 1)
+	go func() {
+		_, err := m.kill(ctx, id, false)
+		killed <- err
+	}()
+	// Register the cancel only after kill has already started waiting.
+	time.Sleep(100 * time.Millisecond)
+	m.setAgentOperationCancel(id, cancelWake)
+
+	select {
+	case err := <-killed:
+		if err != nil {
+			t.Fatalf("kill = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("kill waited out the preemption bound instead of stopping the wake")
+	}
+	<-released
+	if strings.Contains(logs.String(), "cleared stale resume marker") {
+		t.Fatalf("wake was force-cleared although it was cancelled: %s", logs.String())
+	}
+}
