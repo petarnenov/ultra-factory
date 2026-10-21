@@ -122,6 +122,7 @@ commit and records which tree the verdict read. See
 | `ao coordinator set-limits <id> [--max-workers N] [--hosts <host>:<slots>,...]` | `PUT /api/v1/sessions/{id}/coordinator-limits` |
 | `ao coordinator report --state <state> [--ready-pr <n>@<sha>]` | `POST /api/v1/coordinator-summaries` with optional `readyPRs` |
 | `ao remote-worker ls`               | `GET /api/v1/remote-worker-links`             |
+| `ao remote-worker sync`             | `POST /api/v1/remote-worker-links/sync` (loopback only) |
 | `ao remote-worker assign <host> <remote-session>` | `PUT /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner` |
 | `ao session input <id>`             | `GET /api/v1/sessions/{id}/conversation` to list pending structured questions; `POST /api/v1/sessions/{id}/conversation/inputs/{requestId}/resolve` with `--request-id` and `--action` to answer one |
 | `ao session kill <id>`              | `POST /api/v1/sessions/{id}/kill`              |

@@ -82,6 +82,33 @@ outbound HTTP to hosts the user has already paired in the desktop app.
    the link is dropped, in case it reported while its session was being read. Any other 404, such as an older AO without these routes, keeps
    the link.
 
+### Discovery
+
+Spawning from an AO session is not the only way a worker reaches a saved
+host: a worker started by hand on the host, or by an orchestrator that no
+longer runs on this daemon, has no link. The daemon therefore also discovers
+links itself. A discovery pass runs on daemon start, then every 60 s
+(`AO_REMOTE_DISCOVERY_INTERVAL` overrides the interval for tests), and at once
+when `remotes.json` changes, including a re-pasted password. `POST
+/api/v1/remote-worker-links/sync` runs one pass on demand and answers with
+each host's linked and skipped counts, plus why a host was blocked or failed.
+
+Per saved host, the pass uses the same transport policy, identity probe, and
+refusal memory as the pull. A host that is blocked or refused is not
+contacted; a refused password is never sent again until the saved entry
+changes. The pass lists the host's active sessions with
+`GET /api/v1/sessions?active=true`, and links each `kind == worker`
+session that is not terminated and whose project this daemon has. A link is
+written with `source = discovered` and root owner, and only if no link exists:
+an existing link keeps its owner and source. The 200-link cap applies; when it
+is reached the pass stops linking and logs one line per host per pass. A
+linked worker's already pending reports reach the orchestrator on the same
+pass, through the normal pull. Terminated and vanished workers are never
+linked, so discovery does not undo the retirement in step 5.
+
+Each host has its own budget, and the hosts are scanned in parallel, so an
+unreachable host does not delay the others.
+
 ### Transport policy
 
 The daemon sends a saved password with no human acting, on whatever network the

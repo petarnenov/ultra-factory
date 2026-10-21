@@ -66,21 +66,36 @@ type Deps struct {
 	RequestTimeout time.Duration
 	Now            func() time.Time
 	Logger         *slog.Logger
+	// Linker stores workers that discovery finds; nil disables discovery.
+	Linker Linker
+	// Entries reads the saved hosts; it defaults to the remotes.json file.
+	Entries func() ([]remotehost.Entry, error)
+	// DiscoveryInterval is how often saved hosts are scanned for live
+	// workers; it defaults to DefaultDiscoveryInterval.
+	DiscoveryInterval time.Duration
 }
 
 // Observer polls linked remote workers for reports.
 type Observer struct {
-	store      Store
-	deliverer  Deliverer
-	selfHostID string
-	lookup     func(string) (remotehost.Entry, bool, error)
-	httpClient *http.Client
-	interval   time.Duration
-	hostBudget time.Duration
-	reqTimeout time.Duration
-	now        func() time.Time
-	log        *slog.Logger
-	wake       chan struct{}
+	store             Store
+	deliverer         Deliverer
+	selfHostID        string
+	lookup            func(string) (remotehost.Entry, bool, error)
+	httpClient        *http.Client
+	interval          time.Duration
+	hostBudget        time.Duration
+	reqTimeout        time.Duration
+	now               func() time.Time
+	log               *slog.Logger
+	wake              chan struct{}
+	linker            Linker
+	entries           func() ([]remotehost.Entry, error)
+	discoveryInterval time.Duration
+
+	// discoverMu serialises discovery passes and guards their state.
+	discoverMu    sync.Mutex
+	lastDiscovery time.Time
+	savedHosts    string
 
 	mu       sync.Mutex
 	failures map[string]string
@@ -110,9 +125,16 @@ func New(d Deps) *Observer {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
+	if d.Entries == nil {
+		d.Entries = readSavedHosts
+	}
+	if d.DiscoveryInterval <= 0 {
+		d.DiscoveryInterval = DefaultDiscoveryInterval
+	}
 	return &Observer{
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
+		linker: d.Linker, entries: d.Entries, discoveryInterval: d.DiscoveryInterval,
 		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[linkRef]map[string]bool{},
 	}
 }
@@ -139,6 +161,7 @@ func (o *Observer) Start(ctx context.Context) <-chan struct{} {
 		ticker := time.NewTicker(o.interval)
 		defer ticker.Stop()
 		for {
+			o.discoverIfDue(ctx)
 			if err := o.Poll(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				o.log.Warn("remote reports: poll failed", "err", err)
 			}

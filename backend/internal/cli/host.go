@@ -69,9 +69,14 @@ func newHostListCommand(ctx *commandContext) *cobra.Command {
 			if asJSON {
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
+				path, err := remotesFilePath()
+				if err != nil {
+					return err
+				}
 				return enc.Encode(struct {
+					File  string         `json:"file"`
 					Hosts []hostListItem `json:"hosts"`
-				}{Hosts: items})
+				}{File: path, Hosts: items})
 			}
 			if len(items) == 0 {
 				_, err := fmt.Fprintln(out, "No saved remote hosts. Pair one in the desktop app under Settings → Remote hosts.")

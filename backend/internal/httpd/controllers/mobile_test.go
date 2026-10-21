@@ -113,6 +113,34 @@ func TestIssueAccountTokenRequiresPairingPasswordAndPersistsHash(t *testing.T) {
 	}
 }
 
+func TestIssueAccountTokenReturnsOnlyTheTailscaleAddress(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mobile", "config.json")
+	if err := mobilebridge.Save(path, mobilebridge.State{Enabled: true, Password: "secret12"}); err != nil {
+		t.Fatal(err)
+	}
+	tailnet := []string{"100.100.160.17"}
+	bridge := &BridgeService{
+		LAN: &fakeLAN{running: true}, ConfigPath: path, HostID: "h_test",
+		PickLANHosts:       func() []string { return []string{"192.168.0.126"} },
+		PickTailscaleHosts: func() []string { return tailnet },
+	}
+	issued, err := bridge.IssueAccountToken("secret12", "user-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.URL != "http://100.100.160.17:3011" {
+		t.Fatalf("URL = %q, want the Tailscale address", issued.URL)
+	}
+	tailnet = nil
+	issued, err = bridge.IssueAccountToken("secret12", "user-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.URL != "" {
+		t.Fatalf("URL = %q, want empty without a Tailscale address, never the LAN one", issued.URL)
+	}
+}
+
 func TestPasswordRotationRevokesAccountToken(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobile", "config.json")
 	lan := &fakeLAN{}

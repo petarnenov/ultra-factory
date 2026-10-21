@@ -398,7 +398,7 @@ if (typeof window !== "undefined") {
 			list: async () => [],
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,
-			issueAccountToken: async () => "",
+			issueAccountToken: async () => ({ token: "", url: "" }),
 			add: async () => "offline" as const,
 			update: async () => "offline" as const,
 			setAllowInsecureHTTP: async () => undefined,

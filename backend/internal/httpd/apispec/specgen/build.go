@@ -505,6 +505,8 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersRemoteWorkerLinkResponse":          "RemoteWorkerLinkResponse",
 	"ControllersCheckRemoteWorkerCapacityRequest":  "CheckRemoteWorkerCapacityRequest",
 	"ControllersCheckRemoteWorkerCapacityResponse": "CheckRemoteWorkerCapacityResponse",
+	"ControllersRemoteWorkerSyncResponse":          "RemoteWorkerSyncResponse",
+	"ControllersRemoteWorkerHostSync":              "RemoteWorkerHostSync",
 	"ControllersCompletedTaskProjectParam":         "CompletedTaskProjectParam",
 	"ControllersCompletedTaskParams":               "CompletedTaskParams",
 	"ControllersListCompletedTasksQuery":           "ListCompletedTasksQuery",
@@ -893,6 +895,14 @@ func reportOperations() []operation {
 			{http.StatusBadRequest, envelope.APIError{}},
 			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodPost, path: "/api/v1/remote-worker-links/sync", id: "syncRemoteWorkerLinks", tag: "reports",
+		summary: "Link live remote workers on saved hosts (loopback only)",
+		resps: []respUnit{
+			{http.StatusOK, controllers.RemoteWorkerSyncResponse{}},
 			{http.StatusInternalServerError, envelope.APIError{}},
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},

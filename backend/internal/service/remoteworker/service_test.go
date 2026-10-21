@@ -58,6 +58,18 @@ func (f *fakeStore) UpsertRemoteWorkerLink(_ context.Context, link domain.Remote
 	return nil
 }
 
+func (f *fakeStore) InsertDiscoveredRemoteWorkerLink(_ context.Context, link domain.RemoteWorkerLink) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, existing := range f.stored {
+		if existing.HostID == link.HostID && existing.RemoteSessionID == link.RemoteSessionID {
+			return false, nil
+		}
+	}
+	f.stored = append(f.stored, link)
+	return true, nil
+}
+
 func (f *fakeStore) GetRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
