@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { NO_TAILSCALE_ADDRESS, registerRemotesIpc, remotesFilePath, tailnetAccountUrl, type RemotesIpcDeps } from "./remotes-main";
 import { RemoteRegistry } from "./remote-registry";
@@ -46,6 +46,19 @@ describe("remotesFilePath", () => {
 		vi.stubEnv("AO_DATA_DIR", "/tmp/ao-remote-proof");
 		try {
 			expect(remotesFilePath()).toBe("/tmp/ao-remote-proof/remotes.json");
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
+	it("shares the machine-level file with the daemons and honors AO_REMOTES_FILE", () => {
+		const home = homedir();
+		try {
+			vi.stubEnv("AO_DATA_DIR", join(home, ".ao", "dev", "data"));
+			expect(remotesFilePath()).toBe(join(home, ".ao", "remotes.json"));
+			vi.stubEnv("AO_DATA_DIR", "");
+			vi.stubEnv("AO_REMOTES_FILE", "/tmp/ao-remote-override.json");
+			expect(remotesFilePath()).toBe("/tmp/ao-remote-override.json");
 		} finally {
 			vi.unstubAllEnvs();
 		}
