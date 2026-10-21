@@ -93,6 +93,7 @@ type Service struct {
 	workerDelivery     ports.AgentMessenger
 	prRefresher        PRRefresher
 	checkouts          reviewcore.CheckoutReleaser
+	ciGate             CIGateReconciler
 	// engineTrigger indirects the engine's source-tagged trigger so the
 	// instrumented path can be exercised without standing up a full engine and
 	// its eighteen-method store. Defaulted in New; only tests replace it.
@@ -128,6 +129,17 @@ type Store interface {
 	ListPRReviews(ctx context.Context, prURL string) ([]domain.PullRequestReview, error)
 	ListPRComments(ctx context.Context, prURL string) ([]domain.PullRequestComment, error)
 	MarkPRCommentResolved(ctx context.Context, prURL, commentID string) (bool, error)
+}
+
+// CIGateReconciler drives a worker's PR draft flag from its current verdict.
+type CIGateReconciler interface {
+	ReconcileCIGate(ctx context.Context, id domain.SessionID) error
+}
+
+// WithCIGate reconciles the worker's PR draft state after a verdict is
+// recorded. Failures are logged; the periodic sweep retries them.
+func WithCIGate(r CIGateReconciler) Option {
+	return func(s *Service) { s.ciGate = r }
 }
 
 // PRRefresher fetches one pull request fresh from its provider and records it
@@ -808,7 +820,19 @@ func (s *Service) SubmitMany(ctx context.Context, workerID domain.SessionID, rev
 	if s.releasePanes != nil {
 		s.releasePanes(ctx, workerID)
 	}
+	s.reconcileCIGate(ctx, workerID)
 	return runs, nil
+}
+
+// reconcileCIGate applies the verdict to the PR draft flag. It runs after the
+// verdict is durable, so a provider failure never blocks review delivery.
+func (s *Service) reconcileCIGate(ctx context.Context, workerID domain.SessionID) {
+	if s.ciGate == nil {
+		return
+	}
+	if err := s.ciGate.ReconcileCIGate(ctx, workerID); err != nil {
+		slog.Warn("ci gate: reconcile after review failed", "session", workerID, "error", err)
+	}
 }
 
 // releaseCheckouts removes disposable review worktrees once no pass in their

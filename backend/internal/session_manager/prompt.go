@@ -26,6 +26,9 @@ type promptProject struct {
 	// WorkersRequestReview is the project's opt-in for workers to request an
 	// AO review of their own PR when it is ready.
 	WorkersRequestReview bool
+	// CIGateReview is true when the project holds PR CI until AO review
+	// (ciGate.mode=review). Orchestrator and coordinator prompts mention it.
+	CIGateReview bool
 }
 
 type taskPromptConfig struct {
@@ -49,7 +52,10 @@ type systemPromptConfig struct {
 	// OwnerCoordinatorSessionID is set for a worker owned by a live
 	// coordinator; it receives escalations instead of the root.
 	OwnerCoordinatorSessionID string
-	AdditionalSections        []string
+	// CIGateActive is the session's resolved CI gate (CIGateActive). A gated
+	// worker opens its PR as a draft until AO review approves the head.
+	CIGateActive       bool
+	AdditionalSections []string
 }
 
 type projectRulesConfig struct {
@@ -86,6 +92,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 	switch cfg.Role {
 	case sessionPromptRoleOrchestrator:
 		sections = append(sections, orchestratorSystemPrompt(cfg.Project))
+		if cfg.Project.CIGateReview {
+			sections = append(sections, ciGateCoordinationPrompt())
+		}
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+rules)
 		}
@@ -95,6 +104,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 			limit = domain.DefaultCoordinatorLimits.WorkersPerCoordinator
 		}
 		sections = append(sections, coordinatorSystemPrompt(cfg.Project, cfg.CoordinatorScope, limit))
+		if cfg.Project.CIGateReview {
+			sections = append(sections, ciGateCoordinationPrompt())
+		}
 		if rules := strings.TrimSpace(cfg.OrchestratorRules); rules != "" {
 			sections = append(sections, "## Project-Specific Orchestrator Rules\n"+
 				"These rules are written for the project root. The coordinator restrictions above override any rule below that conflicts with them, including rules about merging, closing issues, or spawning coordinators.\n\n"+rules)
@@ -113,6 +125,9 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		}
 		if strings.TrimSpace(cfg.Project.Repo) != "" {
 			sections = append(sections, workerNativeReviewPrompt(cfg.Project, orchestratorID != ""))
+			if cfg.CIGateActive {
+				sections = append(sections, workerCIGatePrompt(cfg.Project))
+			}
 		}
 		sections = append(sections, workerMultiPRPrompt(), workerContainerLabelPrompt(), workerGitIsolationPrompt())
 		if rules := strings.TrimSpace(cfg.ProjectRules); rules != "" {
@@ -157,6 +172,34 @@ You are a helper coordinator for project %s, not the project root. Your scope is
 - Report to the root with `+"`ao coordinator report`"+`, never `+"`ao report`"+` (that is for workers). Send a summary when you are assigned, when your state or a worker's state meaningfully changes, when your scope is done, and when you are blocked. Keep each summary short and do not forward raw worker conversation.
 - Escalate with `+"`ao coordinator report --state blocked --escalate <reason>`"+` and stop work on the affected item until the root answers. Reasons: `+"`overlapping_files`"+` (two workers touch the same files), `+"`unclear_acceptance`"+` (acceptance criteria are missing or ambiguous), `+"`worker_failed`"+` (a worker failed or is stuck), `+"`scope_decision`"+` (the decision is outside your scope), or `+"`other`"+` with a note.
 - If the root reassigns one of your workers, stop acting on it. If you are replaced or terminated, your workers return to the root; you do not need to clean them up.`, project.ID, scope, workerLimit)
+}
+
+// ciGateCoordinationPrompt tells the root and coordinators that worker PRs in
+// a gated project stay drafts until AO approves them.
+func ciGateCoordinationPrompt() string {
+	return `## CI Gate
+
+In this project worker PRs are drafts until AO review approves the head. Do not mark them ready by hand: do not run ` + "`gh pr ready`" + ` or ` + "`ao pr ready`" + `, except ` + "`ao pr ready`" + ` when a human asks, or when the session has no auto-review and the project uses ` + "`withoutAutoReview=manual`" + `.`
+}
+
+// workerCIGatePrompt is the draft-PR flow for a gated session. The project's
+// review opt-in decides where `ao review trigger` sits in the order.
+func workerCIGatePrompt(project promptProject) string {
+	reviewStep := "ask the user or the orchestrator whether to run `ao review trigger`"
+	if project.WorkersRequestReview {
+		reviewStep = "run `ao review trigger`"
+	}
+	return `## CI Gate
+
+This project holds PR CI until AO review approves the PR head, so your PR for this session is gated.
+
+- Open the PR as a draft: ` + "`gh pr create --draft ...`" + `. If you already opened it ready, run ` + "`gh pr ready --undo`" + ` once, immediately after creating it.
+- Do not run ` + "`gh pr ready`" + ` or ` + "`ao pr ready`" + `. AO marks the PR ready after its review approves the head. The only allowed form is ` + "`gh pr ready --undo`" + `.
+- While the PR is a draft only cheap checks run: comment policy, gitleaks, and issue policy. Full CI waits until review passes.
+- Run the project's local checks before pushing: build, lint, and unit tests for the touched packages. Remote CI does not catch them until review passes.
+- Address AO review findings and push. After approval the full CI runs, and its failures arrive as usual.
+
+The order is: draft PR, then local checks, then ` + reviewStep + `, then wait for AO.`
 }
 
 func standaloneWorkerSystemPrompt() string {
