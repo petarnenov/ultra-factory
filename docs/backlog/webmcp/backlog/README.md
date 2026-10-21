@@ -1,6 +1,6 @@
 # Backlog: WebMCP UI testing benchmark (key `WM`)
 
-Source: `../webmcp-report.md`.
+Source: `../webmcp-report.md`. Orchestrator instructions: `../orchestrator-prompt.md`.
 
 ## Structure
 
