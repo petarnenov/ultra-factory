@@ -14,8 +14,9 @@ and the dashboard), and the protocol in `docs/performance/webmcp/PROTOCOL.md`.
 
 - Base record: `frontend/e2e/chat-performance.spec.ts:41-58` (`label,
   commit, workload, repeat, browser, node, platform, arch, cpus, cpuModel,
-  totalMemoryBytes, viewport, timestamp, result`). Keep those names; add the
-  fields below.
+  totalMemoryBytes, viewport, timestamp, result`). Reuse the collection
+  method; the new schema below deliberately nests environment fields and
+  flattens the result, rather than preserving the old wire shape.
 - The renderer imports `record.ts` (dashboard) and so does the e2e code
   (`tsconfig.e2e.json` must include `src/renderer/benchmarks/record.ts`;
   check `include` there).
@@ -38,9 +39,10 @@ export type BenchRecord = {
   repeat: number; warmup: boolean;
   pass: boolean; error?: string;
   totalMs: number;                    // timed window, bridge steps excluded
+  assertMs: number;                   // measured assertion time, included in totalMs
   steps: BenchStep[];                 // [] for playwright
   jev?: { model: string; inputTokens: number; outputTokens: number;
-          attempts: { status: number; ms: number }[] };
+          attempts: { status: number | null; ms: number }[] };
 };
 export function validateRecord(r: unknown): asserts r is BenchRecord { /* explicit checks, throws Error listing missing fields */ }
 export const DRIVERS: Driver[] = ["playwright", "webmcp-scripted", "webmcp-jev"];
@@ -53,8 +55,8 @@ export const DRIVERS: Driver[] = ["playwright", "webmcp-scripted", "webmcp-jev"]
 
 ```ts
 export type BenchSummaryRow = { scenario: string; page: string; driver: Driver; n: number; passRate: number;
-  medianMs: number; minMs: number; maxMs: number; ratioToPlaywright: number | null;
-  jev?: { medianDecisionMs: number; medianExecMs: number; medianAssertMs: number; medianSteps: number; matchRate: number } };
+  medianMs: number | null; minMs: number | null; maxMs: number | null; ratioToPlaywright: number | null;
+  jev?: { medianDecisionMs: number | null; medianExecMs: number | null; medianAssertMs: number | null; medianSteps: number; matchRate: number } };
 export function summarize(records: BenchRecord[]): BenchSummaryRow[];   // pure; drops warmup; keeps failed repeats in n and passRate, excludes them from medians
 ```
 
@@ -98,3 +100,21 @@ export function summarize(records: BenchRecord[]): BenchSummaryRow[];   // pure;
 ## Dependencies
 
 None (parallel with WM-2).
+
+## Audit constraints — 2026-10-21
+
+- There are ten catalog scenarios plus the overhead series. Use six attempts
+  per driver/scenario (one warm-up plus five measured), independent tests,
+  `--workers=1 --retries=0`; do not skip the rest after a failed attempt.
+- Measure assertion time explicitly. Do not call `totalMs - decisionMs -
+  execMs` assertion time: that residual also includes browser transport and
+  driver overhead. Per-scenario component medians need not sum to the median
+  of totals; the dashboard and report must label that limitation.
+- Preserve failed attempts with their elapsed time and partial steps. Count
+  them in pass rate, exclude them from latency medians. When no measured
+  attempt passes, latency statistics and ratios are null, not zero or NaN.
+  Ratios are also null if the successful Playwright baseline is missing or zero.
+- HTTP attempt status is null for failures with no response; never invent a
+  status code. Include the terminal `done` decision's tokens and timing.
+- Imported TypeScript modules are followed by the compiler; an extra explicit
+  `include` entry is only needed if the file otherwise has no import/root.

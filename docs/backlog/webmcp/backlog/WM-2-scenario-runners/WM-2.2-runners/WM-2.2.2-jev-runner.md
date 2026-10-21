@@ -8,7 +8,7 @@
 
 Add `frontend/e2e/webmcp/drivers/jev.ts`: at each step the TypeSafe `jev`
 model chooses the next tool from the route's registered tools plus `done`;
-the driver executes it with the scenario's `jevArgs`, and the loop ends on
+the driver executes the chosen phase action with its fixed catalog arguments, and the loop ends on
 `done` or a step cap.
 
 ## Decisions (resolved)
@@ -33,59 +33,39 @@ the driver executes it with the scenario's `jevArgs`, and the loop ends on
   HTTP 200 in **151 / 220 / 242 ms**. Vendor-cited p50 is 236–276 ms.
 - A Choice question accepts up to 255 options; the per-page tool count is
   4–7 plus `done`.
-- JEV does not generate strings: every tool call uses `scenario.jevArgs[tool]`
-  verbatim.
+- JEV does not generate strings: every tool call uses the selected phase action’s catalog arguments
+  verbatim. Distinct action IDs may map to the same tool with different arguments.
 
 ## Blueprint
 
-```ts
-// frontend/e2e/webmcp/drivers/jev.ts
-import { choice, TypeSafeClient, RateLimitError, APIError } from "@typesafe-ai/sdk";
+The driver follows the shared scenario phases from WM-2.1.1:
 
-export const jevAvailable = Boolean(process.env.TYPESAFE_API_KEY ?? process.env.JEV_MAF_LAB);
+1. Create the client with the options above, wait for the page tools, and
+   start the measurement clock. Keep accumulated bridge time separately.
+2. In each phase, offer JEV the currently valid catalog action IDs plus
+   `done`, with tool descriptions and fixed arguments visible in the state.
+   Resolve the selected ID to its tool and arguments; do not key arguments
+   solely by tool name (`settings.select_section` selects both updates and help).
+3. Record every decision, including `done`, with model, tokens, duration and
+   HTTP attempts before branching on the chosen action. Execute tools through
+   `page.evaluate`, recording browser execution and round-trip durations.
+4. Run that phase's assertions before advancing. Initial/intermediate checks
+   (empty composer, building column, update percent) cannot be deferred until
+   the final state. Run each external bridge step exactly once at its phase
+   boundary and accumulate its duration for exclusion by all drivers.
+5. `done` succeeds only after every required phase and final assertion has
+   passed. Early `done`, an invalid action, a tool/assertion error, or the
+   bounded action cap produces a failed record with elapsed time and partial
+   evidence. Include a terminal decision allowance for read-only scenarios;
+   never derive a zero cap from the count of explicit `tool` steps alone.
+6. Return total elapsed time minus bridge time, step records, and JEV metadata.
+   Track assertion duration explicitly for the summary's assertion breakdown.
 
-export const jev: Driver = async (page, host, s) => {
-  const client = new TypeSafeClient({ apiKey: process.env.TYPESAFE_API_KEY ?? process.env.JEV_MAF_LAB,
-    retry: { maxRetries: 0 }, timeout: 10_000, logLevel: "off" });
-  await waitForTools(page, `${s.page}.`);
-  const tools = await page.evaluate(() => window.__aoWebMcp!.listTools());
-  const scriptedOrder = s.tools.filter(t => t.kind === "tool").map(t => t.name);
-  const cap = scriptedOrder.length * 3;
-  const history: string[] = []; const steps: StepTiming[] = []; let lastRead: unknown = null;
-  const t0 = performance.now();
-  for (let i = 0; i < cap; i++) {
-    // bridge steps fire when the scripted order says they are due (external to the agent)
-    await runDueBridgeSteps(s, history, page, t0adjust);
-    const criteria = Object.fromEntries([...tools.map(t => [t.name, t.description]), ["done", "The goal is reached; stop."]]);
-    const state = JSON.stringify({ goal: s.jevGoal, called: history, lastRead }, null, 0);
-    const d0 = performance.now();
-    const res = await withOneRetry(() => client.systemOne({ state, questions: { next: choice("Which tool should be called next?", criteria) } }));
-    const decisionMs = performance.now() - d0;
-    const { choice: name, confidence } = res.answers.next;
-    if (name === "done") { steps.push({ index: i, tool: "done", execMs: 0, roundTripMs: 0, decisionMs, choice: name, confidence }); break; }
-    const a = performance.now();
-    const { execMs, result } = await page.evaluate(async ([n, args]) => { const st = performance.now();
-      const r = await window.__aoWebMcp!.callTool(n, args); return { execMs: performance.now() - st, result: r }; }, [name, s.jevArgs[name] ?? {}] as const);
-    if (name.endsWith(".read")) lastRead = result;
-    history.push(name);
-    steps.push({ index: i, tool: name, execMs, roundTripMs: performance.now() - a, decisionMs, choice: name, confidence,
-      matchedScripted: scriptedOrder[history.length - 1] === name });
-    jevMeta.push({ model: res.model, usage: res.usage });
-  }
-  let pass = true, error: string | undefined;
-  try { for (const e of s.tools.filter(t => t.kind !== "tool" && t.kind !== "bridge")) await runExpect(page, host, e); } catch (e) { pass = false; error = String(e); }
-  if (history.length >= cap) { pass = false; error ??= "step cap reached"; }
-  return { pass, totalMs: performance.now() - t0, steps, error };
-};
-```
+`withOneRetry` retries only 429/5xx once, with a bounded wait and timeout;
+it records both attempts and retry waiting in decision time. A missing HTTP
+response needs a nullable status, not a fabricated success or failure code.
+No test-level retry reruns the entire scenario automatically.
 
-- `withOneRetry` catches `RateLimitError` or `APIError` with status ≥ 500,
-  waits `Retry-After` or 1 s, retries once, and records `httpStatus` of both
-  attempts in `record.jev.attempts[]`.
-- `runDueBridgeSteps`: a bridge step in `s.tools` at position *k* fires once
-  the agent has called the tool at position *k − 1* (so "setStatus" happens
-  after the first `board.read`, as in the original spec). Bridge time is
-  subtracted from `totalMs`.
 - Prompt text and criteria strings are fixed in code so token counts are
   comparable across repeats.
 
@@ -97,12 +77,13 @@ export const jev: Driver = async (page, host, s) => {
 - [ ] Record `jev: { model, inputTokens, outputTokens, attempts: [{status,
   ms}] }` and per-step `decisionMs/choice/confidence/matchedScripted`.
 - [ ] Unit test the loop with a stubbed client (choices scripted): matched
-  path passes; a `done` at step 0 fails the expects; cap reached → `pass=false`.
+  path passes; a `done` at step 0 fails incomplete phases; cap reached → `pass=false`.
 
 ## Acceptance criteria
 
-- [ ] With the key, all nine scenarios produce a JEV record each, pass or
-  fail; failures carry `error` and are not retried.
+- [ ] With the key, all ten scenarios produce a JEV record each, pass or
+  fail; failures carry `error` and do not skip later attempts. Test-level
+  retries are disabled; the bounded HTTP retry above remains supported.
 - [ ] `decisionMs` is recorded separately from `execMs`/`roundTripMs`.
 - [ ] Without a key, the bench spec runs the other two drivers and prints the
   skip reason once.

@@ -29,7 +29,7 @@ comparison.
 ```markdown
 # WebMCP UI testing benchmark
 
-Scope: three pages, nine scenarios, three drivers, one machine. Pre-measurement analysis and sources:
+Scope: three pages, ten scenarios, three drivers, one machine. Pre-measurement analysis and sources:
 ../../backlog/webmcp/webmcp-report.md. Dashboard: `/#/benchmarks`.
 
 ## What was compared

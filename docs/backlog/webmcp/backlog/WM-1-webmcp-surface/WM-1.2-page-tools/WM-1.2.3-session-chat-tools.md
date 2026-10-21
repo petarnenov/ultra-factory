@@ -58,7 +58,7 @@ export type ChatRead = {
 
 export function chatTools(ctx: {
   sessionId: string;
-  snapshot: () => ConversationSnapshot | undefined; // queryClient.getQueryData(conversationQueryKey)
+  snapshot: () => ConversationSnapshot | undefined; // merged snapshot from useConversation
   composerText: () => string;                       // editor.getEditorState → text
   editor: ComposerEditorHandle;                     // setText / clear / focus
   suggestion: () => ComposerPromptSuggestion | null;
@@ -66,7 +66,7 @@ export function chatTools(ctx: {
   dismissSuggestion: () => void;                    // ComposerEditor dismissSuggestion
   submit: () => Promise<void>;                      // ChatComposer submit()
   retry: (turnId: string) => Promise<void>;         // commands.retryControl.retry
-  retryError: () => string | undefined;             // commands.retryControl.error?.message
+  retryError: () => string | undefined;             // commands.retryControl.error
   subscribe: (cb: () => void) => () => void;        // conversation query cache + editor update listener
 }): ToolDescriptor[] {
   return [
@@ -93,7 +93,7 @@ export function chatTools(ctx: {
   `ComposerEditor` (has the editor and the suggestion); `chat.send`, `chat.retry`,
   `chat.read` (conversation part) in `SessionChatSurface` (has `commands`).
   `chat.read` merges both halves via a tiny shared module-level store keyed by
-  `sessionId` in `tools/chat.ts` so the tool is one descriptor.
+  `(hostId, sessionId)` in `tools/chat.ts` so the tool is one descriptor.
 - `message_sent` is observed through `snapshot().items` growing with a user
   message whose `text` equals `value` (the e2e spec intercepts the POST; the
   catalog records the sent text through the same `page.route` as the original
@@ -130,3 +130,14 @@ export function chatTools(ctx: {
 ## Dependencies
 
 WM-1.1.1.
+
+## Audit constraints — 2026-10-21
+
+At `dev` `211848e06`, `useConversation` selects a merged snapshot from
+`InfiniteData<ConversationSnapshot>`; the raw query-cache value is not a
+snapshot. Read the same merged, host-scoped state as the UI. The retry error
+is already a string. Reuse the retry button's eligibility and disabled guards
+(`turn`, pending retry, and `newWorkDisabled`), and the composer's empty-draft
+and suggestion guards; a tool must not bypass them. Key shared state by host
+and session, and clean it up on either identity change. Use current state
+getters/subscriptions for waits instead of captured render-time values.

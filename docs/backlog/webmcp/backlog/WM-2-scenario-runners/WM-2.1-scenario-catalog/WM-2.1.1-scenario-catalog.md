@@ -14,12 +14,13 @@ the same steps with the same checks.
 
 - The Playwright driver is a **copy of the original spec's steps inside the
   bench spec** (same locators, same expects), not a re-run of the original
-  file. Original specs stay untouched.
+  file. Original assertions and behavior stay unchanged; shared setup
+  helpers may be extracted as described below.
 - Scenarios that need a test-bridge push (`__aoFakeAgent.setStatus`,
   `__aoFakeUpdates.setStatus`) are **included**; the push is a `bridge` step
   executed identically by all drivers and excluded from the timed window.
 
-## Scenario list (9)
+## Scenario list (10)
 
 | id | page | source spec · title | steps (tool driver) |
 |---|---|---|---|
@@ -57,8 +58,10 @@ export type Scenario = {
   source: { file: string; title: string };
   setup: (page: Page, host: HostState) => Promise<void>;   // installFakeAgent / installFakeBridge / page.route
   tools: Step[];                                           // scripted + JEV
-  playwright: (page: Page, host: HostState) => Promise<void>; // copy of the original spec body
-  jevArgs: Record<string, Record<string, unknown>>;        // args per tool for the JEV driver
+  playwrightReady: (page: Page, host: HostState) => Promise<void>; // untimed readiness
+  playwright: (page: Page, host: HostState) => Promise<{ bridgeMs: number; assertMs: number }>;
+  // Arguments belong to a phase/action, since one tool can be called with different arguments.
+  jevActions: { id: string; phase: string; tool: string; args: Record<string, unknown> }[];
   jevGoal: string;                                         // one sentence
 };
 export const scenarios: Scenario[] = [...];
@@ -83,7 +86,7 @@ export async function waitForTools(page: Page, prefix: string): Promise<void> { 
 ## Subtasks
 
 - [ ] Extract `openChat` and `installRetryConversation` to `e2e/support/`.
-- [ ] Write the nine scenarios with `tools`, `playwright`, `jevArgs`, `jevGoal`.
+- [ ] Write the ten scenarios with `tools`, `playwrightReady`, `playwright`, `jevActions`, `jevGoal`.
 - [ ] Write `assert.ts` (`callTool`, `waitForTools`, `runExpect`).
 - [ ] `frontend/e2e/webmcp/README.md`: step grammar, the table above, the
   exclusions.
@@ -92,7 +95,7 @@ export async function waitForTools(page: Page, prefix: string): Promise<void> { 
 
 ## Acceptance criteria
 
-- [ ] Nine scenarios; each `source` test exists and passes unchanged.
+- [ ] Ten scenarios; each `source` test exists and passes unchanged.
 - [ ] `webmcp-catalog.spec.ts` passes (all tool names registered on the
   scenario's route).
 - [ ] `npm run typecheck:e2e` passes; `scenarios.ts` imports tool arg types
@@ -105,3 +108,14 @@ export async function waitForTools(page: Page, prefix: string): Promise<void> { 
 ## Dependencies
 
 WM-1.2.1, WM-1.2.2, WM-1.2.3.
+
+## Audit constraints — 2026-10-21
+
+The table contains ten scenarios (four board, three settings, three chat).
+The source specs at `dev` `211848e06` contain the named tests. The
+`settings.sections` scenario selects `updates` and then `help` with the same
+tool, so arguments cannot be keyed by tool name alone. Define ordered phases
+with action candidates, intermediate assertions, and external bridge steps.
+All drivers must validate each intermediate state before advancing to the
+next phase, and exclude only the measured bridge-call duration from timing.
+Keep post-bridge UI settling and assertions inside the timed window.
