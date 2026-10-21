@@ -97,8 +97,9 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 			if (editing && !editing.hostId && editing.url !== nextUrl) await aoBridge.remotes.remove(editing.url);
 			const current = (await aoBridge.remotes.list()).find((item) => item.url === nextUrl);
 			if (current?.hostId && cloudBaseUrl) {
-				const token = await aoBridge.remotes.issueAccountToken(current.url);
-				await saveAccountRemoteHost(cloudBaseUrl, { hostId: current.hostId, label: current.label, url: current.url, token });
+				// Sync the host's Tailscale address, not the one typed here.
+				const { token, url: accountUrl } = await aoBridge.remotes.issueAccountToken(current.url);
+				await saveAccountRemoteHost(cloudBaseUrl, { hostId: current.hostId, label: current.label, url: accountUrl, token });
 			}
 			await load();
 			resetForm();

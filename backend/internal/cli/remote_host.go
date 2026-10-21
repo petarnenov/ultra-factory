@@ -72,7 +72,7 @@ func newRemoteHostCommand(ctx *commandContext) *cobra.Command {
 				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Remote host enabled\nHost ID: %s\n", status.HostID); err != nil {
 					return err
 				}
-				publicAddress := false
+				publicAddress, tailscaleAddress := false, false
 				for _, endpoint := range status.Endpoints {
 					scheme := "http"
 					if endpoint.Secure {
@@ -81,7 +81,15 @@ func newRemoteHostCommand(ctx *commandContext) *cobra.Command {
 					if endpoint.Kind == "tunnel" {
 						publicAddress = true
 					}
+					if endpoint.Kind == "tailscale" {
+						tailscaleAddress = true
+					}
 					if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Address: %s://%s\n", scheme, net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port))); err != nil {
+						return err
+					}
+				}
+				if !tailscaleAddress && !status.LoopbackOnly && len(status.Endpoints) > 0 {
+					if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Tailscale: no address; AO Cloud account sync uses only the Tailscale address, so install Tailscale and join your tailnet"); err != nil {
 						return err
 					}
 				}

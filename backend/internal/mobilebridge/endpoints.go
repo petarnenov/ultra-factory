@@ -1,6 +1,9 @@
 package mobilebridge
 
-import "net"
+import (
+	"net"
+	"strconv"
+)
 
 // EndpointKind names a way to reach this daemon. The phone races every
 // advertised endpoint and prefers the lowest-latency kind that answers.
@@ -98,4 +101,15 @@ func AdvertisedEndpoints(port int, tunnel *TunnelEndpoint) []Endpoint {
 	return LocalEndpoints(ifaces, func(i net.Interface) ([]net.Addr, error) {
 		return i.Addrs()
 	}, port, tunnel)
+}
+
+// TailscaleURL is the account address: the first tailnet endpoint, or "".
+// It never falls back to LAN, which other subnets cannot reach.
+func TailscaleURL(endpoints []Endpoint) string {
+	for _, endpoint := range endpoints {
+		if endpoint.Kind == KindTailscale && endpoint.Host != "" && endpoint.Port > 0 {
+			return "http://" + net.JoinHostPort(endpoint.Host, strconv.Itoa(endpoint.Port))
+		}
+	}
+	return ""
 }

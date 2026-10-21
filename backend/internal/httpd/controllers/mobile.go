@@ -41,6 +41,9 @@ type MobileController struct{ Bridge mobileBridge }
 type RemoteHostAccountTokenResponse struct {
 	HostID string `json:"hostId"`
 	Token  string `json:"token"`
+	// URL is the host's Tailscale address, the only address it registers
+	// under an account. Empty when the machine has no Tailscale address.
+	URL string `json:"url,omitempty"`
 }
 
 // IssueAccountToken returns a credential for account discovery after the caller
@@ -747,9 +750,14 @@ func (b *BridgeService) RestoreOnBoot(state mobilebridge.State) error {
 // IssueAccountToken returns the existing credential for a retry by the same
 // account, or replaces it after the caller proves the original pairing
 // password while linking a different account.
-func (b *BridgeService) IssueAccountToken(password, accountID string) (RemoteHostAccountTokenResponse, error) {
+func (b *BridgeService) IssueAccountToken(password, accountID string) (result RemoteHostAccountTokenResponse, err error) {
 	b.transitionMu.Lock()
 	defer b.transitionMu.Unlock()
+	defer func() {
+		if err == nil {
+			result.URL = mobilebridge.TailscaleURL(b.AdvertisedEndpoints())
+		}
+	}()
 	state, err := mobilebridge.Load(b.ConfigPath)
 	if err != nil {
 		return RemoteHostAccountTokenResponse{}, err
