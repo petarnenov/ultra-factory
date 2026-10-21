@@ -14293,6 +14293,8 @@ components:
           type: string
         token:
           type: string
+        url:
+          type: string
       required:
       - hostId
       - token
@@ -19993,6 +19995,14 @@ components:
           type: string
         model:
           maxLength: 256
+          type: string
+        operatorInitiated:
+          type: boolean
+        origin:
+          enum:
+          - ui
+          - cli
+          - api
           type: string
         parentSessionId:
           type: string

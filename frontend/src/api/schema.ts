@@ -4767,6 +4767,7 @@ export interface components {
         ControllersRemoteHostAccountTokenResponse: {
             hostId: string;
             token: string;
+            url?: string;
         };
         ControllersRequestRereviewRequest: {
             /** @description Tracked pull request URL. Required when the session has multiple PRs. */
@@ -6924,6 +6925,9 @@ export interface components {
             /** @enum {string} */
             mode?: "chat" | "tui";
             model?: string;
+            operatorInitiated?: boolean;
+            /** @enum {string} */
+            origin?: "ui" | "cli" | "api";
             parentSessionId?: string;
             projectId?: string;
             prompt?: string;

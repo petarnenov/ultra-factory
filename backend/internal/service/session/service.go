@@ -55,6 +55,8 @@ type Store interface {
 	// SetCoordinatorLimits writes a live coordinator's worker limit and host
 	// slots with their audit row atomically. A nil limit keeps the project value.
 	SetCoordinatorLimits(ctx context.Context, id domain.SessionID, limit *int, slots []domain.HostSlot, event domain.CoordinatorLimitEvent, at time.Time) error
+	// AppendCoordinatorOperatorEvent audits an operator coordinator spawn.
+	AppendCoordinatorOperatorEvent(ctx context.Context, event domain.CoordinatorOperatorEvent) error
 	GetDisplayPRFactsForSession(ctx context.Context, id domain.SessionID) (domain.PRFacts, bool, error)
 	ListPRFactsForSession(ctx context.Context, id domain.SessionID) ([]domain.PRFacts, error)
 	ListPRFactsForSessions(ctx context.Context, ids []domain.SessionID) (map[domain.SessionID][]domain.PRFacts, error)
@@ -424,6 +426,9 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	}
 	if len(cfg.CoordinatorHostSlots) > 0 && cfg.Kind != domain.KindCoordinator {
 		return domain.Session{}, 0, 0, apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "hostSlots is supported for coordinator sessions only", map[string]any{"field": "hostSlots"})
+	}
+	if cfg.OperatorInitiated && cfg.Kind != domain.KindCoordinator {
+		return domain.Session{}, 0, 0, apierr.New(apierr.KindForbidden, "OPERATOR_MARKER_NOT_ALLOWED", "operatorInitiated is supported for coordinator sessions only", map[string]any{"field": "operatorInitiated"})
 	}
 	if cfg.Kind == domain.KindCoordinator {
 		return s.spawnCoordinator(ctx, cfg)

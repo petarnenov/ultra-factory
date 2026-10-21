@@ -140,3 +140,38 @@ func TestHostCanPublishRotatedAddressWithScopedDigest(t *testing.T) {
 		t.Fatal("rotated address was not saved")
 	}
 }
+
+func TestHostCanPublishOnlyTailnetPlainHTTPAddress(t *testing.T) {
+	cipher, _ := secrets.New(make([]byte, 32))
+	store := &remoteHostFakeStore{hosts: map[string]domain.RemoteHost{}}
+	s := New(Options{Store: store, SecretCipher: cipher, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	hostID := "h_00000000-0000-0000-0000-000000000001"
+	owner := "00000000-0000-0000-0000-000000000002"
+	token := strings.Repeat("a", 64)
+	w := httptest.NewRecorder()
+	s.putRemoteHost(w, hostRequest(http.MethodPut, hostID, `{"label":"IMac","url":"http://192.168.0.126:57451","token":"`+token+`"}`, owner))
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("registration: %d", w.Code)
+	}
+	hash := sha256.Sum256([]byte(token))
+	for _, tc := range []struct {
+		url  string
+		want int
+	}{
+		{"http://192.168.0.200:57451", http.StatusBadRequest},
+		{"http://example.com:57451", http.StatusBadRequest},
+		{"http://imac.tail1234.ts.net:57451", http.StatusNoContent},
+		{"http://100.100.160.17:57451", http.StatusNoContent},
+	} {
+		r := hostRequest(http.MethodPost, hostID, `{"url":"`+tc.url+`"}`, owner)
+		r.Header.Set("Authorization", "Bearer "+hex.EncodeToString(hash[:]))
+		w := httptest.NewRecorder()
+		s.updateRemoteHostAddress(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("publish %s: got %d want %d: %s", tc.url, w.Code, tc.want, w.Body.String())
+		}
+	}
+	if store.hosts[owner+":"+hostID].URL != "http://100.100.160.17:57451" {
+		t.Fatal("LAN registration was not moved to the Tailscale address")
+	}
+}

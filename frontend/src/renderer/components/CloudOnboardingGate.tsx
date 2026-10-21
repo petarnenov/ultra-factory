@@ -7,6 +7,7 @@ import { cloudBillingQueryKey } from "../hooks/useCloudOffering";
 import { cloudMeQueryKey } from "../lib/cloud-offering";
 import { cloudProjectsQueryKey, cloudSessionsQueryKey } from "../hooks/useWorkspaceQuery";
 import { providerConnectionsQueryKey } from "../hooks/useProviderConnections";
+import { useUiStore } from "../stores/ui-store";
 import { CloudLocalSignInDialog } from "./CloudLocalSignInDialog";
 
 // Mounted once at the app root. Clears cached cloud data on sign-out and renders
@@ -14,6 +15,7 @@ import { CloudLocalSignInDialog } from "./CloudLocalSignInDialog";
 // lives only on the Harness settings page.
 export function CloudOnboardingGate() {
 	const { cloudEnabled } = useCloudGate();
+	const developerMode = useUiStore((state) => state.developerMode);
 	const { status } = useCloudSession();
 	const queryClient = useQueryClient();
 
@@ -30,7 +32,9 @@ export function CloudOnboardingGate() {
 		queryClient.removeQueries({ queryKey: providerConnectionsQueryKey });
 	}, [status, queryClient]);
 
-	if (!cloudEnabled) return null;
+	// Developer-mode remote hosts offer sign-in without the cloud offering, so
+	// the dialog must mount under the same gate as those entry points.
+	if (!cloudEnabled && !developerMode) return null;
 	return (
 		<>
 			<CloudLocalSignInDialog />

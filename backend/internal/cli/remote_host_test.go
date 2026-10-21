@@ -43,7 +43,7 @@ func TestRemoteHostCLIUsesLocalControlAPI(t *testing.T) {
 		want       []string
 		absent     string
 	}{
-		{"enable", "enable", []string{"POST /api/v1/mobile/enable-lan-only"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, ""},
+		{"enable", "enable", []string{"POST /api/v1/mobile/enable-lan-only"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret", "Tailscale: no address"}, ""},
 		{"status", "status", []string{"GET /api/v1/mobile/status"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, ""},
 		{"disable", "disable", []string{"POST /api/v1/mobile/disable"}, []string{"disabled"}, "pairing-secret"},
 	} {
@@ -263,5 +263,22 @@ func TestRemoteHostCLIHeadlessStartupHint(t *testing.T) {
 	_, _, err := executeCLI(t, Deps{}, "remote-host", "enable")
 	if err == nil || !strings.Contains(err.Error(), "ao daemon") {
 		t.Fatalf("missing daemon error = %v, want headless startup hint", err)
+	}
+}
+
+func TestRemoteHostCLIOmitsTailscaleNoticeWithTailnetAddress(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"enabled":true,"hostId":"host-a","endpoints":[{"kind":"lan","host":"192.168.1.10","port":3011,"secure":false},{"kind":"tailscale","host":"100.106.144.10","port":3011,"secure":false}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+	out, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "remote-host", "status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "http://100.106.144.10:3011") || strings.Contains(out, "Tailscale: no address") {
+		t.Fatalf("unexpected output %q", out)
 	}
 }

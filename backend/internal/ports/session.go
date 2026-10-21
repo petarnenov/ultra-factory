@@ -49,6 +49,11 @@ type SpawnConfig struct {
 	CoordinatorAgent *domain.AgentSelection
 	// AgentProfileID is set by the profile pick and recorded on the session.
 	AgentProfileID string
+	// OperatorInitiated starts a coordinator for the live root and audits
+	// the spawn. The parent is then resolved, not supplied.
+	OperatorInitiated bool
+	// OperatorOrigin is ui, cli or api, set with OperatorInitiated.
+	OperatorOrigin string
 	// CoordinatorHostSlots are the coordinator's validated, normalized host
 	// slots. Coordinator spawns only.
 	CoordinatorHostSlots []domain.HostSlot

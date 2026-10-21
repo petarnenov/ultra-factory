@@ -3,7 +3,7 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { registerRemotesIpc, remotesFilePath, type RemotesIpcDeps } from "./remotes-main";
+import { NO_TAILSCALE_ADDRESS, registerRemotesIpc, remotesFilePath, tailnetAccountUrl, type RemotesIpcDeps } from "./remotes-main";
 import { RemoteRegistry } from "./remote-registry";
 import { createLocalHostIdentity } from "./remote-request";
 
@@ -53,6 +53,16 @@ describe("remotesFilePath", () => {
 });
 
 describe("registerRemotesIpc", () => {
+	it("keeps a locally paired LAN URL when the account directory returns the Tailscale URL", async () => {
+		const file = await tempFile();
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
+		await ipc.invoke("remotes:importAccountHost", TEST_ACCOUNT, { hostId: "h_workbox", label: "New name", url: "http://100.100.160.17:57451", password: "a".repeat(64) });
+		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([
+			{ hostId: "h_workbox", label: "New name", url: "http://192.0.2.1:1", password: "old", accountUserId: TEST_ACCOUNT },
+		]);
+	});
+
 	it("hides this installation without deleting its account record or original password", async () => {
 		const file = await tempFile();
 		const original = await readFile(file, "utf8");
@@ -444,5 +454,39 @@ describe("registerRemotesIpc", () => {
 		]);
 		const saved = JSON.parse(await readFile(file, "utf8")) as { remotes: Array<{ password: string }> };
 		expect(saved.remotes[0]?.password).toBe("pairing-password");
+	});
+});
+
+describe("account host address", () => {
+	it.each([
+		["http://100.100.160.17:57451", "http://100.100.160.17:57451"],
+		["http://imac.tail1234.ts.net:57451/", "http://imac.tail1234.ts.net:57451"],
+		["http://[fd7a:115c:a1e0::1]:3011", "http://[fd7a:115c:a1e0::1]:3011"],
+	])("accepts the Tailscale address %s", (raw, want) => {
+		expect(tailnetAccountUrl(raw)).toBe(want);
+	});
+
+	it.each([undefined, "", "http://192.168.0.126:57451", "http://10.0.0.5:3011", "https://abc.trycloudflare.com", "http://100.128.0.1:3011"])("refuses %s instead of falling back to a LAN address", (raw) => {
+		expect(() => tailnetAccountUrl(raw)).toThrow(NO_TAILSCALE_ADDRESS);
+	});
+
+	it.each([
+		["http://100.100.160.17:57451", { url: "http://100.100.160.17:57451" }],
+		[undefined, null],
+	])("links the account by the host's Tailscale address (%s)", async (reported, expected) => {
+		const file = await tempFile();
+		const token = "a".repeat(64);
+		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ hostId: "h_workbox", token, url: reported }), { status: 200 }));
+		vi.stubGlobal("fetch", fetchMock);
+		try {
+			const ipc = fakeIpc();
+			registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, identity: async () => "h_workbox" });
+			const issued = ipc.invoke("remotes:issueAccountToken", "http://192.0.2.1:1");
+			if (expected) await expect(issued).resolves.toEqual({ token, ...expected });
+			else await expect(issued).rejects.toThrow(NO_TAILSCALE_ADDRESS);
+			expect(fetchMock).toHaveBeenCalledOnce();
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });
