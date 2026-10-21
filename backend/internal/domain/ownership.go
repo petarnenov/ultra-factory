@@ -82,3 +82,18 @@ type SessionPRReadyEvent struct {
 	Ready          bool
 	CreatedAt      time.Time
 }
+
+// SessionCIGateEvent is one append-only audit row for a draft/ready flip the
+// daemon made from an AO review verdict (CI gate).
+type SessionCIGateEvent struct {
+	ID        int64
+	SessionID SessionID
+	PRURL     string
+	HeadSHA   string
+	// Kind is "ci_gate_ready" or "ci_gate_draft".
+	Kind string
+	// Reason names the verdict that drove the flip, or "already_in_state"
+	// when the PR already had the desired draft flag.
+	Reason    string
+	CreatedAt time.Time
+}

@@ -1278,3 +1278,32 @@ func TestTriggerRequestedNamedPRAttachesItAndTargetsIt(t *testing.T) {
 		t.Fatalf("err = %v, want the attach failure for an untracked PR", err)
 	}
 }
+
+type fakeCIGate struct {
+	calls int
+	err   error
+}
+
+func (f *fakeCIGate) ReconcileCIGate(context.Context, domain.SessionID) error {
+	f.calls++
+	return f.err
+}
+
+// The CI gate runs after the verdict is recorded, and its failure must not
+// fail the submit: review delivery never waits on the provider flip.
+func TestSubmitReconcilesCIGateWithoutFailingOnError(t *testing.T) {
+	st := &fakeStore{
+		ok:  true,
+		run: domain.ReviewRun{ID: "run-1", SessionID: "mer-1", BatchID: "batch-1", PRURL: "pr1", TargetSHA: "sha1", Status: domain.ReviewRunRunning},
+		prs: []domain.PullRequest{{URL: "pr1", HeadSHA: "sha1"}},
+	}
+	gate := &fakeCIGate{err: errors.New("github 503")}
+	svc := New(nil, st, WithCIGate(gate))
+
+	if _, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictApproved, "body", "987"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if gate.calls != 1 {
+		t.Fatalf("CI gate reconciled %d times, want 1", gate.calls)
+	}
+}
