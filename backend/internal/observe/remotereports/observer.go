@@ -87,8 +87,8 @@ type Observer struct {
 	refused  map[string]string
 	// legacyWarned: hosts already warned as predating per-puller acks.
 	legacyWarned map[string]bool
-	// expiredSeen: the expired count last logged per link, sent back so the
-	// host subtracts it.
+	// expiredSeen: the expired total last logged per link, sent back as
+	// expiredSeen so the host reports only what came after it.
 	expiredSeen map[linkRef]int
 	// unrecorded: delivered IDs per link whose record write failed;
 	// every pass retries the write until it succeeds.
@@ -297,7 +297,7 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 	if err != nil {
 		return nil, err
 	}
-	o.noteExpired(ref, client.label, result.expired)
+	o.noteExpired(ref, client.label, result.unseen, result.total)
 	o.noteLegacyHost(client)
 	if len(result.reports) == 0 && len(result.rejected) == 0 {
 		if result.more {
@@ -614,14 +614,14 @@ func (o *Observer) expiredSeenFor(ref linkRef) int {
 	return o.expiredSeen[ref]
 }
 
-// noteExpired logs the reports the remote expired before this daemon pulled
-// them, and remembers the count so the next pull reports it as seen.
-func (o *Observer) noteExpired(ref linkRef, label string, expired int) {
+// noteExpired logs the unseen expired reports, then records the total for the
+// next pull. It runs only after a response, so a lost one is retried.
+func (o *Observer) noteExpired(ref linkRef, label string, unseen, total int) {
 	o.mu.Lock()
-	o.expiredSeen[ref] = expired
+	o.expiredSeen[ref] = total
 	o.mu.Unlock()
-	if expired > 0 {
-		o.log.Warn("remote reports: reports expired before this daemon pulled them", "host", label, "session", ref.session, "expired", expired)
+	if unseen > 0 {
+		o.log.Warn("remote reports: reports expired before this daemon pulled them", "host", label, "session", ref.session, "expired", unseen)
 	}
 }
 

@@ -151,17 +151,12 @@ SET delivery_state = 'acknowledged', claim_token = sqlc.arg(claim_token),
 WHERE id = sqlc.arg(id) AND session_id = sqlc.arg(session_id) AND delivery_state = 'pending';
 
 -- name: TouchReportPuller :exec
-INSERT INTO report_pullers (session_id, puller_id, expired_count, last_pulled_at)
+INSERT INTO report_pullers (session_id, puller_id, expired_total, last_pulled_at)
 VALUES (sqlc.arg(session_id), sqlc.arg(puller_id), 0, sqlc.arg(pulled_at))
 ON CONFLICT (session_id, puller_id) DO UPDATE SET last_pulled_at = excluded.last_pulled_at;
 
--- name: ReduceReportPullerExpired :exec
-UPDATE report_pullers
-SET expired_count = MAX(0, expired_count - sqlc.arg(seen))
-WHERE session_id = sqlc.arg(session_id) AND puller_id = sqlc.arg(puller_id);
-
--- name: GetReportPullerExpired :one
-SELECT expired_count FROM report_pullers
+-- name: GetReportPullerExpiredTotal :one
+SELECT expired_total FROM report_pullers
 WHERE session_id = sqlc.arg(session_id) AND puller_id = sqlc.arg(puller_id);
 
 -- name: ListReportPullerAckedIDs :many
@@ -178,7 +173,7 @@ ON CONFLICT (report_id, puller_id) DO NOTHING;
 
 -- name: AddExpiredToReportPullers :exec
 UPDATE report_pullers
-SET expired_count = expired_count + (
+SET expired_total = expired_total + (
     SELECT COUNT(*) FROM reports r
     WHERE r.session_id = sqlc.arg(session_id)
       AND r.delivery_state = 'pending'

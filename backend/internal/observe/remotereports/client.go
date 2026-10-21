@@ -78,9 +78,10 @@ type wireAPIError struct {
 
 // pendingResult is one worker's due reports as this daemon accepts them.
 type pendingResult struct {
-	// expired counts reports the remote compacted before this puller
-	// acknowledged them, not yet reported back through expiredSeen.
-	expired int
+	// unseen counts reports expired before this puller pulled them, not
+	// yet covered by expiredSeen. total is sent back as expiredSeen.
+	unseen  int
+	total   int
 	reports []domain.ReportRecord
 	// rejected are due reports that break the content contract or the size
 	// limits. They are acknowledged without delivery so they cannot block
@@ -99,6 +100,7 @@ func (h *hostClient) pending(ctx context.Context, sessionID domain.SessionID, ex
 		MorePending       bool         `json:"morePending"`
 		PullerAcks        bool         `json:"pullerAcks"`
 		ExpiredBeforePull int          `json:"expiredBeforePull"`
+		ExpiredTotal      int          `json:"expiredTotal"`
 	}
 	path := "/api/v1/reports/pending?sessionId=" + url.QueryEscape(string(sessionID))
 	if h.pullerID != "" {
@@ -111,7 +113,7 @@ func (h *hostClient) pending(ctx context.Context, sessionID domain.SessionID, ex
 		return pendingResult{}, err
 	}
 	h.perPuller = h.pullerID != "" && body.PullerAcks
-	result := pendingResult{more: body.MorePending, expired: body.ExpiredBeforePull}
+	result := pendingResult{more: body.MorePending, unseen: body.ExpiredBeforePull, total: body.ExpiredTotal}
 	if len(body.Reports) > maxReportsPerPull {
 		body.Reports = body.Reports[:maxReportsPerPull]
 		result.more = true

@@ -5681,7 +5681,10 @@ export interface components {
             truncated: boolean;
         };
         ListPendingReportsResponse: {
+            /** Format: int64 */
             expiredBeforePull?: number;
+            /** Format: int64 */
+            expiredTotal?: number;
             morePending: boolean;
             pullerAcks?: boolean;
             reports: components["schemas"]["ReportResponse"][];
@@ -13044,7 +13047,7 @@ export interface operations {
                 sessionId: string;
                 /** @description Puller instance ID for per-puller acks. */
                 pullerId?: string;
-                /** @description Expired count already seen. */
+                /** @description Last expiredTotal the puller logged. */
                 expiredSeen?: number;
             };
             header?: never;

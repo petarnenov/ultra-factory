@@ -725,7 +725,7 @@ type ReportPullAck struct {
 type ReportPuller struct {
 	SessionID    string
 	PullerID     string
-	ExpiredCount int64
+	ExpiredTotal int64
 	LastPulledAt time.Time
 }
 

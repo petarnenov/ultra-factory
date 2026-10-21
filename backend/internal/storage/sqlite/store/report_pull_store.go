@@ -9,17 +9,17 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/gen"
 )
 
-// TouchReportPuller records pullerID's pull of sessionID at at. It subtracts
-// seen, then returns the count still owed and the acknowledged report IDs.
-func (s *Store) TouchReportPuller(ctx context.Context, sessionID domain.SessionID, pullerID string, at time.Time, seen int) (int, map[string]bool, error) {
+// TouchReportPuller records pullerID's pull of sessionID at at. It returns the
+// monotonic expired total and the puller's acked IDs, changing no expiry state.
+func (s *Store) TouchReportPuller(ctx context.Context, sessionID domain.SessionID, pullerID string, at time.Time) (int64, map[string]bool, error) {
 	if sessionID == "" || pullerID == "" || at.IsZero() {
 		return 0, nil, domain.ErrInvalidReport
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var (
-		expired int64
-		acked   []string
+		total int64
+		acked []string
 	)
 	err := s.inTx(ctx, "touch report puller", func(q *gen.Queries) error {
 		if err := q.TouchReportPuller(ctx, gen.TouchReportPullerParams{
@@ -27,20 +27,13 @@ func (s *Store) TouchReportPuller(ctx context.Context, sessionID domain.SessionI
 		}); err != nil {
 			return err
 		}
-		if seen > 0 {
-			if err := q.ReduceReportPullerExpired(ctx, gen.ReduceReportPullerExpiredParams{
-				Seen: int64(seen), SessionID: string(sessionID), PullerID: pullerID,
-			}); err != nil {
-				return err
-			}
-		}
-		count, err := q.GetReportPullerExpired(ctx, gen.GetReportPullerExpiredParams{
+		var err error
+		total, err = q.GetReportPullerExpiredTotal(ctx, gen.GetReportPullerExpiredTotalParams{
 			SessionID: string(sessionID), PullerID: pullerID,
 		})
 		if err != nil {
 			return err
 		}
-		expired = count
 		acked, err = q.ListReportPullerAckedIDs(ctx, gen.ListReportPullerAckedIDsParams{
 			SessionID: string(sessionID), PullerID: pullerID,
 		})
@@ -53,7 +46,7 @@ func (s *Store) TouchReportPuller(ctx context.Context, sessionID domain.SessionI
 	for _, id := range acked {
 		ackedSet[id] = true
 	}
-	return int(expired), ackedSet, nil
+	return total, ackedSet, nil
 }
 
 // CompactExpiredReports expires pending reports older than cutoff or beyond the

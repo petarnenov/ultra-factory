@@ -114,7 +114,7 @@ type ListReportsQuery struct {
 type ListPendingReportsQuery struct {
 	SessionID   string `query:"sessionId" required:"true" description:"Worker session identifier on this daemon."`
 	PullerID    string `query:"pullerId" description:"Puller instance ID for per-puller acks."`
-	ExpiredSeen int    `query:"expiredSeen" description:"Expired count already seen."`
+	ExpiredSeen int    `query:"expiredSeen" description:"Last expiredTotal the puller logged."`
 }
 
 // ListPendingReportsResponse is one worker's due, still-pending reports.
@@ -128,8 +128,10 @@ type ListPendingReportsResponse struct {
 	// pullerId it was sent. Older hosts omit it.
 	PullerAcks bool `json:"pullerAcks,omitempty"`
 	// ExpiredBeforePull counts reports that expired before the puller
-	// acknowledged them, not yet reported through expiredSeen.
-	ExpiredBeforePull int `json:"expiredBeforePull,omitempty"`
+	// acknowledged them and that expiredSeen does not cover.
+	ExpiredBeforePull int64 `json:"expiredBeforePull,omitempty"`
+	// ExpiredTotal is the monotonic count the puller sends back as expiredSeen.
+	ExpiredTotal int64 `json:"expiredTotal,omitempty"`
 }
 
 // AcknowledgeReportsRequest settles reports a peer daemon pulled and delivered.

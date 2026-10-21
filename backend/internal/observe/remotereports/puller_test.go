@@ -69,7 +69,7 @@ func TestPollFallsBackToFirstDeliveryOnAHostWithoutPerPullerAcks(t *testing.T) {
 // and sent back on the next pull, so the host subtracts them.
 func TestPollRecordsExpiredBeforePullAsSeen(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
-	host.pending["widgets-3"] = `{"reports":[],"pullerAcks":true,"expiredBeforePull":3}`
+	host.pending["widgets-3"] = `{"reports":[],"pullerAcks":true,"expiredBeforePull":3,"expiredTotal":3}`
 	observer := newTestObserver(newMemStore(link("host-build", "widgets-3")), &fakeDeliverer{}, host)
 
 	if err := observer.Poll(context.Background()); err != nil {

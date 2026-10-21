@@ -4331,11 +4331,11 @@ paths:
         schema:
           description: Puller instance ID for per-puller acks.
           type: string
-      - description: Expired count already seen.
+      - description: Last expiredTotal the puller logged.
         in: query
         name: expiredSeen
         schema:
-          description: Expired count already seen.
+          description: Last expiredTotal the puller logged.
           type: integer
       responses:
         "200":
@@ -16811,6 +16811,10 @@ components:
     ListPendingReportsResponse:
       properties:
         expiredBeforePull:
+          format: int64
+          type: integer
+        expiredTotal:
+          format: int64
           type: integer
         morePending:
           type: boolean

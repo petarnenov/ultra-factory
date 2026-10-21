@@ -166,7 +166,7 @@ func (q *Queries) AcknowledgeReportForPuller(ctx context.Context, arg Acknowledg
 
 const addExpiredToReportPullers = `-- name: AddExpiredToReportPullers :exec
 UPDATE report_pullers
-SET expired_count = expired_count + (
+SET expired_total = expired_total + (
     SELECT COUNT(*) FROM reports r
     WHERE r.session_id = ?1
       AND r.delivery_state = 'pending'
@@ -559,21 +559,21 @@ func (q *Queries) GetReportInterrupt(ctx context.Context, sessionID string) (tim
 	return last_interrupted_at, err
 }
 
-const getReportPullerExpired = `-- name: GetReportPullerExpired :one
-SELECT expired_count FROM report_pullers
+const getReportPullerExpiredTotal = `-- name: GetReportPullerExpiredTotal :one
+SELECT expired_total FROM report_pullers
 WHERE session_id = ?1 AND puller_id = ?2
 `
 
-type GetReportPullerExpiredParams struct {
+type GetReportPullerExpiredTotalParams struct {
 	SessionID string
 	PullerID  string
 }
 
-func (q *Queries) GetReportPullerExpired(ctx context.Context, arg GetReportPullerExpiredParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getReportPullerExpired, arg.SessionID, arg.PullerID)
-	var expired_count int64
-	err := row.Scan(&expired_count)
-	return expired_count, err
+func (q *Queries) GetReportPullerExpiredTotal(ctx context.Context, arg GetReportPullerExpiredTotalParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getReportPullerExpiredTotal, arg.SessionID, arg.PullerID)
+	var expired_total int64
+	err := row.Scan(&expired_total)
+	return expired_total, err
 }
 
 const listPendingReportSchedule = `-- name: ListPendingReportSchedule :many
@@ -957,23 +957,6 @@ func (q *Queries) PutReportInterrupt(ctx context.Context, arg PutReportInterrupt
 	return err
 }
 
-const reduceReportPullerExpired = `-- name: ReduceReportPullerExpired :exec
-UPDATE report_pullers
-SET expired_count = MAX(0, expired_count - ?1)
-WHERE session_id = ?2 AND puller_id = ?3
-`
-
-type ReduceReportPullerExpiredParams struct {
-	Seen      int64
-	SessionID string
-	PullerID  string
-}
-
-func (q *Queries) ReduceReportPullerExpired(ctx context.Context, arg ReduceReportPullerExpiredParams) error {
-	_, err := q.db.ExecContext(ctx, reduceReportPullerExpired, arg.Seen, arg.SessionID, arg.PullerID)
-	return err
-}
-
 const releaseReport = `-- name: ReleaseReport :one
 UPDATE reports
 SET delivery_state = 'pending', available_at = ?1,
@@ -1099,7 +1082,7 @@ func (q *Queries) RequeueClaimedReports(ctx context.Context) (int64, error) {
 }
 
 const touchReportPuller = `-- name: TouchReportPuller :exec
-INSERT INTO report_pullers (session_id, puller_id, expired_count, last_pulled_at)
+INSERT INTO report_pullers (session_id, puller_id, expired_total, last_pulled_at)
 VALUES (?1, ?2, 0, ?3)
 ON CONFLICT (session_id, puller_id) DO UPDATE SET last_pulled_at = excluded.last_pulled_at
 `

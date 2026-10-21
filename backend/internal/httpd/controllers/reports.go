@@ -151,7 +151,7 @@ func (c *ReportsController) pending(w http.ResponseWriter, r *http.Request) {
 			envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "INVALID_EXPIRED_SEEN", "expiredSeen must be a non-negative integer", nil)
 			return
 		}
-		opts.ExpiredSeen = seen
+		opts.ExpiredSeen = int64(seen)
 	}
 	result, err := puller.PullFor(r.Context(), sessionID, opts)
 	if err != nil {
@@ -163,6 +163,7 @@ func (c *ReportsController) pending(w http.ResponseWriter, r *http.Request) {
 		MorePending:       result.MorePending,
 		PullerAcks:        opts.PullerID != "",
 		ExpiredBeforePull: result.ExpiredBeforePull,
+		ExpiredTotal:      result.ExpiredTotal,
 	})
 }
 

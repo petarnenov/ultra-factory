@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
 )
 
@@ -29,17 +30,17 @@ func TestReportPullAcksAreKeptPerPuller(t *testing.T) {
 		}
 	}
 
-	if _, acked, err := s.TouchReportPuller(ctx, worker.ID, "puller-a", now, 0); err != nil || len(acked) != 0 {
+	if _, acked, err := s.TouchReportPuller(ctx, worker.ID, "puller-a", now); err != nil || len(acked) != 0 {
 		t.Fatalf("first touch: acked=%v err=%v", acked, err)
 	}
 	got, err := s.AcknowledgePendingSessionReportsFor(ctx, worker.ID, []string{"rpt_a", "rpt_missing"}, "puller-a", now)
 	if err != nil || len(got) != 1 || got[0] != "rpt_a" {
 		t.Fatalf("per-puller ack = %v, %v; want [rpt_a]", got, err)
 	}
-	if _, acked, _ := s.TouchReportPuller(ctx, worker.ID, "puller-a", now, 0); !acked["rpt_a"] || acked["rpt_b"] {
+	if _, acked, _ := s.TouchReportPuller(ctx, worker.ID, "puller-a", now); !acked["rpt_a"] || acked["rpt_b"] {
 		t.Fatalf("puller-a acked = %v", acked)
 	}
-	if _, acked, _ := s.TouchReportPuller(ctx, worker.ID, "puller-b", now, 0); len(acked) != 0 {
+	if _, acked, _ := s.TouchReportPuller(ctx, worker.ID, "puller-b", now); len(acked) != 0 {
 		t.Fatalf("puller-b must not inherit puller-a's acks: %v", acked)
 	}
 	// A per-puller ack leaves the report pending for the worker's own queue.
@@ -78,13 +79,13 @@ func TestCompactExpiredReportsCountsUnacknowledgedPullers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := s.TouchReportPuller(ctx, worker.ID, "puller-a", now.Add(-time.Hour), 0); err != nil {
+	if _, _, err := s.TouchReportPuller(ctx, worker.ID, "puller-a", now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AcknowledgePendingSessionReportsFor(ctx, worker.ID, []string{"rpt_old1"}, "puller-a", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := s.TouchReportPuller(ctx, worker.ID, "puller-b", now.Add(-time.Hour), 0); err != nil {
+	if _, _, err := s.TouchReportPuller(ctx, worker.ID, "puller-b", now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -100,15 +101,71 @@ func TestCompactExpiredReportsCountsUnacknowledgedPullers(t *testing.T) {
 		t.Fatalf("report inside the window expired: %s", rec.DeliveryState)
 	}
 
-	// puller-a acknowledged rpt_old1 before it expired, so it owes only rpt_old2.
-	owedA, _, _ := s.TouchReportPuller(ctx, worker.ID, "puller-a", now, 0)
-	owedB, _, _ := s.TouchReportPuller(ctx, worker.ID, "puller-b", now, 0)
-	if owedA != 1 || owedB != 2 {
-		t.Fatalf("owed a=%d b=%d; want 1 and 2", owedA, owedB)
+	// puller-a acked rpt_old1 before it expired, so it misses only rpt_old2.
+	totalA, _, _ := s.TouchReportPuller(ctx, worker.ID, "puller-a", now)
+	totalB, _, _ := s.TouchReportPuller(ctx, worker.ID, "puller-b", now)
+	if totalA != 1 || totalB != 2 {
+		t.Fatalf("totals a=%d b=%d; want 1 and 2", totalA, totalB)
 	}
-	// Reporting the count as seen subtracts it, so the next pull owes nothing.
-	if owedA, _, _ = s.TouchReportPuller(ctx, worker.ID, "puller-a", now, owedA); owedA != 0 {
-		t.Fatalf("owed a after seen = %d, want 0", owedA)
+	// The total is monotonic: a repeated touch returns the same value.
+	if again, _, _ := s.TouchReportPuller(ctx, worker.ID, "puller-b", now); again != 2 {
+		t.Fatalf("repeated touch total = %d, want 2", again)
+	}
+}
+
+// A pull repeated with the same expiredSeen returns the same unseen count, so
+// a lost response is harmless: the puller simply sends its last total again.
+func TestPullRepeatedWithSameExpiredSeenIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	s, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	seedProject(t, s, "ao")
+	worker, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, rec := range []domain.ReportRecord{
+		pendingReport("rpt_old1", worker, now),
+		pendingReport("rpt_old2", worker, now.Add(time.Second)),
+	} {
+		if _, err := s.CreateReport(ctx, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The clock moves past retention, so both reports expire on the next pull.
+	clock := now
+	svc := reportsvc.New(reportsvc.Deps{Store: s, Now: func() time.Time { return clock }})
+	if _, err := svc.PullFor(ctx, worker.ID, reportsvc.PullOptions{PullerID: "puller-a"}); err != nil {
+		t.Fatal(err)
+	}
+	clock = now.Add(8 * 24 * time.Hour)
+	pull := func(seen int64) reportsvc.PullResult {
+		t.Helper()
+		result, err := svc.PullFor(ctx, worker.ID, reportsvc.PullOptions{PullerID: "puller-a", ExpiredSeen: seen})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	first := pull(0)
+	if first.ExpiredBeforePull != 2 || first.ExpiredTotal != 2 {
+		t.Fatalf("first pull = unseen %d total %d, want 2 and 2", first.ExpiredBeforePull, first.ExpiredTotal)
+	}
+	// The first response is lost, so the same expiredSeen is sent again.
+	if retry := pull(0); retry.ExpiredBeforePull != 2 {
+		t.Fatalf("retry with the same expiredSeen = %d, want 2", retry.ExpiredBeforePull)
+	}
+	// The puller logged total 2 and sends it back; a repeat owes nothing.
+	if seen := pull(2); seen.ExpiredBeforePull != 0 {
+		t.Fatalf("pull after logging = %d, want 0", seen.ExpiredBeforePull)
+	}
+	if repeat := pull(2); repeat.ExpiredBeforePull != 0 || repeat.ExpiredTotal != 2 {
+		t.Fatalf("repeat after logging = unseen %d total %d, want 0 and 2", repeat.ExpiredBeforePull, repeat.ExpiredTotal)
 	}
 }
 
@@ -132,18 +189,15 @@ func TestPeerAckedReportsDoNotStarveTheLocalSchedule(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	const backlog = 300
+	ids := make([]string, backlog)
 	for i := range backlog {
-		id := fmt.Sprintf("rpt_remote_%03d", i)
-		if _, err := s.CreateReport(ctx, pendingReport(id, remote, now.Add(time.Duration(i)*time.Millisecond))); err != nil {
+		ids[i] = fmt.Sprintf("rpt_remote_%03d", i)
+		if _, err := s.CreateReport(ctx, pendingReport(ids[i], remote, now.Add(time.Duration(i)*time.Millisecond))); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if _, err := s.CreateReport(ctx, pendingReport("rpt_local", local, now.Add(time.Hour))); err != nil {
 		t.Fatal(err)
-	}
-	ids := make([]string, backlog)
-	for i := range ids {
-		ids[i] = fmt.Sprintf("rpt_remote_%03d", i)
 	}
 	if acked, err := s.AcknowledgePendingSessionReportsFor(ctx, remote.ID, ids, "daemon-a", now); err != nil || len(acked) != backlog {
 		t.Fatalf("per-puller ack = %d, %v", len(acked), err)
@@ -152,11 +206,6 @@ func TestPeerAckedReportsDoNotStarveTheLocalSchedule(t *testing.T) {
 	due, err := s.ListPendingReportSchedule(ctx, 256)
 	if err != nil {
 		t.Fatal(err)
-	}
-	for _, rec := range due {
-		if rec.SessionID == remote.ID {
-			t.Fatalf("peer-acked report %s still scheduled locally", rec.ID)
-		}
 	}
 	if len(due) != 1 || due[0].ID != "rpt_local" {
 		t.Fatalf("schedule = %v, want only rpt_local", due)

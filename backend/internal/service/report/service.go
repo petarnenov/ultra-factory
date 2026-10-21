@@ -269,17 +269,19 @@ func decodeReportCursor(raw string) (time.Time, string, string, string, error) {
 type PullOptions struct {
 	// PullerID is the pulling daemon's instance ID.
 	PullerID string
-	// ExpiredSeen is the expired count the puller already reported.
-	ExpiredSeen int
+	// ExpiredSeen is the ExpiredTotal the puller last logged.
+	ExpiredSeen int64
 }
 
 // PullResult is one worker's pending reports for one pull.
 type PullResult struct {
 	Due         []domain.ReportRecord
 	MorePending bool
-	// ExpiredBeforePull counts reports that expired before this puller
-	// acknowledged them. Zero for a legacy pull.
-	ExpiredBeforePull int
+	// ExpiredTotal is the worker's monotonic count of reports that expired
+	// before this puller acknowledged them. Zero for a legacy pull.
+	ExpiredTotal int64
+	// ExpiredBeforePull is ExpiredTotal minus the ExpiredSeen the puller sent.
+	ExpiredBeforePull int64
 }
 
 // ListDuePending returns one worker's pending, due reports. A terminated
@@ -312,7 +314,7 @@ func (s *Service) PullFor(ctx context.Context, sessionID domain.SessionID, opts 
 		}
 	}
 	var (
-		expired int
+		expired int64
 		acked   map[string]bool
 	)
 	if opts.PullerID != "" {
@@ -323,13 +325,13 @@ func (s *Service) PullFor(ctx context.Context, sessionID domain.SessionID, opts 
 			return PullResult{}, err
 		}
 		puller, ok := s.store.(interface {
-			TouchReportPuller(context.Context, domain.SessionID, string, time.Time, int) (int, map[string]bool, error)
+			TouchReportPuller(context.Context, domain.SessionID, string, time.Time) (int64, map[string]bool, error)
 		})
 		if !ok {
 			return PullResult{}, errors.New("report: puller store is required")
 		}
 		var err error
-		expired, acked, err = puller.TouchReportPuller(ctx, sessionID, opts.PullerID, s.now().UTC(), opts.ExpiredSeen)
+		expired, acked, err = puller.TouchReportPuller(ctx, sessionID, opts.PullerID, s.now().UTC())
 		if err != nil {
 			return PullResult{}, err
 		}
@@ -355,7 +357,7 @@ func (s *Service) PullFor(ctx context.Context, sessionID domain.SessionID, opts 
 	}
 	now := s.now().UTC()
 	budget := 0
-	result := PullResult{ExpiredBeforePull: expired}
+	result := PullResult{ExpiredTotal: expired, ExpiredBeforePull: max(expired-opts.ExpiredSeen, 0)}
 	result.Due = make([]domain.ReportRecord, 0, len(reports))
 	for _, report := range reports {
 		if report.DeliveryState != domain.ReportPending || acked[report.ID] {
