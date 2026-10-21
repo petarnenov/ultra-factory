@@ -13,7 +13,7 @@ import { Button } from "./ui/button";
 
 export type ProjectSettingsDraft = {
 	aggregateProjects?: AggregateRef[];
-	/** Off hides automatic same-project discovery; undefined and true keep it on. */
+	/** Off hides same-project discovery; unset means on. */
 	aggregateDiscovery?: boolean;
 	aggregateExcludes?: AggregateRef[];
 	displayName: string;

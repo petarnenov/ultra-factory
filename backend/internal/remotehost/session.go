@@ -14,9 +14,8 @@ import (
 // password is wrong or the host is locking this machine out.
 var ErrCredentialRefused = errors.New("remote host refused the saved password; update it in the desktop app under Settings → Remote hosts")
 
-// Session is one identity-checked connection to a saved host. Open runs the
-// identity probe before any credential is sent, so a moved address cannot
-// receive the saved password.
+// Session is one identity-checked connection to a saved host. Open probes
+// the identity before any credential is sent.
 type Session struct {
 	http     http.Client
 	base     string
@@ -57,7 +56,8 @@ func (s *Session) Close() { closeIdle(s.http) }
 // GetJSON performs an authenticated GET and decodes the JSON body into out.
 // Errors never include the credential.
 func (s *Session) GetJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.base+path, http.NoBody) // #nosec G704 -- saved, identity-checked remote host; path is an internal API route.
+	// #nosec G704 -- identity-checked saved host; internal API route.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.base+path, http.NoBody)
 	if err != nil {
 		return err
 	}

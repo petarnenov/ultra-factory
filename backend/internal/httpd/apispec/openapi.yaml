@@ -3199,8 +3199,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/APIError'
           description: Internal Server Error
-      summary: Run one aggregate discovery pass across paired hosts and return the
-        effective set
+      summary: Run one aggregate discovery pass and return the effective set
       tags:
       - projects
   /api/v1/projects/{id}/config:

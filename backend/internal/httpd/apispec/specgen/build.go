@@ -2693,7 +2693,7 @@ func projectOperations() []operation {
 		},
 		{
 			method: http.MethodPost, path: "/api/v1/projects/{id}/aggregate/refresh", id: "refreshProjectAggregate", tag: "projects",
-			summary:    "Run one aggregate discovery pass across paired hosts and return the effective set",
+			summary:    "Run one aggregate discovery pass and return the effective set",
 			pathParams: []any{controllers.ProjectIDParam{}},
 			resps: []respUnit{
 				{http.StatusOK, controllers.AggregateEffectiveResponse{}},

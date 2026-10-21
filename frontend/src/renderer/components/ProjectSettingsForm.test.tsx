@@ -286,7 +286,7 @@ describe("ProjectSettingsForm", () => {
 		await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}", expect.objectContaining({
 			body: expect.objectContaining({ config: expect.objectContaining({ autoReview: true }) }),
 		})));
-		// The identity query is mounted now, so a save refetches it instead of leaving it invalidated.
+		// The mounted identity query refetches after the save.
 		await waitFor(() => expect(queryClient.getQueryState(["project-identity", "local", "proj-1"])?.dataUpdateCount ?? 0).toBeGreaterThan(identityUpdatesBefore));
 	});
 

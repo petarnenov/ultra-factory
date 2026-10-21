@@ -1201,7 +1201,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Run one aggregate discovery pass across paired hosts and return the effective set */
+        /** Run one aggregate discovery pass and return the effective set */
         post: operations["refreshProjectAggregate"];
         delete?: never;
         options?: never;

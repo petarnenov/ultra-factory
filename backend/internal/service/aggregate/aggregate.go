@@ -1,7 +1,5 @@
-// Package aggregate resolves which remote projects appear on a project's
-// aggregate board. Discovery probes the paired hosts in the remote host
-// registry and keeps the projects that are the same project as a local one;
-// explicit config adds rows and excludes hide them.
+// Package aggregate resolves a project's aggregate board set from paired
+// hosts. Discovery finds same-project remotes; config adds and hides rows.
 package aggregate
 
 import (
@@ -333,9 +331,8 @@ func (s *Service) Effective(projectID domain.ProjectID, repo string, cfg domain.
 	return out
 }
 
-// matchProject applies the two rules in order. Identical normalised repository
-// identity wins. When either side lacks one, identical project IDs match.
-// Two different repositories never match by ID.
+// matchProject matches by normalised repository, or by project ID when
+// either side lacks a repository. Two different repositories never match.
 func matchProject(localRepo, localID string, remote RemoteProject) (string, bool) {
 	local, other := NormalizeRepo(localRepo), NormalizeRepo(remote.Repo)
 	if local != "" && other != "" {
@@ -344,9 +341,8 @@ func matchProject(localRepo, localID string, remote RemoteProject) (string, bool
 	return MatchedByProjectID, remote.ID == localID
 }
 
-// NormalizeRepo reduces a repository URL or scp-style address to host/path so
-// https, ssh, and scp forms of one repository compare equal. It lowercases,
-// drops a trailing slash and a .git suffix, and drops any user@.
+// NormalizeRepo reduces a repository URL or scp-style address to host/path,
+// so https, ssh and scp forms compare equal. It drops user@ and .git.
 func NormalizeRepo(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" {
