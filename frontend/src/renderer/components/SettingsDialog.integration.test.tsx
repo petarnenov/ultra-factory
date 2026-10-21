@@ -21,10 +21,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	useNavigate: () => vi.fn(),
 }));
 
-const project = {
+const defaultProject = {
 	id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one", repo: "",
 	config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } },
 };
+let project = defaultProject;
 let catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
 
 function RecoveryDialogs({ origin }: { origin?: "create-project" | "new-task" }) {
@@ -59,6 +60,7 @@ function requireCodexLogin(client?: QueryClient) {
 }
 
 beforeEach(() => {
+	project = defaultProject;
 	useUiStore.setState({ settingsModal: null });
 	catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
 	vi.spyOn(apiClient, "GET").mockImplementation(async (path) => {
@@ -249,5 +251,31 @@ describe("Settings recovery modal integration", () => {
 			expect.objectContaining({ body: expect.objectContaining({ displayName: "Unsaved project name" }) }),
 		));
 		await waitFor(() => expect(screen.queryByTestId("settings-page")).not.toBeInTheDocument());
+	});
+	it("opens a configured Coordinators section without sending a save or showing an error", async () => {
+		project = {
+			...defaultProject,
+			config: {
+				...defaultProject.config,
+				coordinators: {
+					enabled: true,
+					maxCoordinators: 3,
+					maxWorkersPerCoordinator: 3,
+					maxWorkers: 9,
+					allowedHosts: ["imac", "linux", "z600"],
+					allowLocalWorkers: false,
+				},
+			},
+		};
+		const put = vi.spyOn(apiClient, "PUT");
+		useUiStore.getState().openProjectSettings("proj-1");
+		renderDialogs();
+		await userEvent.click(await screen.findByRole("button", { name: "Coordinators" }));
+		await screen.findByRole("switch", { name: "Enable coordinators" });
+		await new Promise((resolve) => setTimeout(resolve, 1000));
+
+		expect(screen.queryByText(/Invalid JSON body/)).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+		expect(put).not.toHaveBeenCalled();
 	});
 });
