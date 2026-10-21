@@ -64,7 +64,39 @@ async function writeRemotes(path: string, remotes: RemoteEntry[]): Promise<void>
 	}
 }
 
-// A concurrent add/update/remove must not overwrite another call's read-modify-write.
+// Cross-process lock, also used by the daemon (remotehost/registry.go):
+// a `remotes.json.lock` created exclusively; stale locks are broken.
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
+const LOCK_POLL_MS = 10;
+
+async function withFileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
+	const lock = `${path}.lock`;
+	await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+	const deadline = Date.now() + LOCK_WAIT_MS;
+	for (;;) {
+		try {
+			await writeFile(lock, "", { flag: "wx", mode: 0o600 });
+			break;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException | undefined)?.code !== "EEXIST") throw error;
+			const age = await stat(lock).then((info) => Date.now() - info.mtimeMs, () => 0);
+			if (age > LOCK_STALE_MS) {
+				await rm(lock, { force: true });
+				continue;
+			}
+			if (Date.now() > deadline) throw new Error(`timed out waiting for ${lock}`);
+			await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
+		}
+	}
+	try {
+		return await operation();
+	} finally {
+		await rm(lock, { force: true });
+	}
+}
+
+// Serialize add/update/remove so one call never overwrites another's write.
 let mutationQueue: Promise<void> = Promise.resolve();
 
 function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -74,13 +106,13 @@ function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function addRemote(path: string, entry: RemoteEntry): Promise<void> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		await writeRemotes(path, [
 			...existing.filter((candidate) => candidate.url !== entry.url && (!entry.hostId || candidate.hostId !== entry.hostId)),
 			entry,
 		]);
-	});
+	}));
 }
 
 /** An edit: only the fields it carries change. */
@@ -103,7 +135,7 @@ export function applyRemoteChanges(entry: RemoteEntry, changes: RemoteChanges): 
 }
 
 export async function updateRemote(path: string, url: string, changes: RemoteChanges): Promise<RemoteEntry> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		const current = existing.find((candidate) => candidate.url === url);
 		if (!current) throw new Error(`no saved host for ${url}`);
@@ -116,15 +148,15 @@ export async function updateRemote(path: string, url: string, changes: RemoteCha
 				|| (candidate.url !== updated.url && (!updated.hostId || candidate.hostId !== updated.hostId)));
 		await writeRemotes(path, remotes);
 		return updated;
-	});
+	}));
 }
 
 export async function removeRemote(path: string, url: string): Promise<void> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		const remaining = existing.filter((candidate) => candidate.url !== url);
 		// Removing what is not there is not an error, but it is not a write either.
 		if (remaining.length === existing.length) return;
 		await writeRemotes(path, remaining);
-	});
+	}));
 }

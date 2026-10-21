@@ -82,6 +82,20 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Settings recovery modal integration", () => {
+	it("opening, switching and closing the Coordinators section sends no save when nothing changed", async () => {
+		const put = vi.spyOn(apiClient, "PUT");
+		useUiStore.getState().openProjectSettings("proj-1", { section: "coordinators" });
+		renderDialogs();
+		await screen.findByRole("switch", { name: "Enable coordinators" });
+		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+		await userEvent.click(screen.getByRole("button", { name: "General" }));
+		await screen.findByRole("button", { name: "Edit Project name" });
+		await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+		await waitFor(() => expect(useUiStore.getState().settingsModal).toBeNull());
+		expect(put).not.toHaveBeenCalled();
+	});
+
 	it("closes clean project settings without writing", async () => {
 		const put = vi.spyOn(apiClient, "PUT");
 		useUiStore.getState().openProjectSettings("proj-1");

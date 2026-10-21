@@ -204,6 +204,12 @@ func Run() error {
 	ignoreBrokenPipeSignal()
 
 	log := newLogger()
+	// Fold this instance's saved-hosts file into the shared registry.
+	if sharedPath, err := remotehost.FilePath(); err != nil {
+		log.Warn("saved hosts path unresolved; migration skipped", "error", err)
+	} else if _, err := remotehost.MigrateInstanceFile(filepath.Join(cfg.DataDir, "remotes.json"), sharedPath, log); err != nil {
+		log.Warn("saved hosts migration failed; instance-local file kept", "error", err)
+	}
 	var browserRuntimeToken string
 	if os.Getenv(browserruntime.RuntimeTokenStdinEnv) == "1" {
 		browserRuntimeToken, err = browserruntime.ReadRuntimeToken(os.Stdin)

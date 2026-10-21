@@ -43,12 +43,8 @@ type identity struct {
 	APIVersion int    `json:"apiVersion"`
 }
 
-// FilePath resolves the desktop's saved-host file, which the desktop writes to
-// $AO_DATA_DIR (when its own environment sets one) or ~/.ao. The desktop hands
-// its daemon, and so every agent, AO_DATA_DIR=~/.ao/data (or ~/.ao/dev/data in
-// dev) even when its own environment set none; those default daemon
-// directories map back to ~/.ao. Any other AO_DATA_DIR is an isolated install
-// and never falls back to the user's real saved hosts.
+// FilePath resolves the saved-host file: AO_REMOTES_FILE, else the shared
+// ~/.ao/remotes.json. An isolated AO_DATA_DIR keeps its own remotes.json.
 func FilePath() (string, error) {
 	if p := strings.TrimSpace(os.Getenv("AO_REMOTES_FILE")); p != "" {
 		return filepath.Abs(p)
