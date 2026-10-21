@@ -159,11 +159,14 @@ orchestrator never received it. This amendment keeps reports pending per puller.
    first. Expiry moves a report to `acknowledged` with claim token `expired`,
    so the host's own coordinator does not deliver it either. Before the report
    moves, each known puller that has not acknowledged it gains one in
-   `report_pullers.expired_count`. Expiry runs on pulls for that worker.
-6. **Expired counter.** A pending response carries `expiredBeforePull`, the
-   count still owed to that puller. The puller logs it, then sends the logged
-   value back as `expiredSeen` on its next pull, and the host subtracts it. A
-   puller reads no count for reports it never pulled before.
+   `report_pullers.expired_total`. Expiry runs on pulls for that worker.
+6. **Expired counter.** `expired_total` only grows. A pending response carries
+   `expiredTotal` and `expiredBeforePull`, the total minus the `expiredSeen`
+   the puller sent. The puller logs the unseen count, then sends the total it
+   logged as `expiredSeen` on its next pull. Nothing is subtracted on the host,
+   so a pull repeated with the same `expiredSeen`, after a lost response or a
+   failure later in the pull, returns the same count. A puller reads no count
+   for reports it never pulled before.
 
 Consequences: each puller gets every report once, unless it misses the
 retention window. Once a peer has acknowledged a report, this daemon's own
