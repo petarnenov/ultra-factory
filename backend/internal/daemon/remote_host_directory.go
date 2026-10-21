@@ -16,11 +16,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
 )
 
-// The host publishes its current account address outward: its Tailscale
-// address, which also moves entries saved under a LAN address onto the
-// tailnet, or a rotating quick-tunnel address for a host with no tailnet
-// endpoint. Clients still reach the daemon directly, never through AO Cloud.
-// A failed publish is retried on the next tick.
+// Publishes the Tailscale address (migrating LAN entries), else the tunnel.
+// Clients still connect directly; a failed publish retries next tick.
 func runRemoteHostAddressPublisher(ctx context.Context, bridge *controllers.BridgeService, controlPlaneURL string, log *slog.Logger) {
 	client := &http.Client{Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	lastSent := ""

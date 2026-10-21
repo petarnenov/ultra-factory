@@ -56,7 +56,7 @@ func validRemoteAddress(raw string) bool {
 		u.User == nil && u.RawQuery == "" && u.Fragment == "" && (u.Path == "" || u.Path == "/")
 }
 
-// Tailscale's address ranges, matching the daemon's remotehost.IsTailnetHost.
+// Tailscale ranges, matching the daemon's remotehost.IsTailnetHost.
 var (
 	tailnetIPv4 = netip.MustParsePrefix("100.64.0.0/10")
 	tailnetIPv6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
@@ -161,7 +161,7 @@ func (s *Server) deleteRemoteHost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// The host publishes its Tailscale or rotated quick-tunnel address using the SHA-256 digest
+// The host publishes a rotated quick-tunnel address using the SHA-256 digest
 // of its scoped token. The digest is not accepted by the host's own listener,
 // so this outbound credential cannot be replayed to control the VM.
 func (s *Server) updateRemoteHostAddress(w http.ResponseWriter, r *http.Request) {

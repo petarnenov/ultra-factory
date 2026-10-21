@@ -103,10 +103,8 @@ func AdvertisedEndpoints(port int, tunnel *TunnelEndpoint) []Endpoint {
 	}, port, tunnel)
 }
 
-// TailscaleURL is the only address a remote host registers under an AO
-// account: its first tailnet endpoint. It returns "" when the machine has no
-// Tailscale address, and never falls back to a LAN address, which machines on
-// another subnet cannot reach.
+// TailscaleURL is the account address: the first tailnet endpoint, or "".
+// It never falls back to LAN, which other subnets cannot reach.
 func TailscaleURL(endpoints []Endpoint) string {
 	for _, endpoint := range endpoints {
 		if endpoint.Kind == KindTailscale && endpoint.Host != "" && endpoint.Port > 0 {

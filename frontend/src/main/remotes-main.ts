@@ -18,11 +18,8 @@ TAILNET.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
 
 export const NO_TAILSCALE_ADDRESS = "This host has no Tailscale address, so it cannot be synced to your account. Install Tailscale on it, join the same tailnet, update AO there, and save the host again.";
 
-/**
- * A host registers under the account only by its Tailscale address: a LAN
- * address is unreachable from machines on another subnet. Throws instead of
- * falling back when the host reported none (or is too old to report one).
- */
+// Accounts store only a Tailscale address; other subnets cannot reach LAN.
+// Throws when the host reported none, never falling back.
 export function tailnetAccountUrl(raw: unknown): string {
 	let url: URL;
 	try { url = new URL(typeof raw === "string" ? raw : ""); } catch { throw new Error(NO_TAILSCALE_ADDRESS); }
