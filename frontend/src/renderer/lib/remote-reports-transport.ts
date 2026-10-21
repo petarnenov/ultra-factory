@@ -1,6 +1,5 @@
-// Whether a saved address needs the per-host "Allow report pulls over plain
-// HTTP" switch. Mirrors remotehost.NeedsInsecureOptIn in the daemon, which
-// stays the authority on what it pulls; this only decides what Settings shows.
+// Mirrors remotehost.NeedsInsecureOptIn; the daemon stays the authority.
+// Decides only whether Settings shows the plain-http switch for an address.
 export function needsPlainHTTPOptIn(address: string): boolean {
 	let parsed: URL;
 	try {
