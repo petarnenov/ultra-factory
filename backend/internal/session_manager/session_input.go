@@ -3,6 +3,7 @@ package sessionmanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,24 @@ const (
 )
 
 var errAgentOperationInProgress = errors.New("session: another exclusive operation is in progress")
+
+// defaultResumePreemptWait bounds how long kill or exit waits for a cancelled
+// wake to release the gate before its marker is cleared.
+const defaultResumePreemptWait = 15 * time.Second
+
+// agentOperationRecord holds when the gate holder took it and, for a wake,
+// how to cancel it.
+type agentOperationRecord struct {
+	startedAt time.Time
+	cancel    context.CancelFunc
+}
+
+// AgentOperationStatus describes the operation holding a session's gate, so a
+// busy session can say why.
+type AgentOperationStatus struct {
+	Kind      string
+	StartedAt time.Time
+}
 
 var _ sessionguard.InputLease = (*Manager)(nil)
 
@@ -110,10 +129,12 @@ func (m *Manager) beginAgentOperation(ctx context.Context, id domain.SessionID, 
 		m.agentOpMu.Lock()
 		if m.agentOperationActiveLocked(id) {
 			current := m.agentOperations[id]
-			m.agentOpMu.Unlock()
 			if current != agentOperationHibernate || kind == agentOperationHibernate {
-				return errAgentOperationInProgress
+				busy := m.agentOperationBusyLocked(id)
+				m.agentOpMu.Unlock()
+				return busy
 			}
+			m.agentOpMu.Unlock()
 			// Background cleanup yields to every explicit operation once its
 			// bounded shutdown completes; it must not make Kill/Switch fail.
 			select {
@@ -123,7 +144,7 @@ func (m *Manager) beginAgentOperation(ctx context.Context, id domain.SessionID, 
 				continue
 			}
 		}
-		m.agentOperations[id] = kind
+		m.markAgentOperationLocked(id, kind)
 		drained = m.inputDrained[id]
 		m.agentOpMu.Unlock()
 		break
@@ -159,7 +180,7 @@ func (m *Manager) beginAgentOperations(ctx context.Context, ids []domain.Session
 		if id == "" || m.agentOperationActiveLocked(id) {
 			continue
 		}
-		m.agentOperations[id] = kind
+		m.markAgentOperationLocked(id, kind)
 		reservations = append(reservations, reservation{id: id, drained: m.inputDrained[id]})
 	}
 	m.agentOpMu.Unlock()
@@ -192,9 +213,133 @@ func (m *Manager) endAgentOperation(id domain.SessionID, kind agentOperationKind
 		delete(m.switchDecisionInput, id)
 	}
 	if current, ok := m.agentOperations[id]; ok && current == kind {
-		delete(m.agentOperations, id)
+		m.clearAgentOperationLocked(id)
 		m.resumeDeferredInterfaceRecoveryLocked(id)
 	}
+}
+
+// markAgentOperationLocked records kind as the gate holder, timestamped now.
+// Callers hold agentOpMu.
+func (m *Manager) markAgentOperationLocked(id domain.SessionID, kind agentOperationKind) {
+	m.agentOperations[id] = kind
+	if m.agentOperationRecords == nil {
+		m.agentOperationRecords = make(map[domain.SessionID]agentOperationRecord)
+	}
+	m.agentOperationRecords[id] = agentOperationRecord{startedAt: time.Now()}
+}
+
+// clearAgentOperationLocked releases the gate and its record together.
+// Callers hold agentOpMu.
+func (m *Manager) clearAgentOperationLocked(id domain.SessionID) {
+	delete(m.agentOperations, id)
+	delete(m.agentOperationRecords, id)
+}
+
+// AgentOperationInProgress reports the gate holder and when it took the gate.
+// Wakes and exits have no durable row, so this is their only view.
+func (m *Manager) AgentOperationInProgress(id domain.SessionID) (AgentOperationStatus, bool) {
+	id = domain.SessionID(strings.TrimSpace(string(id)))
+	m.agentOpMu.Lock()
+	defer m.agentOpMu.Unlock()
+	kind, ok := m.agentOperations[id]
+	if !ok {
+		return AgentOperationStatus{}, false
+	}
+	return AgentOperationStatus{Kind: string(kind), StartedAt: m.agentOperationRecords[id].startedAt}, true
+}
+
+// agentOperationBusy refuses an operation that cannot share the gate. It names
+// the holder and its age; it matches the holder's sentinel and the generic one.
+type agentOperationBusy struct {
+	sentinel error
+	holder   string
+	age      time.Duration
+}
+
+func (e agentOperationBusy) Error() string {
+	return fmt.Sprintf("%s: %s in progress for %s", e.sentinel, e.holder, e.age)
+}
+
+func (e agentOperationBusy) Unwrap() []error {
+	return []error{e.sentinel, errAgentOperationInProgress}
+}
+
+// agentOperationBusyLocked builds the refusal for the current gate holder.
+// Callers hold agentOpMu.
+func (m *Manager) agentOperationBusyLocked(id domain.SessionID) error {
+	kind := m.agentOperations[id]
+	busy := agentOperationBusy{holder: string(kind)}
+	if record, ok := m.agentOperationRecords[id]; ok {
+		busy.age = time.Since(record.startedAt).Round(time.Second)
+	}
+	switch kind {
+	case agentOperationSwitch:
+		busy.sentinel = ErrSwitchInProgress
+	case agentOperationExit:
+		busy.sentinel = ErrAgentExitInProgress
+	case agentOperationResume:
+		busy.sentinel = ErrResumeInProgress
+	default:
+		busy.sentinel = ErrAgentOperationInProgress
+		if kind == "" {
+			busy.holder = "deferred interface recovery"
+		}
+	}
+	return busy
+}
+
+// preemptResume lets kill or exit take the gate from a background wake. It
+// cancels the wake; a wake still holding the gate after the wait is cleared.
+func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller agentOperationKind) error {
+	m.agentOpMu.Lock()
+	if m.agentOperations[id] != agentOperationResume {
+		m.agentOpMu.Unlock()
+		return nil
+	}
+	record := m.agentOperationRecords[id]
+	m.agentOpMu.Unlock()
+	if record.cancel != nil {
+		record.cancel()
+	}
+
+	wait := m.resumePreemptWait
+	if wait <= 0 {
+		wait = defaultResumePreemptWait
+	}
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		m.agentOpMu.Lock()
+		held := m.agentOperations[id] == agentOperationResume
+		m.agentOpMu.Unlock()
+		if !held {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			m.logger.Warn("cleared stale resume marker before "+string(caller),
+				"sessionID", id, "resumeStartedAt", record.startedAt, "waited", wait)
+			m.endAgentOperation(id, agentOperationResume)
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+
+// setAgentOperationCancel registers how to stop the wake holding the gate.
+func (m *Manager) setAgentOperationCancel(id domain.SessionID, cancel context.CancelFunc) {
+	m.agentOpMu.Lock()
+	defer m.agentOpMu.Unlock()
+	if m.agentOperations[id] != agentOperationResume {
+		return
+	}
+	record := m.agentOperationRecords[id]
+	record.cancel = cancel
+	m.agentOperationRecords[id] = record
 }
 
 // The deferred fence survives the foreign operation's release. Recovery, not
@@ -300,7 +445,7 @@ func (m *Manager) claimRetainedAgentSwitchForKill(id domain.SessionID) bool {
 	}
 	delete(m.retainedSwitches, id)
 	delete(m.switchDecisionInput, id)
-	m.agentOperations[id] = agentOperationKill
+	m.markAgentOperationLocked(id, agentOperationKill)
 	return true
 }
 
@@ -335,7 +480,7 @@ func (m *Manager) beginAgentSwitchRecovery(ctx context.Context, id domain.Sessio
 	if m.agentOperations == nil {
 		m.agentOperations = make(map[domain.SessionID]agentOperationKind)
 	}
-	m.agentOperations[id] = agentOperationSwitch
+	m.markAgentOperationLocked(id, agentOperationSwitch)
 	drained := m.inputDrained[id]
 	m.agentOpMu.Unlock()
 
@@ -361,24 +506,14 @@ func (m *Manager) releaseRetainedAgentSwitch(id domain.SessionID) {
 		return
 	}
 	delete(m.retainedSwitches, id)
-	delete(m.agentOperations, id)
+	m.clearAgentOperationLocked(id)
 	m.resumeDeferredInterfaceRecoveryLocked(id)
 }
 
 func (m *Manager) beginAgentResume(ctx context.Context, id domain.SessionID) error {
 	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	err := m.beginAgentOperation(waitCtx, id, agentOperationResume)
-	if errors.Is(err, errAgentOperationInProgress) {
-		m.agentOpMu.Lock()
-		activeOperation := m.agentOperations[id]
-		m.agentOpMu.Unlock()
-		if activeOperation == agentOperationSwitch {
-			return ErrSwitchInProgress
-		}
-		return ErrResumeInProgress
-	}
-	return err
+	return m.beginAgentOperation(waitCtx, id, agentOperationResume)
 }
 
 func (m *Manager) endAgentResume(id domain.SessionID) {
