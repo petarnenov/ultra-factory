@@ -85,6 +85,11 @@ type Observer struct {
 	mu       sync.Mutex
 	failures map[string]string
 	refused  map[string]string
+	// legacyWarned: hosts already warned as predating per-puller acks.
+	legacyWarned map[string]bool
+	// expiredSeen: the expired count last logged per link, sent back so the
+	// host subtracts it.
+	expiredSeen map[linkRef]int
 	// unrecorded: delivered IDs per link whose record write failed;
 	// every pass retries the write until it succeeds.
 	unrecorded map[linkRef]map[string]bool
@@ -114,6 +119,7 @@ func New(d Deps) *Observer {
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
 		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[linkRef]map[string]bool{},
+		legacyWarned: map[string]bool{}, expiredSeen: map[linkRef]int{},
 	}
 }
 
@@ -283,13 +289,16 @@ func (o *Observer) pollHost(ctx context.Context, hostID string, links []domain.R
 // deliver or acknowledge, and drops the link only once the remote worker is
 // gone and has nothing pending at all, due or not.
 func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.RemoteWorkerLink) (*pulled, error) {
-	result, err := client.pending(ctx, link.RemoteSessionID)
+	ref := linkRef{hostID: client.hostID, session: link.RemoteSessionID}
+	result, err := client.pending(ctx, link.RemoteSessionID, o.expiredSeenFor(ref))
 	if errors.Is(err, errSessionGone) {
 		return nil, o.drop(ctx, client, link, "remote session no longer exists")
 	}
 	if err != nil {
 		return nil, err
 	}
+	o.noteExpired(ref, client.label, result.expired)
+	o.noteLegacyHost(client)
 	if len(result.reports) == 0 && len(result.rejected) == 0 {
 		if result.more {
 			return nil, nil
@@ -303,7 +312,9 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 		}
 		// The worker may have reported between the two reads; drop the link
 		// only if it still has nothing pending now that it has ended.
-		again, err := client.pending(ctx, link.RemoteSessionID)
+		// The first read already subtracted what this daemon had seen, so the
+		// re-read reports nothing as seen.
+		again, err := client.pending(ctx, link.RemoteSessionID, 0)
 		if err != nil && !errors.Is(err, errSessionGone) {
 			return nil, err
 		}
@@ -552,7 +563,10 @@ func (o *Observer) connect(ctx context.Context, hostID string) (*hostClient, err
 	if label == "" {
 		label = hostID
 	}
-	return &hostClient{http: client, base: base, hostID: hostID, password: entry.Password, label: label}, nil
+	return &hostClient{
+		http: client, base: base, hostID: hostID, password: entry.Password, label: label,
+		pullerID: o.selfHostID,
+	}, nil
 }
 
 func (h *hostClient) close() { closeIdle(h.http) }
@@ -593,5 +607,37 @@ func (o *Observer) flushUnrecorded(ctx context.Context) {
 			delete(o.unrecorded, ref)
 		}
 		o.mu.Unlock()
+	}
+}
+
+func (o *Observer) expiredSeenFor(ref linkRef) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.expiredSeen[ref]
+}
+
+// noteExpired logs the reports the remote expired before this daemon pulled
+// them, and remembers the count so the next pull reports it as seen.
+func (o *Observer) noteExpired(ref linkRef, label string, expired int) {
+	o.mu.Lock()
+	o.expiredSeen[ref] = expired
+	o.mu.Unlock()
+	if expired > 0 {
+		o.log.Warn("remote reports: reports expired before this daemon pulled them", "host", label, "session", ref.session, "expired", expired)
+	}
+}
+
+// noteLegacyHost warns once per host that predates per-puller acknowledgements.
+// Such a host settles a report for every puller on the first acknowledgement.
+func (o *Observer) noteLegacyHost(client *hostClient) {
+	if client.pullerID == "" || client.perPuller {
+		return
+	}
+	o.mu.Lock()
+	first := !o.legacyWarned[client.hostID]
+	o.legacyWarned[client.hostID] = true
+	o.mu.Unlock()
+	if first {
+		o.log.Warn("remote reports: host predates per-puller acknowledgements; using first-delivery semantics", "host", client.label)
 	}
 }

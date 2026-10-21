@@ -145,3 +145,53 @@ SET delivery_state = 'acknowledged', claim_token = sqlc.arg(claim_token),
     claimed_at = sqlc.arg(acknowledged_at), acknowledged_at = sqlc.arg(acknowledged_at),
     delivery_attempts = delivery_attempts + 1, last_error = ''
 WHERE id = sqlc.arg(id) AND session_id = sqlc.arg(session_id) AND delivery_state = 'pending';
+
+-- name: TouchReportPuller :exec
+INSERT INTO report_pullers (session_id, puller_id, expired_count, last_pulled_at)
+VALUES (sqlc.arg(session_id), sqlc.arg(puller_id), 0, sqlc.arg(pulled_at))
+ON CONFLICT (session_id, puller_id) DO UPDATE SET last_pulled_at = excluded.last_pulled_at;
+
+-- name: ReduceReportPullerExpired :exec
+UPDATE report_pullers
+SET expired_count = MAX(0, expired_count - sqlc.arg(seen))
+WHERE session_id = sqlc.arg(session_id) AND puller_id = sqlc.arg(puller_id);
+
+-- name: GetReportPullerExpired :one
+SELECT expired_count FROM report_pullers
+WHERE session_id = sqlc.arg(session_id) AND puller_id = sqlc.arg(puller_id);
+
+-- name: ListReportPullerAckedIDs :many
+SELECT a.report_id FROM report_pull_acks a
+JOIN reports r ON r.id = a.report_id
+WHERE r.session_id = sqlc.arg(session_id) AND a.puller_id = sqlc.arg(puller_id);
+
+-- name: AcknowledgeReportForPuller :execrows
+INSERT INTO report_pull_acks (report_id, puller_id, acknowledged_at)
+SELECT id, sqlc.arg(puller_id), sqlc.arg(acknowledged_at)
+FROM reports
+WHERE id = sqlc.arg(id) AND session_id = sqlc.arg(session_id)
+ON CONFLICT (report_id, puller_id) DO NOTHING;
+
+-- name: AddExpiredToReportPullers :exec
+UPDATE report_pullers
+SET expired_count = expired_count + (
+    SELECT COUNT(*) FROM reports r
+    WHERE r.session_id = sqlc.arg(session_id)
+      AND r.delivery_state = 'pending'
+      AND (r.created_at < sqlc.arg(cutoff)
+           OR r.id NOT IN (SELECT k.id FROM reports k WHERE k.session_id = sqlc.arg(session_id)
+                           ORDER BY k.created_at DESC, k.id DESC LIMIT sqlc.arg(keep)))
+      AND NOT EXISTS (SELECT 1 FROM report_pull_acks a
+                      WHERE a.report_id = r.id AND a.puller_id = report_pullers.puller_id)
+)
+WHERE report_pullers.session_id = sqlc.arg(session_id);
+
+-- name: ExpirePendingSessionReports :execrows
+UPDATE reports
+SET delivery_state = 'acknowledged', claim_token = 'expired',
+    claimed_at = sqlc.arg(expired_at), acknowledged_at = sqlc.arg(expired_at),
+    last_error = 'expired before every puller pulled it'
+WHERE reports.session_id = sqlc.arg(session_id) AND reports.delivery_state = 'pending'
+  AND (reports.created_at < sqlc.arg(cutoff)
+       OR reports.id NOT IN (SELECT k.id FROM reports k WHERE k.session_id = sqlc.arg(session_id)
+                             ORDER BY k.created_at DESC, k.id DESC LIMIT sqlc.arg(keep)));

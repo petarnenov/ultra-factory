@@ -162,9 +162,8 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 		!strings.Contains(msg, "Postgres or SQLite?") || strings.Contains(msg, "tests green") {
 		t.Fatalf("delivered = %q", msg)
 	}
-	settled, _, _ := remoteStore.GetReport(ctx, created.ID)
-	if settled.DeliveryState != domain.ReportAcknowledged {
-		t.Fatalf("remote report state = %s, want acknowledged", settled.DeliveryState)
+	if dueForLocalPuller(t, ctx, remoteStore, worker.ID, created.ID) {
+		t.Fatalf("remote report still due for the local puller after its acknowledgement")
 	}
 
 	// A second pass finds nothing new and delivers nothing.
@@ -342,8 +341,8 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("redelivered after a local restart: %v", delivery.submissions)
 	}
-	if state := remoteState(remoteStore); state != domain.ReportAcknowledged {
-		t.Fatalf("remote report state = %s, want acknowledged", state)
+	if dueForLocalPuller(t, ctx, remoteStore, worker.ID, created.ID) {
+		t.Fatalf("remote report still due for the local puller after its acknowledgement")
 	}
 
 	// The remote daemon restarts on a new address: the acknowledgement is
@@ -362,7 +361,24 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("redelivered after a remote restart: %v", delivery.submissions)
 	}
-	if state := remoteState(remoteStore); state != domain.ReportAcknowledged {
-		t.Fatalf("remote report state = %s after restart, want acknowledged", state)
+	if dueForLocalPuller(t, ctx, remoteStore, worker.ID, created.ID) {
+		t.Fatalf("remote report due again after the remote restart")
 	}
+}
+
+// dueForLocalPuller reports whether the remote daemon still lists reportID as
+// due for the local puller's pull of sessionID.
+func dueForLocalPuller(t *testing.T, ctx context.Context, store *sqlite.Store, sessionID domain.SessionID, reportID string) bool {
+	t.Helper()
+	svc := reportsvc.New(reportsvc.Deps{Store: store, Now: time.Now})
+	result, err := svc.PullFor(ctx, sessionID, reportsvc.PullOptions{PullerID: "host-local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range result.Due {
+		if rec.ID == reportID {
+			return true
+		}
+	}
+	return false
 }

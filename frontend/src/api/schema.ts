@@ -3917,6 +3917,7 @@ export interface components {
             requestId?: string;
         };
         AcknowledgeReportsRequest: {
+            pullerId?: string;
             reportIds: string[];
             sessionId: string;
         };
@@ -5680,7 +5681,9 @@ export interface components {
             truncated: boolean;
         };
         ListPendingReportsResponse: {
+            expiredBeforePull?: number;
             morePending: boolean;
+            pullerAcks?: boolean;
             reports: components["schemas"]["ReportResponse"][];
         };
         ListProjectsResponse: {
@@ -13039,6 +13042,10 @@ export interface operations {
             query: {
                 /** @description Worker session identifier on this daemon. */
                 sessionId: string;
+                /** @description Pulling daemon's instance ID. Makes acknowledgement per puller; omit for first-delivery semantics. */
+                pullerId?: string;
+                /** @description Expired-before-pull count the puller already reported; the host subtracts it. */
+                expiredSeen?: number;
             };
             header?: never;
             path?: never;

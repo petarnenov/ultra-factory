@@ -128,3 +128,43 @@ characters, because all of them reach the orchestrator's prompt.
 - Longer term, a challenge-response (an HMAC of a server nonce) would remove the
   need to send the bearer at all; it would change the pairing contract and is
   out of scope here.
+
+## Amendment: per-puller acknowledgement (2026-10-21, issue #455)
+
+Two daemons on one machine can pull the same worker, for example the
+production daemon and the dev daemon. Under the original rule the first
+acknowledgement settled a report for every puller, so the other daemon's
+orchestrator never received it. This amendment keeps reports pending per puller.
+
+1. **Puller identity.** A daemon's puller ID is its own instance ID from
+   `GET /api/v1/identity` (`hostId`, persisted per data dir). It is sent as
+   `pullerId` on `GET /api/v1/reports/pending` and as `pullerId` in the body of
+   `POST /api/v1/reports/acknowledge`.
+2. **Per-puller acknowledgement.** An acknowledgement with a puller ID records
+   `(report, puller)` in `report_pull_acks`. It does not change the report's
+   `delivery_state`. The report stays due for every other puller and for the
+   worker's own queue. A pull by puller P omits the reports P acknowledged.
+3. **Legacy semantics.** A pull or acknowledgement without a puller ID keeps the
+   original behaviour: the acknowledgement moves the report to `acknowledged`
+   for everyone.
+4. **Capability.** A host that honours a puller ID answers `pullerAcks: true` on
+   the pending response. A puller that sent a puller ID but got no `pullerAcks`
+   is talking to an older host. It logs one warning per host and acknowledges
+   without a puller ID, which is first-delivery semantics. It never sends
+   `pullerId` to such a host, because those hosts reject unknown body fields.
+5. **Retention.** Pending reports of a worker expire when they are older than 7
+   days or beyond the newest 10 000 reports of that session, whichever comes
+   first. Expiry moves a report to `acknowledged` with claim token `expired`,
+   so the host's own coordinator does not deliver it either. Before the report
+   moves, each known puller that has not acknowledged it gains one in
+   `report_pullers.expired_count`. Expiry runs on pulls for that worker.
+6. **Expired counter.** A pending response carries `expiredBeforePull`, the
+   count still owed to that puller. The puller logs it, then sends the logged
+   value back as `expiredSeen` on its next pull, and the host subtracts it. A
+   puller reads no count for reports it never pulled before.
+
+Consequences: each puller gets every report once, unless it misses the
+retention window. A host that runs its own orchestrator for the worker can
+still deliver a report locally after a peer pulled it, as documented above.
+Mixing legacy pullers with per-puller pullers on one worker gives legacy
+semantics for the reports a legacy puller acknowledges.

@@ -4325,6 +4325,22 @@ paths:
         schema:
           description: Worker session identifier on this daemon.
           type: string
+      - description: Pulling daemon's instance ID. Makes acknowledgement per puller;
+          omit for first-delivery semantics.
+        in: query
+        name: pullerId
+        schema:
+          description: Pulling daemon's instance ID. Makes acknowledgement per puller;
+            omit for first-delivery semantics.
+          type: string
+      - description: Expired-before-pull count the puller already reported; the host
+          subtracts it.
+        in: query
+        name: expiredSeen
+        schema:
+          description: Expired-before-pull count the puller already reported; the
+            host subtracts it.
+          type: integer
       responses:
         "200":
           content:
@@ -11979,6 +11995,8 @@ components:
       type: object
     AcknowledgeReportsRequest:
       properties:
+        pullerId:
+          type: string
         reportIds:
           items:
             type: string
@@ -16796,7 +16814,11 @@ components:
       type: object
     ListPendingReportsResponse:
       properties:
+        expiredBeforePull:
+          type: integer
         morePending:
+          type: boolean
+        pullerAcks:
           type: boolean
         reports:
           items:

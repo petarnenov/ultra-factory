@@ -136,6 +136,60 @@ func (q *Queries) AcknowledgeReportBatch(ctx context.Context, arg AcknowledgeRep
 	return items, nil
 }
 
+const acknowledgeReportForPuller = `-- name: AcknowledgeReportForPuller :execrows
+INSERT INTO report_pull_acks (report_id, puller_id, acknowledged_at)
+SELECT id, ?1, ?2
+FROM reports
+WHERE id = ?3 AND session_id = ?4
+ON CONFLICT (report_id, puller_id) DO NOTHING
+`
+
+type AcknowledgeReportForPullerParams struct {
+	PullerID       string
+	AcknowledgedAt time.Time
+	ID             string
+	SessionID      string
+}
+
+func (q *Queries) AcknowledgeReportForPuller(ctx context.Context, arg AcknowledgeReportForPullerParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, acknowledgeReportForPuller,
+		arg.PullerID,
+		arg.AcknowledgedAt,
+		arg.ID,
+		arg.SessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const addExpiredToReportPullers = `-- name: AddExpiredToReportPullers :exec
+UPDATE report_pullers
+SET expired_count = expired_count + (
+    SELECT COUNT(*) FROM reports r
+    WHERE r.session_id = ?1
+      AND r.delivery_state = 'pending'
+      AND (r.created_at < ?2
+           OR r.id NOT IN (SELECT k.id FROM reports k WHERE k.session_id = ?1
+                           ORDER BY k.created_at DESC, k.id DESC LIMIT ?3))
+      AND NOT EXISTS (SELECT 1 FROM report_pull_acks a
+                      WHERE a.report_id = r.id AND a.puller_id = report_pullers.puller_id)
+)
+WHERE report_pullers.session_id = ?1
+`
+
+type AddExpiredToReportPullersParams struct {
+	SessionID string
+	Cutoff    time.Time
+	Keep      int64
+}
+
+func (q *Queries) AddExpiredToReportPullers(ctx context.Context, arg AddExpiredToReportPullersParams) error {
+	_, err := q.db.ExecContext(ctx, addExpiredToReportPullers, arg.SessionID, arg.Cutoff, arg.Keep)
+	return err
+}
+
 const assignPendingReportsToRecipient = `-- name: AssignPendingReportsToRecipient :exec
 UPDATE reports
 SET delivery_batch_id = ?1
@@ -431,6 +485,37 @@ func (q *Queries) DeferReportBatch(ctx context.Context, arg DeferReportBatchPara
 	return items, nil
 }
 
+const expirePendingSessionReports = `-- name: ExpirePendingSessionReports :execrows
+UPDATE reports
+SET delivery_state = 'acknowledged', claim_token = 'expired',
+    claimed_at = ?1, acknowledged_at = ?1,
+    last_error = 'expired before every puller pulled it'
+WHERE reports.session_id = ?2 AND reports.delivery_state = 'pending'
+  AND (reports.created_at < ?3
+       OR reports.id NOT IN (SELECT k.id FROM reports k WHERE k.session_id = ?2
+                             ORDER BY k.created_at DESC, k.id DESC LIMIT ?4))
+`
+
+type ExpirePendingSessionReportsParams struct {
+	ExpiredAt sql.NullTime
+	SessionID string
+	Cutoff    time.Time
+	Keep      int64
+}
+
+func (q *Queries) ExpirePendingSessionReports(ctx context.Context, arg ExpirePendingSessionReportsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, expirePendingSessionReports,
+		arg.ExpiredAt,
+		arg.SessionID,
+		arg.Cutoff,
+		arg.Keep,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getReport = `-- name: GetReport :one
 SELECT id, session_id, project_id, state, note, message, created_at, delivery_state, available_at, settlement_deadline, repeat_count, claim_token, claimed_at, delivery_attempts, acknowledged_at, last_error, delivery_batch_id, delivery_owner_id FROM reports WHERE id = ?
 `
@@ -470,6 +555,23 @@ func (q *Queries) GetReportInterrupt(ctx context.Context, sessionID string) (tim
 	var last_interrupted_at time.Time
 	err := row.Scan(&last_interrupted_at)
 	return last_interrupted_at, err
+}
+
+const getReportPullerExpired = `-- name: GetReportPullerExpired :one
+SELECT expired_count FROM report_pullers
+WHERE session_id = ?1 AND puller_id = ?2
+`
+
+type GetReportPullerExpiredParams struct {
+	SessionID string
+	PullerID  string
+}
+
+func (q *Queries) GetReportPullerExpired(ctx context.Context, arg GetReportPullerExpiredParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getReportPullerExpired, arg.SessionID, arg.PullerID)
+	var expired_count int64
+	err := row.Scan(&expired_count)
+	return expired_count, err
 }
 
 const listPendingReportSchedule = `-- name: ListPendingReportSchedule :many
@@ -679,6 +781,40 @@ func (q *Queries) ListReportOutputs(ctx context.Context, reportID string) ([]Rep
 	return items, nil
 }
 
+const listReportPullerAckedIDs = `-- name: ListReportPullerAckedIDs :many
+SELECT a.report_id FROM report_pull_acks a
+JOIN reports r ON r.id = a.report_id
+WHERE r.session_id = ?1 AND a.puller_id = ?2
+`
+
+type ListReportPullerAckedIDsParams struct {
+	SessionID string
+	PullerID  string
+}
+
+func (q *Queries) ListReportPullerAckedIDs(ctx context.Context, arg ListReportPullerAckedIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listReportPullerAckedIDs, arg.SessionID, arg.PullerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var report_id string
+		if err := rows.Scan(&report_id); err != nil {
+			return nil, err
+		}
+		items = append(items, report_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listReportedPRURLs = `-- name: ListReportedPRURLs :many
 SELECT o.reference FROM report_outputs o
 JOIN reports r ON r.id = o.report_id
@@ -817,6 +953,23 @@ func (q *Queries) PutReportInterrupt(ctx context.Context, arg PutReportInterrupt
 	return err
 }
 
+const reduceReportPullerExpired = `-- name: ReduceReportPullerExpired :exec
+UPDATE report_pullers
+SET expired_count = MAX(0, expired_count - ?1)
+WHERE session_id = ?2 AND puller_id = ?3
+`
+
+type ReduceReportPullerExpiredParams struct {
+	Seen      int64
+	SessionID string
+	PullerID  string
+}
+
+func (q *Queries) ReduceReportPullerExpired(ctx context.Context, arg ReduceReportPullerExpiredParams) error {
+	_, err := q.db.ExecContext(ctx, reduceReportPullerExpired, arg.Seen, arg.SessionID, arg.PullerID)
+	return err
+}
+
 const releaseReport = `-- name: ReleaseReport :one
 UPDATE reports
 SET delivery_state = 'pending', available_at = ?1,
@@ -939,4 +1092,21 @@ func (q *Queries) RequeueClaimedReports(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const touchReportPuller = `-- name: TouchReportPuller :exec
+INSERT INTO report_pullers (session_id, puller_id, expired_count, last_pulled_at)
+VALUES (?1, ?2, 0, ?3)
+ON CONFLICT (session_id, puller_id) DO UPDATE SET last_pulled_at = excluded.last_pulled_at
+`
+
+type TouchReportPullerParams struct {
+	SessionID string
+	PullerID  string
+	PulledAt  time.Time
+}
+
+func (q *Queries) TouchReportPuller(ctx context.Context, arg TouchReportPullerParams) error {
+	_, err := q.db.ExecContext(ctx, touchReportPuller, arg.SessionID, arg.PullerID, arg.PulledAt)
+	return err
 }
