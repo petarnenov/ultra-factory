@@ -39,6 +39,9 @@ type Entry struct {
 	// AllowInsecureHTTP is the per-host "Allow report pulls over plain HTTP"
 	// setting: it lets the daemon send this host's password over plain http.
 	AllowInsecureHTTP bool `json:"allowInsecureHTTP,omitempty"`
+	// Tailscale marks a host reached at its Tailscale address and admitted on
+	// this machine's tailnet identity; Password is then empty.
+	Tailscale bool `json:"tailscale,omitempty"`
 }
 
 type identity struct {
