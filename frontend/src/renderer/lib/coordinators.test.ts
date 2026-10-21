@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	coordinatorErrorKey,
+	type CoordinatorsConfig,
 	coordinatorsConfigFrom,
 	coordinatorsFormFrom,
 	validateCoordinatorsForm,
@@ -244,5 +245,36 @@ describe("coordinatorErrorKey", () => {
 	test("returns null for an unknown code so the daemon text shows", () => {
 		expect(coordinatorErrorKey({ code: "SOMETHING_ELSE" })).toBeNull();
 		expect(coordinatorErrorKey(new Error("boom"))).toBeNull();
+	});
+});
+
+describe("coordinators block round trip", () => {
+	// Every field the form edits, in the shape the daemon returns it.
+	const loaded: CoordinatorsConfig = {
+		enabled: true,
+		maxCoordinators: 3,
+		maxWorkersPerCoordinator: 3,
+		maxWorkers: 9,
+		allowedHosts: ["IMac", "Linux", "Z600"],
+		allowLocalWorkers: true,
+		agentProfiles: [
+			{ id: "fast", label: "Fast", harness: "claude-code", model: "sonnet", effort: "low", weight: 2 },
+			{ id: "deep", harness: "codex", model: "gpt-5", effort: "high" },
+		],
+		coordinatorAgent: { mode: "fixed", profileId: "deep" },
+		workerAgent: { mode: "random", profileIds: ["fast", "deep"] },
+		rootWorkerAgent: {},
+	};
+
+	test("a loaded block survives form and back unchanged", () => {
+		const rebuilt = coordinatorsConfigFrom(coordinatorsFormFrom(loaded));
+		expect(rebuilt).toEqual({ ...loaded, rootWorkerAgent: undefined });
+		expect(JSON.parse(JSON.stringify(rebuilt))).toEqual(JSON.parse(JSON.stringify({ ...loaded, rootWorkerAgent: undefined })));
+	});
+
+	test("the body keeps only keys the daemon accepts", () => {
+		const body = withCoordinatorsConfig({ defaultBranch: "dev", coordinators: loaded }, coordinatorsConfigFrom(coordinatorsFormFrom(loaded)));
+		const allowed = new Set(["enabled", "maxCoordinators", "maxWorkersPerCoordinator", "maxWorkers", "agentProfiles", "coordinatorAgent", "workerAgent", "rootWorkerAgent", "allowedHosts", "allowLocalWorkers"]);
+		for (const key of Object.keys(JSON.parse(JSON.stringify(body.coordinators)))) expect(allowed.has(key)).toBe(true);
 	});
 });

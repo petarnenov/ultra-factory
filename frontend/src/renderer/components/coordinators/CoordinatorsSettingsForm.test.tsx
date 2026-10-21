@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const { put } = vi.hoisted(() => ({ put: vi.fn() }));
 
-vi.mock("../../lib/api-client", () => ({
+vi.mock("../../lib/api-client", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../lib/api-client")>()),
 	apiClient: { PUT: put },
-	apiErrorMessage: (error: unknown) => String(error),
 }));
 vi.mock("../../lib/host-clients", () => ({ clientForHost: () => ({ PUT: put }) }));
 vi.mock("../../hooks/useRemoteHosts", () => ({
@@ -106,6 +106,45 @@ describe("CoordinatorsSettingsForm save protocol", () => {
 		await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
 		expect(put.mock.calls[0][1].body.config.coordinators.enabled).toBe(true);
 		await waitFor(() => expect(onSaved).toHaveBeenCalled());
+	});
+
+	test("submitting without changes sends nothing", async () => {
+		const full: ProjectConfig = {
+			...config,
+			coordinators: {
+				enabled: true,
+				maxCoordinators: 3,
+				maxWorkersPerCoordinator: 3,
+				maxWorkers: 9,
+				allowedHosts: ["IMac", "Linux", "Z600"],
+				allowLocalWorkers: true,
+				agentProfiles: [{ id: "fast", label: "Fast", harness: "claude-code", model: "sonnet", effort: "low", weight: 2 }],
+				coordinatorAgent: { mode: "fixed", profileId: "fast" },
+				workerAgent: { mode: "random", profileIds: ["fast"] },
+			},
+		};
+		render(<CoordinatorsSettingsForm config={full} onSaved={() => {}} projectId="ao" projectName="ao" />);
+
+		submitDialogForm();
+
+		expect(put).not.toHaveBeenCalled();
+	});
+
+	test("a rejected field is named in the error line", async () => {
+		put.mockResolvedValue({
+			error: {
+				error: "bad_request",
+				code: "INVALID_JSON",
+				message: "Invalid JSON body",
+				details: { field: "config.coordinators.foo", reason: "unknown field" },
+			},
+		});
+		render(<CoordinatorsSettingsForm config={config} onSaved={() => {}} projectId="ao" projectName="ao" />);
+		await userEvent.click(screen.getByRole("switch", { name: "Enable coordinators" }));
+
+		await userEvent.click(screen.getByRole("button", { name: "Save coordinators" }));
+
+		expect(await screen.findByText("Invalid JSON body: unknown field config.coordinators.foo")).toBeInTheDocument();
 	});
 
 	test("a draft with an unknown profile is held, not dropped, and says why", async () => {
