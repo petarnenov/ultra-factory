@@ -18,6 +18,11 @@ func TestRemoteHostCLIUsesLocalControlAPI(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
+		case "/api/v1/mobile/enable-tailnet":
+			enabled = true
+			body, _ := io.ReadAll(r.Body)
+			requests = append(requests, "body="+strings.TrimSpace(string(body)))
+			_, _ = io.WriteString(w, `{"enabled":true,"tailnetOnly":true,"hostId":"host-a","endpoints":[{"kind":"tailscale","host":"100.121.193.125","port":3011,"secure":false}],"password":""}`)
 		case "/api/v1/mobile/enable-lan-only":
 			enabled = true
 			_, _ = io.WriteString(w, `{"enabled":true,"hostId":"host-a","endpoints":[{"kind":"lan","host":"192.168.1.10","port":3011,"secure":false}],"password":"pairing-secret"}`)
@@ -38,18 +43,21 @@ func TestRemoteHostCLIUsesLocalControlAPI(t *testing.T) {
 	writeRunFileFor(t, cfg, srv)
 
 	for _, tc := range []struct {
-		name, verb string
-		requests   []string
-		want       []string
-		absent     string
+		name     string
+		args     []string
+		requests []string
+		want     []string
+		absent   string
 	}{
-		{"enable", "enable", []string{"POST /api/v1/mobile/enable-lan-only"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret", "Tailscale: no address"}, ""},
-		{"status", "status", []string{"GET /api/v1/mobile/status"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, ""},
-		{"disable", "disable", []string{"POST /api/v1/mobile/disable"}, []string{"disabled"}, "pairing-secret"},
+		{"enable", []string{"enable"}, []string{"POST /api/v1/mobile/enable-tailnet", `body={"passwordFallback":false}`}, []string{"enabled on Tailscale", "host-a", "http://100.121.193.125:3011", "Tailscale identity"}, "Password"},
+		{"enable with password fallback", []string{"enable", "--allow-password"}, []string{"POST /api/v1/mobile/enable-tailnet", `body={"passwordFallback":true}`}, []string{"enabled on Tailscale"}, ""},
+		{"enable lan", []string{"enable", "--lan"}, []string{"POST /api/v1/mobile/enable-lan-only"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, "Tailscale identity"},
+		{"status", []string{"status"}, []string{"GET /api/v1/mobile/status"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, ""},
+		{"disable", []string{"disable"}, []string{"POST /api/v1/mobile/disable"}, []string{"disabled"}, "pairing-secret"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requests = nil
-			out, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "remote-host", tc.verb)
+			out, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, append([]string{"remote-host"}, tc.args...)...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -215,7 +223,7 @@ func TestRemoteHostCLIRejectsArgsAndPreservesDaemonError(t *testing.T) {
 			_, _ = io.WriteString(w, `{"enabled":true,"hostId":"host-a"}`)
 		case r.URL.Path == "/api/v1/mobile/status":
 			_, _ = io.WriteString(w, `{"enabled":false,"hostId":"host-a"}`)
-		case r.URL.Path == "/api/v1/mobile/enable-lan-only":
+		case r.URL.Path == "/api/v1/mobile/enable-lan-only", r.URL.Path == "/api/v1/mobile/enable-tailnet":
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, `{"message":"listener failed","code":"MOBILE_ENABLE","requestId":"req-123"}`)
 		case r.URL.Path == "/api/v1/mobile/remote-access":
@@ -234,8 +242,8 @@ func TestRemoteHostCLIRejectsArgsAndPreservesDaemonError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "listener failed (MOBILE_ENABLE) [request req-123]") {
 		t.Fatalf("daemon error = %v, want request ID and code", err)
 	}
-	if got := strings.Join(requests, ","); got != "POST /api/v1/mobile/enable-lan-only" {
-		t.Fatalf("requests = %v, want LAN-only enable", requests)
+	if got := strings.Join(requests, ","); got != "POST /api/v1/mobile/enable-tailnet" {
+		t.Fatalf("requests = %v, want Tailscale-only enable", requests)
 	}
 	requests = nil
 	statusError = true
