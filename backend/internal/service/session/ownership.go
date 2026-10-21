@@ -14,9 +14,7 @@ import (
 )
 
 // AssignOwner sets or clears one worker's owner; nil means root-owned.
-// This is the service boundary the ownership write route calls. The parties
-// are told after the write, outside the project lock, so a slow delivery
-// never holds the lock.
+// Owners are notified after the write, outside the project lock.
 func (s *Service) AssignOwner(
 	ctx context.Context,
 	workerID domain.SessionID,

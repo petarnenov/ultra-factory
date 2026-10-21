@@ -11,8 +11,7 @@ import (
 )
 
 // AssignOwner sets or clears one linked remote worker's owner; nil is root.
-// This is the service boundary the remote ownership write route calls. The
-// owners are told after the write, outside the project lock.
+// Owners are notified after the write, outside the project lock.
 func (s *Service) AssignOwner(
 	ctx context.Context,
 	hostID string,
