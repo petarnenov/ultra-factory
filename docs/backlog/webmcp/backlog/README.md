@@ -40,6 +40,18 @@ builds, call surface dev/e2e only; Playwright baseline copied into the bench
 spec; bridge-push scenarios included as untimed steps; `@typesafe-ai/sdk`
 with retries off; committed JSON as data source; recharts via shadcn chart.
 
+## Execution model
+
+The root orchestrator does not spawn implementation workers. It discovers
+the registered hosts (`ao host ls`), probes them for toolchain and for the
+TypeSafe key, allocates host slots, and spawns two coordinators with
+assignment briefs per `docs/coordinators/operating-contract.md`:
+`WM-surface` (WM-1, WM-2) and `WM-measure` (WM-3, WM-4). Coordinators spawn
+and supervise workers; the root merges `--ready-pr` heads, closes issues,
+announces merges to the coordinators and answers escalations. No backlog
+item, brief or worker prompt names a machine; hosts are labels chosen at run
+time. Details: `../orchestrator-prompt.md`.
+
 ## Invariants
 
 - The three drivers run the **same nine scenarios with the same assertions**

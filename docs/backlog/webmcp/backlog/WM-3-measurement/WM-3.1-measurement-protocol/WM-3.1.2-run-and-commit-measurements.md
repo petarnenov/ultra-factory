@@ -20,8 +20,10 @@ and commit the raw records and summary as the dashboard's data source.
 
 ## Context
 
-- Machine: the Linux host with `JEV_MAF_LAB` set (this is where the probe
-  measured 151–242 ms per JEV call).
+- Machine: the registered host whose daemon exposes `JEV_MAF_LAB` (or
+  `TYPESAFE_API_KEY`) to its sessions; the orchestrator finds it with a probe
+  worker and never names it in advance (the 2026-10-21 probe measured
+  151–242 ms per JEV call from that host).
 - `AO_PERF_DIR` output is one file per run; the summarizer concatenates.
 
 ## Blueprint
