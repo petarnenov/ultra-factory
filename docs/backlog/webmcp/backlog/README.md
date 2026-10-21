@@ -54,7 +54,7 @@ time. Details: `../orchestrator-prompt.md`.
 
 ## Invariants
 
-- The three drivers run the **same nine scenarios with the same assertions**
+- The three drivers run the **same ten scenarios with the same assertions**
   inside one Playwright harness; a scenario that cannot be expressed 1:1 is
   dropped from all three, not approximated in one.
 - Tool registration goes through one shim module; a native

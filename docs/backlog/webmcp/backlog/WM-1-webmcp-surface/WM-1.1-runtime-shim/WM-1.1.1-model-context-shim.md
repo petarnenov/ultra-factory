@@ -15,7 +15,7 @@ native implementation, keeps a local registry either way, and exposes
 
 - Own shim, no `@mcp-b/webmcp-polyfill` dependency.
 - Tools are **always registered** (all builds). The `__aoWebMcp` call surface
-  is **dev/e2e only** (`import.meta.env.DEV || usesPreviewWorkspaceData()`,
+  is **dev/e2e only** (`import.meta.env.DEV || usesPreviewWorkspaceData`,
   see `frontend/src/renderer/lib/preview-mode.ts:1`).
 - Target entry point is `document.modelContext` (May 2026 draft);
   `navigator.modelContext` is treated as a legacy alias for native detection
@@ -71,7 +71,7 @@ export async function callTool(name: string, args: unknown = {}): Promise<unknow
 }
 export function installModelContext(): void {
   if (!native) document.modelContext = { registerTool: (d) => void registerTool(d), unregisterTool };
-  if (import.meta.env.DEV || usesPreviewWorkspaceData()) window.__aoWebMcp = { listTools, callTool };
+  if (import.meta.env.DEV || usesPreviewWorkspaceData) window.__aoWebMcp = { listTools, callTool };
 }
 ```
 
@@ -119,3 +119,18 @@ export function useModelContextTool<A, R>(descriptor: ToolDescriptor<A, R> | nul
 ## Dependencies
 
 None.
+
+## Audit constraints — 2026-10-21
+
+- Treat this as an AO benchmark adapter, not a complete implementation of
+  the evolving native standard. Feature-detect methods and test native
+  registration failures/asynchronous results. The current primary reference
+  is [Chrome's imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api).
+- Registration cleanup must remove only the descriptor it registered: a stale
+  cleanup must not delete a newer same-name registration. Test StrictMode,
+  replacement, repeated installation, and navigation/unmount during a wait.
+- Validate declared enum values, finite numbers and object/array distinctions;
+  the minimal checker must not silently accept invalid timeout or section args.
+- Grepping a bundle does not prove a global is unavailable. Load production
+  web and packaged builds and assert `window.__aoWebMcp === undefined`, with
+  preview/test flags off. Test the explicit preview configuration separately.

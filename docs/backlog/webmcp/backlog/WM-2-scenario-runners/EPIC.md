@@ -26,7 +26,7 @@ identical assertions and one clock.
 
 **Acceptance criteria**
 
-- [ ] Nine catalog scenarios, each naming its source spec and title, with
+- [ ] Ten catalog scenarios, each naming its source spec and title, with
   steps that are one tool call, one bridge step, or one assertion.
 - [ ] `AO_WEBMCP_BENCH=1 npm run test:e2e -- e2e/webmcp-bench.spec.ts` runs
   all drivers per scenario and writes one record per run.

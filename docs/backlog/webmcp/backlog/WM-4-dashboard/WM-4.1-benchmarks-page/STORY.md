@@ -16,5 +16,5 @@ trade-off is visible without opening JSON files.
 
 - [ ] The page works in light and dark themes and at 390 px width.
 - [ ] Every chart has a table equivalent for the same numbers.
-- [ ] The report links the data set and the page; every number in it exists
-  in `summary.json`.
+- [ ] The report links the data set and the page; measured results trace to
+  `summary.json` or raw records, and environment metadata to `env`.

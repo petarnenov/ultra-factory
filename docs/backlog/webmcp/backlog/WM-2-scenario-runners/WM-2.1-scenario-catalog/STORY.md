@@ -14,7 +14,7 @@ thing and the comparison is fair.
 
 - [ ] The catalog is data (`scenarios.ts`), not test code; drivers interpret
   it.
-- [ ] Each scenario has `page`, `route`, `source: {file, title}`, `steps[]`,
-  and `expect[]` entries that reference tool read results, not selectors.
+- [ ] Each scenario has `page`, `route`, `source: {file, title}`, `tools` steps, phase/action candidates, and
+  shared assertion entries that reference tool read results, not selectors.
 - [ ] Scenarios that depend on layout (wrapping, scroll position) are listed
   under "excluded" with the reason.

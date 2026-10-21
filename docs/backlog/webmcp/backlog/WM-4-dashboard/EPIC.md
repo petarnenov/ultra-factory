@@ -7,7 +7,7 @@ with charts, fed by the committed data set, and publish the written report in
 the format of `docs/performance/chat-responsiveness/`.
 
 **Estimate:** 2–2.5 pd. **Stage:** publish. **Dependencies:** WM-3.1.1
-(types) for WM-4.1.1 and WM-4.1.2; WM-3.1.2 (data) for the final numbers.
+(types) for WM-4.1.2; WM-4.1.1 is independent; WM-3.1.2 (data) for the final numbers.
 
 | Story | Name | Estimate |
 |---|---|---:|
