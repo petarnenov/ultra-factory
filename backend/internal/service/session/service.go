@@ -21,6 +21,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	"github.com/aoagents/agent-orchestrator/backend/internal/scmidentity"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentprofile"
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 	sessionmanager "github.com/aoagents/agent-orchestrator/backend/internal/session_manager"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionartifacts"
@@ -213,6 +214,7 @@ type Service struct {
 	logger             *slog.Logger
 	backgroundContext  context.Context
 	agentReadiness     ports.AgentReadinessProvider
+	profileIntn        agentprofile.Intn
 	runBackground      func(func())
 	capacityGuardMu    sync.Mutex
 	capacityGuard      *coordownership.Guard
@@ -417,6 +419,9 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	if cfg.CoordinatorWorkerLimit != nil && cfg.Kind != domain.KindCoordinator {
 		return domain.Session{}, 0, 0, apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "workerLimit is supported for coordinator sessions only", map[string]any{"field": "workerLimit"})
 	}
+	if (cfg.CoordinatorWorkerAgent != nil || cfg.CoordinatorAgent != nil) && cfg.Kind != domain.KindCoordinator {
+		return domain.Session{}, 0, 0, apierr.Invalid("WORKER_PROFILE_INVALID", "workerAgent and coordinatorAgent are supported for coordinator sessions only", map[string]any{"field": "workerAgent"})
+	}
 	if len(cfg.CoordinatorHostSlots) > 0 && cfg.Kind != domain.KindCoordinator {
 		return domain.Session{}, 0, 0, apierr.Invalid("COORDINATOR_WORKER_LIMIT_INVALID", "hostSlots is supported for coordinator sessions only", map[string]any{"field": "hostSlots"})
 	}
@@ -433,6 +438,9 @@ func (s *Service) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 			return domain.Session{}, 0, 0, err
 		}
 		defer release()
+		if cfg, err = s.resolveWorkerAgent(ctx, cfg); err != nil {
+			return domain.Session{}, 0, 0, err
+		}
 	}
 	if cfg.Kind == domain.KindOrchestrator {
 		cfg.Async = true
@@ -614,6 +622,9 @@ func (s *Service) emitSpawned(ctx context.Context, rec domain.SessionRecord, dur
 	}
 	if actor, ok := s.githubActor(ctx); ok {
 		payload["github_actor"] = actor
+	}
+	if rec.AgentProfileID != "" {
+		payload["agent_profile_id"] = rec.AgentProfileID
 	}
 	s.telemetry.Emit(context.Background(), ports.TelemetryEvent{
 		Name:       "ao.session.spawned",

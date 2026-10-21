@@ -347,6 +347,99 @@ func TestRemoteOrchestratorSpawnIsNotMarkedRemote(t *testing.T) {
 	}
 }
 
+func TestRemoteOrchestratorSpawnIgnoresWorkerAgentProfiles(t *testing.T) {
+	local, remote := newLinkedSpawnFixture(t)
+	local.answerLinks(http.StatusCreated)
+	local.mu.Lock()
+	local.checkAgent = "codex"
+	local.mu.Unlock()
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+	_, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--kind", "orchestrator",
+		"--name", "remote root", "--prompt", "go", "--agent", "claude-code", "--skip-agent-check")
+	if err != nil {
+		t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+	}
+	local.mu.Lock()
+	bodies := append([]string(nil), local.checkBodies...)
+	local.mu.Unlock()
+	for _, body := range bodies {
+		if strings.Contains(body, `"agentCheck":true`) {
+			t.Fatalf("an orchestrator spawn asked for a worker agent profile: %s", body)
+		}
+	}
+	recorded, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+	if !ok {
+		t.Fatal("remote spawn request not recorded")
+	}
+	var spawned spawnRequest
+	if err := json.Unmarshal([]byte(recorded.body), &spawned); err != nil {
+		t.Fatal(err)
+	}
+	if spawned.Harness != "claude-code" || spawned.AgentProfileID != "" || spawned.Model != "" {
+		t.Fatalf("orchestrator spawn = %+v, want its own harness and no profile", spawned)
+	}
+}
+
+func TestRemoteWorkerSpawnAppliesTheProfileAgentAfterTheHostReadinessRoundTrip(t *testing.T) {
+	local, remote := newLinkedSpawnFixture(t)
+	local.answerLinks(http.StatusCreated)
+	local.mu.Lock()
+	local.checkNeed, local.checkAgent = []string{"claude-code", "codex"}, "codex"
+	local.mu.Unlock()
+	remote.handle(http.MethodPost, "/api/v1/agents/readiness/ensure", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]any{"agents": []map[string]any{
+			{"id": "claude-code", "installation": map[string]string{"state": "not_installed"}, "authentication": map[string]string{"state": "unknown"}, "effectiveReadiness": "not_ready"},
+			{"id": "codex", "installation": map[string]string{"state": "installed"}, "authentication": map[string]string{"state": "authorized"}, "effectiveReadiness": "ready"},
+		}})
+	})
+	writeRemotesFile(t, remoteEntry{Label: "build-box", URL: remote.srv.URL, Password: "s3cret", HostID: "host-build"})
+
+	_, errOut, err := executeCLI(t, aliveDeps(), "spawn", "--host", "build-box", "--name", "auth refactor", "--prompt", "do it", "--skip-agent-check")
+	if err != nil {
+		t.Fatalf("spawn: %v\nstderr=%s", err, errOut)
+	}
+	ensure, ok := remote.find(http.MethodPost, "/api/v1/agents/readiness/ensure")
+	if !ok || !strings.Contains(ensure.body, "claude-code") || !strings.Contains(ensure.body, "codex") || !strings.Contains(ensure.body, `"launch"`) {
+		t.Fatalf("host readiness request = %+v", ensure)
+	}
+	local.mu.Lock()
+	bodies := append([]string(nil), local.checkBodies...)
+	local.mu.Unlock()
+	var hostChecks []remoteAgentCheckRequest
+	for _, body := range bodies {
+		var req remoteAgentCheckRequest
+		if err := json.Unmarshal([]byte(body), &req); err != nil {
+			t.Fatal(err)
+		}
+		if req.AgentCheck {
+			hostChecks = append(hostChecks, req)
+		}
+	}
+	if len(hostChecks) != 2 {
+		t.Fatalf("host-aware checks = %d, want 2: %v", len(hostChecks), bodies)
+	}
+	first, second := hostChecks[0], hostChecks[1]
+	if first.ParentSessionID != "ao-7" || first.HostID != "host-build" || first.HostReadinessChecked || len(first.UnreadyHarnesses) != 0 {
+		t.Fatalf("first check = %+v", first)
+	}
+	if !second.HostReadinessChecked || second.UnreadyHarnesses["claude-code"] != "not_installed" || len(second.UnreadyHarnesses) != 1 {
+		t.Fatalf("second check = %+v, want only claude-code unready", second)
+	}
+	recorded, ok := remote.find(http.MethodPost, "/api/v1/sessions")
+	if !ok {
+		t.Fatal("remote spawn request not recorded")
+	}
+	var spawned spawnRequest
+	if err := json.Unmarshal([]byte(recorded.body), &spawned); err != nil {
+		t.Fatal(err)
+	}
+	if spawned.Harness != "codex" || spawned.Model != "m" || spawned.Effort != "e" || spawned.AgentProfileID != "p" ||
+		spawned.HarnessExplicit == nil || !*spawned.HarnessExplicit || !spawned.RemoteSpawn {
+		t.Fatalf("remote spawn body = %+v", spawned)
+	}
+}
+
 // TestRemoteSpawnAutoReviewOverride asserts --auto-review reaches the peer
 // and that a live local coordinator parent defaults it on.
 func TestRemoteSpawnAutoReviewOverride(t *testing.T) {

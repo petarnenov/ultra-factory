@@ -542,3 +542,62 @@ func TestCoordinatorLimitsRouteSetsHostSlotsAndTheRosterShowsUse(t *testing.T) {
 		t.Fatalf("clear status=%d body=%s", status, body)
 	}
 }
+
+func TestCoordinatorWorkerAgentRouteChangesAndExposesTheSelection(t *testing.T) {
+	f := newOwnershipFixture(t)
+	if err := f.store.UpsertProject(context.Background(), domain.ProjectRecord{
+		ID: "ao", Path: "/tmp/ao", RegisteredAt: time.Now().UTC(),
+		Config: domain.ProjectConfig{Coordinators: domain.CoordinatorsConfig{AgentProfiles: []domain.AgentProfile{
+			{ID: "a", Harness: domain.HarnessClaudeCode, Model: "sonnet", Effort: "medium"},
+			{ID: "b", Harness: domain.HarnessCodex, Model: "gpt-5", Effort: "high"},
+		}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := f.server(t)
+	path := "/api/v1/sessions/" + string(f.coordinator.ID) + "/coordinator-worker-agent"
+	put := func(payload string) (string, int) {
+		t.Helper()
+		body, status, _ := doRequest(t, srv, http.MethodPut, path, payload)
+		return string(body), status
+	}
+
+	body, status := put(`{"workerAgent":{"mode":"fixed","profileId":"a"},"requestedBySessionId":"` + string(f.root.ID) + `","origin":"cli"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"workerAgent":{"mode":"fixed","profileId":"a"}`) {
+		t.Fatalf("root update status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerAgent":{"mode":"random","profileIds":["a","b"]},"operatorInitiated":true,"origin":"cli"}`)
+	if status != http.StatusOK || !reportContainsAll(body, `"mode":"random"`) {
+		t.Fatalf("operator update status=%d body=%s", status, body)
+	}
+	events, err := f.store.ListCoordinatorAgentEvents(context.Background(), f.coordinator.ID)
+	if err != nil || len(events) != 2 || events[1].Origin != "cli" || events[1].ActorSessionID != f.root.ID {
+		t.Fatalf("audit = %+v err=%v", events, err)
+	}
+	body, status = put(`{"workerAgent":{"mode":"random","profileIds":["a","b"]},"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if events, _ := f.store.ListCoordinatorAgentEvents(context.Background(), f.coordinator.ID); status != http.StatusOK || len(events) != 2 {
+		t.Fatalf("an unchanged selection is a 200 no-op: status=%d body=%s events=%d", status, body, len(events))
+	}
+
+	body, status = put(`{"workerAgent":{"mode":"fixed","profileId":"nope"},"requestedBySessionId":"` + string(f.root.ID) + `"}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "WORKER_PROFILE_INVALID", `"field":"workerAgent"`) {
+		t.Fatalf("unknown profile status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerAgent":{"mode":"inherit"},"requestedBySessionId":"` + string(f.otherCoord.ID) + `"}`)
+	if status != http.StatusForbidden || !reportContainsAll(body, "COORDINATOR_ROOT_REQUIRED") {
+		t.Fatalf("non-root status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerAgent":{"mode":"inherit"},"operatorInitiated":true,"requestedBySessionId":"` + string(f.root.ID) + `","origin":"cli"}`)
+	if status != http.StatusForbidden || !reportContainsAll(body, "OPERATOR_MARKER_NOT_ALLOWED") {
+		t.Fatalf("marker with a session status=%d body=%s", status, body)
+	}
+	body, status = put(`{"workerAgent":{"mode":"inherit"},"unknown":true}`)
+	if status != http.StatusBadRequest || !reportContainsAll(body, "INVALID_JSON") {
+		t.Fatalf("unknown field status=%d body=%s", status, body)
+	}
+
+	roster, _, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/ao/coordinators", "")
+	if !reportContainsAll(string(roster), `"workerAgent":{"mode":"random"`, `"agentProfileId":null`) {
+		t.Fatalf("roster = %s", roster)
+	}
+}

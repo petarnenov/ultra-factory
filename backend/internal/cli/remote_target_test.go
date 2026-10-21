@@ -140,8 +140,14 @@ type localDaemon struct {
 	// linkCode is the error code answered with a non-201 linkStatus.
 	linkCode string
 	// checkCode, when set, makes POST remote-worker-links/check answer 409.
-	checkCode   string
+	checkCode string
+	// checkAgent, when set, makes the check answer with a forced agent for a
+	// request that names a host; checkBodies records every check request.
+	checkAgent  string
 	checkBodies []string
+	// checkNeed makes a host-aware check without host readiness ask for these
+	// harnesses first, as the daemon does when a profile selection applies.
+	checkNeed []string
 	// parentKind, when set, answers GET /api/v1/sessions/<parent> with a
 	// live session of that kind.
 	parentKind string
@@ -179,11 +185,20 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 		d.paths = append(d.paths, r.Method+" "+r.URL.Path)
 		d.mu.Unlock()
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/remote-worker-links/check" {
-			body, _ := io.ReadAll(r.Body)
+			checkBody, _ := io.ReadAll(r.Body)
 			d.mu.Lock()
-			code := d.checkCode
-			d.checkBodies = append(d.checkBodies, string(body))
+			code, forced, need := d.checkCode, d.checkAgent, d.checkNeed
+			d.checkBodies = append(d.checkBodies, string(checkBody))
 			d.mu.Unlock()
+			if len(need) > 0 && strings.Contains(string(checkBody), `"agentCheck":true`) && !strings.Contains(string(checkBody), `"hostReadinessChecked":true`) {
+				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "readinessHarnesses": need})
+				return
+			}
+			if forced != "" && strings.Contains(string(checkBody), `"agentCheck":true`) {
+				writeTestJSON(w, http.StatusOK, map[string]any{"ok": true, "agent": map[string]string{
+					"profileId": "p", "harness": forced, "model": "m", "effort": "e"}})
+				return
+			}
 			if code != "" {
 				writeTestJSON(w, http.StatusConflict, map[string]string{"error": "conflict", "code": code, "message": "worker limit reached"})
 				return

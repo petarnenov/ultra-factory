@@ -13,6 +13,33 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
+const insertCoordinatorAgentEvent = `-- name: InsertCoordinatorAgentEvent :exec
+INSERT INTO coordinator_agent_events (
+    session_id, previous_selection, new_selection, actor_session_id, origin, created_at
+) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertCoordinatorAgentEventParams struct {
+	SessionID         string
+	PreviousSelection sql.NullString
+	NewSelection      string
+	ActorSessionID    string
+	Origin            string
+	CreatedAt         time.Time
+}
+
+func (q *Queries) InsertCoordinatorAgentEvent(ctx context.Context, arg InsertCoordinatorAgentEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertCoordinatorAgentEvent,
+		arg.SessionID,
+		arg.PreviousSelection,
+		arg.NewSelection,
+		arg.ActorSessionID,
+		arg.Origin,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const insertCoordinatorLimitEvent = `-- name: InsertCoordinatorLimitEvent :exec
 INSERT INTO coordinator_limit_events (
     session_id, previous_limit, new_limit, previous_host_slots, new_host_slots,
@@ -95,6 +122,44 @@ func (q *Queries) InsertSessionOwnerEvent(ctx context.Context, arg InsertSession
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const listCoordinatorAgentEvents = `-- name: ListCoordinatorAgentEvents :many
+SELECT id, session_id, previous_selection, new_selection, actor_session_id, origin, created_at
+FROM coordinator_agent_events
+WHERE session_id = ?
+ORDER BY id
+`
+
+func (q *Queries) ListCoordinatorAgentEvents(ctx context.Context, sessionID string) ([]CoordinatorAgentEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listCoordinatorAgentEvents, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CoordinatorAgentEvent{}
+	for rows.Next() {
+		var i CoordinatorAgentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.PreviousSelection,
+			&i.NewSelection,
+			&i.ActorSessionID,
+			&i.Origin,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCoordinatorLimitEvents = `-- name: ListCoordinatorLimitEvents :many
@@ -241,6 +306,28 @@ func (q *Queries) SetCoordinatorLimits(ctx context.Context, arg SetCoordinatorLi
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setCoordinatorWorkerAgent = `-- name: SetCoordinatorWorkerAgent :execrows
+UPDATE sessions
+SET coordinator_worker_agent = ?1,
+    updated_at = ?2
+WHERE id = ?3 AND kind = 'coordinator' AND is_terminated = 0
+`
+
+type SetCoordinatorWorkerAgentParams struct {
+	CoordinatorWorkerAgent sql.NullString
+	UpdatedAt              time.Time
+	ID                     domain.SessionID
+}
+
+// Narrow write: only a live coordinator's worker agent selection changes.
+func (q *Queries) SetCoordinatorWorkerAgent(ctx context.Context, arg SetCoordinatorWorkerAgentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setCoordinatorWorkerAgent, arg.CoordinatorWorkerAgent, arg.UpdatedAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

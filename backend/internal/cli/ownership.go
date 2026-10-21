@@ -33,6 +33,8 @@ type sessionOwnershipDTO struct {
 	OwnerScope       string  `json:"ownerScope,omitempty"`
 	CoordinatorScope string  `json:"coordinatorScope,omitempty"`
 	RootSessionID    *string `json:"rootSessionId"`
+	// WorkerAgent is a coordinator's stored worker agent selection.
+	WorkerAgent *agentSelection `json:"workerAgent,omitempty"`
 }
 
 // coordinatorRosterDTO mirrors GET /api/v1/projects/{id}/coordinators.
@@ -163,6 +165,7 @@ func newCoordinatorCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.AddCommand(newCoordinatorListCommand(ctx))
 	cmd.AddCommand(newCoordinatorReportCommand(ctx))
+	cmd.AddCommand(newCoordinatorSetCommand(ctx))
 	return cmd
 }
 

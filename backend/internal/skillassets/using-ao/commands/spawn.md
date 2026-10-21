@@ -16,6 +16,8 @@ ao spawn [flags]
 | `--branch string` | Branch for the session worktree | `ao/<session-id>/root` |
 | `--claim-pr string` | Claim an existing PR for authorized implementation continuation. Omit for review-only work | - |
 | `--kind string` | Session role: `worker`, `orchestrator`, or `coordinator`. A coordinator can only be spawned from the project's live root session and needs `--scope` | `worker` |
+| `--worker-agent string` | Agent selection for the coordinator's workers (`--kind coordinator` only): `inherit`, `fixed:<profile-id>` or `random[:<id>,...]` over the project's agent profiles | project `coordinators.workerAgent` |
+| `--coordinator-agent string` | Agent selection for the coordinator itself (`--kind coordinator` only), same grammar | project `coordinators.coordinatorAgent` |
 | `--scope string` | Bounded area of work for `--kind coordinator` (required for it, max 200 characters, rejected for other kinds) | - |
 | `--host string` | Spawn on a paired remote AO machine (label, host ID, or URL from `ao host ls`). See [host.md](host.md) | This machine |
 | `--harness string` | Agent harness to use (see list below) | Project `worker.agent`; required if the project has none |

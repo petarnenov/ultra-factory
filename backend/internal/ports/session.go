@@ -41,6 +41,14 @@ type SpawnConfig struct {
 	// CoordinatorWorkerLimit is the coordinator's own worker limit. Nil uses
 	// the project's maxWorkersPerCoordinator. Coordinator spawns only.
 	CoordinatorWorkerLimit *int
+	// CoordinatorWorkerAgent is the coordinator's own worker agent selection.
+	// Nil uses the project default. Coordinator spawns only.
+	CoordinatorWorkerAgent *domain.AgentSelection
+	// CoordinatorAgent overrides the project's coordinatorAgent for this
+	// coordinator spawn. Nil uses the project default.
+	CoordinatorAgent *domain.AgentSelection
+	// AgentProfileID is set by the profile pick and recorded on the session.
+	AgentProfileID string
 	// CoordinatorHostSlots are the coordinator's validated, normalized host
 	// slots. Coordinator spawns only.
 	CoordinatorHostSlots []domain.HostSlot

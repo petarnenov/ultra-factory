@@ -42,6 +42,8 @@ type spawnOptions struct {
 	terminateOnPRMerge bool
 	autoReview         bool
 	scope              string
+	workerAgent        string
+	coordinatorAgent   string
 }
 
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
@@ -53,8 +55,12 @@ type spawnRequest struct {
 	TrackerProvider string `json:"trackerProvider,omitempty"`
 	Kind            string `json:"kind,omitempty"`
 	Scope           string `json:"scope,omitempty"`
-	Mode            string `json:"mode,omitempty"`
-	Harness         string `json:"harness,omitempty"`
+	// WorkerAgent and CoordinatorAgent are the agent selections of a
+	// coordinator spawn.
+	WorkerAgent      *agentSelection `json:"workerAgent,omitempty"`
+	CoordinatorAgent *agentSelection `json:"coordinatorAgent,omitempty"`
+	Mode             string          `json:"mode,omitempty"`
+	Harness          string          `json:"harness,omitempty"`
 	// HarnessExplicit distinguishes a caller-named harness from one resolved
 	// from Project Settings or the machine default.
 	HarnessExplicit    *bool  `json:"harnessExplicit,omitempty"`
@@ -65,6 +71,7 @@ type spawnRequest struct {
 	RequestedOutput    string `json:"requestedOutput,omitempty"`
 	DisplayName        string `json:"displayName"`
 	RemoteSpawn        bool   `json:"remoteSpawn,omitempty"`
+	AgentProfileID     string `json:"agentProfileId,omitempty"`
 	TerminateOnPRMerge *bool  `json:"terminateOnPrMerge,omitempty"`
 	AutoReview         *bool  `json:"autoReview,omitempty"`
 }
@@ -125,6 +132,10 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if err := validateCoordinatorSpawn(opts, ctx.targetsRemote()); err != nil {
 				return err
 			}
+			workerAgent, coordinatorAgent, selErr := coordinatorAgentSelections(opts)
+			if selErr != nil {
+				return selErr
+			}
 			if opts.output != "" && opts.output != "artifact" {
 				return usageError{fmt.Errorf(`--output must be "artifact"`)}
 			}
@@ -179,7 +190,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				}
 			}
 
-			if !opts.skipAgentCheck {
+			profilesPick := explicitHarness == "" && ctx.profileLikelyPicked(cmd.Context(), opts, project)
+			if !opts.skipAgentCheck && !profilesPick {
 				if err := ctx.preflightSpawnAgentAuth(cmd.Context(), cmd, opts.harness); err != nil {
 					return err
 				}
@@ -221,6 +233,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				TrackerProvider:    opts.trackerProvider,
 				Kind:               opts.kind,
 				Scope:              opts.scope,
+				WorkerAgent:        workerAgent,
+				CoordinatorAgent:   coordinatorAgent,
 				Harness:            opts.harness,
 				HarnessExplicit:    spawnBoolPtr(explicitHarness != ""),
 				Mode:               opts.mode,
@@ -237,6 +251,16 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if ctx.remote != nil && localParentID != "" && !opts.standalone {
 				if err := ctx.checkRemoteWorkerCapacity(cmd.Context(), localParentID); err != nil {
 					return err
+				}
+				var agent *remoteWorkerAgent
+				if req.RemoteSpawn {
+					if agent, err = ctx.checkRemoteWorkerAgent(cmd.Context(), localParentID, &req, explicitHarness != ""); err != nil {
+						return err
+					}
+				}
+				if agent != nil {
+					req.Harness, req.Model, req.Effort = agent.Harness, agent.Model, agent.Effort
+					req.HarnessExplicit, req.AgentProfileID = spawnBoolPtr(true), agent.ProfileID
 				}
 			}
 			var res spawnResult
@@ -315,6 +339,8 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.harness, "harness", "", "Agent harness / --agent: claude-code, codex, aider, opencode, opencode-v2, grok, droid, amp, agy, crush, cursor, qwen, gemini, copilot, goose, auggie, continue, devin, cline, kimi, muse, kiro, kilocode, vibe, pi, kimchi, prime-agent, autohand, omp, fx, unreal-agent, mimo-code, deepseek-harness, openhands, command-code (default: project worker.agent; orchestrator spawns default to project orchestrator.agent; required if the project has none)")
 	f.StringVar(&opts.kind, "kind", "", "Session role: worker, orchestrator, or coordinator (default: worker). A coordinator is spawned by the live root and needs --scope")
 	f.StringVar(&opts.scope, "scope", "", "Bounded area of work for --kind coordinator (required, max 200 characters)")
+	f.StringVar(&opts.workerAgent, "worker-agent", "", "Agent selection for the coordinator's workers (--kind coordinator): inherit, fixed:<profile-id> or random[:<profile-id>,...] over the project's agent profiles")
+	f.StringVar(&opts.coordinatorAgent, "coordinator-agent", "", "Agent selection for the coordinator itself (--kind coordinator): inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.StringVar(&opts.mode, "mode", "", "Initial session interface: chat (structured agent connection) or tui (the agent's native terminal). Omitted uses the daemon default; compatible sessions can switch later.")
 	f.StringVar(&opts.branch, "branch", "", "Branch for git project sessions (default: ao/<session-id>/root; unsupported for standalone or Scratch sessions)")
 	f.StringVar(&opts.prompt, "prompt", "", "Initial prompt for the agent")
@@ -372,6 +398,85 @@ func (c *commandContext) checkRemoteWorkerCapacity(ctx context.Context, parentID
 		return nil
 	}
 	return err
+}
+
+// remoteWorkerAgent mirrors the daemon's RemoteWorkerAgent body.
+type remoteWorkerAgent struct {
+	ProfileID string `json:"profileId,omitempty"`
+	Harness   string `json:"harness"`
+	Model     string `json:"model"`
+	Effort    string `json:"effort"`
+}
+
+// remoteAgentCheckRequest and remoteAgentCheckResponse mirror the agent half
+// of POST /api/v1/remote-worker-links/check.
+type remoteAgentCheckRequest struct {
+	ParentSessionID      string            `json:"parentSessionId"`
+	HostID               string            `json:"hostId"`
+	AgentCheck           bool              `json:"agentCheck"`
+	Harness              string            `json:"harness,omitempty"`
+	HarnessExplicit      bool              `json:"harnessExplicit,omitempty"`
+	Model                string            `json:"model,omitempty"`
+	Effort               string            `json:"effort,omitempty"`
+	HostReadinessChecked bool              `json:"hostReadinessChecked,omitempty"`
+	UnreadyHarnesses     map[string]string `json:"unreadyHarnesses,omitempty"`
+}
+
+type remoteAgentCheckResponse struct {
+	ReadinessHarnesses []string           `json:"readinessHarnesses,omitempty"`
+	Agent              *remoteWorkerAgent `json:"agent,omitempty"`
+}
+
+// checkRemoteWorkerAgent asks the local daemon for a remote worker's profile
+// agent, reporting the host's readiness. Nil keeps normal resolution.
+func (c *commandContext) checkRemoteWorkerAgent(ctx context.Context, parentID string, req *spawnRequest, harnessExplicit bool) (*remoteWorkerAgent, error) {
+	check := remoteAgentCheckRequest{
+		ParentSessionID: parentID, HostID: c.remote.hostID, AgentCheck: true, Harness: req.Harness,
+		HarnessExplicit: harnessExplicit, Model: req.Model, Effort: req.Effort,
+	}
+	var res remoteAgentCheckResponse
+	for range 2 {
+		res = remoteAgentCheckResponse{}
+		err := c.localContext().postJSON(ctx, "remote-worker-links/check", check, &res)
+		var apiErr apiResponseError
+		if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound && apiErr.ErrorBody.Code != "SESSION_NOT_FOUND" {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(res.ReadinessHarnesses) == 0 {
+			return res.Agent, nil
+		}
+		readiness, err := c.ensureAgentReadiness(ctx, res.ReadinessHarnesses, "launch")
+		if err != nil {
+			return nil, fmt.Errorf("check agent readiness on host %q: %w", c.remote.label, err)
+		}
+		check.HostReadinessChecked, check.UnreadyHarnesses = true, unreadyHarnesses(res.ReadinessHarnesses, readiness)
+	}
+	return nil, fmt.Errorf("the daemon kept asking for host readiness while choosing an agent profile")
+}
+
+// unreadyHarnesses names the asked harnesses the host cannot use. An unknown
+// state is not excluded, as for a local launch.
+func unreadyHarnesses(asked []string, readiness agentReadinessResponse) map[string]string {
+	known := map[string]agentReadinessSnapshot{}
+	for _, snapshot := range readiness.Agents {
+		known[snapshot.ID] = snapshot
+	}
+	out := map[string]string{}
+	for _, id := range asked {
+		snapshot, ok := known[id]
+		switch {
+		case !ok:
+			out[id] = "not supported on the host"
+		case snapshot.EffectiveReadiness == "not_ready" && snapshot.Installation.State == "not_installed":
+			out[id] = "not_installed"
+		case snapshot.EffectiveReadiness == "not_ready":
+			out[id] = "unauthorized"
+		}
+	}
+	return out
 }
 
 // failRemoteLink handles a link rejected after the remote spawn: capacity or
@@ -594,6 +699,9 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 		if scope != "" {
 			return usageError{fmt.Errorf("--scope is supported with --kind coordinator only")}
 		}
+		if strings.TrimSpace(opts.workerAgent) != "" || strings.TrimSpace(opts.coordinatorAgent) != "" {
+			return usageError{fmt.Errorf("--worker-agent and --coordinator-agent are supported with --kind coordinator only")}
+		}
 		return nil
 	}
 	if scope == "" {
@@ -609,6 +717,60 @@ func validateCoordinatorSpawn(opts spawnOptions, remote bool) error {
 		return usageError{fmt.Errorf("--claim-pr is supported for worker sessions only")}
 	}
 	return nil
+}
+
+// profileLikelyPicked reports whether the daemon will swap the CLI default
+// agent for a profile. A worker spawn reads its parent's ownership view.
+func (c *commandContext) profileLikelyPicked(ctx context.Context, opts spawnOptions, project projectDetails) bool {
+	if project.Config == nil || len(project.Config.Coordinators.AgentProfiles) == 0 {
+		return false
+	}
+	active := func(sel *agentSelection) bool { return sel != nil && sel.Mode != "" && sel.Mode != "inherit" }
+	cfg := project.Config.Coordinators
+	switch opts.kind {
+	case "coordinator":
+		if opts.coordinatorAgent != "" {
+			sel, err := parseAgentSelection("--coordinator-agent", opts.coordinatorAgent)
+			return err == nil && active(sel)
+		}
+		return active(cfg.CoordinatorAgent)
+	case "", "worker":
+		parentID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+		if parentID == "" || opts.standalone {
+			return false
+		}
+		var parent sessionOwnershipDTO
+		if err := c.localContext().getJSON(ctx, "sessions/"+url.PathEscape(parentID)+"/ownership", &parent); err != nil {
+			return false
+		}
+		switch parent.Kind {
+		case "coordinator":
+			if parent.WorkerAgent != nil {
+				return active(parent.WorkerAgent)
+			}
+			return active(cfg.WorkerAgent)
+		case "orchestrator":
+			// The root's explicit model or effort wins over its selection.
+			return active(cfg.RootWorkerAgent) && strings.TrimSpace(opts.model) == "" && strings.TrimSpace(opts.effort) == ""
+		}
+	}
+	return false
+}
+
+// coordinatorAgentSelections parses the two agent selection flags; both are
+// nil unless set.
+func coordinatorAgentSelections(opts spawnOptions) (worker, coordinator *agentSelection, err error) {
+	if v := strings.TrimSpace(opts.workerAgent); v != "" {
+		if worker, err = parseAgentSelection("--worker-agent", v); err != nil {
+			return nil, nil, err
+		}
+	}
+	if v := strings.TrimSpace(opts.coordinatorAgent); v != "" {
+		if coordinator, err = parseAgentSelection("--coordinator-agent", v); err != nil {
+			return nil, nil, err
+		}
+	}
+	return worker, coordinator, nil
 }
 
 func spawnBoolPtr(value bool) *bool { return &value }

@@ -1124,6 +1124,14 @@ func invalidConfigError(err error) error {
 		return apierr.Invalid("COORDINATOR_LIMITS_INVALID", err.Error(),
 			map[string]any{"field": limits.Field, "max": limits.Max})
 	}
+	var profile *domain.AgentProfileError
+	if errors.As(err, &profile) {
+		return apierr.Invalid("WORKER_PROFILE_INVALID", err.Error(), map[string]any{"field": profile.Field})
+	}
+	var notAllowed *domain.CoordinatorProfileNotAllowedError
+	if errors.As(err, &notAllowed) {
+		return apierr.Invalid("COORDINATOR_PROFILE_NOT_ALLOWED", err.Error(), map[string]any{"profileId": notAllowed.ProfileID})
+	}
 	return apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 }
 

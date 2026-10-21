@@ -70,6 +70,7 @@ type capFixture struct {
 	fc    *fakeCommander
 	svc   *Service
 	next  int
+	cfgs  []ports.SpawnConfig
 	delay time.Duration
 	// inflight and peak measure how many spawns reach the manager at once.
 	inflight, peak atomic.Int32
@@ -115,10 +116,12 @@ func newCapFixture(t *testing.T) *capFixture {
 	f.fc = &fakeCommander{}
 	f.fc.spawnFunc = func(cfg ports.SpawnConfig) domain.SessionRecord {
 		f.next++
+		f.cfgs = append(f.cfgs, cfg)
 		rec := domain.SessionRecord{
 			ID: domain.SessionID(fmt.Sprintf("ao-n%d", f.next)), ProjectID: cfg.ProjectID, Kind: cfg.Kind,
 			OwnerSessionID: cfg.OwnerSessionID, CoordinatorScope: cfg.CoordinatorScope,
-			CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit, CoordinatorHostSlots: cfg.CoordinatorHostSlots,
+			CoordinatorWorkerLimit: cfg.CoordinatorWorkerLimit, CoordinatorHostSlots: cfg.CoordinatorHostSlots, Harness: cfg.Harness,
+			AgentProfileID: cfg.AgentProfileID, CoordinatorWorkerAgent: cfg.CoordinatorWorkerAgent,
 		}
 		st.sessions[rec.ID] = rec
 		return rec

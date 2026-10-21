@@ -89,6 +89,100 @@ func TestCoordinatorsConfigRejectsWorkersPerCoordinatorAboveTheProjectTotal(t *t
 	}
 }
 
+func TestAgentProfilesValidate(t *testing.T) {
+	good := AgentProfile{ID: "a", Harness: HarnessClaudeCode, Model: "sonnet", Effort: "medium"}
+	for name, tc := range map[string]struct {
+		cfg   CoordinatorsConfig
+		field string
+	}{
+		"empty id":           {CoordinatorsConfig{AgentProfiles: []AgentProfile{{Harness: HarnessCodex, Model: "m", Effort: "e"}}}, "coordinators.agentProfiles[0].id"},
+		"duplicate id":       {CoordinatorsConfig{AgentProfiles: []AgentProfile{good, good}}, "coordinators.agentProfiles[1].id"},
+		"unknown harness":    {CoordinatorsConfig{AgentProfiles: []AgentProfile{{ID: "x", Harness: "nope", Model: "m", Effort: "e"}}}, "coordinators.agentProfiles[0].harness"},
+		"empty model":        {CoordinatorsConfig{AgentProfiles: []AgentProfile{{ID: "x", Harness: HarnessCodex, Effort: "e"}}}, "coordinators.agentProfiles[0].model"},
+		"empty effort":       {CoordinatorsConfig{AgentProfiles: []AgentProfile{{ID: "x", Harness: HarnessCodex, Model: "m"}}}, "coordinators.agentProfiles[0].effort"},
+		"negative weight":    {CoordinatorsConfig{AgentProfiles: []AgentProfile{{ID: "x", Harness: HarnessCodex, Model: "m", Effort: "e", Weight: -1}}}, "coordinators.agentProfiles[0].weight"},
+		"unknown worker":     {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "zz"}}, "coordinators.workerAgent"},
+		"unknown root":       {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, RootWorkerAgent: AgentSelection{Mode: AgentSelectionRandom, ProfileIDs: []string{"a", "zz"}}}, "coordinators.rootWorkerAgent"},
+		"empty fixed":        {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: AgentSelectionFixed}}, "coordinators.workerAgent"},
+		"unknown mode":       {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: "shuffle"}}, "coordinators.workerAgent"},
+		"inherit with ids":   {CoordinatorsConfig{AgentProfiles: []AgentProfile{good}, WorkerAgent: AgentSelection{Mode: AgentSelectionInherit, ProfileID: "a"}}, "coordinators.workerAgent"},
+		"selection w/o list": {CoordinatorsConfig{WorkerAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "a"}}, "coordinators.workerAgent"},
+	} {
+		err := tc.cfg.Validate()
+		var perr *AgentProfileError
+		if !errors.As(err, &perr) || perr.Field != tc.field {
+			t.Errorf("%s: err = %v, want AgentProfileError on %s", name, err, tc.field)
+		}
+	}
+	valid := CoordinatorsConfig{
+		AgentProfiles:   []AgentProfile{good, {ID: "b", Harness: HarnessCodex, Model: "m", Effort: "high", Weight: 2}},
+		WorkerAgent:     AgentSelection{Mode: AgentSelectionRandom},
+		RootWorkerAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "b"},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid config: %v", err)
+	}
+}
+
+func TestCoordinatorAgentUnknownProfileIsNotAllowed(t *testing.T) {
+	cfg := CoordinatorsConfig{CoordinatorAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "zz"}}
+	var notAllowed *CoordinatorProfileNotAllowedError
+	if err := cfg.Validate(); !errors.As(err, &notAllowed) || notAllowed.ProfileID != "zz" {
+		t.Fatalf("err = %v, want COORDINATOR_PROFILE_NOT_ALLOWED for zz", err)
+	}
+	cfg.CoordinatorAgent = AgentSelection{Mode: AgentSelectionFixed}
+	var invalid *AgentProfileError
+	if err := cfg.Validate(); !errors.As(err, &invalid) {
+		t.Fatalf("a malformed coordinatorAgent is WORKER_PROFILE_INVALID, got %v", err)
+	}
+}
+
+func TestAgentSelectionCandidates(t *testing.T) {
+	profiles := []AgentProfile{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	all, _, _ := AgentSelection{Mode: AgentSelectionRandom}.Candidates(profiles)
+	if len(all) != 3 {
+		t.Fatalf("an empty random pool means every profile, got %d", len(all))
+	}
+	some, _, _ := AgentSelection{Mode: AgentSelectionRandom, ProfileIDs: []string{"c", "a", "c"}}.Candidates(profiles)
+	if len(some) != 2 || some[0].ID != "c" || some[1].ID != "a" {
+		t.Fatalf("pool = %+v, want c then a without duplicates", some)
+	}
+	if _, unknown, ok := (AgentSelection{Mode: AgentSelectionFixed, ProfileID: "x"}).Candidates(profiles); ok || unknown != "x" {
+		t.Fatalf("unknown = %q ok = %v", unknown, ok)
+	}
+	for _, sel := range []AgentSelection{
+		{Mode: AgentSelectionRandom, ProfileIDs: []string{""}},
+		{Mode: AgentSelectionRandom, ProfileIDs: []string{"a", ""}},
+	} {
+		if _, _, ok := sel.Candidates(profiles); ok {
+			t.Fatalf("%+v: an empty profile id must not resolve", sel)
+		}
+		cfg := CoordinatorsConfig{AgentProfiles: profiles, WorkerAgent: sel}
+		var perr *AgentProfileError
+		if err := cfg.Validate(); !errors.As(err, &perr) {
+			t.Fatalf("%+v: err = %v, want WORKER_PROFILE_INVALID", sel, err)
+		}
+	}
+}
+
+func TestSelectionsNeedProfilesToChooseFrom(t *testing.T) {
+	random := AgentSelection{Mode: AgentSelectionRandom}
+	for name, cfg := range map[string]CoordinatorsConfig{
+		"workerAgent":      {WorkerAgent: random},
+		"rootWorkerAgent":  {RootWorkerAgent: random},
+		"coordinatorAgent": {CoordinatorAgent: random},
+	} {
+		var perr *AgentProfileError
+		if err := cfg.Validate(); !errors.As(err, &perr) || perr.UnknownProfileID != "" || perr.Field != "coordinators."+name {
+			t.Errorf("%s: err = %v, want WORKER_PROFILE_INVALID on the field", name, err)
+		}
+	}
+	inherit := CoordinatorsConfig{WorkerAgent: AgentSelection{Mode: AgentSelectionInherit}}
+	if err := inherit.Validate(); err != nil {
+		t.Fatalf("inherit needs no profiles: %v", err)
+	}
+}
+
 func TestCoordinatorsConfigValidatesAllowedHosts(t *testing.T) {
 	ok := CoordinatorsConfig{AllowedHosts: []string{"host-a", "host-b"}, AllowLocalWorkers: true}
 	if err := ok.Validate(); err != nil {

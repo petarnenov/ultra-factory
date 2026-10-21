@@ -67,3 +67,21 @@ SELECT id, session_id, previous_limit, new_limit, previous_host_slots, new_host_
 FROM coordinator_limit_events
 WHERE session_id = ?
 ORDER BY id;
+
+-- name: SetCoordinatorWorkerAgent :execrows
+-- Narrow write: only a live coordinator's worker agent selection changes.
+UPDATE sessions
+SET coordinator_worker_agent = sqlc.narg(coordinator_worker_agent),
+    updated_at = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id) AND kind = 'coordinator' AND is_terminated = 0;
+
+-- name: InsertCoordinatorAgentEvent :exec
+INSERT INTO coordinator_agent_events (
+    session_id, previous_selection, new_selection, actor_session_id, origin, created_at
+) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListCoordinatorAgentEvents :many
+SELECT id, session_id, previous_selection, new_selection, actor_session_id, origin, created_at
+FROM coordinator_agent_events
+WHERE session_id = ?
+ORDER BY id;

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -32,6 +33,14 @@ type CoordinatorsConfig struct {
 	// MaxWorkers bounds live workers per project once a coordinator exists
 	// (default 6).
 	MaxWorkers int `json:"maxWorkers,omitempty"`
+	// AgentProfiles is the shared list of agent choices (ADR 0010,
+	// amendment 1, decision 8).
+	AgentProfiles []AgentProfile `json:"agentProfiles,omitempty"`
+	// CoordinatorAgent, WorkerAgent and RootWorkerAgent pick the agent of new
+	// coordinators, of coordinator workers, and of root-owned workers.
+	CoordinatorAgent AgentSelection `json:"coordinatorAgent,omitempty"`
+	WorkerAgent      AgentSelection `json:"workerAgent,omitempty"`
+	RootWorkerAgent  AgentSelection `json:"rootWorkerAgent,omitempty"`
 	// AllowedHosts bounds coordinator workers to these paired host IDs;
 	// empty allows any. The local daemon is AllowLocalWorkers only.
 	AllowedHosts []string `json:"allowedHosts,omitempty"`
@@ -85,7 +94,30 @@ func (c CoordinatorsConfig) Validate() error {
 	if eff := c.Limits(); eff.WorkersPerCoordinator > eff.Workers {
 		return &CoordinatorLimitsError{Field: "maxWorkersPerCoordinator", Max: eff.Workers}
 	}
-	return c.validateAllowedHosts()
+	if err := c.validateAllowedHosts(); err != nil {
+		return err
+	}
+	return c.validateAgents()
+}
+
+// validateAgents checks the profile list and the three selections. Only an
+// unknown coordinatorAgent profile is COORDINATOR_PROFILE_NOT_ALLOWED.
+func (c CoordinatorsConfig) validateAgents() error {
+	if err := ValidateAgentProfiles(c.AgentProfiles); err != nil {
+		return err
+	}
+	if err := ValidateAgentSelection("coordinators.coordinatorAgent", c.CoordinatorAgent, c.AgentProfiles); err != nil {
+		var perr *AgentProfileError
+		if errors.As(err, &perr) && perr.UnknownProfileID != "" {
+			return &CoordinatorProfileNotAllowedError{ProfileID: perr.UnknownProfileID}
+		}
+		return err
+	}
+	if err := ValidateAgentSelection("coordinators.workerAgent", c.WorkerAgent, c.AgentProfiles); err != nil {
+		return err
+	}
+	return ValidateAgentSelection("coordinators.rootWorkerAgent", c.RootWorkerAgent, c.AgentProfiles)
+
 }
 
 // validateAllowedHosts requires non-blank, distinct host IDs.

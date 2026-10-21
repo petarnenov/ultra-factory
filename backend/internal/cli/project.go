@@ -105,10 +105,14 @@ type reviewerConfig struct {
 // coordinatorsConfig mirrors domain.CoordinatorsConfig. A zero limit means the
 // daemon's default.
 type coordinatorsConfig struct {
-	Enabled                  bool `json:"enabled,omitempty"`
-	MaxCoordinators          int  `json:"maxCoordinators,omitempty"`
-	MaxWorkersPerCoordinator int  `json:"maxWorkersPerCoordinator,omitempty"`
-	MaxWorkers               int  `json:"maxWorkers,omitempty"`
+	Enabled                  bool            `json:"enabled,omitempty"`
+	MaxCoordinators          int             `json:"maxCoordinators,omitempty"`
+	MaxWorkersPerCoordinator int             `json:"maxWorkersPerCoordinator,omitempty"`
+	MaxWorkers               int             `json:"maxWorkers,omitempty"`
+	AgentProfiles            []agentProfile  `json:"agentProfiles,omitempty"`
+	CoordinatorAgent         *agentSelection `json:"coordinatorAgent,omitempty"`
+	WorkerAgent              *agentSelection `json:"workerAgent,omitempty"`
+	RootWorkerAgent          *agentSelection `json:"rootWorkerAgent,omitempty"`
 	// Settable through --config-json; flags come with the coordinator CLI.
 	AllowedHosts      []string `json:"allowedHosts,omitempty"`
 	AllowLocalWorkers bool     `json:"allowLocalWorkers,omitempty"`
@@ -203,6 +207,10 @@ type projectSetConfigOptions struct {
 	maxCoordinators          int
 	maxWorkersPerCoordinator int
 	maxWorkers               int
+	agentProfiles            []string
+	coordinatorAgent         string
+	coordinatorWorkerAgent   string
+	rootWorkerAgent          string
 }
 
 type projectListResult struct {
@@ -365,7 +373,7 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 			id := strings.TrimSpace(args[0])
 			opts.terminateOnPRMergeSet = cmd.Flags().Changed("terminate-on-pr-merge")
 			opts.githubAccountSet = cmd.Flags().Changed("github-account")
-			for _, name := range []string{"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers"} {
+			for _, name := range []string{"coordinators", "max-coordinators", "max-workers-per-coordinator", "max-workers", "agent-profile", "coordinator-agent", "coordinator-worker-agent", "root-worker-agent"} {
 				opts.coordinatorsSet = opts.coordinatorsSet || cmd.Flags().Changed(name)
 			}
 			config, err := buildProjectConfig(opts)
@@ -409,6 +417,10 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.IntVar(&opts.maxCoordinators, "max-coordinators", 0, "Live coordinators per project, 1-4 (0 keeps the default 2)")
 	f.IntVar(&opts.maxWorkersPerCoordinator, "max-workers-per-coordinator", 0, "Live workers per coordinator, 1-6 (0 keeps the default 3)")
 	f.IntVar(&opts.maxWorkers, "max-workers", 0, "Live workers per project once a coordinator exists, 1-12 (0 keeps the default 6)")
+	f.StringArrayVar(&opts.agentProfiles, "agent-profile", nil, "Agent profile id=<id>,harness=<harness>,model=<model>,effort=<effort>[,label=<text>][,weight=<n>] (repeatable; replaces the whole list; use --config-json for values with a comma)")
+	f.StringVar(&opts.coordinatorAgent, "coordinator-agent", "", "Agent selection for new coordinators: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
+	f.StringVar(&opts.coordinatorWorkerAgent, "coordinator-worker-agent", "", "Default agent selection for the workers of a coordinator: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
+	f.StringVar(&opts.rootWorkerAgent, "root-worker-agent", "", "Agent selection for workers the root spawns directly: inherit, fixed:<profile-id> or random[:<profile-id>,...]")
 	f.BoolVar(&opts.clear, "clear", false, "Clear all config")
 	f.BoolVar(&opts.json, "json", false, "Output the updated project as JSON")
 	addHostFlag(cmd, ctx)
@@ -435,6 +447,10 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 	if err != nil {
 		return projectConfig{}, err
 	}
+	coordinators, err := coordinatorsConfigForFlags(opts)
+	if err != nil {
+		return projectConfig{}, err
+	}
 	cfg := projectConfig{
 		CanonicalRepoURL:  opts.canonicalRepoURL,
 		DefaultBranch:     opts.defaultBranch,
@@ -454,19 +470,44 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 			Repo:     opts.trackerRepo,
 			Assignee: opts.trackerAssignee,
 		},
-		Reviewers: reviewersForFlags(opts.reviewers),
-		Coordinators: coordinatorsConfig{
-			Enabled:                  opts.coordinators,
-			MaxCoordinators:          opts.maxCoordinators,
-			MaxWorkersPerCoordinator: opts.maxWorkersPerCoordinator,
-			MaxWorkers:               opts.maxWorkers,
-		},
+		Reviewers:    reviewersForFlags(opts.reviewers),
+		Coordinators: coordinators,
 	}
 	if opts.terminateOnPRMergeSet {
 		cfg.TerminateOnPRMerge = opts.terminateOnPRMerge
 	}
 	if !opts.terminateOnPRMergeSet && !opts.githubAccountSet && !opts.coordinatorsSet && reflect.DeepEqual(cfg, projectConfig{}) {
 		return projectConfig{}, usageError{errors.New("usage: provide at least one config flag, --config-json, or --clear")}
+	}
+	return cfg, nil
+}
+
+// coordinatorsConfigForFlags builds the coordinators block from its flags.
+func coordinatorsConfigForFlags(opts projectSetConfigOptions) (coordinatorsConfig, error) {
+	cfg := coordinatorsConfig{
+		Enabled:                  opts.coordinators,
+		MaxCoordinators:          opts.maxCoordinators,
+		MaxWorkersPerCoordinator: opts.maxWorkersPerCoordinator,
+		MaxWorkers:               opts.maxWorkers,
+	}
+	var err error
+	if cfg.AgentProfiles, err = parseAgentProfiles(opts.agentProfiles); err != nil {
+		return coordinatorsConfig{}, err
+	}
+	for _, f := range []struct {
+		flag, value string
+		dst         **agentSelection
+	}{
+		{"--coordinator-agent", opts.coordinatorAgent, &cfg.CoordinatorAgent},
+		{"--coordinator-worker-agent", opts.coordinatorWorkerAgent, &cfg.WorkerAgent},
+		{"--root-worker-agent", opts.rootWorkerAgent, &cfg.RootWorkerAgent},
+	} {
+		if f.value == "" {
+			continue
+		}
+		if *f.dst, err = parseAgentSelection(f.flag, f.value); err != nil {
+			return coordinatorsConfig{}, err
+		}
 	}
 	return cfg, nil
 }

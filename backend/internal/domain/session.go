@@ -305,6 +305,12 @@ type SessionRecord struct {
 	// CoordinatorWorkerLimit is a coordinator's own worker limit. Nil means
 	// the project's maxWorkersPerCoordinator applies.
 	CoordinatorWorkerLimit *int `json:"-"`
+	// AgentProfileID is the project agent profile that picked this session's
+	// harness, model and effort. Empty when no profile did.
+	AgentProfileID string `json:"-"`
+	// CoordinatorWorkerAgent is a coordinator's own worker agent selection.
+	// Nil means the project's coordinators.workerAgent applies.
+	CoordinatorWorkerAgent *AgentSelection `json:"-"`
 	// CoordinatorHostSlots are a coordinator's own per-host worker slots,
 	// normalized: host IDs, one entry per host, sorted. Empty means none.
 	CoordinatorHostSlots []HostSlot `json:"-"`
