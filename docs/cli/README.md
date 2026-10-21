@@ -74,8 +74,8 @@ sender. Design: `docs/superpowers/specs/2026-10-15-cli-remote-host-target-design
 machine's daemon (`POST /api/v1/remote-worker-links`, loopback only). The daemon
 then pulls the remote worker's `ao report` output from that host and delivers it
 to the parent's project orchestrator. Unattended pulling runs over https,
-loopback, or Tailscale; plain http needs `AO_REMOTE_REPORTS_ALLOW_HTTP=1` in the
-daemon's environment. Before spawning, the CLI asks the daemon whether the
+loopback, or Tailscale; plain http needs the host's "Allow report pulls over
+plain HTTP" setting, switched on in Settings → Remote hosts. Before spawning, the CLI asks the daemon whether the
 worker fits the capacity caps (`POST /api/v1/remote-worker-links/check`). If the
 link is still rejected for capacity or ownership, the CLI terminates the remote
 worker and the spawn fails with the daemon error code. Any other link failure

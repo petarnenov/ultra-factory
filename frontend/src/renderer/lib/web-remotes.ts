@@ -56,7 +56,8 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 	};
 
 	return {
-		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url })),
+		// The hub's registry has no per-host reports switch.
+		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url, allowInsecureHTTP: false })),
 		add: async (input): Promise<RemoteHealth> => {
 			const response = await fetch(hostsUrl(), {
 				method: "POST",

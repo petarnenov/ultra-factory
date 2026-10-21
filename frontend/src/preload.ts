@@ -725,7 +725,7 @@ const api = {
 		// An edit carries only what changed: an omitted password keeps the saved
 		// one, so a rotated credential is fixed without the renderer ever holding
 		// the old one.
-		update: (url: string, changes: { label?: string; url?: string; password?: string }) =>
+		update: (url: string, changes: { label?: string; url?: string; password?: string; allowInsecureHTTP?: boolean }) =>
 			ipcRenderer.invoke("remotes:update", url, changes) as Promise<RemoteHealth>,
 		remove: (url: string) => ipcRenderer.invoke("remotes:remove", url) as Promise<void>,
 		connect: (url: string, hostId?: string) => ipcRenderer.invoke("remotes:connect", url, hostId) as Promise<ConnectedHostView>,

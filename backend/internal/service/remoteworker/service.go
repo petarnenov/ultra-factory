@@ -177,7 +177,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	registration := Registration{Link: stored}
 	base, err := remotehost.BaseURL(entry.URL)
 	if err == nil {
-		err = remotehost.UnattendedTransportAllowed(base)
+		err = remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP)
 	}
 	if err != nil {
 		registration.PullBlocked = err.Error()

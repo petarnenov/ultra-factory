@@ -88,10 +88,21 @@ The daemon sends a saved password with no human acting, on whatever network the
 machine is on, every pass. The identity probe proves nothing against an
 eavesdropper: the host ID is public. Unattended pulling therefore runs only over
 https, loopback (an SSH tunnel), or Tailscale (100.64.0.0/10 or `*.ts.net`).
-Plain http to any other address needs `AO_REMOTE_REPORTS_ALLOW_HTTP=1` in the
-daemon's environment (the daemon adopts the user's login-shell environment), a
-deliberate choice for a trusted network. A blocked host's link is still stored,
-and `ao spawn --host` prints why its reports will not arrive.
+Plain http to any other address needs the host's **"Allow report pulls over
+plain HTTP"** setting (`allowInsecureHTTP` in `remotes.json`, switched on in
+Settings → Remote hosts). The setting is per host, so trusting a home LAN does
+not trust an office VPN, and it takes effect on the next pull without a daemon
+restart. The switch is shown only for plain-http addresses that are neither
+loopback nor Tailscale. A blocked host's link is still stored, `ao spawn --host`
+names the setting in its warning, and `ao host ls` reports `blocked (plain http)`
+in its REPORTS column.
+
+The environment variable `AO_REMOTE_REPORTS_ALLOW_HTTP=1` is a deprecated,
+daemon-wide override. It still allows every plain-http host, and the daemon logs
+one deprecation line per start. It is kept for one release and then removed
+(follow-up: remove the variable and its log line in the release after this one).
+The desktop app starts its own daemon, so a value set only in a login-shell or
+launchd environment does not reach it; the per-host setting does.
 
 Links are capped at 200, and validated: remote session and project IDs must be
 AO-shaped IDs (`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`), display names lose control

@@ -51,6 +51,31 @@ it("does not expose saved hosts or pairing controls before account sign-in", () 
 	expect(remotes.list).not.toHaveBeenCalled();
 });
 
+it("shows the plain-http switch with its helper text and blocked state only for plain-http hosts", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	saved.entries = [
+		{ hostId: "box-lan", label: "Office", url: "http://192.168.0.164:3011" },
+		{ hostId: "box-https", label: "Cloud", url: "https://build.example" },
+		{ hostId: "box-loop", label: "Tunnel", url: "http://127.0.0.1:3011" },
+		{ hostId: "box-cgnat", label: "Tailnet IP", url: "http://100.106.144.10:3011" },
+		{ hostId: "box-ts", label: "Tailnet name", url: "http://z600.tail1234.ts.net:3011" },
+	];
+	renderSettings();
+	const switches = await screen.findAllByRole("switch", { name: "Allow report pulls over plain HTTP" });
+	expect(switches).toHaveLength(1);
+	expect(screen.getByText("AO will send this host's saved password unattended over an unencrypted connection. Turn this on only on a network you trust.")).toBeVisible();
+	expect(screen.getByText("blocked (plain http)")).toBeVisible();
+	expect(switches[0]).toHaveAttribute("aria-checked", "false");
+});
+
+it("writes the per-host flag when the switch is turned on", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	saved.entries = [{ hostId: "box-lan", label: "Office", url: "http://192.168.0.164:3011" }];
+	renderSettings();
+	fireEvent.click(await screen.findByRole("switch", { name: "Allow report pulls over plain HTTP" }));
+	await waitFor(() => expect(remotes.update).toHaveBeenCalledWith("http://192.168.0.164:3011", { allowInsecureHTTP: true }));
+});
+
 it("does not connect a newly paired host after Remote hosts is turned off", async () => {
 	useUiStore.setState({ remoteHosts: true });
 	let finishAdd: ((health: "online") => void) | undefined;

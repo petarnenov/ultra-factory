@@ -215,12 +215,16 @@ func TestRegisterExplainsWhyAPlainHTTPHostIsNotPolled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(registration.PullBlocked, remotehost.AllowHTTPEnv) || len(store.stored) != 1 {
+	if !strings.Contains(registration.PullBlocked, "Allow report pulls over plain HTTP") || len(store.stored) != 1 {
 		t.Fatalf("registration = %+v stored = %d", registration, len(store.stored))
+	}
+	optedIn := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "linux", URL: "http://192.168.1.223:3001", HostID: "host-build", AllowInsecureHTTP: true})})
+	if registration, _ := optedIn.Register(context.Background(), validInput()); registration.PullBlocked != "" {
+		t.Fatalf("per-host opt-in still blocked: %s", registration.PullBlocked)
 	}
 	t.Setenv(remotehost.AllowHTTPEnv, "1")
 	if registration, _ := svc.Register(context.Background(), validInput()); registration.PullBlocked != "" {
-		t.Fatalf("opted-in plain http still blocked: %s", registration.PullBlocked)
+		t.Fatalf("deprecated env override still blocked: %s", registration.PullBlocked)
 	}
 }
 

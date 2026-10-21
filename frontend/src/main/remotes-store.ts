@@ -10,6 +10,8 @@ export type RemoteEntry = {
 	password: string;
 	hostId?: string;
 	accountUserId?: string;
+	/** The per-host "Allow report pulls over plain HTTP" setting. */
+	allowInsecureHTTP?: boolean;
 };
 
 export class RemotesFilePermissionError extends Error {
@@ -99,6 +101,7 @@ export function applyRemoteChanges(entry: RemoteEntry, changes: RemoteChanges): 
 		password: changes.password ?? entry.password,
 		hostId: entry.hostId,
 		accountUserId: changes.accountUserId ?? entry.accountUserId,
+		allowInsecureHTTP: changes.allowInsecureHTTP ?? entry.allowInsecureHTTP,
 	};
 }
 
