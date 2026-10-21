@@ -5,10 +5,20 @@ import { findRemote, removeSavedRemote, toHostViews, updateSavedRemote } from ".
 import type { RemoteRegistry } from "./remote-registry";
 import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEntry } from "./remotes-store";
 
-// An isolated desktop run must not read or write the real user's credentials.
-// Without an override, keep the existing ~/.ao location.
+// The machine-level saved-host file, shared with every daemon on this computer
+// (backend/internal/remotehost/registry.go mirrors this rule). An isolated
+// AO_DATA_DIR keeps its own file so a lab never reads the real credentials.
 export function remotesFilePath(): string {
-	return path.join(process.env.AO_DATA_DIR?.trim() || path.join(os.homedir(), ".ao"), "remotes.json");
+	const override = process.env.AO_REMOTES_FILE?.trim();
+	if (override) return path.resolve(override);
+	const stateDir = path.join(os.homedir(), ".ao");
+	const dataDir = process.env.AO_DATA_DIR?.trim();
+	if (!dataDir) return path.join(stateDir, "remotes.json");
+	const resolved = path.resolve(dataDir);
+	const daemonDefaults = [path.join(stateDir, "data"), path.join(stateDir, "dev", "data")];
+	return daemonDefaults.includes(resolved)
+		? path.join(stateDir, "remotes.json")
+		: path.join(resolved, "remotes.json");
 }
 
 // The slice of Electron's ipcMain these handlers need, so tests need no Electron.
