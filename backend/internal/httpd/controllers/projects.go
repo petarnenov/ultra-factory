@@ -5,6 +5,7 @@
 package controllers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
+	aggregatesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/aggregate"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 )
 
@@ -20,6 +22,15 @@ import (
 // projectsvc.Manager; nil keeps routes registered but returns OpenAPI-backed 501s.
 type ProjectsController struct {
 	Mgr projectsvc.Manager
+	// Aggregate resolves each project's aggregate board set. Nil leaves
+	// the set empty.
+	Aggregate AggregateService
+}
+
+// AggregateService is the aggregate-board resolver the project routes read.
+type AggregateService interface {
+	Effective(projectID domain.ProjectID, repo string, cfg domain.ProjectConfig) []aggregatesvc.Entry
+	Refresh(ctx context.Context)
 }
 
 // Register mounts the project routes on the supplied router.
@@ -31,6 +42,7 @@ func (c *ProjectsController) Register(r chi.Router) {
 	r.Post("/projects/clone/cleanup", c.cleanupPreparedClone)
 	r.Post("/projects/initialize", c.initialize)
 	r.Get("/projects/{id}", c.get)
+	r.Post("/projects/{id}/aggregate/refresh", c.refreshAggregate)
 	r.Put("/projects/{id}", c.updateSettings)
 	r.Put("/projects/{id}/config", c.setConfig)
 	r.Patch("/projects/{id}/permissions", c.setPermissions)
@@ -156,7 +168,40 @@ func (c *ProjectsController) get(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteAPIError(w, r, http.StatusInternalServerError, "internal", "INTERNAL_ERROR", "Internal server error", nil)
 		return
 	}
+	resp.AggregateEffective = c.aggregateEffective(got)
 	envelope.WriteJSON(w, http.StatusOK, resp)
+}
+
+// refreshAggregate runs one discovery pass now and returns the effective set.
+func (c *ProjectsController) refreshAggregate(w http.ResponseWriter, r *http.Request) {
+	if c.Mgr == nil || c.Aggregate == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/projects/{id}/aggregate/refresh")
+		return
+	}
+	got, err := c.Mgr.Get(r.Context(), projectID(r))
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	c.Aggregate.Refresh(r.Context())
+	envelope.WriteJSON(w, http.StatusOK, AggregateEffectiveResponse{AggregateEffective: c.aggregateEffective(got)})
+}
+
+// aggregateEffective resolves the board set from cached snapshots. It never
+// calls a remote host, so the project read stays cheap.
+func (c *ProjectsController) aggregateEffective(res projectsvc.GetResult) []aggregatesvc.Entry {
+	if c.Aggregate == nil || res.Project == nil {
+		return []aggregatesvc.Entry{}
+	}
+	var cfg domain.ProjectConfig
+	if res.Project.Config != nil {
+		cfg = *res.Project.Config
+	}
+	entries := c.Aggregate.Effective(res.Project.ID, res.Project.Repo, cfg)
+	if entries == nil {
+		return []aggregatesvc.Entry{}
+	}
+	return entries
 }
 
 func (c *ProjectsController) updateSettings(w http.ResponseWriter, r *http.Request) {

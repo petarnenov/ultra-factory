@@ -12,6 +12,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
+	aggregatesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/aggregate"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
@@ -297,6 +298,15 @@ type ProjectResponse struct {
 type GetProjectResponse struct {
 	Status  string            `json:"status" enum:"ok,degraded"`
 	Project ProjectOrDegraded `json:"project"`
+	// AggregateEffective is the aggregate board set: discovered and explicit
+	// remote projects minus exclusions. Empty when the project is degraded.
+	AggregateEffective []aggregatesvc.Entry `json:"aggregateEffective"`
+}
+
+// AggregateEffectiveResponse is the { aggregateEffective } body returned by
+// POST /projects/{id}/aggregate/refresh after one discovery pass.
+type AggregateEffectiveResponse struct {
+	AggregateEffective []aggregatesvc.Entry `json:"aggregateEffective"`
 }
 
 // ProjectOrDegraded is the discriminated `project` field: exactly one of

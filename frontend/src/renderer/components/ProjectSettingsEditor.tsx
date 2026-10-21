@@ -8,11 +8,14 @@ import { deriveRepoHost, deriveRepoPath, IntakeFields, intakeNeedsRule } from ".
 import { ProductExternalLink } from "./ProductExternalLink";
 import { AgentModelField, ProjectAutoReviewToggle, ProjectCIGateControls, ProjectTerminateOnPRMergeToggle, ProjectWorkersRequestReviewToggle, type CIGateMode, type CIGateWithoutAutoReview } from "./settings/ProjectAgentRoleControls";
 import { SettingsOptionMenu } from "./settings/SettingsOptionMenu";
+import { ProjectAggregateHostsSettings, type AggregateDiscoveredRow, type AggregateRef } from "./settings/ProjectAggregateHostsSettings";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 
 export type ProjectSettingsDraft = {
-	aggregateProjects?: Array<{ hostId: string; projectId: string }>;
+	aggregateProjects?: AggregateRef[];
+	/** Off hides automatic same-project discovery; undefined and true keep it on. */
+	aggregateDiscovery?: boolean;
+	aggregateExcludes?: AggregateRef[];
 	displayName: string;
 	defaultBranch: string;
 	sessionPrefix: string;
@@ -83,7 +86,7 @@ const roleFields: Record<ProjectSettingsRole, RoleFields> = {
 
 // Both persistence adapters render this page. Drafts, validation, autosave and
 // common controls live here so a UI change applies to local and Cloud projects.
-export function ProjectSettingsEditor({ initialValues, section, capabilities, details, workspaceRepos, repository, renderAgent, defaultReviewer = () => "", modelScope, modelHostId, reviewerWarning, autoReviewDescription, save, onSaveState, saveUnchanged = false, disabled = false, generalExtra }: {
+export function ProjectSettingsEditor({ initialValues, section, capabilities, details, workspaceRepos, repository, renderAgent, defaultReviewer = () => "", modelScope, modelHostId, reviewerWarning, autoReviewDescription, save, onSaveState, saveUnchanged = false, disabled = false, generalExtra, aggregateDiscovered = [] }: {
 	initialValues: ProjectSettingsDraft;
 	section: SettingsSection;
 	capabilities: Capabilities;
@@ -104,6 +107,8 @@ export function ProjectSettingsEditor({ initialValues, section, capabilities, de
 	generalExtra?: ReactNode;
 	/** Pauses autosave and submit, e.g. while the owning host is offline. */
 	disabled?: boolean;
+	/** Projects discovered on paired hosts, as the daemon resolved them. */
+	aggregateDiscovered?: AggregateDiscoveredRow[];
 }) {
 	const { t } = useTranslation();
 	const [draft, setDraft] = useState(initialValues);
@@ -181,13 +186,17 @@ export function ProjectSettingsEditor({ initialValues, section, capabilities, de
 				{workspaceRepos && <ProjectSettingsSection title={t("settings.project.workspaceRepos")} grouped>
 					{workspaceRepos.length ? workspaceRepos.map((repo) => <ProjectSettingsRow key={repo.name} label={repo.name}><span className="settings-row-value">{repo.relativePath}{repo.repo ? ` · ${repo.repo}` : ""}</span></ProjectSettingsRow>) : <p className="text-xs text-settings-muted">{t("settings.project.childReposEmpty")}</p>}
 				</ProjectSettingsSection>}
-				{capabilities.workflow && draft.aggregateProjects !== undefined && <ProjectSettingsSection title={t("settings.project.aggregateHosts", { defaultValue: "Aggregate project hosts" })} grouped>
-					<p className="px-3 py-2 text-xs text-settings-muted">{t("settings.project.aggregateHostsHelp", { defaultValue: "Add the host ID and project ID for each remote project that belongs on this board." })}</p>
-					{draft.aggregateProjects.map((entry, index) => <ProjectSettingsRow key={`${entry.hostId}:${entry.projectId}`} label={`${entry.hostId} · ${entry.projectId}`}>
-						<Button type="button" variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" aria-label={t("settings.project.aggregateRemove", { hostId: entry.hostId, projectId: entry.projectId, defaultValue: `Remove ${entry.hostId} / ${entry.projectId}` })} onClick={() => patch({ aggregateProjects: draft.aggregateProjects?.filter((_, itemIndex) => itemIndex !== index) })}>{t("shell.remove")}</Button>
-					</ProjectSettingsRow>)}
-					<AggregateProjectEditor onAdd={(hostId, projectId) => patch({ aggregateProjects: [...(draft.aggregateProjects ?? []), { hostId, projectId }] })} existing={draft.aggregateProjects} />
-				</ProjectSettingsSection>}
+				{capabilities.workflow && draft.aggregateProjects !== undefined && <ProjectAggregateHostsSettings
+					discovery={draft.aggregateDiscovery !== false}
+					discovered={aggregateDiscovered.filter((row) => !(draft.aggregateExcludes ?? []).some((ref) => ref.hostId === row.hostId && ref.projectId === row.projectId))}
+					hidden={draft.aggregateExcludes ?? []}
+					manual={draft.aggregateProjects}
+					onDiscoveryChange={(aggregateDiscovery) => patch({ aggregateDiscovery })}
+					onHide={(ref) => patch({ aggregateExcludes: [...(draft.aggregateExcludes ?? []), ref] })}
+					onShow={(ref) => patch({ aggregateExcludes: (draft.aggregateExcludes ?? []).filter((item) => item.hostId !== ref.hostId || item.projectId !== ref.projectId) })}
+					onManualAdd={(ref) => patch({ aggregateProjects: [...(draft.aggregateProjects ?? []), ref] })}
+					onManualRemove={(index) => patch({ aggregateProjects: draft.aggregateProjects?.filter((_, itemIndex) => itemIndex !== index) })}
+				/>}
 				{capabilities.workflow && <>
 					<ProjectSettingsSection title={t("settings.project.worktrees")} grouped>
 						<ProjectSettingsInputRow id="defaultBranch" label={t("settings.project.defaultBranch")} editLabel={t("settings.field.edit", { label: t("settings.project.defaultBranch") })} editIcon={<Pencil className="settings-inline-edit-icon" aria-hidden="true" />} value={draft.defaultBranch} placeholder={capabilities.requiredBranch ? undefined : "auto"} onChange={(defaultBranch) => patch({ defaultBranch })} />
@@ -245,21 +254,6 @@ export function ProjectSettingsEditor({ initialValues, section, capabilities, de
 		{error && !onSaveState && <p role="alert" className="text-sm text-error">{error}</p>}
 		{!onSaveState && <div className="flex justify-end"><Button type="submit" disabled={!dirty || mutation.isPending}>{mutation.isPending ? t("settings.project.saving") : t("files.saveFile")}</Button></div>}
 	</ProjectSettingsFormView>;
-}
-
-function AggregateProjectEditor({ existing, onAdd }: {
-	existing: Array<{ hostId: string; projectId: string }>;
-	onAdd: (hostId: string, projectId: string) => void;
-}) {
-	const { t } = useTranslation();
-	const [hostId, setHostId] = useState("");
-	const [projectId, setProjectId] = useState("");
-	const duplicate = existing.some((entry) => entry.hostId === hostId.trim() && entry.projectId === projectId.trim());
-	return <div className="grid gap-2 px-3 py-2 sm:grid-cols-[1fr_1fr_auto]">
-		<Input aria-label={t("settings.project.aggregateHostId", { defaultValue: "Host ID" })} value={hostId} onChange={(event) => setHostId(event.currentTarget.value)} placeholder={t("settings.project.aggregateHostId", { defaultValue: "Host ID" })} />
-		<Input aria-label={t("settings.project.aggregateProjectId", { defaultValue: "Project ID" })} value={projectId} onChange={(event) => setProjectId(event.currentTarget.value)} placeholder={t("settings.project.aggregateProjectId", { defaultValue: "Project ID" })} />
-		<Button type="button" variant="outline" disabled={!hostId.trim() || !projectId.trim() || duplicate} onClick={() => { onAdd(hostId.trim(), projectId.trim()); setHostId(""); setProjectId(""); }}>{t("settings.project.aggregateAdd", { defaultValue: "Add project" })}</Button>
-	</div>;
 }
 
 function ProjectRolePermissions({ role, agent, value, runtimeDefaults, onChange }: { role: ProjectSettingsRole; agent: string; value: string; runtimeDefaults?: boolean; onChange: (value: string) => void }) {

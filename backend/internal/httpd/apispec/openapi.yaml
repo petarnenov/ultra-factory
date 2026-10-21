@@ -3169,6 +3169,40 @@ paths:
       summary: Atomically replace a project's display name and config
       tags:
       - projects
+  /api/v1/projects/{id}/aggregate/refresh:
+    post:
+      operationId: refreshProjectAggregate
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateEffectiveResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Run one aggregate discovery pass across paired hosts and return the
+        effective set
+      tags:
+      - projects
   /api/v1/projects/{id}/config:
     put:
       operationId: setProjectConfig
@@ -12668,6 +12702,42 @@ components:
       - status
       - checkedAt
       type: object
+    AggregateEffectiveResponse:
+      properties:
+        aggregateEffective:
+          items:
+            $ref: '#/components/schemas/AggregateEntry'
+          type: array
+      required:
+      - aggregateEffective
+      type: object
+    AggregateEntry:
+      properties:
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        matchedBy:
+          enum:
+          - repo
+          - projectId
+          type: string
+        projectId:
+          type: string
+        source:
+          enum:
+          - explicit
+          - discovered
+          type: string
+        stale:
+          type: boolean
+      required:
+      - hostId
+      - hostLabel
+      - projectId
+      - source
+      - stale
+      type: object
     AggregateProjectRef:
       properties:
         hostId:
@@ -17474,6 +17544,14 @@ components:
           type: string
         agentRulesFile:
           type: string
+        aggregateDiscovery:
+          type:
+          - "null"
+          - boolean
+        aggregateExcludes:
+          items:
+            $ref: '#/components/schemas/AggregateProjectRef'
+          type: array
         aggregateProjects:
           items:
             $ref: '#/components/schemas/AggregateProjectRef'
@@ -17529,6 +17607,10 @@ components:
       type: object
     ProjectGetResponse:
       properties:
+        aggregateEffective:
+          items:
+            $ref: '#/components/schemas/AggregateEntry'
+          type: array
         project:
           $ref: '#/components/schemas/ProjectOrDegraded'
         status:
@@ -17539,6 +17621,7 @@ components:
       required:
       - status
       - project
+      - aggregateEffective
       type: object
     ProjectOrDegraded:
       oneOf:

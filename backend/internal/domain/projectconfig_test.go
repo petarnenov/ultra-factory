@@ -112,6 +112,40 @@ func TestProjectConfigValidateAggregateProjects(t *testing.T) {
 	}
 }
 
+func TestProjectConfigValidateAggregateExcludesAndDiscovery(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ProjectConfig
+		wantErr bool
+	}{
+		{name: "valid exclude", cfg: ProjectConfig{AggregateExcludes: []AggregateProjectRef{{HostID: "host-a", ProjectID: "project-a"}}}},
+		{name: "empty exclude host", cfg: ProjectConfig{AggregateExcludes: []AggregateProjectRef{{ProjectID: "project-a"}}}, wantErr: true},
+		{name: "untrimmed exclude project", cfg: ProjectConfig{AggregateExcludes: []AggregateProjectRef{{HostID: "host-a", ProjectID: " project-a"}}}, wantErr: true},
+		{name: "duplicate exclude", cfg: ProjectConfig{AggregateExcludes: []AggregateProjectRef{{HostID: "host-a", ProjectID: "project-a"}, {HostID: "host-a", ProjectID: "project-a"}}}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.cfg.Validate(); (err != nil) != test.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestAggregateDiscoveryEnabledDefaultsOn(t *testing.T) {
+	off := false
+	on := true
+	if !(ProjectConfig{}).AggregateDiscoveryEnabled() {
+		t.Fatal("unset discovery must be on")
+	}
+	if (ProjectConfig{AggregateDiscovery: &off}).AggregateDiscoveryEnabled() {
+		t.Fatal("explicit false must turn discovery off")
+	}
+	if !(ProjectConfig{AggregateDiscovery: &on}).AggregateDiscoveryEnabled() {
+		t.Fatal("explicit true must keep discovery on")
+	}
+}
+
 func TestDefaultProjectConfig(t *testing.T) {
 	def := DefaultProjectConfig()
 

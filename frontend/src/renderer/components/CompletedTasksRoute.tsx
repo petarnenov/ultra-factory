@@ -34,8 +34,8 @@ export function CompletedTasksRoute({ hostId = LOCAL_HOST, projectId, task }: { 
 	const navigate = useNavigate();
 	const identity = useProjectIdentity(hostId === LOCAL_HOST ? undefined : hostId, projectId);
 	const refs = useMemo(
-		() => buildCompletedTaskRefs(hostId, projectId, identity.data?.aggregateProjects),
-		[hostId, projectId, identity.data?.aggregateProjects],
+		() => buildCompletedTaskRefs(hostId, projectId, identity.data?.aggregateEffective),
+		[hostId, projectId, identity.data?.aggregateEffective],
 	);
 	const loaded = useCompletedTasks(refs, undefined, 1);
 	const selectedRef =

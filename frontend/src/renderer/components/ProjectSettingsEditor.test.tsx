@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProjectSettingsEditor, type ProjectSettingsDraft } from "./ProjectSettingsEditor";
+import type { AggregateDiscoveredRow } from "./settings/ProjectAggregateHostsSettings";
 import { TooltipProvider } from "./ui/tooltip";
 
 const initialValues: ProjectSettingsDraft = {
@@ -16,13 +17,13 @@ const initialValues: ProjectSettingsDraft = {
 	autoReview: true, intakeEnabled: false, intakeRepo: "", intakeAssignee: "",
 };
 
-function setup(cloud: boolean, save = vi.fn().mockResolvedValue({})) {
+function setup(cloud: boolean, save = vi.fn().mockResolvedValue({}), aggregateDiscovered: AggregateDiscoveredRow[] = []) {
 	const onSaveState = vi.fn();
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 	render(<QueryClientProvider client={client}><TooltipProvider>
 		<ProjectSettingsEditor initialValues={initialValues} section="general"
 			capabilities={{ workflow: true, sessionPrefix: !cloud, intake: !cloud, reviewer: true, requiredAgents: !cloud, requiredBranch: cloud, nameLimit: cloud ? 120 : 100, runtimeDefaults: cloud }}
-			details={[]} modelScope={() => ""} renderAgent={() => null} save={save} onSaveState={onSaveState} />
+			details={[]} modelScope={() => ""} renderAgent={() => null} save={save} onSaveState={onSaveState} aggregateDiscovered={aggregateDiscovered} />
 	</TooltipProvider></QueryClientProvider>);
 	return { save, onSaveState };
 }
@@ -91,4 +92,39 @@ it("saves host-qualified aggregate project membership from local project setting
 	const removeButton = screen.getByRole("button", { name: "Remove host-a / project-a" });
 	await userEvent.click(removeButton);
 	await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ aggregateProjects: [] })), { timeout: 2_000 });
+});
+
+const discoveredRow: AggregateDiscoveredRow = { hostId: "host-a", hostLabel: "Linux", projectId: "remote-project", matchedBy: "repo", stale: true };
+
+it("shows discovered rows with their source and stale marker", () => {
+	setup(false, vi.fn().mockResolvedValue({}), [discoveredRow]);
+	expect(screen.getByText("Linux · remote-project")).toBeInTheDocument();
+	expect(screen.getByText("Discovered")).toBeInTheDocument();
+	expect(screen.getByText("Stale")).toBeInTheDocument();
+});
+
+it("hides a discovered project by writing aggregateExcludes and restores it on show", async () => {
+	const { save } = setup(false, vi.fn().mockResolvedValue({}), [discoveredRow]);
+	await userEvent.click(screen.getByRole("button", { name: "Hide Linux / remote-project" }));
+	await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+		aggregateExcludes: [{ hostId: "host-a", projectId: "remote-project" }],
+	})), { timeout: 2_000 });
+	expect(screen.queryByText("Linux · remote-project")).not.toBeInTheDocument();
+	await userEvent.click(screen.getByRole("button", { name: "Show host-a / remote-project" }));
+	await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ aggregateExcludes: [] })), { timeout: 2_000 });
+	expect(screen.getByText("Linux · remote-project")).toBeInTheDocument();
+});
+
+it("turns discovery off and hides discovered rows while keeping manual rows", async () => {
+	const { save } = setup(false, vi.fn().mockResolvedValue({}), [discoveredRow]);
+	await userEvent.type(screen.getByRole("textbox", { name: "Host ID" }), "host-b");
+	await userEvent.type(screen.getByRole("textbox", { name: "Project ID" }), "manual");
+	await userEvent.click(screen.getByRole("button", { name: "Add project" }));
+	await userEvent.click(screen.getByRole("switch", { name: "Discover same project on paired hosts" }));
+	await waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+		aggregateDiscovery: false,
+		aggregateProjects: [{ hostId: "host-b", projectId: "manual" }],
+	})), { timeout: 2_000 });
+	expect(screen.queryByText("Linux · remote-project")).not.toBeInTheDocument();
+	expect(screen.getByText("host-b · manual")).toBeInTheDocument();
 });

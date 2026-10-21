@@ -310,6 +310,8 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersCodexAccountIDParam":                      "CodexAccountIDParam",
 	"ControllersCodexAccountLoginIDParam":                 "CodexAccountLoginIDParam",
 	"ControllersGetProjectResponse":                       "ProjectGetResponse",
+	"ControllersAggregateEffectiveResponse":               "AggregateEffectiveResponse",
+	"AggregateEntry":                                      "AggregateEntry",
 	"ControllersProjectOrDegraded":                        "ProjectOrDegraded",
 	"ControllersListSessionsQuery":                        "ListSessionsQuery",
 	"ControllersListDirsQuery":                            "ListDirsQuery",
@@ -2690,6 +2692,15 @@ func projectOperations() []operation {
 			},
 		},
 		{
+			method: http.MethodPost, path: "/api/v1/projects/{id}/aggregate/refresh", id: "refreshProjectAggregate", tag: "projects",
+			summary:    "Run one aggregate discovery pass across paired hosts and return the effective set",
+			pathParams: []any{controllers.ProjectIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.AggregateEffectiveResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+			},
+		}, {
 			method: http.MethodPut, path: "/api/v1/projects/{id}", id: "updateProjectSettings", tag: "projects",
 			summary: "Atomically replace a project's display name and config",
 			respNotes: map[int]string{

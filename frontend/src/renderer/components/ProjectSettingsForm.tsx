@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 import type { components } from "../../api/schema";
 import { useAgentReadinessQuery, useEnsureAgentReadiness } from "../hooks/useAgentReadinessQuery";
-import { useRemoteProjectQuery, workspaceQueryKeyForHost, workspaceQueryOptions } from "../hooks/useWorkspaceQuery";
+import { useProjectIdentity, useRemoteProjectQuery, workspaceQueryKeyForHost, workspaceQueryOptions } from "../hooks/useWorkspaceQuery";
 import { useSettings } from "../hooks/useSettings";
 import { useConnectedHosts } from "../hooks/useHostConnection";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
@@ -137,6 +137,10 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 	const setOrchestratorReplacementError = useUiStore((state) => state.setOrchestratorReplacementError);
 	const workspaceQuery = useQuery({ ...workspaceQueryOptions, enabled: !hostId });
 	const remoteProjectQuery = useRemoteProjectQuery(hostId ?? "", projectId);
+	const aggregateIdentity = useProjectIdentity(undefined, hostId ? "" : projectId);
+	const aggregateDiscovered = (aggregateIdentity.data?.aggregateEffective ?? [])
+		.filter((entry) => entry.source === "discovered")
+		.map((entry) => ({ hostId: entry.hostId, hostLabel: entry.hostLabel, projectId: entry.projectId, matchedBy: entry.matchedBy, stale: entry.stale }));
 	const config = project.config ?? {};
 	const isScratchProject = project.kind === "scratch";
 	const { settings } = useSettings(hostId);
@@ -146,6 +150,8 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 	const intake: TrackerIntakeConfig = config.trackerIntake ?? {};
 	const initialValues: ProjectSettingsDraft = {
 		aggregateProjects: hostId ? undefined : config.aggregateProjects ?? [],
+		aggregateDiscovery: hostId ? undefined : config.aggregateDiscovery !== false,
+		aggregateExcludes: hostId ? undefined : config.aggregateExcludes ?? [],
 		displayName: project.name,
 		defaultBranch: config.defaultBranch ?? DEFAULT_BRANCH_AUTO,
 		sessionPrefix: config.sessionPrefix ?? "",
@@ -213,7 +219,11 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 				}
 			: {
 					...config,
-					...(!hostId ? { aggregateProjects: values.aggregateProjects?.length ? values.aggregateProjects : undefined } : {}),
+					...(!hostId ? {
+						aggregateProjects: values.aggregateProjects?.length ? values.aggregateProjects : undefined,
+						aggregateExcludes: values.aggregateExcludes?.length ? values.aggregateExcludes : undefined,
+						aggregateDiscovery: values.aggregateDiscovery === false ? false : undefined,
+					} : {}),
 					defaultBranch: values.defaultBranch.trim() === DEFAULT_BRANCH_AUTO ? undefined : values.defaultBranch || undefined,
 					sessionPrefix: values.sessionPrefix || undefined,
 					worker: {
@@ -347,7 +357,7 @@ function SettingsBody({ project, projectId, hostId, hostConnected, onSaved, sect
 			/>
 		);
 	}
-	return <ProjectSettingsEditor initialValues={initialValues} section={section} disabled={!hostConnected}
+	return <ProjectSettingsEditor initialValues={initialValues} section={section} disabled={!hostConnected} aggregateDiscovered={aggregateDiscovered}
 		capabilities={{ workflow: !isScratchProject, sessionPrefix: !isScratchProject, intake: intakeVisible, reviewer: !isScratchProject, requiredAgents: true, workersRequestReview: !isScratchProject, ciGate: !isScratchProject }}
 		details={[{ label: t("settings.project.path"), value: project.path, href: hostId ? undefined : `file://${encodeURI(project.path)}` }, { label: t("settings.project.repo"), value: project.repo || "—", href: project.repo ? repositoryHref(project.repo) : undefined }]}
 		workspaceRepos={project.kind === "workspace" ? project.workspaceRepos ?? [] : undefined} repository={project.repo}
