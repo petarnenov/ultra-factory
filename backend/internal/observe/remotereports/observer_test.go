@@ -193,6 +193,9 @@ type fakeHost struct {
 	pendingStatus int
 	// reportOnSessionGet makes the worker report right as its session is read.
 	reportOnSessionGet map[string]string
+	// sessionList answers GET /api/v1/sessions; sessionListStatus overrides it.
+	sessionList       string
+	sessionListStatus int
 }
 
 func newFakeHost(t *testing.T, identity, password string) *fakeHost {
@@ -273,6 +276,17 @@ func (h *fakeHost) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"acknowledged": []string{}})
+	case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sessions":
+		if h.sessionListStatus != 0 {
+			writeJSON(w, h.sessionListStatus, map[string]string{"code": "UNAUTHORIZED"})
+			return
+		}
+		body := h.sessionList
+		if body == "" {
+			body = `{"sessions":[]}`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/sessions/"):
 		session := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
 		if body, ok := h.reportOnSessionGet[session]; ok {

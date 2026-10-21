@@ -2,6 +2,9 @@ package daemon
 
 import (
 	"log/slog"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/remotereports"
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
@@ -14,18 +17,31 @@ type remoteReportsStore interface {
 	remoteworker.Store
 }
 
-// newRemoteReports wires report pulling for workers spawned with
-// `ao spawn --host`: they report into their own host's outbox, where no
-// orchestrator for the project runs. The observer pulls from saved hosts
-// (outbound only) and the link service records which workers to pull, waking
-// the observer as soon as a link is stored. Both refuse this machine's own
-// host ID.
+// newRemoteReports wires remote worker report pulling and link discovery.
+// The link service wakes the observer as soon as a link is stored.
 func newRemoteReports(store remoteReportsStore, deliverer remotereports.Deliverer, selfHostID string, capacity *coordownership.Guard, log *slog.Logger) (*remotereports.Observer, *remoteworker.Service) {
-	observer := remotereports.New(remotereports.Deps{
-		Store: store, Deliverer: deliverer, SelfHostID: selfHostID, Logger: log,
-	})
+	var observer *remotereports.Observer
 	links := remoteworker.New(remoteworker.Deps{
-		Store: store, SelfHostID: selfHostID, OnLinked: observer.Wake, Capacity: capacity,
+		Store: store, SelfHostID: selfHostID, OnLinked: func() { observer.Wake() }, Capacity: capacity,
+	})
+	observer = remotereports.New(remotereports.Deps{
+		Store: store, Deliverer: deliverer, SelfHostID: selfHostID, Logger: log,
+		Linker: links, DiscoveryInterval: discoveryInterval(log),
 	})
 	return observer, links
+}
+
+// discoveryInterval reads AO_REMOTE_DISCOVERY_INTERVAL, a duration that tests
+// shorten. An invalid value is logged and the default is used.
+func discoveryInterval(log *slog.Logger) time.Duration {
+	raw := strings.TrimSpace(os.Getenv("AO_REMOTE_DISCOVERY_INTERVAL"))
+	if raw == "" {
+		return remotereports.DefaultDiscoveryInterval
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		log.Warn("remote discovery: ignoring invalid AO_REMOTE_DISCOVERY_INTERVAL", "value", raw)
+		return remotereports.DefaultDiscoveryInterval
+	}
+	return d
 }

@@ -1071,6 +1071,7 @@ func Run() error {
 		CompletionReports:  reportCoordinator,
 		Summaries:          summarySvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
+		RemoteWorkerSync:   remoteReports,
 		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
