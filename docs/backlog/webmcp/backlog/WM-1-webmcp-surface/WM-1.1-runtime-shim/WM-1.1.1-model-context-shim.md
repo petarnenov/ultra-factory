@@ -119,3 +119,18 @@ export function useModelContextTool<A, R>(descriptor: ToolDescriptor<A, R> | nul
 ## Dependencies
 
 None.
+
+## Audit constraints — 2026-10-21
+
+- Treat this as an AO benchmark adapter, not a complete implementation of
+  the evolving native standard. Feature-detect methods and test native
+  registration failures/asynchronous results. The current primary reference
+  is [Chrome's imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api).
+- Registration cleanup must remove only the descriptor it registered: a stale
+  cleanup must not delete a newer same-name registration. Test StrictMode,
+  replacement, repeated installation, and navigation/unmount during a wait.
+- Validate declared enum values, finite numbers and object/array distinctions;
+  the minimal checker must not silently accept invalid timeout or section args.
+- Grepping a bundle does not prove a global is unavailable. Load production
+  web and packaged builds and assert `window.__aoWebMcp === undefined`, with
+  preview/test flags off. Test the explicit preview configuration separately.

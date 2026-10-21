@@ -96,16 +96,29 @@ export function settingsTools(ctx: {
 ## Acceptance criteria
 
 - [ ] Tools present only while the global settings overlay is open.
-- [ ] `settings.read.sections` equals the ids the SET-001 and updates specs
-  click by label.
+- [ ] `settings.read.sections` equals the visible catalog; the ids used by
+  SET-001 and the updates specs are a subset of that catalog.
 - [ ] Every settings scenario step in the catalog maps to one tool or one
   bridge step.
 
 ## Verification
 
-- `npm --prefix frontend run test:e2e -- e2e/smoke-t0.spec.ts --grep @SET e2e/updates-settings.spec.ts e2e/webmcp-settings.spec.ts`
+- `npm --prefix frontend run test:e2e -- e2e/smoke-t0.spec.ts --grep @SET`
+- `npm --prefix frontend run test:e2e -- e2e/updates-settings.spec.ts e2e/webmcp-settings.spec.ts`
 - `make ci-check`
 
 ## Dependencies
 
 WM-1.1.1.
+
+## Audit constraints — 2026-10-21
+
+`SettingsProvider` remains mounted while closed and has separate project and
+global layers. Registration must explicitly follow the global-open state, not
+provider mount alone. Use current getters for section/update state; navigation
+and React state commits are asynchronous. `useUpdateStatus` has a private
+listener set, not an exported `subscribeUpdates` API: add a small supported
+subscription boundary or reuse the hook without duplicating the bridge stream.
+Preserve the update buttons' availability, pending and confirmation guards.
+The close test must explicitly close settings; navigating to `/` alone does
+not close a store-driven settings surface.

@@ -16,6 +16,7 @@ a run and reproduced.
 - [ ] The protocol names what is timed per driver and what is excluded
   (browser launch, dev server, setup, navigation, readiness, bridge steps).
 - [ ] The data set validates against the schema and is imported by the
-  dashboard without transformation.
+  dashboard through deterministic view-model aggregation; source records
+  remain unchanged.
 - [ ] `summary.json` is produced by `frontend/scripts/benchmarks-summarize.mjs`
   and reproduces byte for byte.

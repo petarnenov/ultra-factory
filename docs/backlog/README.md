@@ -15,8 +15,8 @@ remain the source of truth for what is shipped.
 
 Tracking issue: [#497](https://github.com/petarnenov/ultra-factory/issues/497).
 Baseline: `211848e06`. This is a static issue-correctness audit, not a live
-reproduction, benchmark result, or release-validation record. The audit remains
-in progress; the tracker records the remaining WebMCP checks.
+reproduction, benchmark result, or release-validation record. All 39 issues in the captured open set were reviewed; proposed features and
+unreproduced runtime failures remain open. The tracker records verification.
 
 | Issues | Source evidence and disposition |
 | --- | --- |
@@ -39,3 +39,21 @@ a boolean preview gate, host-scoped merged conversation state, phase-specific
 JEV arguments/assertions, and explicit timing/failure statistics. Refer to the
 individual task blueprints for the corrected contracts. No implementation of
 those proposed features is claimed by this audit.
+
+### WebMCP audit coverage
+
+| Issues | Evidence and disposition |
+| --- | --- |
+| #469, #470, #471, #472 | No renderer WebMCP implementation exists on the baseline. `main.tsx` and boolean `preview-mode.ts` are the integration points. Kept the all-build registration/dev-only call-surface plan, corrected gating, and specified registration cleanup, native adapter and production runtime checks. |
+| #473, #474, #475 | `SessionsBoard`, `SettingsProvider`, settings catalog/update hooks, `useConversation`, and composer/retry handlers establish actual lifecycle, state and guard boundaries. Corrected cache assumptions, host scope, settings-open gates, subscriptions and test selection. |
+| #476, #477, #478 | All ten named source scenarios exist in the six cited e2e files. Corrected the count, phase/action arguments and parent schema vocabulary. |
+| #479, #480, #481 | Compared proposed drivers with `playwright.config.ts`, `chat-performance.spec.ts` and the source scenario sequences. Corrected timing, failure retention and phase assertions; JEV calls remain opt-in and historical probe numbers are not new measurements. |
+| #482, #483, #484, #485 | No committed benchmark dataset or summarizer exists on the baseline. Corrected record/aggregation consistency, unique run identities, nullable unsuccessful measurements, check-only semantics and non-disclosing secret checks. |
+| #486, #487, #488, #489, #490 | Existing routes/sidebar/palette, theme tokens and performance-report template provide integration patterns; no benchmark route/chart primitive exists. Corrected dependencies, metadata provenance, missing-data handling and statistical acceptance. |
+
+Validation is documentation-specific: issue/body read-back, exact mirror
+comparison, all 39 issues' required type/priority labels, ten catalog entries,
+referenced local integration files, whitespace checks and pushed Git SHA.
+Backend/frontend suites and live benchmarks were not run: executable code did
+not change. This audit does not certify future implementations or runtime
+reproductions and does not mark their acceptance checklists complete.

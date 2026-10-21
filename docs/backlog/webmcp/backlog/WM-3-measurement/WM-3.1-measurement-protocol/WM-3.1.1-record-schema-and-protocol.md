@@ -30,6 +30,7 @@ export type BenchStep = { index: number; tool: string; execMs: number; roundTrip
   decisionMs?: number; choice?: string; confidence?: number; matchedScripted?: boolean };
 export type BenchRecord = {
   schema: 1;
+  runId: string;                     // unique batch identity; reruns use a new ID
   label: string; commit: string; timestamp: string;
   env: { electron?: string; chromium: string; node: string; platform: string; arch: string;
          cpus: number; cpuModel: string; totalMemoryBytes: number; viewport: string };

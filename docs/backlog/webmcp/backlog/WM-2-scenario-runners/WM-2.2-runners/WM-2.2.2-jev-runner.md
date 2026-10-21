@@ -87,13 +87,14 @@ No test-level retry reruns the entire scenario automatically.
 - [ ] `decisionMs` is recorded separately from `execMs`/`roundTripMs`.
 - [ ] Without a key, the bench spec runs the other two drivers and prints the
   skip reason once.
-- [ ] `git grep` for the key value finds nothing; records contain no header
-  or key material.
+- [ ] An in-memory scan finds no key value in tracked files or records;
+  records contain no authentication headers.
 
 ## Verification
 
 - `AO_WEBMCP_BENCH=1 TYPESAFE_API_KEY=$JEV_MAF_LAB AO_PERF_DIR=/tmp/wm AO_E2E_PORT=5292 CI=true npm --prefix frontend run test:e2e -- e2e/webmcp-bench.spec.ts --workers=1 --grep webmcp-jev`
-- `grep -rl "$JEV_MAF_LAB" /tmp/wm` prints nothing.
+- Scan `/tmp/wm` in memory using the configured nonempty key without
+  printing it or passing it as a command-line argument.
 
 ## Dependencies
 

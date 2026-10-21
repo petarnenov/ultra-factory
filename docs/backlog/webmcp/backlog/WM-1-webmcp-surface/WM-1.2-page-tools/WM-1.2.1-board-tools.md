@@ -106,3 +106,15 @@ export function boardTools(ctx: {
 ## Dependencies
 
 WM-1.1.1.
+
+## Audit constraints — 2026-10-21
+
+`SessionsBoard` uses local workspace data or `useRemoteProjectQuery` depending
+on `hostId`, can show a preview fallback, and filters archives before mapping
+`no_signal` to building. Tools must read the same final `boardSessions` view,
+not raw workspace sessions. Scope cache subscriptions and identity to host and
+project. Waits need current getters and cleanup on scope change/unmount.
+
+Settings is driven by store state after the `/settings` redirect; URL alone
+cannot prove a board unmounted. Verify tool presence against the mounted,
+interactive surface. Do not expose actions on a hidden/inactive retained board.

@@ -59,13 +59,16 @@ Scope: three pages, ten scenarios, three drivers, one machine. Pre-measurement a
 
 ## Acceptance criteria
 
-- [ ] Every number in the report exists in `summary.json`.
+- [ ] Every measured result traces to raw records or `summary.json`; hardware
+  and environment metadata trace to the records’ `env` fields.
 - [ ] Reproduce commands work from a clean checkout with the key set.
 - [ ] English only; no secret.
 
 ## Verification
 
-- A second developer reproduces and lands within the reported min–max.
+- A second developer follows the protocol and reports the observed result
+  and environment; do not require a new stochastic run to fall inside the
+  first sample’s min–max. Record deviations instead of discarding them.
 
 ## Dependencies
 
