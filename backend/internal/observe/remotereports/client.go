@@ -235,7 +235,11 @@ func (h *hostClient) do(ctx context.Context, method, path string, in, out any) e
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+h.password)
+	// A Tailscale-discovered host has no password: the listener admits this
+	// machine on its tailnet identity, checked through tailscaled.
+	if h.password != "" {
+		req.Header.Set("Authorization", "Bearer "+h.password)
+	}
 	req.Header.Set("X-AO-Expected-Host-ID", h.hostID)
 	resp, err := h.http.Do(req)
 	if err != nil {

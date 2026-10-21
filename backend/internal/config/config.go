@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/tailnet"
 )
 
 const (
@@ -189,6 +191,21 @@ type Config struct {
 	// (AO_CLOUD_CONTROL_PLANE_URL). When set it must be an http(s) URL; empty
 	// means no control plane is configured, which keeps the cloud offering off.
 	CloudControlPlaneURL string
+	// CloudRemoteHostSync (AO_CLOUD_REMOTE_HOST_SYNC) publishes this host's
+	// tunnel address to the AO Cloud account; off by default (Tailscale only).
+	CloudRemoteHostSync bool
+	// TailnetPort (AO_TAILNET_PORT) is the well-known port the Tailscale-only
+	// remote listener binds and other machines' discovery probes first.
+	TailnetPort int
+	// TailnetProbePorts (AO_TAILNET_PROBE_PORTS, comma-separated) are extra
+	// ports discovery probes on every tailnet peer.
+	TailnetProbePorts []int
+	// TailnetAllowUsers (AO_TAILNET_ALLOW_USERS) admits other Tailscale logins
+	// beyond this machine's own user; comma-separated.
+	TailnetAllowUsers []string
+	// TailnetAllowTags (AO_TAILNET_ALLOW_TAGS) admits tagged devices by tag;
+	// comma-separated. Tagged devices are rejected otherwise.
+	TailnetAllowTags []string
 }
 
 // Addr returns the host:port the HTTP server binds. It uses net.JoinHostPort so
@@ -369,6 +386,33 @@ func Load() (Config, error) {
 	if raw := os.Getenv("AO_CLIENT"); raw != "" {
 		cfg.Client = strings.TrimSpace(raw)
 	}
+	if raw := os.Getenv("AO_CLOUD_REMOTE_HOST_SYNC"); strings.TrimSpace(raw) != "" {
+		v, err := parseToggleEnv("AO_CLOUD_REMOTE_HOST_SYNC", raw)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.CloudRemoteHostSync = v
+	}
+	cfg.TailnetPort = tailnet.DefaultPort
+	if raw := os.Getenv("AO_TAILNET_PORT"); strings.TrimSpace(raw) != "" {
+		ports, err := parsePortList("AO_TAILNET_PORT", raw)
+		if err != nil {
+			return Config{}, err
+		}
+		if len(ports) != 1 {
+			return Config{}, fmt.Errorf("AO_TAILNET_PORT must be one port")
+		}
+		cfg.TailnetPort = ports[0]
+	}
+	if raw := os.Getenv("AO_TAILNET_PROBE_PORTS"); strings.TrimSpace(raw) != "" {
+		ports, err := parsePortList("AO_TAILNET_PROBE_PORTS", raw)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.TailnetProbePorts = ports
+	}
+	cfg.TailnetAllowUsers = splitList(os.Getenv("AO_TAILNET_ALLOW_USERS"))
+	cfg.TailnetAllowTags = splitList(os.Getenv("AO_TAILNET_ALLOW_TAGS"))
 	if raw := os.Getenv("AO_CLOUD_OFFERING"); raw != "" {
 		v, err := parseToggleEnv("AO_CLOUD_OFFERING", raw)
 		if err != nil {
@@ -414,6 +458,30 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parsePortList parses a comma-separated list of TCP ports.
+func parsePortList(name, raw string) ([]int, error) {
+	var ports []int
+	for _, item := range splitList(raw) {
+		port, err := strconv.Atoi(item)
+		if err != nil || port < 1 || port > 65535 {
+			return nil, fmt.Errorf("%s: %q is not a port in 1-65535", name, item)
+		}
+		ports = append(ports, port)
+	}
+	return ports, nil
+}
+
+// splitList splits a comma-separated value, trimming and dropping blanks.
+func splitList(raw string) []string {
+	var out []string
+	for _, item := range strings.Split(raw, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func parseToggleEnv(name, raw string) (bool, error) {
