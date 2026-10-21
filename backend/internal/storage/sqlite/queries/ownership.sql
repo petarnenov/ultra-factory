@@ -85,3 +85,9 @@ SELECT id, session_id, previous_selection, new_selection, actor_session_id, orig
 FROM coordinator_agent_events
 WHERE session_id = ?
 ORDER BY id;
+
+-- name: InsertCoordinatorOperatorEvent :exec
+INSERT INTO coordinator_operator_events (
+    coordinator_session_id, project_id, root_session_id, origin, scope,
+    worker_limit, host_slots, coordinator_agent, worker_agent, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

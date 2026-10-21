@@ -67,6 +67,7 @@ type fakeStore struct {
 	sessions            map[domain.SessionID]domain.SessionRecord
 	ownerEvents         []domain.SessionOwnerEvent
 	limitEvents         []domain.CoordinatorLimitEvent
+	operatorEvents      []domain.CoordinatorOperatorEvent
 	agentEvents         []domain.CoordinatorAgentEvent
 	claimedReports      map[domain.SessionID]bool
 	getSessionErr       error
@@ -307,6 +308,11 @@ func (f *fakeStore) SetSessionOwner(_ context.Context, id domain.SessionID, owne
 	rec.UpdatedAt = at
 	f.sessions[id] = rec
 	return rec, true, nil
+}
+
+func (f *fakeStore) AppendCoordinatorOperatorEvent(_ context.Context, event domain.CoordinatorOperatorEvent) error {
+	f.operatorEvents = append(f.operatorEvents, event)
+	return nil
 }
 
 func (f *fakeStore) SetCoordinatorLimits(_ context.Context, id domain.SessionID, limit *int, slots []domain.HostSlot, event domain.CoordinatorLimitEvent, at time.Time) error {

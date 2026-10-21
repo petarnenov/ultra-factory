@@ -626,8 +626,13 @@ type SpawnSessionRequest struct {
 	CoordinatorAgent *domain.AgentSelection `json:"coordinatorAgent,omitempty"`
 	// HostSlots are the coordinator's per-host worker slots; the slot total is
 	// at most workerLimit. Coordinator spawns only.
-	HostSlots []HostSlotInput     `json:"hostSlots,omitempty"`
-	Harness   domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
+	HostSlots []HostSlotInput `json:"hostSlots,omitempty"`
+	// OperatorInitiated starts a coordinator for the live root (UI or
+	// CLI). Omit parentSessionId; origin is then required.
+	OperatorInitiated bool `json:"operatorInitiated,omitempty"`
+	// Origin is ui, cli or api, required with operatorInitiated.
+	Origin  string              `json:"origin,omitempty" enum:"ui,cli,api"`
+	Harness domain.AgentHarness `json:"harness,omitempty" enum:"claude-code,codex,aider,opencode,opencode-v2,grok,droid,amp,agy,crush,cursor,qwen,gemini,copilot,goose,auggie,continue,devin,cline,kimi,muse,kiro,kilocode,vibe,pi,kimchi,omp,fx,prime-agent,autohand,unreal-agent,codewhale,mimo-code,deepseek-harness,openhands,command-code"`
 	// HarnessExplicit tells the daemon whether Harness came from the caller or
 	// was resolved by the CLI. Omitted means explicit when Harness is set.
 	HarnessExplicit *bool  `json:"harnessExplicit,omitempty"`

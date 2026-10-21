@@ -37,6 +37,21 @@ type CoordinatorLimitEvent struct {
 	CreatedAt         time.Time
 }
 
+// CoordinatorOperatorEvent audits a coordinator spawned by an operator on
+// behalf of the live root. Origin is ui, cli or api.
+type CoordinatorOperatorEvent struct {
+	CoordinatorSessionID SessionID
+	ProjectID            ProjectID
+	RootSessionID        SessionID
+	Origin               string
+	Scope                string
+	WorkerLimit          *int
+	HostSlots            []HostSlot
+	CoordinatorAgent     *AgentSelection
+	WorkerAgent          *AgentSelection
+	CreatedAt            time.Time
+}
+
 // RemoteWorkerOwnerEvent is one append-only audit row for a remote worker
 // link's ownership transition, keyed by the link's durable identity.
 type RemoteWorkerOwnerEvent struct {

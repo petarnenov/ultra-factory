@@ -483,3 +483,41 @@ func (s *Store) ListCoordinatorAgentEvents(ctx context.Context, id domain.Sessio
 	}
 	return events, nil
 }
+
+// AppendCoordinatorOperatorEvent records one operator-initiated coordinator
+// spawn. The row is written after the coordinator exists.
+func (s *Store) AppendCoordinatorOperatorEvent(ctx context.Context, event domain.CoordinatorOperatorEvent) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	err := s.inTx(ctx, "append coordinator operator event", func(q *gen.Queries) error {
+		return q.InsertCoordinatorOperatorEvent(ctx, gen.InsertCoordinatorOperatorEventParams{
+			CoordinatorSessionID: string(event.CoordinatorSessionID),
+			ProjectID:            string(event.ProjectID),
+			RootSessionID:        string(event.RootSessionID),
+			Origin:               event.Origin,
+			Scope:                event.Scope,
+			WorkerLimit:          nullInt(event.WorkerLimit),
+			HostSlots:            hostSlotsJSON(event.HostSlots),
+			CoordinatorAgent:     agentSelectionJSON(event.CoordinatorAgent),
+			WorkerAgent:          agentSelectionJSON(event.WorkerAgent),
+			CreatedAt:            event.CreatedAt,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("append coordinator operator event %s: %w", event.CoordinatorSessionID, err)
+	}
+	return nil
+}
+
+// agentSelectionJSON stores an agent selection as JSON; nil stores NULL.
+func agentSelectionJSON(sel *domain.AgentSelection) sql.NullString {
+	if sel == nil {
+		return sql.NullString{}
+	}
+	raw, err := json.Marshal(sel)
+	if err != nil {
+		// A plain struct of strings and a string slice always marshals.
+		panic(fmt.Sprintf("marshal agent selection: %v", err))
+	}
+	return sql.NullString{String: string(raw), Valid: true}
+}
