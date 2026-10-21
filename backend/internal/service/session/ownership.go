@@ -14,69 +14,96 @@ import (
 )
 
 // AssignOwner sets or clears one worker's owner; nil means root-owned.
-// This is the service boundary the ownership write route calls.
+// This is the service boundary the ownership write route calls. The parties
+// are told after the write, outside the project lock, so a slow delivery
+// never holds the lock.
 func (s *Service) AssignOwner(
 	ctx context.Context,
 	workerID domain.SessionID,
 	ownerID *domain.SessionID,
 	requestedBy domain.SessionID,
 ) (domain.SessionRecord, error) {
+	record, change, err := s.assignOwner(ctx, workerID, ownerID, requestedBy)
+	if err != nil {
+		return domain.SessionRecord{}, err
+	}
+	if s.manager != nil {
+		coordownership.Notify(ctx, s.manager, s.logger, change)
+	}
+	return record, nil
+}
+
+// assignOwner performs the locked, validated owner write and describes it.
+func (s *Service) assignOwner(
+	ctx context.Context,
+	workerID domain.SessionID,
+	ownerID *domain.SessionID,
+	requestedBy domain.SessionID,
+) (domain.SessionRecord, coordownership.Change, error) {
 	if s.store == nil {
-		return domain.SessionRecord{}, fmt.Errorf("assign owner %s: store is required", workerID)
+		return domain.SessionRecord{}, coordownership.Change{}, fmt.Errorf("assign owner %s: store is required", workerID)
 	}
 	worker, ok, err := s.store.GetSession(ctx, workerID)
 	if err != nil {
-		return domain.SessionRecord{}, fmt.Errorf("load worker %s: %w", workerID, err)
+		return domain.SessionRecord{}, coordownership.Change{}, fmt.Errorf("load worker %s: %w", workerID, err)
 	}
 	if !ok {
-		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+		return domain.SessionRecord{}, coordownership.Change{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 	}
 	if err := coordownership.RequireWorkerTarget(worker); err != nil {
-		return domain.SessionRecord{}, err
+		return domain.SessionRecord{}, coordownership.Change{}, err
 	}
 	if worker.ProjectID == "" {
-		return domain.SessionRecord{}, apierr.Invalid("OWNERSHIP_PROJECT_REQUIRED", "Standalone workers have no project ownership", map[string]any{"sessionId": string(worker.ID)})
+		return domain.SessionRecord{}, coordownership.Change{}, apierr.Invalid("OWNERSHIP_PROJECT_REQUIRED", "Standalone workers have no project ownership", map[string]any{"sessionId": string(worker.ID)})
 	}
 	unlock := s.lockOrchestratorProject(worker.ProjectID)
 	defer unlock()
 	if worker, ok, err = s.store.GetSession(ctx, workerID); err != nil {
-		return domain.SessionRecord{}, fmt.Errorf("load worker %s: %w", workerID, err)
+		return domain.SessionRecord{}, coordownership.Change{}, fmt.Errorf("load worker %s: %w", workerID, err)
 	} else if !ok {
-		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+		return domain.SessionRecord{}, coordownership.Change{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 	}
 	caller, ok, err := s.store.GetSession(ctx, requestedBy)
 	if err != nil {
-		return domain.SessionRecord{}, fmt.Errorf("load ownership caller %s: %w", requestedBy, err)
+		return domain.SessionRecord{}, coordownership.Change{}, fmt.Errorf("load ownership caller %s: %w", requestedBy, err)
 	}
 	if !ok {
-		return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+		return domain.SessionRecord{}, coordownership.Change{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 	}
 	if err := coordownership.RequireLiveRoot(caller, worker.ProjectID); err != nil {
-		return domain.SessionRecord{}, err
+		return domain.SessionRecord{}, coordownership.Change{}, err
 	}
 	if ownerID != nil {
 		owner, ok, err := s.store.GetSession(ctx, *ownerID)
 		if err != nil {
-			return domain.SessionRecord{}, fmt.Errorf("load owner %s: %w", *ownerID, err)
+			return domain.SessionRecord{}, coordownership.Change{}, fmt.Errorf("load owner %s: %w", *ownerID, err)
 		}
 		if !ok {
-			return domain.SessionRecord{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+			return domain.SessionRecord{}, coordownership.Change{}, apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 		}
 		if err := coordownership.RequireCoordinator(owner, worker.ProjectID); err != nil {
-			return domain.SessionRecord{}, err
+			return domain.SessionRecord{}, coordownership.Change{}, err
 		}
 		if err := s.checkReassignCapacity(ctx, worker, *ownerID); err != nil {
-			return domain.SessionRecord{}, err
+			return domain.SessionRecord{}, coordownership.Change{}, err
 		}
+	}
+	change := coordownership.Change{Worker: worker.ID, Previous: worker.OwnerSessionID, Next: ownerID, Local: true}
+	if change.Previous != nil {
+		prev, found, err := s.store.GetSession(ctx, *change.Previous)
+		if err != nil {
+			return domain.SessionRecord{}, coordownership.Change{}, fmt.Errorf("load previous owner %s: %w", *change.Previous, err)
+		}
+		change.PreviousLive = found && coordownership.IsLiveCoordinator(prev, worker.ProjectID)
 	}
 	record, _, err := s.store.SetSessionOwner(ctx, worker.ID, ownerID, domain.OwnershipExplicitAssignment, s.now(), false)
 	if errors.Is(err, ports.ErrOwnerReassignmentInFlight) {
-		return domain.SessionRecord{}, apierr.Conflict("OWNER_REASSIGNMENT_IN_FLIGHT", "A report of this worker is claimed for delivery", map[string]any{"sessionId": string(worker.ID)})
+		return domain.SessionRecord{}, coordownership.Change{}, apierr.Conflict("OWNER_REASSIGNMENT_IN_FLIGHT", "A report of this worker is claimed for delivery", map[string]any{"sessionId": string(worker.ID)})
 	}
 	if err != nil {
-		return domain.SessionRecord{}, err
+		return domain.SessionRecord{}, coordownership.Change{}, err
 	}
-	return record, nil
+	return record, change, nil
 }
 
 // checkReassignCapacity rejects moving a live worker into a full coordinator.
