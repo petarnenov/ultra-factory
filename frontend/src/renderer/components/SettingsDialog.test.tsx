@@ -165,6 +165,14 @@ describe("SettingsDialog", () => {
 		expect(await screen.findByRole("alert")).toHaveTextContent("Display name must be 100 characters or fewer");
 	});
 
+	it("names the section whose save failed", async () => {
+		useUiStore.getState().openProjectSettings("proj-1");
+		renderSettingsDialog();
+
+		await userEvent.click(await screen.findByRole("button", { name: "Trigger failed save" }));
+		expect(await screen.findByRole("alert")).toHaveTextContent("General: Display name must be 100 characters or fewer");
+	});
+
 	it("keeps cue management in project settings without the project save action", async () => {
 		useUiStore.getState().openProjectSettings("proj-1");
 		renderSettingsDialog();
