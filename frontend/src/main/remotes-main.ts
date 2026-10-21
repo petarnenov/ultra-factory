@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { BlockList, isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +11,17 @@ import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEn
 // Without an override, keep the existing ~/.ao location.
 export function remotesFilePath(): string {
 	return path.join(process.env.AO_DATA_DIR?.trim() || path.join(os.homedir(), ".ao"), "remotes.json");
+}
+
+// Every AO installation on this machine keeps its identity in its data dir.
+export async function readInstallationHostIds(dataDirs: string[]): Promise<string[]> {
+	const ids = await Promise.all(dataDirs.map(async (dir) => {
+		try {
+			const { hostId } = JSON.parse(await readFile(path.join(dir, "mobile", "identity.json"), "utf8")) as { hostId?: unknown };
+			return typeof hostId === "string" ? hostId : "";
+		} catch { return ""; }
+	}));
+	return ids.filter(Boolean);
 }
 
 const TAILNET = new BlockList();
@@ -52,7 +64,19 @@ export type RemotesIpcDeps = {
 	localIdentity: () => Promise<string | null>;
 	probe?: (entry: RemoteEntry) => Promise<RemoteHealth>;
 	identity?: (entry: Pick<RemoteEntry, "url">) => Promise<string>;
+	// Other AO installations on this machine (dev/prod data dirs) are local too.
+	siblingHostIds?: () => Promise<string[]>;
+	// Loopback base URL of the attached local daemon, or null while detached.
+	localDaemonUrl?: () => string | null;
 };
+
+export type LocalAccountHost = { hostId: string; label: string; url: string; token: string };
+
+const ACCOUNT_TOKEN = /^[0-9a-f]{64}$/;
+
+function localHostLabel(): string {
+	return os.hostname().replace(/\.local$/i, "").trim().slice(0, 64) || "AO host";
+}
 
 class LocalIdentityUnavailableError extends Error {
 	constructor() { super("Local AO identity is unavailable; remote connection is offline"); }
@@ -65,11 +89,11 @@ class LocalIdentityUnavailableError extends Error {
  */
 export function registerRemotesIpc(
 	ipcMain: IpcMainLike,
-	{ file, registry, requireAccount, getAccountId, localIdentity, probe = probeRemote, identity = readRemoteIdentity }: RemotesIpcDeps,
+	{ file, registry, requireAccount, getAccountId, localIdentity, probe = probeRemote, identity = readRemoteIdentity, siblingHostIds = async () => [], localDaemonUrl = () => null }: RemotesIpcDeps,
 ): void {
 	const disconnect = (url: string) => registry.disconnect(url);
-	const refuseSelf = (hostId: string | undefined, localHostId: string | null) => {
-		if (localHostId && hostId === localHostId) throw new Error("This AO installation is already available locally; a remote connection to itself is not allowed.");
+	const refuseSelf = (hostId: string | undefined, localHostId: string | null, siblings: string[] = []) => {
+		if (hostId && (hostId === localHostId || siblings.includes(hostId))) throw new Error("This AO installation is already available locally; a remote connection to itself is not allowed.");
 	};
 	const requireLocalIdentity = async () => {
 		const hostId = await localIdentity();
@@ -125,9 +149,9 @@ export function registerRemotesIpc(
 
 	ipcMain.handle("remotes:list", () => ordered(async () => {
 		await accountID();
-		const localHostId = await localIdentity();
+		const local = new Set([await localIdentity(), ...await siblingHostIds()]);
 		const entries = await owned();
-		return toHostViews(entries.filter((entry) => !localHostId || entry.hostId !== localHostId));
+		return toHostViews(entries.filter((entry) => !entry.hostId || !local.has(entry.hostId)));
 	}));
 	ipcMain.handle("remotes:add", async (_event, input: RemoteEntry) => ordered(async () => {
 		const account = await accountID();
@@ -168,7 +192,7 @@ export function registerRemotesIpc(
 		if (!(await owned()).some((entry) => entry.url === url && (!hostId || entry.hostId === hostId))) throw new Error("Host does not belong to this account.");
 		const entry = await findRemote(file, url, hostId);
 		const localHostId = await localIdentity();
-		refuseSelf(entry.hostId, localHostId);
+		refuseSelf(entry.hostId, localHostId, await siblingHostIds());
 		// A local restart must not retire an already verified, unchanged remote proxy.
 		if (!localHostId) {
 			const connected = registry.connected(entry);
@@ -187,15 +211,20 @@ export function registerRemotesIpc(
 	}));
 	ipcMain.handle("remotes:importAccountHost", async (_event, expectedAccountId: string, input: RemoteEntry) => ordered(async () => {
 		const account = await accountID();
-		if (!account || account !== expectedAccountId || !input.hostId || !/^[0-9a-f]{64}$/.test(input.password)) throw new Error("Invalid account host credential.");
+		if (!account || account !== expectedAccountId || !input.hostId || !ACCOUNT_TOKEN.test(input.password)) throw new Error("Invalid account host credential.");
 		const local = (await readRemotes(file)).find((entry) => entry.hostId === input.hostId);
 		// Keep the original password on the machine that performed pairing; a
 		// Cloud refresh must not replace it with the narrower account token.
-		if (local?.password && !/^[0-9a-f]{64}$/.test(local.password)) {
-			// A tailnet account URL must not replace a working local pairing:
-			// this machine may not be on the tailnet. Rotated tunnels still move.
-			const url = parseTailnetUrl(input.url) ? local.url : input.url;
+		if (local?.password && !ACCOUNT_TOKEN.test(local.password)) {
+			// Move to a tailnet URL only once it answers with this hostId;
+			// otherwise keep the local URL. Rotated tunnels still move.
+			let url = local.url;
+			if (input.url !== local.url) {
+				if (!parseTailnetUrl(input.url)) url = input.url;
+				else if (await identity({ url: input.url }).then((actual) => actual === input.hostId, () => false)) url = input.url;
+			}
 			if (local.label !== input.label || local.url !== url) await updateRemote(file, local.url, { label: input.label, url });
+			if (local.url !== url) await disconnect(local.url);
 			return;
 		}
 		await addRemote(file, { ...input, accountUserId: account });
@@ -206,7 +235,7 @@ export function registerRemotesIpc(
 		for (const entry of await owned()) {
 			// Only account-imported credentials are directory-managed. A machine
 			// paired here with its original password remains a local pairing.
-			if (entry.hostId && !current.has(entry.hostId) && /^[0-9a-f]{64}$/.test(entry.password)) {
+			if (entry.hostId && !current.has(entry.hostId) && ACCOUNT_TOKEN.test(entry.password)) {
 				await removeSavedRemote(file, entry.url, disconnect);
 			}
 		}
@@ -231,6 +260,30 @@ export function registerRemotesIpc(
 		const result = await response.json() as { hostId?: string; token?: string; url?: string };
 		if (result.hostId !== entry.hostId || !/^[0-9a-f]{64}$/.test(result.token ?? "")) throw new Error("The host returned an invalid account credential.");
 		return { token: result.token, url: tailnetAccountUrl(result.url) };
+	}));
+	// This machine's own daemon as an account host, so a signed-in desktop links
+	// itself. Null unless remote access is on and the daemon has a tailnet URL.
+	ipcMain.handle("remotes:localAccountHost", async (_event, expectedAccountId: string) => ordered(async (): Promise<LocalAccountHost | null> => {
+		const account = await accountID();
+		if (account !== expectedAccountId) throw new Error("Account changed during host sync.");
+		const base = localDaemonUrl();
+		const localHostId = await localIdentity();
+		if (!base || !localHostId) return null;
+		const status = await fetch(new URL("/api/v1/mobile/status", base), { redirect: "error", signal: AbortSignal.timeout(5_000) });
+		if (!status.ok) return null;
+		const bridge = await status.json() as { enabled?: boolean; loopbackOnly?: boolean; hostId?: string; password?: string };
+		if (!bridge.enabled || bridge.loopbackOnly || bridge.hostId !== localHostId || !bridge.password) return null;
+		const response = await fetch(new URL("/api/v1/remote-host/account-token", base), {
+			method: "POST", redirect: "error",
+			headers: { Authorization: `Bearer ${bridge.password}`, "X-AO-Expected-Host-ID": localHostId, "X-AO-Account-ID": account },
+			signal: AbortSignal.timeout(5_000),
+		});
+		if (!response.ok) return null;
+		const result = await response.json() as { hostId?: string; token?: string; url?: string };
+		const url = parseTailnetUrl(result.url);
+		if (result.hostId !== localHostId || !ACCOUNT_TOKEN.test(result.token ?? "") || !url) return null;
+		await checkConnectionContext(localHostId, account);
+		return { hostId: localHostId, label: localHostLabel(), url: url.origin, token: result.token! };
 	}));
 	ipcMain.handle("remotes:disconnect", async (_event, url: string) => ordered(() => disconnect(url)));
 	ipcMain.handle("remotes:previewUrl", async (_event, hostId: string, sessionId: string, sourceUrl: string) => {

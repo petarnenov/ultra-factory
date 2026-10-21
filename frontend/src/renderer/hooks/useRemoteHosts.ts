@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { aoBridge } from "../lib/bridge";
 import { connectHost, connectedHosts, disconnectHost } from "../lib/host-clients";
 import { useCloudSession } from "../lib/cloud-session";
-import { listAccountRemoteHosts } from "../lib/account-remote-hosts";
+import { listAccountRemoteHosts, saveAccountRemoteHost, type AccountRemoteHost } from "../lib/account-remote-hosts";
 import { isWebBuild } from "../lib/platform";
 import { useSettings } from "./useSettings";
 import { useUiStore } from "../stores/ui-store";
@@ -14,6 +14,18 @@ const NO_HOSTS: RemoteHost[] = [];
 
 function isOfflineError(error: unknown): boolean {
 	return error instanceof Error && error.message.endsWith(" is offline");
+}
+
+// A signed-in desktop links its own machine, and keeps that account entry on
+// the machine's current tailnet address. Other hosts never depend on it.
+async function linkLocalHost(cloudBaseUrl: string, accountId: string, accountHosts: AccountRemoteHost[], current: () => boolean): Promise<void> {
+	try {
+		const self = await aoBridge.remotes.localAccountHost(accountId);
+		if (!self || !current()) return;
+		const listed = accountHosts.find((host) => host.hostId === self.hostId);
+		if (listed && listed.url === self.url && listed.token === self.token) return;
+		await saveAccountRemoteHost(cloudBaseUrl, { ...self, label: listed?.label ?? self.label });
+	} catch { /* Linking this machine is best-effort; keep syncing the others. */ }
 }
 
 export function requestRemoteHostsRefresh(): void {
@@ -57,6 +69,8 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: () => Promise<
 		if (cloudBaseUrl) {
 			try {
 				const accountHosts = await listAccountRemoteHosts(cloudBaseUrl);
+				if (!current()) return;
+				await linkLocalHost(cloudBaseUrl, accountId, accountHosts, current);
 				if (!current()) return;
 				for (const host of accountHosts) await aoBridge.remotes.importAccountHost(accountId, { ...host, password: host.token });
 				await aoBridge.remotes.pruneAccountHosts(accountId, accountHosts.map((host) => host.hostId));

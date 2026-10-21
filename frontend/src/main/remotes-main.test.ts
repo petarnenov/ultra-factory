@@ -3,7 +3,8 @@ import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NO_TAILSCALE_ADDRESS, registerRemotesIpc, remotesFilePath, tailnetAccountUrl, type RemotesIpcDeps } from "./remotes-main";
+import { mkdir } from "node:fs/promises";
+import { NO_TAILSCALE_ADDRESS, readInstallationHostIds, registerRemotesIpc, remotesFilePath, tailnetAccountUrl, type RemotesIpcDeps } from "./remotes-main";
 import { RemoteRegistry } from "./remote-registry";
 import { createLocalHostIdentity } from "./remote-request";
 
@@ -53,14 +54,41 @@ describe("remotesFilePath", () => {
 });
 
 describe("registerRemotesIpc", () => {
-	it("keeps a locally paired LAN URL when the account directory returns the Tailscale URL", async () => {
+	it("moves a locally paired host to the account Tailscale URL once that URL proves the same host", async () => {
 		const file = await tempFile();
 		const ipc = fakeIpc();
-		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
+		const identity = vi.fn(async ({ url }: { url: string }) => url === "http://100.100.160.17:57451" ? "h_workbox" : "h_other");
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, identity });
+		await ipc.invoke("remotes:importAccountHost", TEST_ACCOUNT, { hostId: "h_workbox", label: "New name", url: "http://100.100.160.17:57451", password: "a".repeat(64) });
+		expect(identity).toHaveBeenCalledWith({ url: "http://100.100.160.17:57451" });
+		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([
+			{ hostId: "h_workbox", label: "New name", url: "http://100.100.160.17:57451", password: "old", accountUserId: TEST_ACCOUNT },
+		]);
+	});
+
+	it.each([
+		["answers as another host", async () => "h_other"],
+		["is unreachable from this machine", async () => { throw new Error("offline"); }],
+	])("keeps a locally paired URL when the account Tailscale URL %s", async (_case, identity) => {
+		const file = await tempFile();
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, identity });
 		await ipc.invoke("remotes:importAccountHost", TEST_ACCOUNT, { hostId: "h_workbox", label: "New name", url: "http://100.100.160.17:57451", password: "a".repeat(64) });
 		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([
 			{ hostId: "h_workbox", label: "New name", url: "http://192.0.2.1:1", password: "old", accountUserId: TEST_ACCOUNT },
 		]);
+	});
+
+	it("hides and refuses another AO installation on this machine", async () => {
+		const file = await tempFile();
+		const original = await readFile(file, "utf8");
+		const start = vi.fn(async () => { throw new Error("proxy must not start"); });
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(start), requireAccount: signedIn, siblingHostIds: async () => ["h_workbox"], identity: async () => "h_workbox", probe: async () => "online" });
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([]);
+		await expect(ipc.invoke("remotes:connect", "http://192.0.2.1:1", "h_workbox")).rejects.toThrow(/already available locally/);
+		expect(start).not.toHaveBeenCalled();
+		expect(await readFile(file, "utf8")).toBe(original);
 	});
 
 	it("hides this installation without deleting its account record or original password", async () => {
@@ -488,5 +516,78 @@ describe("account host address", () => {
 		} finally {
 			vi.unstubAllGlobals();
 		}
+	});
+
+	describe("remotes:localAccountHost", () => {
+		async function withLocalDaemon(
+			status: Record<string, unknown>,
+			token: { status?: number; body?: Record<string, unknown> },
+			run: (url: string, requests: { path: string; headers: Record<string, unknown> }[]) => Promise<void>,
+		) {
+			const requests: { path: string; headers: Record<string, unknown> }[] = [];
+			const server = createServer((request, response) => {
+				requests.push({ path: request.url ?? "", headers: request.headers });
+				response.setHeader("content-type", "application/json");
+				if (request.url === "/api/v1/mobile/status") { response.end(JSON.stringify(status)); return; }
+				response.statusCode = token.status ?? 200;
+				response.end(JSON.stringify(token.body ?? {}));
+			});
+			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+			try {
+				const address = server.address();
+				if (!address || typeof address === "string") throw new Error("missing test port");
+				await run(`http://127.0.0.1:${address.port}`, requests);
+			} finally {
+				await new Promise<void>((resolve) => server.close(() => resolve()));
+			}
+		}
+		const enabled = { enabled: true, loopbackOnly: false, hostId: "h_this_mac", password: "pairing" };
+		const issued = { hostId: "h_this_mac", token: "b".repeat(64), url: "http://100.126.82.17:3011" };
+
+		it("links this machine's daemon by its tailnet URL with the account token", async () => {
+			await withLocalDaemon(enabled, { body: issued }, async (url, requests) => {
+				const ipc = fakeIpc();
+				registerRemotes(ipc.ipcMain, { file: await tempFile(), registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, localDaemonUrl: () => url });
+				const result = await ipc.invoke("remotes:localAccountHost", TEST_ACCOUNT) as { hostId: string; url: string; token: string; label: string };
+				expect(result).toMatchObject({ hostId: "h_this_mac", url: "http://100.126.82.17:3011", token: "b".repeat(64) });
+				expect(result.label).not.toBe("");
+				expect(requests[1]).toMatchObject({ path: "/api/v1/remote-host/account-token", headers: {
+					authorization: "Bearer pairing", "x-ao-expected-host-id": "h_this_mac", "x-ao-account-id": TEST_ACCOUNT,
+				} });
+			});
+		});
+
+		it.each([
+			["remote access is off", { ...enabled, enabled: false }, { body: issued }],
+			["the listener is loopback-only", { ...enabled, loopbackOnly: true }, { body: issued }],
+			["the daemon is another host", { ...enabled, hostId: "h_other" }, { body: issued }],
+			["the host has no Tailscale address", enabled, { body: { ...issued, url: "" } }],
+			["the host returns a LAN address", enabled, { body: { ...issued, url: "http://192.168.0.10:3011" } }],
+			["the host refuses the token", enabled, { status: 403 }],
+		])("returns null when %s", async (_case, status, token) => {
+			await withLocalDaemon(status, token, async (url) => {
+				const ipc = fakeIpc();
+				registerRemotes(ipc.ipcMain, { file: await tempFile(), registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, localDaemonUrl: () => url });
+				await expect(ipc.invoke("remotes:localAccountHost", TEST_ACCOUNT)).resolves.toBeNull();
+			});
+		});
+
+		it("returns null while no local daemon is attached and rejects another account", async () => {
+			const ipc = fakeIpc();
+			registerRemotes(ipc.ipcMain, { file: await tempFile(), registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
+			await expect(ipc.invoke("remotes:localAccountHost", TEST_ACCOUNT)).resolves.toBeNull();
+			await expect(ipc.invoke("remotes:localAccountHost", "someone-else")).rejects.toThrow(/Account changed/);
+		});
+	});
+});
+
+describe("readInstallationHostIds", () => {
+	it("reads each installation's host identity and skips missing ones", async () => {
+		const root = await mkdtemp(join(tmpdir(), "ao-installations-"));
+		await mkdir(join(root, "data", "mobile"), { recursive: true });
+		await writeFile(join(root, "data", "mobile", "identity.json"), JSON.stringify({ hostId: "h_prod", fingerprint: "f" }), "utf8");
+		await mkdir(join(root, "broken", "mobile"), { recursive: true });
+		await writeFile(join(root, "broken", "mobile", "identity.json"), "{", "utf8");
+		await expect(readInstallationHostIds([join(root, "data"), join(root, "dev", "data"), join(root, "broken")])).resolves.toEqual(["h_prod"]);
 	});
 });

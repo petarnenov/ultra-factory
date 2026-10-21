@@ -93,6 +93,7 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 		importAccountHost: async () => undefined,
 		pruneAccountHosts: async () => undefined,
 		issueAccountToken: unsupported,
+		localAccountHost: async () => null,
 		previewUrl: async (_hostId, _sessionId, sourceUrl) => sourceUrl,
 		resolvePreviewUrl: async (_hostId, _sessionId, viewedUrl) => viewedUrl,
 	};

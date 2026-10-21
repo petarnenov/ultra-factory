@@ -436,6 +436,7 @@ export const aoBridge: AoBridge =
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,
 			issueAccountToken: async () => { throw new Error("remote hosts need the desktop app"); },
+			localAccountHost: async () => null,
 			add: async () => "offline" as const,
 			update: async () => "offline" as const,
 			remove: async () => undefined,

@@ -399,6 +399,7 @@ if (typeof window !== "undefined") {
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,
 			issueAccountToken: async () => ({ token: "", url: "" }),
+			localAccountHost: async () => null,
 			add: async () => "offline" as const,
 			update: async () => "offline" as const,
 			remove: async () => undefined,

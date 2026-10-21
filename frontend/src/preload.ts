@@ -720,6 +720,8 @@ const api = {
 			ipcRenderer.invoke("remotes:importAccountHost", accountId, input) as Promise<void>,
 		pruneAccountHosts: (accountId: string, hostIds: string[]) => ipcRenderer.invoke("remotes:pruneAccountHosts", accountId, hostIds) as Promise<void>,
 		issueAccountToken: (url: string) => ipcRenderer.invoke("remotes:issueAccountToken", url) as Promise<{ token: string; url: string }>,
+		localAccountHost: (accountId: string) =>
+			ipcRenderer.invoke("remotes:localAccountHost", accountId) as Promise<{ hostId: string; label: string; url: string; token: string } | null>,
 		add: (input: { label: string; url: string; password: string }) =>
 			ipcRenderer.invoke("remotes:add", input) as Promise<RemoteHealth>,
 		// An edit carries only what changed: an omitted password keeps the saved

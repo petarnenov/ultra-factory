@@ -184,7 +184,7 @@ import {
 import { buildLinuxAppMenuTemplate, buildMacAppMenuTemplate, buildWindowsAppMenuTemplate } from "./main/menu";
 import { ancestorRepositorySetupWarning, resolveCheckedOutBranch, scanImportFolder } from "./main/import-folder-scan";
 import { parseOpenFolderPathArg } from "./main/open-folder-arg";
-import { registerRemotesIpc, remotesFilePath } from "./main/remotes-main";
+import { readInstallationHostIds, registerRemotesIpc, remotesFilePath } from "./main/remotes-main";
 import { createLocalHostIdentity } from "./main/remote-request";
 import { RemoteRegistry } from "./main/remote-registry";
 import { startRemoteProxy } from "./main/remote-proxy";
@@ -2582,6 +2582,12 @@ registerRemotesIpc(ipcMain, {
 	localIdentity: createLocalHostIdentity(() => daemonStatus.state === "ready" && daemonStatus.port
 		? { port: daemonStatus.port, pid: daemonStatus.pid, generation: daemonAttachmentGeneration }
 		: null),
+	siblingHostIds: () => readInstallationHostIds([
+		resolvedDaemonDataDir(),
+		path.join(os.homedir(), ".ao", "data"),
+		path.join(os.homedir(), ".ao", DEV_STATE_SUBDIR, "data"),
+	]),
+	localDaemonUrl: () => daemonStatus.state === "ready" && daemonStatus.port ? `http://127.0.0.1:${daemonStatus.port}` : null,
 });
 
 ipcMain.handle("app:chooseDirectory", async (_event, input?: string | { title?: string; defaultPath?: string }) => {
