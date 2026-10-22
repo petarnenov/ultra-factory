@@ -32,7 +32,7 @@ in [gemini-cli.md](gemini-cli.md).
 | [railway/threat-model.md](railway/threat-model.md)     | Railway hub threat model: assets, attackers, mitigations, and residual risk. |
 | [Railway runbook](../deploy/railway/README.md)         | Deploying and operating the Railway hub and workers: variables, credentials, backup, drain, limits, coordinator rollout and rollback, local e2e, and the live validation record. |
 | [Railway resource baseline](../deploy/railway/resource-baseline.md) | Read-only capture protocol, workload definition, and comparison template for the per-process hub and worker memory baseline (#218).                 |
-| [Knowledge graph runbook](../deploy/knowledge-graph/README.md) | Deploying the central Neo4j knowledge graph (`make kg-deploy`), connecting daemons, what is recorded, inspection queries, backup, and password rotation (ADR 0012). |
+| [Knowledge graph runbook](../deploy/knowledge-graph/README.md) | Deploying the central Neo4j knowledge graph (`make kg-deploy`), connecting daemons, what is recorded, inspection queries, backup, and password rotation (ADR 0012), and semantic search with local embeddings (ADR 0013). |
 | [development.md](development.md)                       | Prerequisites, build steps, running tests, and troubleshooting for local development.                                 |
 | [harnesses/unreal-agent.md](harnesses/unreal-agent.md) | Built-in Unreal Agent Chat setup, provider environment, persistence, and current limits.                              |
 | [harnesses/mimo-code.md](harnesses/mimo-code.md)       | MiMo Code TUI setup, permissions, activity hooks, exact restore, and current limits.                                 |

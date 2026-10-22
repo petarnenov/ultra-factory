@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -331,6 +332,267 @@ func TestStartLogsFailures(t *testing.T) {
 
 func TestStartStopsOnCancel(t *testing.T) {
 	svc := newTestService(&fakeRunner{}, &fakeSessions{}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := svc.Start(ctx)
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Start did not close its channel after cancel")
+	}
+}
+
+// embedGraph scripts MissingEmbeddings batches, records SetEmbeddings and
+// reports each statement kind on ran.
+type embedGraph struct {
+	mu      sync.Mutex
+	batches [][]Row
+	missErr error
+	setErr  error
+	misses  int
+	sets    []map[string]any
+	ran     chan string
+}
+
+func (g *embedGraph) Run(_ context.Context, statement string, params map[string]any) ([]Row, error) {
+	kind, rows, err := "write", []Row(nil), error(nil)
+	g.mu.Lock()
+	switch {
+	case strings.Contains(statement, "embedding IS NULL"):
+		kind, err = "missing", g.missErr
+		g.misses++
+		if len(g.batches) > 0 {
+			rows, g.batches = g.batches[0], g.batches[1:]
+		}
+	case strings.Contains(statement, "setNodeVectorProperty"):
+		kind, err = "set", g.setErr
+		g.sets = append(g.sets, params)
+	}
+	g.mu.Unlock()
+	if g.ran != nil {
+		g.ran <- kind
+	}
+	return rows, err
+}
+
+func (g *embedGraph) counts() (misses, sets int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.misses, len(g.sets)
+}
+
+func lessonRows(n int) []Row {
+	rows := make([]Row, n)
+	for i := range rows {
+		rows[i] = Row{"label": "Lesson", "id": fmt.Sprintf("l%d", i), "text": fmt.Sprintf("text %d", i)}
+	}
+	return rows
+}
+
+func waitKind(t *testing.T, ran <-chan string, want string) {
+	t.Helper()
+	select {
+	case got := <-ran:
+		if got != want {
+			t.Fatalf("statement kind = %q, want %q", got, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %q", want)
+	}
+}
+
+func TestEmbedMissingBatches(t *testing.T) {
+	tests := []struct {
+		name       string
+		batches    [][]Row
+		wantMisses int
+		wantSets   int
+		wantDocs   []int
+	}{
+		{name: "nothing missing", batches: nil, wantMisses: 1, wantSets: 0, wantDocs: []int{}},
+		{name: "short batch stops", batches: [][]Row{lessonRows(3)}, wantMisses: 1, wantSets: 1, wantDocs: []int{3}},
+		{name: "full batch then short", batches: [][]Row{lessonRows(embedBatchSize), lessonRows(2)}, wantMisses: 2, wantSets: 2, wantDocs: []int{embedBatchSize, 2}},
+		{name: "full batch then empty", batches: [][]Row{lessonRows(embedBatchSize), {}}, wantMisses: 2, wantSets: 1, wantDocs: []int{embedBatchSize}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := &embedGraph{batches: tt.batches}
+			e := &fakeEmbedder{vec: []float64{1}}
+			svc := newSemanticService(g, e, &syncBuffer{})
+
+			err := svc.embedMissing(context.Background())
+
+			if err != nil {
+				t.Fatalf("embedMissing() error = %v", err)
+			}
+			if misses, sets := g.counts(); misses != tt.wantMisses || sets != tt.wantSets {
+				t.Fatalf("misses=%d sets=%d, want %d/%d", misses, sets, tt.wantMisses, tt.wantSets)
+			}
+			docs := []int{}
+			for _, d := range e.docCalls() {
+				docs = append(docs, len(d))
+			}
+			if !reflect.DeepEqual(docs, tt.wantDocs) {
+				t.Fatalf("embedded batch sizes = %v, want %v", docs, tt.wantDocs)
+			}
+		})
+	}
+}
+
+func TestEmbedMissingStoresVectorsForTargets(t *testing.T) {
+	g := &embedGraph{batches: [][]Row{{{"label": "Lesson", "id": "l1", "text": "run make sqlc"}}}}
+	e := &fakeEmbedder{vec: []float64{0.5}}
+	svc := newSemanticService(g, e, &syncBuffer{})
+
+	if err := svc.embedMissing(context.Background()); err != nil {
+		t.Fatalf("embedMissing() error = %v", err)
+	}
+
+	if got := e.docCalls(); !reflect.DeepEqual(got, [][]string{{"run make sqlc"}}) {
+		t.Fatalf("embedded = %v", got)
+	}
+	want := []map[string]any{{"id": "l1", "v": []float64{0.5}}}
+	if got := g.sets[0]["lessons"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("lessons = %#v, want %#v", got, want)
+	}
+}
+
+func TestEmbedMissingReturnsErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		graph   *embedGraph
+		embed   *fakeEmbedder
+		wantErr string
+	}{
+		{name: "missing query fails", graph: &embedGraph{missErr: errors.New("graph down")}, embed: &fakeEmbedder{}, wantErr: "graph down"},
+		{name: "embedding fails", graph: &embedGraph{batches: [][]Row{lessonRows(1)}}, embed: &fakeEmbedder{docErr: errors.New("ollama down")}, wantErr: "ollama down"},
+		{name: "store fails", graph: &embedGraph{batches: [][]Row{lessonRows(1)}, setErr: errors.New("bad dims")}, embed: &fakeEmbedder{vec: []float64{1}}, wantErr: "bad dims"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newSemanticService(tt.graph, tt.embed, &syncBuffer{})
+
+			err := svc.embedMissing(context.Background())
+
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("embedMissing() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// runEmbedLoop runs embedLoop on tick and stops it when the test ends.
+func runEmbedLoop(t *testing.T, svc *Service, tick <-chan time.Time) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() {
+		svc.embedLoop(ctx, tick)
+		close(stopped)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-stopped:
+		case <-time.After(2 * time.Second):
+			t.Errorf("embedLoop did not stop")
+		}
+	})
+}
+
+func TestEmbedLoopRunsOnTick(t *testing.T) {
+	g := &embedGraph{ran: make(chan string, 4)}
+	svc := newSemanticService(g, &fakeEmbedder{}, &syncBuffer{})
+	tick := make(chan time.Time)
+	runEmbedLoop(t, svc, tick)
+
+	tick <- testAt
+
+	waitKind(t, g.ran, "missing")
+}
+
+func TestEmbedLoopLogsFailures(t *testing.T) {
+	logs := &syncBuffer{}
+	g := &embedGraph{missErr: errors.New("graph down")}
+	svc := newSemanticService(g, &fakeEmbedder{}, logs)
+	runEmbedLoop(t, svc, nil)
+
+	svc.kickEmbed()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(logs.String(), "embedding backfill failed") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := logs.String(); !strings.Contains(got, "embedding backfill failed") || !strings.Contains(got, "graph down") {
+		t.Fatalf("logs = %q, want backfill failure", got)
+	}
+}
+
+func TestStartWithEmbedderBackfillsOnStart(t *testing.T) {
+	g := &embedGraph{ran: make(chan string, 4), batches: [][]Row{lessonRows(1)}}
+	svc := newSemanticService(g, &fakeEmbedder{vec: []float64{1}}, &syncBuffer{})
+
+	startRecorder(t, svc)
+
+	waitKind(t, g.ran, "missing")
+	waitKind(t, g.ran, "set")
+}
+
+func TestStartWithEmbedderKicksAfterRecord(t *testing.T) {
+	g := &embedGraph{ran: make(chan string, 8)}
+	svc := newSemanticService(g, &fakeEmbedder{}, &syncBuffer{})
+	startRecorder(t, svc)
+	waitKind(t, g.ran, "missing")
+
+	svc.enqueue(job{session: "s1", report: "done: ok"})
+
+	waitKind(t, g.ran, "write")
+	waitKind(t, g.ran, "missing")
+}
+
+func TestRecordKicksEmbedAfterWrite(t *testing.T) {
+	tests := []struct {
+		name     string
+		runErr   error
+		wantKick int
+	}{
+		{name: "successful write kicks", wantKick: 1},
+		{name: "failed write does not kick", runErr: errors.New("down"), wantKick: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newSemanticService(&fakeRunner{err: tt.runErr}, &fakeEmbedder{}, &syncBuffer{})
+
+			_ = svc.record(context.Background(), job{session: "s1", report: "done: ok"})
+
+			if len(svc.embedKick) != tt.wantKick {
+				t.Fatalf("embedKick len = %d, want %d", len(svc.embedKick), tt.wantKick)
+			}
+		})
+	}
+}
+
+func TestStartWithoutEmbedderRunsOnlyQueue(t *testing.T) {
+	g := &embedGraph{ran: make(chan string, 4)}
+	svc := newSemanticService(g, nil, &syncBuffer{})
+
+	startRecorder(t, svc)
+	kicked := len(svc.embedKick)
+	svc.enqueue(job{session: "s1", report: "done: ok"})
+	waitKind(t, g.ran, "write")
+
+	if kicked != 0 {
+		t.Fatalf("Start kicked the embed loop without an embedder")
+	}
+	if misses, _ := g.counts(); misses != 0 {
+		t.Fatalf("misses = %d, want no embed loop", misses)
+	}
+}
+
+func TestStartWithEmbedderStopsOnCancel(t *testing.T) {
+	svc := newSemanticService(&embedGraph{}, &fakeEmbedder{}, &syncBuffer{})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := svc.Start(ctx)
 

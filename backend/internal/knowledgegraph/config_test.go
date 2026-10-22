@@ -152,3 +152,86 @@ func TestLoadIgnoresHomeConfigForScratchDataDir(t *testing.T) {
 		t.Fatalf("Load() = %+v, want disabled for a scratch data dir", got)
 	}
 }
+
+func TestLoadSemantic(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.json")
+	base := Config{URL: "http://kg:7474", User: "neo4j", Database: "neo4j", Timeout: 3 * time.Second}
+	with := func(url, model string, minScore float64) Config {
+		c := base
+		c.EmbeddingURL, c.EmbeddingModel, c.MinScore = url, model, minScore
+		return c
+	}
+	tests := []struct {
+		name    string
+		file    string
+		env     map[string]string
+		want    Config
+		wantErr string
+	}{
+		{
+			name: "file values and trailing slash trimmed",
+			file: `{"url":"http://kg:7474","embeddingUrl":"http://ollama:11434/","embeddingModel":"nomic-embed-text","minScore":0.8}`,
+			want: with("http://ollama:11434", "nomic-embed-text", 0.8),
+		},
+		{
+			name: "defaults when semantic is on",
+			file: `{"url":"http://kg:7474","embeddingUrl":"https://ollama"}`,
+			want: with("https://ollama", DefaultEmbeddingModel, 0.70),
+		},
+		{
+			name: "no defaults when semantic is off",
+			file: `{"url":"http://kg:7474"}`,
+			want: base,
+		},
+		{
+			name: "env overlays file",
+			file: `{"url":"http://kg:7474","embeddingUrl":"http://file:1","embeddingModel":"f","minScore":0.9}`,
+			env: map[string]string{
+				"AO_KNOWLEDGE_GRAPH_EMBEDDING_URL":   " http://env:11434/ ",
+				"AO_KNOWLEDGE_GRAPH_EMBEDDING_MODEL": " bge-m3 ",
+				"AO_KNOWLEDGE_GRAPH_MIN_SCORE":       "0.5",
+			},
+			want: with("http://env:11434", "bge-m3", 0.5),
+		},
+		{
+			name: "min score upper bound accepted",
+			env: map[string]string{
+				"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_URL": "http://kg:7474",
+				"AO_KNOWLEDGE_GRAPH_EMBEDDING_URL": "http://o:1", "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "1",
+			},
+			want: with("http://o:1", DefaultEmbeddingModel, 1),
+		},
+		{name: "unparsable min score", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "high"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE"},
+		{name: "negative min score", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "-0.1"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE"},
+		{name: "min score above one", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "1.5"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE"},
+		{name: "embedding url bad scheme", file: `{"url":"http://kg:7474","embeddingUrl":"ftp://ollama"}`, wantErr: "embeddingUrl"},
+		{name: "embedding url without host", file: `{"url":"http://kg:7474","embeddingUrl":"http://"}`, wantErr: "must be http(s)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := map[string]string{}
+			for k, v := range tt.env {
+				env[k] = v
+			}
+			if tt.file != "" {
+				env["AO_KNOWLEDGE_GRAPH_CONFIG"] = writeConfig(t, tt.file, 0o600)
+			}
+			got, err := Load(envFunc(env), "")
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Load() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("Load() = %+v, want %+v", got, tt.want)
+			}
+			if got.SemanticEnabled() != (tt.want.EmbeddingURL != "") {
+				t.Fatalf("SemanticEnabled() = %v", got.SemanticEnabled())
+			}
+		})
+	}
+}

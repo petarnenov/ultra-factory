@@ -3,6 +3,7 @@ package knowledgegraph
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
@@ -323,5 +324,162 @@ func TestNewAppliesDefaults(t *testing.T) {
 	}
 	if cap(svc.queue) != queueSize {
 		t.Fatalf("queue cap = %d, want %d", cap(svc.queue), queueSize)
+	}
+}
+
+// fakeEmbedder returns vec for every input and records what it embedded.
+type fakeEmbedder struct {
+	mu      sync.Mutex
+	vec     []float64
+	err     error
+	docErr  error
+	queries []string
+	docs    [][]string
+}
+
+func (f *fakeEmbedder) EmbedQuery(_ context.Context, text string) ([]float64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queries = append(f.queries, text)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.vec, nil
+}
+
+func (f *fakeEmbedder) EmbedDocuments(_ context.Context, texts []string) ([][]float64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.docs = append(f.docs, append([]string(nil), texts...))
+	if f.docErr != nil {
+		return nil, f.docErr
+	}
+	out := make([][]float64, len(texts))
+	for i := range texts {
+		out[i] = f.vec
+	}
+	return out, nil
+}
+
+func (f *fakeEmbedder) queryCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.queries...)
+}
+
+func (f *fakeEmbedder) docCalls() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][]string(nil), f.docs...)
+}
+
+func newSemanticService(r Runner, e Embedder, logs *syncBuffer) *Service {
+	return New(Deps{
+		Graph: NewGraph(r), Embedder: e, MinScore: 0.8, HostID: "host1",
+		Sessions: &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}},
+		Logger:   slog.New(slog.NewTextHandler(logs, nil)),
+		Now:      func() time.Time { return testAt }, NewID: func() string { return "lesson-1" },
+	})
+}
+
+func TestSearchWithEmbedderUsesVector(t *testing.T) {
+	r := &fakeRunner{}
+	e := &fakeEmbedder{vec: []float64{0.3, 0.4}}
+	svc := newSemanticService(r, e, &syncBuffer{})
+
+	if _, err := svc.Search(context.Background(), SearchInput{ProjectID: "ao", Text: "flaky sqlite"}); err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+
+	if got := e.queryCalls(); !reflect.DeepEqual(got, []string{"flaky sqlite"}) {
+		t.Fatalf("queries = %v", got)
+	}
+	call := r.snapshot()[0]
+	if !reflect.DeepEqual(call.params["vector"], []float64{0.3, 0.4}) || call.params["minScore"] != 0.8 {
+		t.Fatalf("params vector=%v minScore=%v", call.params["vector"], call.params["minScore"])
+	}
+	if !strings.Contains(call.statement, lessonsVectorCypher) {
+		t.Fatalf("statement lacks vector search")
+	}
+}
+
+func TestPriorContextFallsBackToFullTextOnEmbedError(t *testing.T) {
+	r := &fakeRunner{}
+	logs := &syncBuffer{}
+	svc := newSemanticService(r, &fakeEmbedder{err: errors.New("ollama down")}, logs)
+
+	if _, _, err := svc.PriorContext(context.Background(), "ao", "", "flaky sqlite"); err != nil {
+		t.Fatalf("PriorContext() error = %v", err)
+	}
+
+	call := r.snapshot()[0]
+	if !strings.Contains(call.statement, lessonsCypher) || strings.Contains(call.statement, lessonsVectorCypher) {
+		t.Fatalf("want full-text search after embed failure:\n%s", call.statement)
+	}
+	if v := call.params["vector"].([]float64); len(v) != 0 || call.params["minScore"] != 0.0 {
+		t.Fatalf("params vector=%v minScore=%v, want unset", v, call.params["minScore"])
+	}
+	if got := logs.String(); !strings.Contains(got, "query embedding failed") || !strings.Contains(got, "ollama down") {
+		t.Fatalf("logs = %q", got)
+	}
+}
+
+func TestPriorContextSkipsEmbedWithoutTerms(t *testing.T) {
+	r := &fakeRunner{}
+	e := &fakeEmbedder{vec: []float64{1}}
+	svc := newSemanticService(r, e, &syncBuffer{})
+
+	if _, _, err := svc.PriorContext(context.Background(), "ao", "7", "the a ok"); err != nil {
+		t.Fatalf("PriorContext() error = %v", err)
+	}
+
+	if n := len(e.queryCalls()); n != 0 {
+		t.Fatalf("embed calls = %d, want 0", n)
+	}
+	if v := r.snapshot()[0].params["vector"].([]float64); len(v) != 0 {
+		t.Fatalf("vector = %v, want empty", v)
+	}
+}
+
+func TestAddLessonKicksEmbedLoop(t *testing.T) {
+	svc := newSemanticService(&fakeRunner{}, &fakeEmbedder{}, &syncBuffer{})
+
+	if _, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "x"}); err != nil {
+		t.Fatalf("AddLesson() error = %v", err)
+	}
+
+	if len(svc.embedKick) != 1 {
+		t.Fatalf("embedKick len = %d, want 1", len(svc.embedKick))
+	}
+}
+
+func TestAddLessonFailureDoesNotKick(t *testing.T) {
+	svc := newSemanticService(&fakeRunner{err: errors.New("down")}, &fakeEmbedder{}, &syncBuffer{})
+
+	_, _ = svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "x"})
+
+	if len(svc.embedKick) != 0 {
+		t.Fatalf("embedKick len = %d, want 0", len(svc.embedKick))
+	}
+}
+
+func TestKickEmbedNeverBlocks(t *testing.T) {
+	svc := New(Deps{})
+	done := make(chan struct{})
+
+	go func() {
+		svc.kickEmbed()
+		svc.kickEmbed()
+		svc.kickEmbed()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("kickEmbed blocked on a pending kick")
+	}
+	if cap(svc.embedKick) != 1 || len(svc.embedKick) != 1 {
+		t.Fatalf("embedKick len=%d cap=%d, want 1/1", len(svc.embedKick), cap(svc.embedKick))
 	}
 }

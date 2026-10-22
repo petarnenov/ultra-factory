@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -55,11 +57,20 @@ func (s *Service) enqueue(j job) {
 	}
 }
 
-// Start drains the queue until ctx ends; the channel closes when it stops.
+// embedInterval also catches nodes other hosts wrote or a failed embed.
+const (
+	embedInterval  = 5 * time.Minute
+	embedBatchSize = 32
+)
+
+// Start drains the queue, and embeds new nodes when an embedder is set,
+// until ctx ends; the channel closes when both loops stop.
 func (s *Service) Start(ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		defer close(done)
+		defer wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
@@ -71,7 +82,64 @@ func (s *Service) Start(ctx context.Context) <-chan struct{} {
 			}
 		}
 	}()
+	if s.embedder != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.embedLoop(ctx, time.NewTicker(embedInterval).C)
+		}()
+		s.kickEmbed()
+	}
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 	return done
+}
+
+func (s *Service) kickEmbed() {
+	select {
+	case s.embedKick <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Service) embedLoop(ctx context.Context, tick <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.embedKick:
+		case <-tick:
+		}
+		if err := s.embedMissing(ctx); err != nil && ctx.Err() == nil {
+			s.log.Warn("knowledge graph: embedding backfill failed", "err", err)
+		}
+	}
+}
+
+// embedMissing embeds batches until no node lacks a vector.
+func (s *Service) embedMissing(ctx context.Context) error {
+	for {
+		targets, err := s.graph.MissingEmbeddings(ctx, embedBatchSize)
+		if err != nil || len(targets) == 0 {
+			return err
+		}
+		texts := make([]string, len(targets))
+		for i, t := range targets {
+			texts[i] = t.Text
+		}
+		vecs, err := s.embedder.EmbedDocuments(ctx, texts)
+		if err != nil {
+			return err
+		}
+		if err := s.graph.SetEmbeddings(ctx, targets, vecs); err != nil {
+			return err
+		}
+		if len(targets) < embedBatchSize {
+			return nil
+		}
+	}
 }
 
 func (s *Service) record(ctx context.Context, j job) error {
@@ -97,6 +165,7 @@ func (s *Service) record(ctx context.Context, j job) error {
 	s.mu.Lock()
 	s.recorded[sess.ID] = fact.Outcome
 	s.mu.Unlock()
+	s.kickEmbed()
 	return nil
 }
 
