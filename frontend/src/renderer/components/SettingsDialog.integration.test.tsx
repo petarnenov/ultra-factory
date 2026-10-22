@@ -11,6 +11,7 @@ import { useUiStore } from "../stores/ui-store";
 import { agentReadiness } from "../test/agent-readiness-fixtures";
 import { CreateProjectAgentSheet } from "./CreateProjectAgentSheet";
 import { NewTaskDialog } from "./NewTaskDialog";
+import type { ProjectConfig } from "../lib/coordinators";
 import { SettingsDialog } from "./SettingsPageTestHarness";
 import { TooltipProvider } from "./ui/tooltip";
 
@@ -23,7 +24,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 
 const defaultProject = {
 	id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one", repo: "",
-	config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } },
+	config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } } as ProjectConfig,
 };
 let project = defaultProject;
 let catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
