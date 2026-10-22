@@ -248,7 +248,9 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 		req.Header.Set(name, value)
 	}
 	if remote != nil {
-		req.Header.Set("Authorization", "Bearer "+remote.password)
+		if remote.password != "" {
+			req.Header.Set("Authorization", "Bearer "+remote.password)
+		}
 		req.Header.Set("X-AO-Expected-Host-ID", remote.hostID)
 	} else if sideID := os.Getenv("AO_SIDE_CONVERSATION_ID"); sideID != "" {
 		req.Header.Set("X-AO-Side-Conversation", sideID)
@@ -277,6 +279,9 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e apiError
 		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if remote != nil && remote.tailscale && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
+			return fmt.Errorf("remote host %q did not admit this machine's Tailscale identity (%s): %w", remote.label, tailnetRejectionReason(e), apiResponseError{StatusCode: resp.StatusCode, ErrorBody: e})
+		}
 		if remote != nil && resp.StatusCode == http.StatusUnauthorized {
 			return fmt.Errorf("remote host %q rejected the saved password; update it in the desktop app under Settings → Remote hosts: %w", remote.label, apiResponseError{StatusCode: resp.StatusCode, ErrorBody: e})
 		}
@@ -329,4 +334,21 @@ func (c *commandContext) doJSONPathWithHeadersAndTimeout(
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+// tailnetRejectionReason names why a Tailscale host refused this machine.
+func tailnetRejectionReason(e apiError) string {
+	switch e.Code {
+	case "TAILSCALE_UNAVAILABLE":
+		return "Tailscale unavailable on that host"
+	case "TAILNET_FORBIDDEN":
+		return "its allowlist rejects this Tailscale user"
+	case "TAILNET_REQUIRED":
+		return "the request did not arrive over Tailscale"
+	default:
+		if e.Message != "" {
+			return e.Message
+		}
+		return "no reason given"
+	}
 }

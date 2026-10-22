@@ -48,6 +48,14 @@ type State struct {
 	// LoopbackOnly keeps the authenticated listener reachable only by a local
 	// connector. Old Connect Mobile configs remain LAN-bound by default.
 	LoopbackOnly bool `json:"loopbackOnly,omitempty"`
+	// TailnetOnly binds the listener to this machine's Tailscale address and
+	// admits callers on their tailnet identity (`ao remote-host enable`).
+	TailnetOnly bool `json:"tailnetOnly,omitempty"`
+	// PasswordFallback lets the connection password authenticate callers on a
+	// tailnet-only listener. Off unless the user opts in explicitly.
+	PasswordFallback bool `json:"passwordFallback,omitempty"`
+	// AlsoTailnet preserves the LAN listener and adds a Tailscale listener.
+	AlsoTailnet bool `json:"alsoTailnet,omitempty"`
 	// SecurePairing is the opt-in TLS-over-Tailscale mode. Persisted so a daemon
 	// restart (backend/internal/daemon/mobile_restore.go, via
 	// BridgeService.RestoreOnBoot) knows to re-apply the `tailscale serve` proxy

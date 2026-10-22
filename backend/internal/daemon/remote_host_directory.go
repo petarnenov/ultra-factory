@@ -12,9 +12,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/config"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
 )
+
+// startRemoteHostAddressPublisher runs the cloud publisher only with cloud
+// sync on (AO_CLOUD_REMOTE_HOST_SYNC, off by default); reports if it started.
+func startRemoteHostAddressPublisher(ctx context.Context, cfg config.Config, bridge *controllers.BridgeService, log *slog.Logger) bool {
+	if !cfg.CloudRemoteHostSync {
+		log.Info("remote host cloud sync is off; addresses are not published to AO Cloud")
+		return false
+	}
+	go runRemoteHostAddressPublisher(ctx, bridge, cfg.CloudControlPlaneURL, log)
+	return true
+}
 
 // Publishes the Tailscale address (migrating LAN entries), else the tunnel.
 // Clients still connect directly; a failed publish retries next tick.

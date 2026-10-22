@@ -4,12 +4,16 @@ import { dirname } from "node:path";
 
 // Saved desktop connections. Older records have no hostId and must be paired
 // again before a saved password can be sent to their address.
+
+// A tailscale entry was found on the tailnet and uses its address. A password
+// from an earlier pairing is retained for hosts that still require it.
 export type RemoteEntry = {
 	label: string;
 	url: string;
 	password: string;
 	hostId?: string;
 	accountUserId?: string;
+	tailscale?: boolean;
 	/** The per-host "Allow report pulls over plain HTTP" setting. */
 	allowInsecureHTTP?: boolean;
 };
@@ -134,7 +138,53 @@ export function applyRemoteChanges(entry: RemoteEntry, changes: RemoteChanges): 
 		hostId: entry.hostId,
 		accountUserId: changes.accountUserId ?? entry.accountUserId,
 		allowInsecureHTTP: changes.allowInsecureHTTP ?? entry.allowInsecureHTTP,
+		...(entry.tailscale ? { tailscale: true } : {}),
 	};
+}
+
+/** A host the daemon found on the tailnet, as the file records it. */
+export type DiscoveredRemote = { hostId: string; label: string; url: string };
+
+// Keep the file in step with tailnet discovery; returns whether it changed.
+// Entries for this machine or a sibling install (dropHostIds) are removed.
+
+// A discovered host ID moves to its Tailscale address without losing an
+// existing pairing password; a new one uses the machine name as its label.
+
+// Labels of existing entries are kept: they are the user's.
+export async function reconcileTailnetRemotes(path: string, discovered: DiscoveredRemote[], dropHostIds: string[]): Promise<boolean> {
+	return serializeMutation(() => withFileLock(path, async () => {
+		const existing = await readRemotes(path);
+		const drop = new Set(dropHostIds);
+		let changed = false;
+		const remotes = existing.filter((entry) => {
+			const keep = !entry.hostId || !drop.has(entry.hostId);
+			if (!keep) changed = true;
+			return keep;
+		});
+		for (const host of discovered) {
+			if (drop.has(host.hostId)) continue;
+			const index = remotes.findIndex((entry) => entry.hostId === host.hostId);
+			if (index < 0) {
+				remotes.push({ label: host.label, url: host.url, password: "", hostId: host.hostId, tailscale: true });
+				changed = true;
+				continue;
+			}
+			const current = remotes[index];
+			if (current.url === host.url && current.tailscale) continue;
+			remotes[index] = { ...current, url: host.url, tailscale: true };
+			changed = true;
+		}
+		// Two rows cannot share a url: the Tailscale address wins over a stale one.
+		const seen = new Set<string>();
+		const deduped = remotes.filter((entry) => {
+			if (seen.has(entry.url)) { changed = true; return false; }
+			seen.add(entry.url);
+			return true;
+		});
+		if (changed) await writeRemotes(path, deduped);
+		return changed;
+	}));
 }
 
 export async function updateRemote(path: string, url: string, changes: RemoteChanges): Promise<RemoteEntry> {

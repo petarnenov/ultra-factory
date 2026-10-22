@@ -1240,12 +1240,12 @@ func TestSessionClaimPR_HostSelectionErrorsAreUsageErrors(t *testing.T) {
 		selector string
 		wantErr  string
 	}{
-		{name: "no saved hosts", selector: "build-box", wantErr: "no saved remote hosts"},
+		{name: "no saved hosts", selector: "build-box", wantErr: "no remote hosts"},
 		{
 			name:     "unknown label",
 			entries:  []remoteEntry{{Label: "build-box", URL: "http://10.0.0.5:3001", HostID: "host-build", Password: "pw"}},
 			selector: "nope",
-			wantErr:  `--host "nope" matches no saved host`,
+			wantErr:  `--host "nope" matches no remote host`,
 		},
 		{
 			name: "ambiguous label",

@@ -396,6 +396,9 @@ if (typeof window !== "undefined") {
 		},
 		remotes: {
 			list: async () => [],
+			tailnet: async () => ({ available: false, hidden: [] }),
+			hide: async () => undefined,
+			unhide: async () => undefined,
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,
 			issueAccountToken: async () => ({ token: "", url: "" }),

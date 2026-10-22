@@ -56,8 +56,11 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 	};
 
 	return {
-		// The hub's registry has no per-host reports switch.
 		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url, allowInsecureHTTP: false })),
+		// The hub has no tailnet of its own; its hosts are registered explicitly.
+		tailnet: async () => ({ available: false, hidden: [] }),
+		hide: unsupported,
+		unhide: unsupported,
 		add: async (input): Promise<RemoteHealth> => {
 			const response = await fetch(hostsUrl(), {
 				method: "POST",

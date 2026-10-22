@@ -34,16 +34,14 @@ export function parseRefKey(key: string): Ref {
 	};
 }
 
-/** Whether a host-scoped route must fall back to home. The desktop reaches
- * hosts through AO Cloud; the web build uses the hub BFF's own sign-in. */
+/** Whether a host-scoped route must fall back to home. Neither Tailscale
+ * (desktop) nor the hub BFF (web) needs an AO Cloud account for hosts. */
 export function shouldLeaveHostRoute({
 	remoteHostsEnabled,
-	accountStatus,
-	webBuild,
 }: {
 	remoteHostsEnabled: boolean;
-	accountStatus: string;
-	webBuild: boolean;
+	accountStatus?: string;
+	webBuild?: boolean;
 }): boolean {
-	return !remoteHostsEnabled || (!webBuild && accountStatus === "unauthenticated");
+	return !remoteHostsEnabled;
 }

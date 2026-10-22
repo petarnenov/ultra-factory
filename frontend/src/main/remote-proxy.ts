@@ -164,7 +164,9 @@ export async function startRemoteProxy(entry: RemoteEntry, rendererOrigin = REND
 			if (incoming.origin) out["x-ao-preview-app-origin"] = incoming.origin;
 		}
 		out.host = upstream.host;
-		out.authorization = `Bearer ${entry.password}`;
+		// A Tailscale host admits this machine on its tailnet identity instead.
+		if (entry.password) out.authorization = `Bearer ${entry.password}`;
+		else delete out.authorization;
 		if (entry.hostId) out["x-ao-expected-host-id"] = entry.hostId;
 		return out;
 	};

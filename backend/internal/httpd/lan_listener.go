@@ -15,6 +15,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/requestscope"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systeminstall"
 )
 
@@ -29,6 +30,8 @@ type LANManager struct {
 	lock        *lockout
 	// trustedProxy keys the lockout on X-Forwarded-For (AO_REMOTE_TRUSTED_PROXY).
 	trustedProxy bool
+	// tailnetAuth admits tailnet callers on their Tailscale identity.
+	tailnetAuth TailnetAuthorizer
 
 	transitionMu sync.Mutex // serializes Start and Stop without blocking status reads
 	mu           sync.Mutex
@@ -48,6 +51,12 @@ func WithTrustedProxy(enabled bool) LANOption {
 	return func(m *LANManager) { m.trustedProxy = enabled }
 }
 
+// WithTailnetAuth admits callers from Tailscale addresses on their tailnet
+// identity, checked through the local tailscaled, instead of a password.
+func WithTailnetAuth(auth TailnetAuthorizer) LANOption {
+	return func(m *LANManager) { m.tailnetAuth = auth }
+}
+
 // NewLANManager wraps handler in the LAN control-block and authMiddleware
 // (backed by the shared state) and returns a manager that can start/stop the
 // network-facing listener. Most callers want NewMobileLAN, which owns the state.
@@ -61,7 +70,7 @@ func NewLANManager(handler http.Handler, state *authState, defaultPort int, log 
 	for _, opt := range opts {
 		opt(m)
 	}
-	m.handler = lanControlBlock(authMiddleware(state, m.lock, newMobileConnectReporter(sink, time.Now), m.trustedProxy, m.log)(handler))
+	m.handler = lanControlBlock(authMiddleware(state, m.lock, newMobileConnectReporter(sink, time.Now), m.trustedProxy, m.tailnetAuth, m.log)(handler))
 	return m
 }
 
@@ -94,6 +103,7 @@ var lanControlBlockedPrefixes = []string{
 	"/api/v1/remote-worker-links",
 	"/api/v1/reports/completion",
 	"/api/v1/secrets",
+	"/api/v1/tailnet",
 }
 
 // lanControlBlock returns 404 for any request whose path is, or is nested
@@ -230,7 +240,62 @@ func (m *LANManager) StartLoopback(port int) (int, error) {
 	return m.start(port, "127.0.0.1")
 }
 
+// StartTailnet binds the authenticated handler only on this machine's
+// Tailscale address; callers are admitted on identity, see SetPasswordFallback.
+func (m *LANManager) StartTailnet(port int, host string) (int, error) {
+	if !remotehost.IsTailnetHost(host) {
+		return 0, fmt.Errorf("bind tailnet listener: %q is not a Tailscale address", host)
+	}
+	if m.tailnetAuth == nil {
+		return 0, errors.New("bind tailnet listener: no Tailscale authorizer is configured")
+	}
+	return m.start(port, host)
+}
+
+// StartTailnetFixed binds a tailnet listener without choosing an ephemeral
+// port when the requested port is unavailable.
+func (m *LANManager) StartTailnetFixed(port int, host string) (int, error) {
+	if !remotehost.IsTailnetHost(host) {
+		return 0, fmt.Errorf("bind tailnet listener: %q is not a Tailscale address", host)
+	}
+	if m.tailnetAuth == nil {
+		return 0, errors.New("bind tailnet listener: no Tailscale authorizer is configured")
+	}
+	return m.startFixed(port, host)
+}
+
+// SetPasswordFallback lets the connection password authenticate callers on a
+// tailnet-only listener. Off by default; LAN and loopback binds ignore it.
+func (m *LANManager) SetPasswordFallback(enabled bool) { m.state.passwordFallback.Store(enabled) }
+
+// SetTailnetIdentityOnly requires WhoIs for tailnet source addresses.
+func (m *LANManager) SetTailnetIdentityOnly(enabled bool) {
+	m.state.identityOnlyTailnet.Store(enabled)
+}
+
+// TailnetOnly reports whether the listener is bound to the Tailscale address.
+func (m *LANManager) TailnetOnly() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.srv != nil && remotehost.IsTailnetHost(m.bindHost)
+}
+
+// BoundHost reports the host address used by the active listener.
+func (m *LANManager) BoundHost() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bindHost
+}
+
 func (m *LANManager) start(port int, host string) (int, error) {
+	return m.startOn(port, host, true)
+}
+
+func (m *LANManager) startFixed(port int, host string) (int, error) {
+	return m.startOn(port, host, false)
+}
+
+func (m *LANManager) startOn(port int, host string, allowEphemeral bool) (int, error) {
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 	m.mu.Lock()
@@ -238,6 +303,9 @@ func (m *LANManager) start(port int, host string) (int, error) {
 		defer m.mu.Unlock()
 		if m.bindHost != host {
 			return 0, fmt.Errorf("authenticated listener already bound to %s; disable it before changing modes", m.bindHost)
+		}
+		if !allowEphemeral && m.bound != port {
+			return 0, fmt.Errorf("authenticated listener already bound to port %d; fixed port %d is required", m.bound, port)
 		}
 		return m.bound, nil // idempotent
 	}
@@ -247,7 +315,7 @@ func (m *LANManager) start(port int, host string) (int, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		if !isAddrInUse(err) {
+		if !allowEphemeral || !isAddrInUse(err) {
 			m.mu.Unlock()
 			return 0, fmt.Errorf("bind authenticated listener %s: %w", addr, err)
 		}
@@ -268,6 +336,7 @@ func (m *LANManager) start(port int, host string) (int, error) {
 	m.ln, m.cancel = tracked, cancel
 	m.bound = tcpAddr.Port
 	m.bindHost = host
+	m.state.tailnetOnly.Store(remotehost.IsTailnetHost(host))
 	m.srv = &http.Server{
 		Handler:           gzipJSON(m.handler),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -317,6 +386,7 @@ func (m *LANManager) Stop(ctx context.Context) error {
 	err = errors.Join(err, ln.closeConnections(""))
 	m.mu.Lock()
 	m.srv, m.ln, m.cancel, m.bound, m.bindHost = nil, nil, nil, 0, ""
+	m.state.tailnetOnly.Store(false)
 	m.mu.Unlock()
 	return err
 }

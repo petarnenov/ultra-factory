@@ -74,8 +74,9 @@ export async function probeRemote(
 		const response = await fetchImpl(url.href, {
 			method: "GET",
 			redirect: "error",
+			// New tailnet hosts use identity; retained pairings remain a fallback.
 			headers: {
-				Authorization: `Bearer ${entry.password}`,
+				...(entry.password ? { Authorization: `Bearer ${entry.password}` } : {}),
 				...(entry.hostId ? { "X-AO-Expected-Host-ID": entry.hostId } : {}),
 			},
 			signal: AbortSignal.timeout(timeoutMs),
