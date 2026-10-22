@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, afterEach, describe, expect, test, vi } from "vitest";
 import type { CoordinatorRoster as RosterData, ProjectConfig } from "../../lib/coordinators";
 
@@ -103,5 +104,30 @@ describe("Local Coordinators while remote probes are pending", () => {
 		expect(name).toHaveValue("Local work");
 		expect(connectedHosts()).toEqual(["h_imac"]);
 		expect(screen.queryByText("Could not render Coordinators")).not.toBeInTheDocument();
+	});
+
+	test("uses one backdrop and remains editable and dismissible across reopening", async () => {
+		const user = userEvent.setup();
+		renderSection();
+		await user.click(screen.getByRole("button", { name: "Start coordinator" }));
+		const dialog = screen.getByRole("dialog");
+		expect(document.querySelectorAll('[data-slot="dialog-overlay"]')).toHaveLength(1);
+		const name = within(dialog).getByLabelText("Coordinator name");
+		await user.clear(name);
+		await user.type(name, "Local work");
+		expect(name).toHaveValue("Local work");
+		await user.keyboard("{Escape}");
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+			expect(document.querySelectorAll('[data-slot="dialog-overlay"]')).toHaveLength(0);
+		});
+		await user.click(screen.getByRole("button", { name: "Start coordinator" }));
+		expect(document.querySelectorAll('[data-slot="dialog-overlay"]')).toHaveLength(1);
+		await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+		await waitFor(() => {
+			expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+			expect(document.querySelectorAll('[data-slot="dialog-overlay"]')).toHaveLength(0);
+		});
+		expect(connectedHosts()).toEqual(["h_imac"]);
 	});
 });
