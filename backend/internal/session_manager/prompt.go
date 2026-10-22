@@ -256,9 +256,8 @@ func allowedHostsSentence(c coordinationPromptConfig) string {
 	}
 }
 
-// rootCoordinatorPrompt tells the root when and how to delegate through
-// coordinators when the project enables them. It is empty otherwise, so
-// disabled projects pay nothing.
+// rootCoordinatorPrompt tells the root how to delegate through coordinators.
+// Empty when the project disables them.
 func rootCoordinatorPrompt(c coordinationPromptConfig) string {
 	if !c.Enabled {
 		return ""
