@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentReadinessQueryKey } from "../hooks/useAgentReadinessQuery";
@@ -288,17 +288,16 @@ describe("Settings recovery modal integration", () => {
 		expect(await screen.findByTestId("roster-capacity")).toHaveTextContent("Coordinators 0/3 · Workers 0/9");
 		expect(screen.queryByText("Could not load coordinators.")).not.toBeInTheDocument();
 
-		const workers = screen.getByLabelText("Workers in project");
-		await userEvent.clear(workers);
-		await userEvent.type(workers, "8");
-		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.useFakeTimers();
 		try {
+			const workers = screen.getByLabelText("Workers in project");
+			fireEvent.change(workers, { target: { value: "8" } });
 			await act(() => vi.advanceTimersByTimeAsync(2000));
+			expect(workers).toHaveValue("8");
 		} finally {
 			vi.useRealTimers();
 		}
 
-		expect(workers).toHaveValue("8");
 		expect(put).not.toHaveBeenCalled();
 		expect(screen.queryByText(/Invalid JSON body/)).not.toBeInTheDocument();
 	});
