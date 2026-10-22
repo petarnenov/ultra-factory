@@ -4823,6 +4823,7 @@ export interface components {
             activeAgentSwitch?: components["schemas"]["AgentSwitch"];
             activity: components["schemas"]["DomainActivity"];
             agentConfigMachine?: string;
+            agentOperation?: components["schemas"]["SessionAgentOperation"];
             agentProfileId: null | string;
             artifactFiles?: components["schemas"]["SessionArtifact"][];
             autoInjectCI: boolean;
@@ -6309,6 +6310,11 @@ export interface components {
         SessionActivityResponse: {
             current?: components["schemas"]["SessionStepResponse"];
             recent: components["schemas"]["SessionStepResponse"][];
+        };
+        SessionAgentOperation: {
+            kind: string;
+            /** Format: date-time */
+            startedAt: string;
         };
         SessionArtifact: {
             inlineUrl?: string;

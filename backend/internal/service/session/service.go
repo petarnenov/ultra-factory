@@ -1564,8 +1564,17 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 			cleanup = facts.WorkspaceDisposition
 		}
 	}
+	var operation *domain.SessionAgentOperation
+	if reader, ok := s.manager.(interface {
+		AgentOperationInProgress(domain.SessionID) (sessionmanager.AgentOperationStatus, bool)
+	}); ok {
+		if status, busy := reader.AgentOperationInProgress(rec.ID); busy {
+			operation = &domain.SessionAgentOperation{Kind: status.Kind, StartedAt: status.StartedAt}
+		}
+	}
 	return domain.Session{
 		SessionRecord:    rec,
+		AgentOperation:   operation,
 		WorkspaceCleanup: cleanup,
 		StatusReadiness:  readiness,
 		ChatProviderPreserved: rec.Mode == domain.SessionModeChat && !rec.IsTerminated &&
@@ -1609,11 +1618,11 @@ func mapSessionError(err error) error {
 		return apierr.Conflict("AGENT_NOT_EXITED",
 			"The agent is still running; only exited agents can be resumed", nil)
 	case errors.Is(err, sessionmanager.ErrResumeInProgress):
-		return apierr.Conflict("AGENT_RESUME_IN_PROGRESS",
-			"The agent is already being resumed", nil)
+		return apierr.Conflict("AGENT_RESUME_IN_PROGRESS", err.Error(), nil)
 	case errors.Is(err, sessionmanager.ErrAgentExitInProgress):
-		return apierr.Conflict("AGENT_EXIT_IN_PROGRESS",
-			"The agent is already exiting", nil)
+		return apierr.Conflict("AGENT_EXIT_IN_PROGRESS", err.Error(), nil)
+	case errors.Is(err, sessionmanager.ErrAgentOperationInProgress):
+		return apierr.Conflict("AGENT_OPERATION_IN_PROGRESS", err.Error(), nil)
 	case errors.Is(err, sessionmanager.ErrInterfaceTransitionInProgress):
 		return apierr.Conflict("INTERFACE_TRANSITION_IN_PROGRESS",
 			"This session is already switching interfaces", nil)
@@ -1692,8 +1701,7 @@ func mapSessionError(err error) error {
 		return apierr.Conflict("AGENT_SWITCH_DELIVERY_UNCONFIRMED",
 			"The target agent started, but AO could not confirm that it accepted the continuation", nil)
 	case errors.Is(err, sessionmanager.ErrSwitchInProgress):
-		return apierr.Conflict("AGENT_SWITCH_IN_PROGRESS",
-			"This session already has an agent switch in progress", nil)
+		return apierr.Conflict("AGENT_SWITCH_IN_PROGRESS", err.Error(), nil)
 	case errors.Is(err, sessionmanager.ErrSwitchShuttingDown):
 		return apierr.Conflict("AGENT_SWITCH_UNAVAILABLE",
 			"AO is shutting down and cannot start another agent switch", nil)
