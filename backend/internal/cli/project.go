@@ -305,6 +305,7 @@ func newProjectGetCommand(ctx *commandContext) *cobra.Command {
 			if err := ctx.getJSON(cmd.Context(), "projects/"+url.PathEscape(id), &res); err != nil {
 				return err
 			}
+			normalizeProjectCoordinatorSelections(res.Project.Config)
 			if opts.json {
 				return writeJSON(cmd.OutOrStdout(), res)
 			}
@@ -626,12 +627,58 @@ func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, op
 			delete(coordinators, key)
 		}
 	}
+	if err := normalizeRawCoordinatorSelections(coordinators); err != nil {
+		return nil, err
+	}
 	coordRaw, err := json.Marshal(coordinators)
 	if err != nil {
 		return nil, err
 	}
 	config["coordinators"] = coordRaw
 	return config, nil
+}
+
+func normalizeProjectCoordinatorSelections(config *projectConfig) {
+	if config == nil {
+		return
+	}
+	for _, selection := range []*agentSelection{
+		config.Coordinators.CoordinatorAgent,
+		config.Coordinators.WorkerAgent,
+		config.Coordinators.RootWorkerAgent,
+	} {
+		if selection != nil && selection.Mode == "" {
+			selection.Mode = "inherit"
+		}
+	}
+}
+
+func normalizeRawCoordinatorSelections(coordinators map[string]json.RawMessage) error {
+	for _, key := range []string{"coordinatorAgent", "workerAgent", "rootWorkerAgent"} {
+		raw, ok := coordinators[key]
+		if !ok || len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		selection := map[string]json.RawMessage{}
+		if err := json.Unmarshal(raw, &selection); err != nil {
+			continue
+		}
+		modeRaw, ok := selection["mode"]
+		if !ok {
+			continue
+		}
+		var mode string
+		if err := json.Unmarshal(modeRaw, &mode); err != nil || mode != "" {
+			continue
+		}
+		selection["mode"] = json.RawMessage(`"inherit"`)
+		normalized, err := json.Marshal(selection)
+		if err != nil {
+			return err
+		}
+		coordinators[key] = normalized
+	}
+	return nil
 }
 
 // marshalRawObject encodes v and returns its top-level keys as raw JSON.

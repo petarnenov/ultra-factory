@@ -269,6 +269,33 @@ func TestProjectGet_JSON(t *testing.T) {
 	}
 }
 
+func TestProjectGet_NormalizesEmptyCoordinatorModes(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, _ := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo","config":{"coordinators":{"coordinatorAgent":{"mode":""},"workerAgent":{"mode":""},"rootWorkerAgent":{"mode":""}}}}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "get", "demo", "--json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var got projectGetResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode json output: %v\nout=%s", err, out)
+	}
+	selections := got.Project.Config.Coordinators
+	for name, selection := range map[string]*agentSelection{
+		"coordinatorAgent": selections.CoordinatorAgent,
+		"workerAgent":      selections.WorkerAgent,
+		"rootWorkerAgent":  selections.RootWorkerAgent,
+	} {
+		if selection == nil || selection.Mode != "inherit" {
+			t.Errorf("%s = %#v, want inherit", name, selection)
+		}
+	}
+}
+
 func TestProjectGet_MissingArg(t *testing.T) {
 	setConfigEnv(t)
 	_, _, err := executeCLI(t, Deps{}, "project", "get")
@@ -428,6 +455,40 @@ func TestProjectSetConfig_CoordinatorFlags(t *testing.T) {
 	want := coordinatorsConfig{Enabled: true, MaxCoordinators: 1, MaxWorkersPerCoordinator: 2, MaxWorkers: 4}
 	if !reflect.DeepEqual(got.Config.Coordinators, want) {
 		t.Fatalf("coordinators = %+v, want %+v", got.Config.Coordinators, want)
+	}
+}
+
+func TestProjectSetConfig_MergeNormalizesEmptyCoordinatorModes(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, `{"project":{"config":{"coordinators":{"coordinatorAgent":{"mode":""},"workerAgent":{"mode":""},"rootWorkerAgent":{"mode":""},"futureField":{"keep":true}}}}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "set-config", "demo", "--merge", "--coordinators", "--max-workers", "9")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var got rawSetConfigRequest
+	if err := json.Unmarshal(capture.body, &got); err != nil {
+		t.Fatalf("decode request: %v\nbody=%s", err, capture.body)
+	}
+	var coordinators map[string]json.RawMessage
+	if err := json.Unmarshal(got.Config["coordinators"], &coordinators); err != nil {
+		t.Fatalf("decode coordinators: %v", err)
+	}
+	for _, key := range []string{"coordinatorAgent", "workerAgent", "rootWorkerAgent"} {
+		var selection agentSelection
+		if err := json.Unmarshal(coordinators[key], &selection); err != nil {
+			t.Errorf("decode %s: %v", key, err)
+			continue
+		}
+		if selection.Mode != "inherit" {
+			t.Errorf("%s mode = %q, want inherit", key, selection.Mode)
+		}
+	}
+	if string(coordinators["futureField"]) != `{"keep":true}` {
+		t.Errorf("unknown coordinator field = %s, want preserved", coordinators["futureField"])
 	}
 }
 

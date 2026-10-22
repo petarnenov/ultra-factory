@@ -88,6 +88,24 @@ describe("coordinatorsConfigFrom", () => {
 		expect(form.maxCoordinators).toBe("3");
 		expect(coordinatorsConfigFrom(form)).toMatchObject(saved);
 	});
+
+	test("treats empty stored selection modes as inherit and omits them when saved", () => {
+		const legacy = {
+			enabled: true,
+			coordinatorAgent: { mode: "" },
+			workerAgent: { mode: "" },
+			rootWorkerAgent: { mode: "" },
+		} as unknown as CoordinatorsConfig;
+		const form = coordinatorsFormFrom(legacy);
+		expect(form.coordinatorAgent.mode).toBe("inherit");
+		expect(form.workerAgent.mode).toBe("inherit");
+		expect(form.rootWorkerAgent.mode).toBe("inherit");
+
+		const saved = coordinatorsConfigFrom(form);
+		expect(saved.coordinatorAgent).toBeUndefined();
+		expect(saved.workerAgent).toBeUndefined();
+		expect(saved.rootWorkerAgent).toBeUndefined();
+	});
 });
 
 describe("validateCoordinatorsForm", () => {
