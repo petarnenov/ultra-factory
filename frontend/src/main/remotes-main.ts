@@ -129,9 +129,11 @@ export function registerRemotesIpc(
 	// Keep edits and connects ordered so an update cannot leave a stale proxy.
 	// ponytail: one queue includes network probes; split by host if five-host setup is too slow.
 	let pending: Promise<void> = Promise.resolve();
+	let pendingOperations = 0;
 	const ordered = <T>(operation: () => Promise<T>): Promise<T> => {
+		pendingOperations++;
 		const result = pending.then(operation, operation);
-		pending = result.then(() => undefined, () => undefined);
+		pending = result.then(() => { pendingOperations--; }, () => { pendingOperations--; });
 		return result;
 	};
 	// The signed-in AO Cloud account, or "" when there is none. Only the cloud
@@ -154,15 +156,22 @@ export function registerRemotesIpc(
 	// Discovery is best-effort: a daemon that cannot be asked leaves the file as
 	// it is, and the renderer shows the saved hosts it already had.
 	let lastDiscovery: TailnetDiscovery | null = null;
+	let discoveryGeneration = 0;
 	const syncDiscovered = async (): Promise<TailnetDiscovery | null> => {
+		const generation = discoveryGeneration;
 		const discovery = await discover(daemonBaseUrl());
-		lastDiscovery = discovery;
 		if (!discovery) return null;
 		const localHostId = await localIdentity();
-		const drop = [...discovery.localHostIds, ...(localHostId ? [localHostId] : [])];
-		const visible = discovery.hosts.filter((host) => !host.hidden && !drop.includes(host.hostId));
-		await reconcileTailnetRemotes(file, visible.map(({ hostId, label, url }) => ({ hostId, label, url })), drop);
-		return discovery;
+		// Return saved metadata rather than waiting behind an in-flight probe.
+		if (pendingOperations) return lastDiscovery;
+		return ordered(async () => {
+			if (generation !== discoveryGeneration) return lastDiscovery;
+			const drop = [...discovery.localHostIds, ...(localHostId ? [localHostId] : [])];
+			const visible = discovery.hosts.filter((host) => !host.hidden && !drop.includes(host.hostId));
+			await reconcileTailnetRemotes(file, visible.map(({ hostId, label, url }) => ({ hostId, label, url })), drop);
+			lastDiscovery = discovery;
+			return discovery;
+		});
 	};
 	const onlineByHost = (discovery: TailnetDiscovery | null) =>
 		new Map((discovery?.hosts ?? []).map((host) => [host.hostId, host.online]));
@@ -173,21 +182,21 @@ export function registerRemotesIpc(
 	};
 
 	ipcMain.handle("remotes:list", async () => {
-		await accountID();
 		const discovery = await syncDiscovered();
 		const localHostId = await localIdentity();
 		const entries = await owned();
 		return toHostViews(entries.filter((entry) => !localHostId || entry.hostId !== localHostId), onlineByHost(discovery));
 	});
-	ipcMain.handle("remotes:tailnet", () => ordered(async (): Promise<TailnetStatusView> => {
+	ipcMain.handle("remotes:tailnet", async (): Promise<TailnetStatusView> => {
 		const discovery = lastDiscovery ?? await syncDiscovered();
 		if (!discovery) return { available: false, error: "The local AO daemon is not running.", hidden: [] };
 		return {
 			available: discovery.available, error: discovery.error, selfLogin: discovery.selfLogin,
 			hidden: discovery.hosts.filter((host) => host.hidden).map(({ hostId, label, name, address, url, online }) => ({ hostId, label, name, address, url, online })),
 		};
-	}));
+	});
 	ipcMain.handle("remotes:hide", async (_event, hostId: string) => ordered(async () => {
+		discoveryGeneration++;
 		await updateTailnet(daemonBaseUrl(), hostId, { hidden: true });
 		for (const entry of await readRemotes(file)) {
 			if (entry.hostId === hostId && entry.tailscale) await removeSavedRemote(file, entry.url, disconnect);
@@ -195,6 +204,7 @@ export function registerRemotesIpc(
 		lastDiscovery = null;
 	}));
 	ipcMain.handle("remotes:unhide", async (_event, hostId: string) => ordered(async () => {
+		discoveryGeneration++;
 		await updateTailnet(daemonBaseUrl(), hostId, { hidden: false });
 		lastDiscovery = null;
 	}));

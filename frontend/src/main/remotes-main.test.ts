@@ -78,6 +78,7 @@ describe("registerRemotesIpc", () => {
 		registerRemotes(ipc.ipcMain, {
 			file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }),
 			requireAccount: signedIn, identity: async () => "h_workbox", probe,
+			discover: async () => ({ available: true, localHostIds: [], hosts: [] }),
 		});
 		const connection = ipc.invoke("remotes:connect", "http://192.0.2.1:1");
 		const failedConnection = expect(connection).rejects.toThrow("offline");
@@ -326,6 +327,34 @@ describe("registerRemotesIpc", () => {
 		await ipc.invoke("remotes:update", "http://100.100.160.17:3011", { label: "IMac" });
 		expect(updateTailnet).toHaveBeenCalledWith("http://127.0.0.1:3002", "h_workbox", { label: "IMac" });
 		await expect(ipc.invoke("remotes:update", "http://100.100.160.17:3011", { url: "http://192.0.2.1:1" })).rejects.toThrow(/Tailscale address/);
+	});
+
+	it.each(["hide", "unhide"])("discards discovery that overlaps %s", async (action) => {
+		const file = await tempFile();
+		const host = { hostId: "h_peer", label: "Peer", name: "peer", dnsName: "", address: "100.1.1.2", port: 3011, url: "http://100.1.1.2:3011", online: true, hidden: action === "unhide" };
+		const snapshot = () => ({ available: true, localHostIds: [], hosts: [{ ...host }] });
+		const discover = vi.fn(async () => snapshot());
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, {
+			file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }),
+			requireAccount: signedIn, discover,
+			updateTailnet: async (_base, _id, changes) => { host.hidden = changes.hidden!; },
+		});
+		await ipc.invoke("remotes:list");
+		const stale = snapshot();
+		let finish!: () => void;
+		discover.mockImplementationOnce(() => new Promise((resolve) => { finish = () => resolve(stale); }));
+		const listing = ipc.invoke("remotes:list");
+		await vi.waitFor(() => expect(discover).toHaveBeenCalledTimes(2));
+		await ipc.invoke(`remotes:${action}`, "h_peer");
+		finish();
+		await listing;
+		const entries = JSON.parse(await readFile(file, "utf8")).remotes;
+		expect(entries.some((entry: { hostId: string }) => entry.hostId === "h_peer")).toBe(false);
+		await expect(ipc.invoke("remotes:tailnet")).resolves.toMatchObject({ hidden: host.hidden ? [expect.objectContaining({ hostId: "h_peer" })] : [] });
+		expect(discover).toHaveBeenCalledTimes(3);
+		const fresh = await ipc.invoke("remotes:list") as Array<{ hostId: string }>;
+		expect(fresh.some((entry) => entry.hostId === "h_peer")).toBe(!host.hidden);
 	});
 
 	it("connects a tailnet host with its identity only, never a bearer", async () => {
