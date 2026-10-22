@@ -379,6 +379,36 @@ func TestReportStoreInterruptLimitSurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestReportStoreReleaseReportInterruptRestoresTheWindow(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	sess, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	if acquired, _, err := s.AcquireReportInterrupt(ctx, sess.ID, now, 3*time.Minute); err != nil || !acquired {
+		t.Fatalf("acquire = %v, err = %v", acquired, err)
+	}
+	if acquired, _, err := s.AcquireReportInterrupt(ctx, sess.ID, now.Add(time.Minute), 3*time.Minute); err != nil || acquired {
+		t.Fatalf("occupied acquire = %v, err = %v", acquired, err)
+	}
+	// A release for another acquisition time must leave the held slot alone.
+	if err := s.ReleaseReportInterrupt(ctx, sess.ID, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if acquired, _, err := s.AcquireReportInterrupt(ctx, sess.ID, now.Add(time.Minute), 3*time.Minute); err != nil || acquired {
+		t.Fatalf("stale release freed the slot: acquired = %v, err = %v", acquired, err)
+	}
+	if err := s.ReleaseReportInterrupt(ctx, sess.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if acquired, _, err := s.AcquireReportInterrupt(ctx, sess.ID, now.Add(time.Minute), 3*time.Minute); err != nil || !acquired {
+		t.Fatalf("released slot not reacquired: acquired = %v, err = %v", acquired, err)
+	}
+}
+
 func TestListReportsByProjectPageCursorAcrossHostsAndTies(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)

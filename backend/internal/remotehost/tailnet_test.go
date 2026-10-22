@@ -199,9 +199,9 @@ func TestUnattendedTransportAllowedUsesTheTailnetPredicate(t *testing.T) {
 		"http://[2001:db8::1]:3011":       false,
 		"http://example.com:3011":         false,
 	} {
-		err := UnattendedTransportAllowed(base)
+		err := UnattendedTransportAllowed(base, false)
 		if (err == nil) != wantOK {
-			t.Errorf("UnattendedTransportAllowed(%q) = %v, want ok=%v", base, err, wantOK)
+			t.Errorf("UnattendedTransportAllowed(%q, false) = %v, want ok=%v", base, err, wantOK)
 		}
 	}
 }

@@ -472,6 +472,15 @@ func (s *coordinatorStore) DeferReportBatch(ctx context.Context, project domain.
 	}
 	return count, nil
 }
+func (s *coordinatorStore) ReleaseReportInterrupt(_ context.Context, worker domain.SessionID, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last, ok := s.interrupts[worker]; ok && last.Equal(at) {
+		delete(s.interrupts, worker)
+	}
+	return nil
+}
+
 func (s *coordinatorStore) AcquireReportInterrupt(_ context.Context, worker domain.SessionID, at time.Time, window time.Duration) (bool, time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -551,10 +560,11 @@ type coordinatorSubmission struct {
 	message, key string
 }
 type coordinatorDelivery struct {
-	submissions []coordinatorSubmission
-	interrupts  []domain.SessionID
-	submitErr   error
-	attempts    int
+	submissions  []coordinatorSubmission
+	interrupts   []domain.SessionID
+	submitErr    error
+	interruptErr error
+	attempts     int
 }
 
 func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
@@ -567,7 +577,7 @@ func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID,
 }
 func (d *coordinatorDelivery) Interrupt(_ context.Context, target domain.SessionID) error {
 	d.interrupts = append(d.interrupts, target)
-	return nil
+	return d.interruptErr
 }
 
 func TestCoordinatorAcceptanceTimeoutConsumesTheBatchOnce(t *testing.T) {
@@ -609,8 +619,7 @@ func TestCoordinatorTerminatedStuckFlushDoesNotSpin(t *testing.T) {
 	}
 	stuck := reportAt("stuck", "ended", now.Add(-time.Minute), now, "blocked")
 	stuck.State = domain.ReportStuck
-	checkpoint := reportAt("later", "ended", now, now.Add(30*time.Minute), "older head")
-	store.add(stuck, checkpoint)
+	store.add(stuck)
 	// The interrupt window from an earlier interruption is still open.
 	store.interrupts["ended"] = now
 	store.claimLimit = 3

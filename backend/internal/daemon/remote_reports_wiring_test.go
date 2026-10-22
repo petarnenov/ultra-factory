@@ -135,7 +135,7 @@ func TestRemoteReportsWiringSharesTheHostIdentityAndWakesOnLink(t *testing.T) {
 	t.Setenv("AO_REMOTES_FILE", remotes)
 	store := &wiringRemoteStore{links: []domain.RemoteWorkerLink{{HostID: "host-local", RemoteSessionID: "w-1"}}}
 	var logs syncBuffer
-	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", nil, slog.New(slog.NewTextHandler(&logs, nil)))
+	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", nil, nil, slog.New(slog.NewTextHandler(&logs, nil)))
 
 	// The link service refuses this machine.
 	_, err := links.Register(context.Background(), remoteworker.RegisterInput{

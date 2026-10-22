@@ -152,6 +152,9 @@ var (
 	// ErrResumeInProgress prevents concurrent resume requests from replacing the
 	// same runtime twice.
 	ErrResumeInProgress = errors.New("session: agent resume already in progress")
+	// ErrAgentOperationInProgress refuses an operation behind an explicit gate
+	// holder that has no dedicated sentinel (for example a restore or retire).
+	ErrAgentOperationInProgress = errors.New("session: another agent operation is in progress")
 	// ErrAwaitingDecision means the session is paused on a pending
 	// permission/approval dialog. Send refuses to paste into it: the runtime
 	// appends Enter after every paste, and an Enter into a decision dialog
@@ -490,8 +493,11 @@ type Manager struct {
 	statusVerificationLimit     time.Duration
 	agentOpMu                   sync.Mutex
 	agentOperations             map[domain.SessionID]agentOperationKind
-	interfaceRecoveryMu         sync.Mutex
-	deferredInterfaceRecovery   map[domain.SessionID]string
+	agentOperationRecords       map[domain.SessionID]agentOperationRecord
+	// resumePreemptWait overrides resumePreemptWait in tests.
+	resumePreemptWait         time.Duration
+	interfaceRecoveryMu       sync.Mutex
+	deferredInterfaceRecovery map[domain.SessionID]string
 	// switchDecisionInput opens a narrow human-only terminal lane while the
 	// source is blocked on permission during a mandatory switch.
 	switchDecisionInput map[domain.SessionID]domain.AgentSwitchID
@@ -879,6 +885,7 @@ func New(d Deps) *Manager {
 		backgroundContext:              d.BackgroundContext,
 		startupBackgroundReconcileDone: make(chan struct{}),
 		agentOperations:                make(map[domain.SessionID]agentOperationKind),
+		agentOperationRecords:          make(map[domain.SessionID]agentOperationRecord),
 		switchDecisionInput:            make(map[domain.SessionID]domain.AgentSwitchID),
 		retainedSwitches:               make(map[domain.SessionID]struct{}),
 		inputLeases:                    make(map[domain.SessionID]int),
@@ -2432,6 +2439,10 @@ func (m *Manager) kill(ctx context.Context, id domain.SessionID, backgroundClean
 		return KillResult{}, fmt.Errorf("kill %s: cancel provisioning: %w", id, err)
 	}
 
+	// A background wake must never make Kill refuse; Kill cancels it first.
+	if err := m.preemptResume(ctx, id, agentOperationKill); err != nil {
+		return KillResult{}, fmt.Errorf("kill %s: %w", id, err)
+	}
 	if err := m.beginAgentOperation(ctx, id, agentOperationKill); err != nil {
 		if !errors.Is(err, errAgentOperationInProgress) {
 			return KillResult{}, fmt.Errorf("kill %s: %w", id, err)
@@ -2440,7 +2451,7 @@ func (m *Manager) kill(ctx context.Context, id domain.SessionID, backgroundClean
 		// is running for it, and Kill is the way out. A switch still executing
 		// keeps the session busy.
 		if !m.sourceRestoreQuarantined(ctx, id) || !m.claimRetainedAgentSwitchForKill(id) {
-			return KillResult{}, fmt.Errorf("kill %s: %w", id, ErrSwitchInProgress)
+			return KillResult{}, fmt.Errorf("kill %s: %w", id, err)
 		}
 	}
 	releaseOperation := func() { m.endAgentOperation(id, agentOperationKill) }
@@ -2871,10 +2882,10 @@ func (m *Manager) relaunchRestoredSession(ctx context.Context, rec domain.Sessio
 // terminal identity, and provider-native conversation remain available for an
 // exact ResumeAgentWithMode call.
 func (m *Manager) ExitAgent(ctx context.Context, id domain.SessionID) (domain.SessionRecord, error) {
+	if err := m.preemptResume(ctx, id, agentOperationExit); err != nil {
+		return domain.SessionRecord{}, fmt.Errorf("exit agent %s: %w", id, err)
+	}
 	if err := m.beginAgentOperation(ctx, id, agentOperationExit); err != nil {
-		if errors.Is(err, errAgentOperationInProgress) {
-			err = ErrAgentExitInProgress
-		}
 		return domain.SessionRecord{}, fmt.Errorf("exit agent %s: %w", id, err)
 	}
 	defer m.endAgentOperation(id, agentOperationExit)
@@ -3043,13 +3054,18 @@ func (m *Manager) WakeHibernatedChat(ctx context.Context, id domain.SessionID) e
 // identity and never changes the durable terminated flag as an intermediate
 // step.
 func (m *Manager) ResumeAgentWithMode(ctx context.Context, id domain.SessionID) (result RestoreResult, err error) {
+	// The cancel is how an explicit kill or exit stops this wake if it wedges.
+	ctx, cancelResume := context.WithCancel(ctx)
 	if err := m.beginAgentResume(ctx, id); err != nil {
+		cancelResume()
 		return RestoreResult{}, fmt.Errorf("resume agent %s: %w", id, err)
 	}
+	m.setAgentOperationCancel(id, cancelResume)
 	resumeHandedOff := false
 	defer func() {
 		if !resumeHandedOff {
 			m.endAgentResume(id)
+			cancelResume()
 		}
 	}()
 	if active, err := m.hasActiveInterfaceTransition(ctx, id); err != nil {
@@ -5519,8 +5535,10 @@ func (m *Manager) buildSystemPromptWithCIGate(ctx context.Context, kind domain.S
 	switch kind {
 	case domain.KindOrchestrator:
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
+		cfg.Coordination = coordinationPromptFor(project.Config)
 	case domain.KindCoordinator:
 		cfg.OrchestratorRules = project.Config.OrchestratorRules
+		cfg.Coordination = coordinationPromptFor(project.Config)
 		cfg.CoordinatorWorkerLimit = project.Config.Coordinators.Limits().WorkersPerCoordinator
 		rec, ok, err := m.store.GetSession(ctx, sessionID)
 		if err != nil {
@@ -5530,6 +5548,10 @@ func (m *Manager) buildSystemPromptWithCIGate(ctx context.Context, kind domain.S
 			cfg.CoordinatorScope = rec.CoordinatorScope
 			if own := rec.CoordinatorWorkerLimit; own != nil && *own < cfg.CoordinatorWorkerLimit {
 				cfg.CoordinatorWorkerLimit = *own
+			}
+			cfg.Coordination.HostSlots = rec.CoordinatorHostSlots
+			if own := rec.CoordinatorWorkerAgent; own != nil {
+				cfg.Coordination.WorkerAgent = *own
 			}
 		}
 	case domain.KindWorker:

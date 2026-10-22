@@ -109,7 +109,7 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 	defer cancel()
 	client, err := o.connect(hostCtx, entry.HostID)
 	if err != nil {
-		if base, baseErr := remotehost.BaseURL(entry.URL); baseErr == nil && remotehost.UnattendedTransportAllowed(base) != nil {
+		if base, baseErr := remotehost.BaseURL(entry.URL); baseErr == nil && remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP) != nil {
 			result.Blocked = err.Error()
 		} else {
 			result.Error = err.Error()

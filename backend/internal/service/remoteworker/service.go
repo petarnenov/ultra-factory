@@ -5,6 +5,7 @@ package remoteworker
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -85,6 +86,10 @@ type Deps struct {
 	// Capacity is shared with the session service so link writes and local
 	// spawns serialise per project. Nil gives this service its own guard.
 	Capacity *coordownership.Guard
+	// Notifier tells a coordinator when it gains or loses a remote worker.
+	// Nil sends no notices.
+	Notifier coordownership.Notifier
+	Logger   *slog.Logger
 }
 
 // Service validates and stores remote worker links.
@@ -95,6 +100,8 @@ type Service struct {
 	now        func() time.Time
 	onLinked   func()
 	capacity   *coordownership.Guard
+	notifier   coordownership.Notifier
+	logger     *slog.Logger
 	// mu makes the link-limit check and the insert one step.
 	mu sync.Mutex
 }
@@ -110,7 +117,7 @@ func New(d Deps) *Service {
 	if d.Capacity == nil {
 		d.Capacity = &coordownership.Guard{}
 	}
-	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked, capacity: d.Capacity}
+	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked, capacity: d.Capacity, notifier: d.Notifier, logger: d.Logger}
 }
 
 // MaxDisplayNameLength matches the spawn display-name limit.
@@ -197,7 +204,7 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	registration := Registration{Link: stored}
 	base, err := remotehost.BaseURL(entry.URL)
 	if err == nil {
-		err = remotehost.UnattendedTransportAllowed(base)
+		err = remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP)
 	}
 	if err != nil {
 		registration.PullBlocked = err.Error()

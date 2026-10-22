@@ -6,10 +6,19 @@ import { findRemote, removeSavedRemote, toHostViews, updateSavedRemote } from ".
 import type { RemoteRegistry } from "./remote-registry";
 import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEntry } from "./remotes-store";
 
-// An isolated desktop run must not read or write the real user's credentials.
-// Without an override, keep the existing ~/.ao location.
+// Machine-level saved-host file, shared with every daemon (mirrors
+// remotehost.FilePath). An isolated AO_DATA_DIR keeps its own file.
 export function remotesFilePath(): string {
-	return path.join(process.env.AO_DATA_DIR?.trim() || path.join(os.homedir(), ".ao"), "remotes.json");
+	const override = process.env.AO_REMOTES_FILE?.trim();
+	if (override) return path.resolve(override);
+	const stateDir = path.join(os.homedir(), ".ao");
+	const dataDir = process.env.AO_DATA_DIR?.trim();
+	if (!dataDir) return path.join(stateDir, "remotes.json");
+	const resolved = path.resolve(dataDir);
+	const daemonDefaults = [path.join(stateDir, "data"), path.join(stateDir, "dev", "data")];
+	return daemonDefaults.includes(resolved)
+		? path.join(stateDir, "remotes.json")
+		: path.join(resolved, "remotes.json");
 }
 
 const TAILNET = new BlockList();
@@ -158,6 +167,13 @@ export function registerRemotesIpc(
 		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");
 		const { accountUserId: _ignored, ...editable } = changes;
 		return updateSavedRemote(file, url, editable, disconnect, (entry) => checkedProbe(entry, account));
+	}));
+	// The reports switch is a daemon permission: written with no probe or
+	// reconnect, so revoking it never depends on the remote answering.
+	ipcMain.handle("remotes:setAllowInsecureHTTP", async (_event, url: string, allowed: boolean) => ordered(async () => {
+		await accountID();
+		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");
+		await updateRemote(file, url, { allowInsecureHTTP: allowed });
 	}));
 	ipcMain.handle("remotes:remove", async (_event, url: string) => ordered(async () => {
 		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");

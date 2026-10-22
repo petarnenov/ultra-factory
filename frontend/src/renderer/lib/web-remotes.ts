@@ -56,7 +56,8 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 	};
 
 	return {
-		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url })),
+		// The hub's registry has no per-host reports switch.
+		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url, allowInsecureHTTP: false })),
 		add: async (input): Promise<RemoteHealth> => {
 			const response = await fetch(hostsUrl(), {
 				method: "POST",
@@ -72,6 +73,7 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 		},
 		// The registry has no edit route: a host is removed and added again.
 		update: unsupported,
+		setAllowInsecureHTTP: unsupported,
 		remove: async (url) => {
 			const host = await findHost(url);
 			const response = await fetch(hostsUrl(`/${encodeURIComponent(host.id)}`), { method: "DELETE", credentials: "same-origin" });
