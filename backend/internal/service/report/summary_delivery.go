@@ -262,13 +262,6 @@ func (b summaryBatch) Render() string {
 			}
 			out.WriteString("\nready PRs (AO review approved the head; re-check head and CI, then merge): " + strings.Join(refs, ", "))
 		}
-		if len(s.RemoteWorkers) > 0 {
-			refs := make([]string, len(s.RemoteWorkers))
-			for i, r := range s.RemoteWorkers {
-				refs[i] = oneLine(r.HostID) + "/" + oneLine(r.RemoteSessionID)
-			}
-			out.WriteString("\nremote workers: " + strings.Join(refs, ", "))
-		}
 	}
 	return out.String()
 }
