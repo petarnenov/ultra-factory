@@ -224,7 +224,7 @@ func readDescriptor(dataDir, sessionID string) (Descriptor, error) {
 	if err != nil {
 		return Descriptor{}, err
 	}
-	b, err := os.ReadFile(path) //nolint:gosec // AO-owned path derived from validated session id.
+	b, err := readHostFile(path)
 	if err != nil {
 		return Descriptor{}, err
 	}
@@ -236,6 +236,19 @@ func readDescriptor(dataDir, sessionID string) (Descriptor, error) {
 		return Descriptor{}, errors.New("invalid chat host descriptor")
 	}
 	return d, nil
+}
+
+// readHostFile reads host.json. On Windows another process can hold a file
+// that was just written, so the read retries briefly on a sharing violation.
+func readHostFile(path string) ([]byte, error) {
+	const attempts = 20
+	for attempt := 1; ; attempt++ {
+		b, err := os.ReadFile(path) //nolint:gosec // AO-owned path derived from validated session id.
+		if err == nil || attempt == attempts || !sharingViolation(err) {
+			return b, err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
 }
 
 func writeDescriptor(dataDir string, d Descriptor) error {

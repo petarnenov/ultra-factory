@@ -15,8 +15,16 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve
 const extensions = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 const tsExtensions = extensions;
 
-function excludedPath(file) {
-  return /(^|\/)(vendor|node_modules|gen|dist|out)\//.test(file) || /\.generated\./.test(file);
+// Generated copies whose descriptions come from apispec, so the policy skips
+// them. Paths are repo-relative; add one only together with its generator.
+export const generatedFiles = new Set([
+  'frontend/src/api/schema.ts', // npm run api:ts (openapi-typescript)
+]);
+
+export function excludedPath(file) {
+  return /(^|\/)(vendor|node_modules|gen|dist|out)\//.test(file)
+    || /\.generated\./.test(file)
+    || generatedFiles.has(file);
 }
 
 const scanCommentsPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'scan_comments.py');
