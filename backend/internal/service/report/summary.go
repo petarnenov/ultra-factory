@@ -16,6 +16,7 @@ import (
 // SummaryStore is the coordinator summary service's persistence boundary.
 type SummaryStore interface {
 	GetSession(context.Context, domain.SessionID) (domain.SessionRecord, bool, error)
+	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
 	CreateCoordinatorSummary(context.Context, domain.CoordinatorSummary) (domain.CoordinatorSummary, bool, error)
 	GetCoordinatorSummaryByKey(context.Context, domain.SessionID, string) (domain.CoordinatorSummary, bool, error)
 	ListCoordinatorSummaries(context.Context, domain.SessionID, int64) ([]domain.CoordinatorSummary, error)
@@ -120,22 +121,58 @@ func (s *SummaryService) Submit(ctx context.Context, in SummaryInput) (domain.Co
 	now := s.now().UTC()
 	rec := domain.CoordinatorSummary{
 		ID: s.newID(), CoordinatorSessionID: coordinator.ID, ProjectID: coordinator.ProjectID,
-		SubmissionKey: key, Scope: scope, State: in.State, WorkerSessionIDs: in.WorkerSessionIDs,
+		SubmissionKey: key, Scope: scope, State: in.State,
 		Result: in.Result, EscalationReason: in.EscalationReason, EscalationNote: in.EscalationNote,
 		CreatedAt: now, DeliveryState: domain.ReportPending,
 	}
-	if err := domain.ValidateCoordinatorSummary(rec); err != nil {
+	if len(in.WorkerSessionIDs) > domain.MaxSummaryWorkers {
 		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Summary scope, state, workers, result, or escalation are invalid", nil)
 	}
-	for _, id := range rec.WorkerSessionIDs {
-		worker, ok, err := s.store.GetSession(ctx, id)
+	seen := make(map[string]bool, len(in.WorkerSessionIDs))
+	for _, raw := range in.WorkerSessionIDs {
+		ref := strings.TrimSpace(string(raw))
+		if ref == "" || seen[ref] {
+			return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Summary workers must be unique", nil)
+		}
+		targets, err := coordownership.FindWorkerTargets(ctx, s.store, coordinator.ProjectID, ref)
 		if err != nil {
 			return domain.CoordinatorSummary{}, false, err
 		}
-		if !ok || worker.Kind != domain.KindWorker || worker.ProjectID != coordinator.ProjectID ||
-			worker.OwnerSessionID == nil || *worker.OwnerSessionID != coordinator.ID {
-			return domain.CoordinatorSummary{}, false, apierr.Invalid("SUMMARY_WORKER_NOT_OWNED", "Summary workers must be owned by the submitting coordinator", map[string]any{"workerSessionId": string(id)})
+		if len(targets) > 1 {
+			return domain.CoordinatorSummary{}, false, apierr.Invalid("SUMMARY_WORKER_AMBIGUOUS", "Worker id matches multiple workers; qualify it as host:session-id", map[string]any{"workerSessionId": ref})
 		}
+		if len(targets) != 1 {
+			return domain.CoordinatorSummary{}, false, apierr.Invalid("SUMMARY_WORKER_NOT_OWNED", "Summary workers must be owned by the submitting coordinator", map[string]any{"workerSessionId": ref})
+		}
+		target := targets[0]
+		if target.Local != nil {
+			worker := target.Local
+			key := "local:" + string(worker.ID)
+			if seen[key] {
+				return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Summary workers must be unique", nil)
+			}
+			seen[key] = true
+			if worker.ProjectID != coordinator.ProjectID || worker.OwnerSessionID == nil || *worker.OwnerSessionID != coordinator.ID {
+				return domain.CoordinatorSummary{}, false, apierr.Invalid("SUMMARY_WORKER_NOT_OWNED", "Summary workers must be owned by the submitting coordinator", map[string]any{"workerSessionId": ref})
+			}
+			rec.WorkerSessionIDs = append(rec.WorkerSessionIDs, worker.ID)
+			continue
+		}
+		link := target.Remote
+		key := "remote:" + link.HostID + ":" + string(link.RemoteSessionID)
+		if seen[key] {
+			return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Summary workers must be unique", nil)
+		}
+		seen[key] = true
+		if link.OwnerSessionID == nil || *link.OwnerSessionID != coordinator.ID {
+			return domain.CoordinatorSummary{}, false, apierr.Invalid("SUMMARY_WORKER_NOT_OWNED", "Summary workers must be owned by the submitting coordinator", map[string]any{"workerSessionId": ref})
+		}
+		rec.RemoteWorkers = append(rec.RemoteWorkers, domain.SummaryRemoteWorker{
+			HostID: link.HostID, HostLabel: link.HostLabel, RemoteSessionID: string(link.RemoteSessionID),
+		})
+	}
+	if err := domain.ValidateCoordinatorSummary(rec); err != nil {
+		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Summary scope, state, workers, result, or escalation are invalid", nil)
 	}
 	if len(in.ReadyPRs) > domain.MaxSummaryReadyPRs {
 		return domain.CoordinatorSummary{}, false, apierr.Invalid("INVALID_SUMMARY", "Too many ready PRs in one summary", nil)
@@ -197,14 +234,30 @@ func (s *SummaryService) resolveReadyPRs(ctx context.Context, coordinator domain
 	if len(in) == 0 {
 		return nil, nil
 	}
-	sessions, err := s.store.ListSessions(ctx, coordinator.ProjectID)
+	targets, err := coordownership.ListWorkerTargets(ctx, s.store, coordinator.ProjectID)
 	if err != nil {
 		return nil, err
 	}
+	links, err := s.store.ListRemoteWorkerLinks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[domain.SessionID]int, len(targets)+len(links))
+	for _, target := range targets {
+		if target.Local != nil {
+			counts[target.Local.ID]++
+		}
+	}
+	for _, link := range links {
+		counts[link.RemoteSessionID]++
+	}
 	var owned []domain.SessionID
-	for _, w := range sessions {
-		if w.Kind == domain.KindWorker && w.OwnerSessionID != nil && *w.OwnerSessionID == coordinator.ID {
-			owned = append(owned, w.ID)
+	for _, target := range targets {
+		if target.Local != nil && counts[target.Local.ID] == 1 && target.Local.OwnerSessionID != nil && *target.Local.OwnerSessionID == coordinator.ID {
+			owned = append(owned, target.Local.ID)
+		}
+		if target.Remote != nil && counts[target.Remote.RemoteSessionID] == 1 && target.Remote.OwnerSessionID != nil && *target.Remote.OwnerSessionID == coordinator.ID {
+			owned = append(owned, target.Remote.RemoteSessionID)
 		}
 	}
 	out := make([]domain.ReadyPR, 0, len(in))

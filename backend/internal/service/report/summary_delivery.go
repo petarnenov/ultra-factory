@@ -248,6 +248,13 @@ func (b summaryBatch) Render() string {
 			}
 			out.WriteString("\nworkers: " + strings.Join(links, ", "))
 		}
+		for _, worker := range s.RemoteWorkers {
+			host := strings.TrimSpace(worker.HostLabel)
+			if host == "" {
+				host = worker.HostID
+			}
+			out.WriteString("\nremote worker: " + oneLine(worker.RemoteSessionID) + " on " + oneLine(host))
+		}
 		if len(s.ReadyPRs) > 0 {
 			refs := make([]string, len(s.ReadyPRs))
 			for i, pr := range s.ReadyPRs {

@@ -4,11 +4,66 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 )
+
+type ownershipRosterStore struct {
+	*fakeStore
+	links []domain.RemoteWorkerLink
+}
+
+func (s *ownershipRosterStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
+	return append([]domain.RemoteWorkerLink(nil), s.links...), nil
+}
+
+func TestCoordinatorRosterIncludesOwnedLiveRemoteWorkersAndKeepsStaleCapacity(t *testing.T) {
+	base, _, coordinator := ownershipStore()
+	other := domain.SessionRecord{ID: "ao-3", ProjectID: "ao", Kind: domain.KindCoordinator, CoordinatorScope: "docs"}
+	base.sessions[other.ID] = other
+	now := time.Now().UTC()
+	store := &ownershipRosterStore{fakeStore: base, links: []domain.RemoteWorkerLink{
+		{HostID: "host-a", HostLabel: "Air A", RemoteSessionID: "shared", RemoteProjectID: "remote-a", ProjectID: "ao", OwnerSessionID: &coordinator.ID, CreatedAt: now},
+		{HostID: "host-b", HostLabel: "Air B", RemoteSessionID: "shared", RemoteProjectID: "remote-b", ProjectID: "ao", OwnerSessionID: &other.ID, CreatedAt: now},
+		{HostID: "host-old", HostLabel: "Old host", RemoteSessionID: "stale", RemoteProjectID: "remote-old", ProjectID: "ao", OwnerSessionID: &coordinator.ID, CreatedAt: now.Add(-30 * time.Minute)},
+		{HostID: "host-root", HostLabel: "Root host", RemoteSessionID: "root-remote", RemoteProjectID: "remote-root", ProjectID: "ao", CreatedAt: now},
+	}}
+	svc := &Service{store: store, clock: func() time.Time { return now }}
+	roster, err := svc.CoordinatorRoster(context.Background(), "ao", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := rosterEntry(t, roster, coordinator.ID)
+	if len(entry.RemoteWorkers) != 1 || entry.RemoteWorkers[0].HostID != "host-a" ||
+		entry.ActiveWorkers != 1 || roster.Capacity.StaleWorkers != 1 || len(roster.RemoteRootWorkers) != 1 ||
+		roster.RemoteRootWorkers[0].HostID != "host-root" {
+		t.Fatalf("coordinator roster = %+v, capacity = %+v", entry, roster.Capacity)
+	}
+
+	store.links[0].OwnerSessionID = &other.ID
+	roster, err = svc.CoordinatorRoster(context.Background(), "ao", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry = rosterEntry(t, roster, coordinator.ID)
+	if len(entry.RemoteWorkers) != 0 || entry.ActiveWorkers != 0 {
+		t.Fatalf("old owner roster after reassignment = %+v", entry)
+	}
+}
+
+func rosterEntry(t *testing.T, roster CoordinatorRoster, id domain.SessionID) CoordinatorRosterEntry {
+	t.Helper()
+	for _, entry := range roster.Coordinators {
+		if entry.Coordinator.ID == id {
+			return entry
+		}
+	}
+	t.Fatalf("coordinator %s missing from roster", id)
+	return CoordinatorRosterEntry{}
+}
 
 func ownershipStore() (*fakeStore, domain.SessionRecord, domain.SessionRecord) {
 	st := newFakeStore()

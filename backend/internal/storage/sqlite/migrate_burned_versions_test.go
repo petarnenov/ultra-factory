@@ -231,6 +231,7 @@ var shippedMigrations = map[int64]string{
 	226: "0226_report_pull_acks.sql",
 	227: "0227_remote_worker_link_liveness.sql",
 	228: "0228_pr_merge_announcements.sql",
+	229: "0229_coordinator_summary_remote_worker_labels.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they

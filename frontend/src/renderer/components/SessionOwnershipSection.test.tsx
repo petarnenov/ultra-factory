@@ -21,7 +21,10 @@ const entry = (overrides: Partial<CoordinatorRosterEntry> = {}): CoordinatorRost
 	coordinatorSessionId: "ao-c1",
 	coordinatorScope: "auth",
 	agentProfileId: null,
-	workers: [],
+	workers: [
+		{ sessionId: "ao-w1", agentProfileId: null, remote: false },
+		{ sessionId: "ao-w2", agentProfileId: null, remote: false },
+	],
 	isTerminated: false,
 	latestSummary: null,
 	needsRecovery: false,
@@ -41,6 +44,7 @@ const roster = (overrides: Partial<CoordinatorRoster> = {}): CoordinatorRoster =
 	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 2, staleWorkers: 0 },
 	coordinators: [entry()],
 	rootWorkerSessionIds: [],
+	rootWorkers: [],
 	...overrides,
 });
 
@@ -92,6 +96,7 @@ describe("SessionOwnershipSection", () => {
 						id: "csum_1",
 						projectId: "ao",
 						readyPRs: [],
+						remoteWorkers: [],
 						result: "waiting on schema",
 						scope: "auth",
 						state: "blocked",
@@ -119,6 +124,18 @@ describe("SessionOwnershipSection", () => {
 		rosterQuery.data = roster({ coordinators: [entry({ isTerminated: true, needsRecovery: true })] });
 		render(<SessionOwnershipSection session={coordinator} />);
 		expect(screen.getByRole("alert")).toHaveTextContent("terminated but still owns live workers");
+	});
+
+	test("shows remote workers with their host label", () => {
+		rosterQuery.data = roster({
+			coordinators: [entry({
+				workerCount: 1,
+				workerSessionIds: [],
+				workers: [{ sessionId: "shared-worker", agentProfileId: null, remote: true, hostId: "host-build", hostLabel: "Air builder" }],
+			})],
+		});
+		render(<SessionOwnershipSection session={coordinator} />);
+		expect(screen.getByTestId("coordinator-remote-worker-row")).toHaveTextContent("shared-worker on Air builder");
 	});
 
 	test("reports an unavailable roster", () => {

@@ -14287,6 +14287,8 @@ components:
           minLength: 1
           type: string
         workerSessionIds:
+          description: Owned worker session ids; qualify a remote worker as host:id
+            when needed.
           items:
             type: string
           maxItems: 3
@@ -14333,6 +14335,10 @@ components:
           items:
             $ref: '#/components/schemas/ControllersReadyPRResponse'
           type: array
+        remoteWorkers:
+          items:
+            $ref: '#/components/schemas/SummaryRemoteWorkerResponse'
+          type: array
         result:
           type: string
         scope:
@@ -14358,6 +14364,7 @@ components:
       - scope
       - state
       - workerSessionIds
+      - remoteWorkers
       - readyPRs
       - result
       - escalation
@@ -15670,12 +15677,17 @@ components:
           items:
             type: string
           type: array
+        rootWorkers:
+          items:
+            $ref: '#/components/schemas/CoordinatorRosterWorker'
+          type: array
       required:
       - projectId
       - rootSessionId
       - capacity
       - coordinators
       - rootWorkerSessionIds
+      - rootWorkers
       type: object
     CoordinatorRosterWorker:
       properties:
@@ -15683,11 +15695,19 @@ components:
           type:
           - "null"
           - string
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        remote:
+          description: True for a worker linked from another AO host.
+          type: boolean
         sessionId:
           type: string
       required:
       - sessionId
       - agentProfileId
+      - remote
       type: object
     CoordinatorWorkerAgentRequest:
       properties:
@@ -20477,6 +20497,19 @@ components:
       required:
       - runId
       - verdict
+      type: object
+    SummaryRemoteWorkerResponse:
+      properties:
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        remoteSessionId:
+          type: string
+      required:
+      - hostId
+      - hostLabel
+      - remoteSessionId
       type: object
     SwitchAgentRequest:
       properties:

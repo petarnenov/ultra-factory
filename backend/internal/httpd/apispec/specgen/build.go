@@ -272,6 +272,7 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersCoordinatorCapacity":                       "CoordinatorCapacity",
 	"ControllersCoordinatorWorkerAgentRequest":             "CoordinatorWorkerAgentRequest",
 	"ControllersCoordinatorRosterWorker":                   "CoordinatorRosterWorker",
+	"ControllersSummaryRemoteWorkerResponse":               "SummaryRemoteWorkerResponse",
 	"ControllersRemoteWorkerAgent":                         "RemoteWorkerAgent",
 	"DomainAgentProfile":                                   "AgentProfile",
 	"DomainAgentSelection":                                 "AgentSelection",

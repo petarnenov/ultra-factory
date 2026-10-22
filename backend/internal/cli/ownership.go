@@ -52,10 +52,11 @@ type coordinatorHostSlot struct {
 
 // coordinatorRosterDTO mirrors GET /api/v1/projects/{id}/coordinators.
 type coordinatorRosterDTO struct {
-	ProjectID     string                  `json:"projectId"`
-	RootSessionID *string                 `json:"rootSessionId"`
-	Coordinators  []coordinatorRosterItem `json:"coordinators"`
-	RootWorkerIDs []string                `json:"rootWorkerSessionIds"`
+	ProjectID     string                    `json:"projectId"`
+	RootSessionID *string                   `json:"rootSessionId"`
+	Coordinators  []coordinatorRosterItem   `json:"coordinators"`
+	RootWorkerIDs []string                  `json:"rootWorkerSessionIds"`
+	RootWorkers   []coordinatorRosterWorker `json:"rootWorkers"`
 }
 
 type coordinatorRosterItem struct {
@@ -84,6 +85,9 @@ type coordinatorRosterItem struct {
 type coordinatorRosterWorker struct {
 	SessionID      string  `json:"sessionId"`
 	AgentProfileID *string `json:"agentProfileId"`
+	Remote         bool    `json:"remote"`
+	HostID         string  `json:"hostId"`
+	HostLabel      string  `json:"hostLabel"`
 }
 
 // sessionTreeOutput is the --json body of `session ls --tree`.
@@ -599,8 +603,18 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			return err
 		}
 	}
-	workerLine := func(id, profile string) error {
-		_, err := fmt.Fprintf(out, "    %s%s%s\n", id, workerFacts(known, id), profileFact(profile))
+	workerLine := func(worker coordinatorRosterWorker, profile string) error {
+		label := worker.SessionID
+		facts := workerFacts(known, worker.SessionID)
+		if worker.Remote {
+			host := worker.HostLabel
+			if host == "" {
+				host = worker.HostID
+			}
+			label += " on " + host
+			facts = ""
+		}
+		_, err := fmt.Fprintf(out, "    %s%s%s\n", label, facts, profileFact(profile))
 		return err
 	}
 	for _, coordinator := range res.Coordinators {
@@ -622,21 +636,35 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			return err
 		}
 		profiles := workerProfiles(coordinator.Workers)
-		for _, worker := range coordinator.WorkerSessionIDs {
-			if err := workerLine(worker, profiles[worker]); err != nil {
+		rows := coordinator.Workers
+		if len(rows) == 0 {
+			rows = make([]coordinatorRosterWorker, len(coordinator.WorkerSessionIDs))
+			for i, id := range coordinator.WorkerSessionIDs {
+				rows[i] = coordinatorRosterWorker{SessionID: id}
+			}
+		}
+		for _, worker := range rows {
+			if err := workerLine(worker, profiles[workerKey(worker)]); err != nil {
 				return err
 			}
 		}
 	}
-	if len(res.RootWorkerIDs) > 0 {
+	rootWorkers := res.RootWorkers
+	if len(rootWorkers) == 0 {
+		rootWorkers = make([]coordinatorRosterWorker, len(res.RootWorkerIDs))
+		for i, id := range res.RootWorkerIDs {
+			rootWorkers[i] = coordinatorRosterWorker{SessionID: id}
+		}
+	}
+	if len(rootWorkers) > 0 {
 		label := "root-owned workers"
 		if res.RootSessionID == nil {
 			label = "unassigned workers (no live root)"
 		}
-		if _, err := fmt.Fprintf(out, "  %s: %d\n", label, len(res.RootWorkerIDs)); err != nil {
+		if _, err := fmt.Fprintf(out, "  %s: %d\n", label, len(rootWorkers)); err != nil {
 			return err
 		}
-		for _, worker := range res.RootWorkerIDs {
+		for _, worker := range rootWorkers {
 			if err := workerLine(worker, ""); err != nil {
 				return err
 			}
@@ -667,10 +695,14 @@ func workerProfiles(workers []coordinatorRosterWorker) map[string]string {
 	profiles := make(map[string]string, len(workers))
 	for _, worker := range workers {
 		if worker.AgentProfileID != nil {
-			profiles[worker.SessionID] = *worker.AgentProfileID
+			profiles[workerKey(worker)] = *worker.AgentProfileID
 		}
 	}
 	return profiles
+}
+
+func workerKey(worker coordinatorRosterWorker) string {
+	return worker.HostID + "\x00" + worker.SessionID
 }
 
 // profileFact names the profile that picked a worker's agent, if one did.
@@ -793,9 +825,26 @@ func writeCoordinatorDetails(out io.Writer, entry *coordinatorRosterItem, labels
 		}
 	}
 	profiles := workerProfiles(entry.Workers)
-	workers := make([]string, 0, len(entry.WorkerSessionIDs))
-	for _, id := range entry.WorkerSessionIDs {
-		workers = append(workers, id+profileFact(profiles[id]))
+	workers := make([]string, 0, len(entry.Workers)+len(entry.WorkerSessionIDs))
+	rows := entry.Workers
+	if len(rows) == 0 {
+		rows = make([]coordinatorRosterWorker, len(entry.WorkerSessionIDs))
+		for i, id := range entry.WorkerSessionIDs {
+			rows[i] = coordinatorRosterWorker{SessionID: id}
+		}
+	}
+	for _, worker := range rows {
+		label := worker.SessionID
+		if worker.Remote {
+			host := worker.HostLabel
+			if host == "" {
+				host = worker.HostID
+			}
+			label += " on " + host
+		} else {
+			label += profileFact(profiles[workerKey(worker)])
+		}
+		workers = append(workers, label)
 	}
 	if _, err := fmt.Fprintf(out, "workers: %s\n", joinOrDash(workers)); err != nil {
 		return err
