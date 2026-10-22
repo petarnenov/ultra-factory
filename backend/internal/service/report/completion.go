@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
@@ -113,9 +114,12 @@ func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput)
 // releaseMergeClaims drops claims whose message was not delivered so the
 // next observation or tick announces those merges.
 func (c *Coordinator) releaseMergeClaims(ctx context.Context, shas []string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
 	var errs []error
 	for _, sha := range shas {
-		if err := c.store.ReleasePRMergeAnnouncement(ctx, sha); err != nil {
+		if err := c.store.ReleasePRMergeAnnouncement(cleanupCtx, sha); err != nil {
 			errs = append(errs, err)
 		}
 	}

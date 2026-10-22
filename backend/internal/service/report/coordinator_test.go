@@ -592,11 +592,17 @@ type coordinatorDelivery struct {
 	interrupts   []domain.SessionID
 	submitErr    error
 	interruptErr error
+	submitHook   func(context.Context) error
 	attempts     int
 }
 
-func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
+func (d *coordinatorDelivery) Submit(ctx context.Context, target domain.SessionID, message, key string) error {
 	d.attempts++
+	if d.submitHook != nil {
+		if err := d.submitHook(ctx); err != nil {
+			return err
+		}
+	}
 	if d.submitErr != nil {
 		return d.submitErr
 	}

@@ -131,6 +131,38 @@ func TestCompletionConsumesSemanticTimeoutAndRetriesOtherErrors(t *testing.T) {
 	}
 }
 
+func TestCompletionReleasesClaimAfterCanceledDelivery(t *testing.T) {
+	store := newCoordinatorStore(time.Now())
+	owner := domain.SessionID("coordinator")
+	store.sessions = []domain.SessionRecord{
+		{ID: owner, ProjectID: "p", Kind: domain.KindCoordinator},
+		{ID: "worker", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+	}
+	delivery := &coordinatorDelivery{}
+	ctx, cancel := context.WithCancel(context.Background())
+	delivery.submitHook = func(submitCtx context.Context) error {
+		cancel()
+		return submitCtx.Err()
+	}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery})
+	input := CompletionInput{SessionID: "worker", ActionKey: "merge:1@head", Kind: "merge",
+		PRs: []CompletionPR{{Number: 1, MergeCommitSHA: "merge-commit"}}}
+
+	if err := c.DeliverCompletion(ctx, input); err == nil {
+		t.Fatal("canceled delivery was not returned for retry")
+	}
+	if len(store.merges) != 0 {
+		t.Fatalf("canceled delivery left a permanent claim: %v", store.merges)
+	}
+	delivery.submitHook = nil
+	if err := c.DeliverCompletion(context.Background(), input); err != nil {
+		t.Fatalf("fresh-context retry: %v", err)
+	}
+	if delivery.attempts != 2 || len(delivery.submissions) != 1 {
+		t.Fatalf("attempts/submissions = %d/%d, want 2/1", delivery.attempts, len(delivery.submissions))
+	}
+}
+
 func TestCompletionOwnerSnapshotSurvivesRemoteLinkRemoval(t *testing.T) {
 	store := newCoordinatorStore(time.Now())
 	store.sessions = []domain.SessionRecord{{ID: "coordinator", ProjectID: "p", Kind: domain.KindCoordinator}}
