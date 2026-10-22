@@ -19,10 +19,11 @@ type remoteReportsStore interface {
 
 // newRemoteReports wires remote worker report pulling and link discovery.
 // The link service wakes the observer as soon as a link is stored.
-func newRemoteReports(store remoteReportsStore, deliverer remotereports.Deliverer, selfHostID string, capacity *coordownership.Guard, log *slog.Logger) (*remotereports.Observer, *remoteworker.Service) {
+func newRemoteReports(store remoteReportsStore, deliverer remotereports.Deliverer, selfHostID string, capacity *coordownership.Guard, notifier coordownership.Notifier, log *slog.Logger) (*remotereports.Observer, *remoteworker.Service) {
 	var observer *remotereports.Observer
 	links := remoteworker.New(remoteworker.Deps{
 		Store: store, SelfHostID: selfHostID, OnLinked: func() { observer.Wake() }, Capacity: capacity,
+		Notifier: notifier, Logger: log,
 	})
 	observer = remotereports.New(remotereports.Deps{
 		Store: store, Deliverer: deliverer, SelfHostID: selfHostID, Logger: log,

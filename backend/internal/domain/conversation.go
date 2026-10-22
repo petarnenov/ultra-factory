@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -719,6 +720,20 @@ var ErrNoQueuedTurn = errors.New("no queued turn")
 
 // ErrSessionNotProvisioning rejects a pre-controller turn after startup ended.
 var ErrSessionNotProvisioning = errors.New("session is not provisioning")
+
+type wakeInFlightKey struct{}
+
+// WithWakeInFlight admits a queue append made during a wake, which clears the
+// sleep marker before its controller is live; the wake drains the turn.
+func WithWakeInFlight(ctx context.Context) context.Context {
+	return context.WithValue(ctx, wakeInFlightKey{}, true)
+}
+
+// WakeInFlight reports whether ctx was marked by WithWakeInFlight.
+func WakeInFlight(ctx context.Context) bool {
+	in, _ := ctx.Value(wakeInFlightKey{}).(bool)
+	return in
+}
 
 // ErrConversationRebound rejects a pre-controller turn aimed at a conversation the
 // session no longer holds, such as an orchestrator's provisioning row after its

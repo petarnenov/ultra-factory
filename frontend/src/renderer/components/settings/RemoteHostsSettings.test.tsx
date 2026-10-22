@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import { useUiStore } from "../../stores/ui-store";
 
-const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string }> }));
+const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string; allowInsecureHTTP?: boolean }> }));
 const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" | "unauthenticated" }));
 const remotes = vi.hoisted(() => ({
 	list: vi.fn(async () => saved.entries),
@@ -14,6 +14,7 @@ const remotes = vi.hoisted(() => ({
 	connect: vi.fn(async (url: string) => ({ hostId: "box-a", label: "Box A", url, base: "http://127.0.0.1:4000" })),
 	disconnect: vi.fn(async () => undefined),
 	remove: vi.fn(async () => undefined),
+	setAllowInsecureHTTP: vi.fn(async () => undefined),
 	update: vi.fn(async (_oldUrl: string, changes: { label?: string; url?: string }) => {
 		saved.entries = saved.entries.map((host) => ({ ...host, label: changes.label ?? host.label, url: changes.url ?? host.url }));
 		return "online" as const;
@@ -49,6 +50,52 @@ it("does not expose saved hosts or pairing controls before account sign-in", () 
 	expect(screen.getByRole("button", { name: "Sign in to AO Cloud" })).toBeVisible();
 	expect(screen.queryByRole("button", { name: "Edit Box A" })).toBeNull();
 	expect(remotes.list).not.toHaveBeenCalled();
+});
+
+it("shows the plain-http switch with its helper text and blocked state only for plain-http hosts", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	saved.entries = [
+		{ hostId: "box-lan", label: "Office", url: "http://192.168.0.164:3011" },
+		{ hostId: "box-https", label: "Cloud", url: "https://build.example" },
+		{ hostId: "box-loop", label: "Tunnel", url: "http://127.0.0.1:3011" },
+		{ hostId: "box-cgnat", label: "Tailnet IP", url: "http://100.106.144.10:3011" },
+		{ hostId: "box-ts", label: "Tailnet name", url: "http://z600.tail1234.ts.net:3011" },
+	];
+	renderSettings();
+	const switches = await screen.findAllByRole("switch", { name: "Allow report pulls over plain HTTP" });
+	expect(switches).toHaveLength(1);
+	expect(screen.getByText("AO will send this host's saved password unattended over an unencrypted connection. Turn this on only on a network you trust.")).toBeVisible();
+	expect(screen.getByText("blocked (plain http)")).toBeVisible();
+	expect(switches[0]).toHaveAttribute("aria-checked", "false");
+});
+
+it("writes the per-host flag through the flag-only path when the switch is turned on", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	saved.entries = [{ hostId: "box-lan", label: "Office", url: "http://192.168.0.164:3011" }];
+	renderSettings();
+	fireEvent.click(await screen.findByRole("switch", { name: "Allow report pulls over plain HTTP" }));
+	await waitFor(() => expect(remotes.setAllowInsecureHTTP).toHaveBeenCalledWith("http://192.168.0.164:3011", true));
+	expect(remotes.update).not.toHaveBeenCalled();
+});
+
+it("turns the switch off without probing, so an offline or unauthorized host cannot keep the opt-in", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	saved.entries = [{ hostId: "box-lan", label: "Office", url: "http://192.168.0.164:3011", allowInsecureHTTP: true }];
+	remotes.setAllowInsecureHTTP.mockImplementationOnce(async () => undefined);
+	renderSettings();
+	fireEvent.click(await screen.findByRole("switch", { name: "Allow report pulls over plain HTTP" }));
+	await waitFor(() => expect(remotes.setAllowInsecureHTTP).toHaveBeenCalledWith("http://192.168.0.164:3011", false));
+	expect(remotes.update).not.toHaveBeenCalled();
+	expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("shows the error when the flag cannot be written", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	saved.entries = [{ hostId: "box-lan", label: "Office", url: "http://192.168.0.164:3011" }];
+	remotes.setAllowInsecureHTTP.mockImplementationOnce(async () => { throw new Error("Host does not belong to this account."); });
+	renderSettings();
+	fireEvent.click(await screen.findByRole("switch", { name: "Allow report pulls over plain HTTP" }));
+	expect(await screen.findByRole("alert")).toHaveTextContent("Host does not belong to this account.");
 });
 
 it("does not connect a newly paired host after Remote hosts is turned off", async () => {

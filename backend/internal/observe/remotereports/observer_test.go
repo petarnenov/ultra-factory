@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -786,8 +787,48 @@ func TestPollSkipsPlainHTTPHostsUnlessOptedIn(t *testing.T) {
 	if err := observer.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(logs.String(), remotehost.AllowHTTPEnv) || store.linkCount() != 1 {
+	if !strings.Contains(logs.String(), "Allow report pulls over plain HTTP") || store.linkCount() != 1 {
 		t.Fatalf("logs = %s", logs.String())
+	}
+}
+
+func TestAllowInsecureHTTPToggleTakesEffectOnTheNextPass(t *testing.T) {
+	t.Setenv(remotehost.AllowHTTPEnv, "")
+	var flag atomic.Bool
+	var probes atomic.Int32
+	store := newMemStore(link("host-lan", "w-1"))
+	observer := New(Deps{
+		Store: store, Deliverer: &fakeDeliverer{},
+		Lookup: func(string) (remotehost.Entry, bool, error) {
+			return remotehost.Entry{Label: "linux", URL: "http://192.168.0.164:3011", Password: "pw", HostID: "host-lan", AllowInsecureHTTP: flag.Load()}, true, nil
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			probes.Add(1)
+			body := `{"hostId":"host-lan","apiVersion":1}`
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}, Request: r}, nil
+		})},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	_ = observer.Poll(context.Background())
+	if probes.Load() != 0 {
+		t.Fatalf("probes with the switch off = %d, want 0", probes.Load())
+	}
+	flag.Store(true)
+	_ = observer.Poll(context.Background())
+	if probes.Load() == 0 {
+		t.Fatal("switch on did not reach the next pass")
+	}
+}
+
+func TestStartLogsTheDeprecatedEnvOverrideOncePerStart(t *testing.T) {
+	t.Setenv(remotehost.AllowHTTPEnv, "1")
+	var logs bytes.Buffer
+	observer := New(Deps{Store: newMemStore(), Deliverer: &fakeDeliverer{}, Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	<-observer.Start(ctx)
+	if n := strings.Count(logs.String(), remotehost.AllowHTTPEnvDeprecation); n != 1 {
+		t.Fatalf("deprecation lines = %d, want 1: %s", n, logs.String())
 	}
 }
 

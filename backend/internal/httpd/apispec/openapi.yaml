@@ -14410,6 +14410,8 @@ components:
           $ref: '#/components/schemas/DomainActivity'
         agentConfigMachine:
           type: string
+        agentOperation:
+          $ref: '#/components/schemas/SessionAgentOperation'
         agentProfileId:
           type:
           - "null"
@@ -18384,6 +18386,17 @@ components:
           type: array
       required:
       - recent
+      type: object
+    SessionAgentOperation:
+      properties:
+        kind:
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+      required:
+      - kind
+      - startedAt
       type: object
     SessionArtifact:
       properties:

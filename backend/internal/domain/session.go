@@ -466,6 +466,12 @@ const (
 	SessionHealthUnknown SessionHealthState = "unknown"
 )
 
+// SessionAgentOperation names an in-flight agent operation and when it began.
+type SessionAgentOperation struct {
+	Kind      string    `json:"kind"`
+	StartedAt time.Time `json:"startedAt"`
+}
+
 // SessionHealth is the read-time health view for a session. The service layer
 // derives it from SessionProgress, activity, and termination facts.
 type SessionHealth struct {
@@ -616,10 +622,13 @@ type Session struct {
 	DisplayStatus DisplayStatus `json:"displayStatus" enum:"Working,Blocked,Exited,No signal,Awaiting PR,Fixing CI failures,Addressing comments,Needs review,Review scheduled,Reviewing,Review failed,Review pending,Draft,CI failing,Commented,Changes requested,Needs human review,Mergeable,Approved,Merged,Closed without merge,Terminated"`
 	// Health is the read-time progress health. It is derived from durable
 	// progress heartbeats and never persisted.
-	Health            SessionHealth         `json:"health"`
-	TerminalHandleID  string                `json:"terminalHandleId,omitempty"`
-	ArtifactFiles     []SessionArtifactFile `json:"-"`
-	ActiveAgentSwitch *AgentSwitch          `json:"-"`
+	Health SessionHealth `json:"health"`
+	// AgentOperation is the in-memory operation (wake, exit, switch, kill)
+	// holding the session now; nil when none does. Never persisted.
+	AgentOperation    *SessionAgentOperation `json:"agentOperation,omitempty"`
+	TerminalHandleID  string                 `json:"terminalHandleId,omitempty"`
+	ArtifactFiles     []SessionArtifactFile  `json:"-"`
+	ActiveAgentSwitch *AgentSwitch           `json:"-"`
 	// PRs are the session's attributed pull requests (one session can own many).
 	// They feed status derivation and are surfaced on the API read model. Not
 	// serialized here: the HTTP boundary maps them to the curated wire shape.

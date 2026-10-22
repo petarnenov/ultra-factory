@@ -475,6 +475,164 @@ func TestBuildSystemPrompt_RootHandlesReadyPRsFromSummaries(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_CoordinatorStatesSlotsAndHostRefusals(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:                   sessionPromptRoleCoordinator,
+		Project:                promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope:       "auth module",
+		CoordinatorWorkerLimit: 2,
+		Coordination: coordinationPromptConfig{
+			HostSlots: []domain.HostSlot{{HostID: "Linux", Slots: 1}, {HostID: "Z600", Slots: 1}},
+		},
+	})
+	for _, want := range []string{
+		"at most 2 active workers",
+		"Start every worker with `ao spawn --host <host>`. Never start a worker without `--host`.",
+		"Allowed hosts: Linux (1 slot), Z600 (1 slot).",
+		"`COORDINATOR_HOST_SLOTS_FULL`, wait for a slot",
+		"`COORDINATOR_HOST_NOT_ALLOWED` or `COORDINATOR_LOCAL_WORKER_REFUSED`, never retry on a host outside the list: escalate `scope_decision`",
+		"## Host Placement",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("coordinator prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "runs on the root's machine") {
+		t.Fatal("local workers are refused by default; the prompt must not offer them")
+	}
+}
+
+func TestBuildSystemPrompt_CoordinatorWithoutSlotsListsAllowedHosts(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:             sessionPromptRoleCoordinator,
+		Project:          promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope: "auth module",
+		Coordination:     coordinationPromptConfig{AllowedHosts: []string{"Linux", "Z600"}},
+	})
+	if !strings.Contains(got, "Allowed hosts: Linux, Z600.") {
+		t.Fatalf("coordinator prompt must list allowedHosts:\n%s", got)
+	}
+	noList := buildSystemPromptText(systemPromptConfig{
+		Role:             sessionPromptRoleCoordinator,
+		Project:          promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope: "auth module",
+	})
+	if !strings.Contains(noList, "Allowed hosts: any paired remote host.") {
+		t.Fatalf("coordinator prompt without a host list must say any paired host:\n%s", noList)
+	}
+}
+
+func TestBuildSystemPrompt_CoordinatorWithLocalWorkersSaysSo(t *testing.T) {
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:             sessionPromptRoleCoordinator,
+		Project:          promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope: "auth module",
+		Coordination:     coordinationPromptConfig{AllowLocalWorkers: true},
+	})
+	for _, want := range []string{
+		"Start every remote worker with `ao spawn --host <host>`",
+		"runs on the root's machine and uses no host slot",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("coordinator prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildSystemPrompt_CoordinatorProfileSelectionHidesAgentFlags(t *testing.T) {
+	profiles := []domain.AgentProfile{
+		{ID: "fast", Label: "Fast", Harness: "claude-code", Model: "m1", Effort: "low"},
+		{ID: "deep", Harness: "codex", Model: "m2", Effort: "high"},
+	}
+	fixed := buildSystemPromptText(systemPromptConfig{
+		Role:             sessionPromptRoleCoordinator,
+		Project:          promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope: "auth module",
+		Coordination: coordinationPromptConfig{
+			WorkerAgent:   domain.AgentSelection{Mode: domain.AgentSelectionFixed, ProfileID: "fast"},
+			AgentProfiles: profiles,
+		},
+	})
+	if !strings.Contains(fixed, "from these project profiles: Fast.") {
+		t.Fatalf("fixed selection must name its profile by label:\n%s", fixed)
+	}
+	if !strings.Contains(fixed, "Do not pass `--harness`, `--model` or `--effort`") {
+		t.Fatalf("fixed selection must forbid agent flags:\n%s", fixed)
+	}
+	if strings.Contains(fixed, "project may fix the agent") {
+		t.Fatal("the inherit text must be replaced in fixed mode")
+	}
+
+	inherit := buildSystemPromptText(systemPromptConfig{
+		Role:             sessionPromptRoleCoordinator,
+		Project:          promptProject{ID: "mer", Name: "Mercury"},
+		CoordinatorScope: "auth module",
+	})
+	if !strings.Contains(inherit, "The project may fix the agent your workers run on.") {
+		t.Fatalf("inherit mode keeps the standing agent text:\n%s", inherit)
+	}
+}
+
+func TestBuildSystemPrompt_RootCoordinatorSectionFollowsGate(t *testing.T) {
+	enabled := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+		Coordination: coordinationPromptConfig{
+			Enabled: true,
+			Limits:  domain.CoordinatorLimits{Coordinators: 3, WorkersPerCoordinator: 4, Workers: 8},
+		},
+	})
+	for _, want := range []string{
+		"## Coordinators",
+		"ao spawn --kind coordinator --scope <area>",
+		"It runs with the project's per-coordinator worker limit and allowed hosts.",
+		"Project limits: 3 live coordinators, 4 workers per coordinator and 8 workers per project.",
+		"The hard maximums are 4, 6 and 12.",
+		"five sections",
+		"You stay the only merger.",
+	} {
+		if !strings.Contains(enabled, want) {
+			t.Fatalf("enabled root prompt missing %q:\n%s", want, enabled)
+		}
+	}
+	if size := len(rootCoordinatorPrompt(coordinationPromptConfig{
+		Enabled: true,
+		Limits:  domain.HardCoordinatorLimits,
+	})); size >= 1536 {
+		t.Fatalf("root coordinator section is %d bytes, want under 1.5 KB", size)
+	}
+
+	disabled := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+	})
+	if strings.Contains(disabled, "## Coordinators") {
+		t.Fatalf("disabled root prompt must omit the coordinator section:\n%s", disabled)
+	}
+}
+
+func TestBuildSystemPrompt_RootWorkerProfileSection(t *testing.T) {
+	profiles := []domain.AgentProfile{{ID: "fast", Label: "Fast", Harness: "claude-code", Model: "m1", Effort: "low"}}
+	got := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+		Coordination: coordinationPromptConfig{
+			RootWorkerAgent: domain.AgentSelection{Mode: domain.AgentSelectionRandom},
+			AgentProfiles:   profiles,
+		},
+	})
+	if !strings.Contains(got, "## Worker Agent Profiles") || !strings.Contains(got, "from these project profiles: Fast.") {
+		t.Fatalf("random root worker selection must state the profiles:\n%s", got)
+	}
+	inherit := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+	})
+	if strings.Contains(inherit, "## Worker Agent Profiles") {
+		t.Fatal("inherit root worker selection must omit the profile section")
+	}
+}
+
 func TestBuildSystemPrompt_CIGateWorkerOpensDraftAndWaitsForReview(t *testing.T) {
 	project := promptProject{ID: "mer", Name: "Mercury", Repo: "https://github.com/acme/mercury"}
 	gated := buildSystemPromptText(systemPromptConfig{
@@ -531,6 +689,9 @@ func TestBuildSystemPrompt_CIGateCoordinationOnlyInGatedProjects(t *testing.T) {
 		})
 		if !strings.Contains(gated, mention) || !strings.Contains(gated, "`withoutAutoReview=manual`") {
 			t.Fatalf("%s prompt in gated project missing CI gate paragraph", role)
+		}
+		if n := strings.Count(gated, "## CI Gate"); n != 1 {
+			t.Fatalf("%s prompt in gated project has %d CI Gate sections, want 1", role, n)
 		}
 		ungated := buildSystemPromptText(systemPromptConfig{
 			Role:    role,

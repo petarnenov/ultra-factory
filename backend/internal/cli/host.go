@@ -9,6 +9,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 )
 
 // hostStatus values reported by `ao host ls`.
@@ -19,14 +21,24 @@ const (
 	hostStatusIdentityChange = "identity-changed"
 	hostStatusNeedsPairing   = "needs-pairing"
 	hostStatusSelf           = "this-machine"
+	hostStatusNotProbed      = "not-probed"
+)
+
+// reportsState values reported by `ao host ls` for the daemon's report pulls.
+const (
+	reportsOK          = "ok"
+	reportsBlocked     = "blocked (plain http)"
+	reportsRefused     = "refused password"
+	reportsUnreachable = "unreachable"
 )
 
 type hostListItem struct {
-	Label  string `json:"label"`
-	HostID string `json:"hostId,omitempty"`
-	URL    string `json:"url"`
-	Status string `json:"status"`
-	Detail string `json:"detail,omitempty"`
+	Label        string `json:"label"`
+	HostID       string `json:"hostId,omitempty"`
+	URL          string `json:"url"`
+	Status       string `json:"status"`
+	Detail       string `json:"detail,omitempty"`
+	ReportsState string `json:"reportsState"`
 }
 
 func newHostCommand(ctx *commandContext) *cobra.Command {
@@ -57,22 +69,27 @@ func newHostListCommand(ctx *commandContext) *cobra.Command {
 			if asJSON {
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
+				path, err := remotesFilePath()
+				if err != nil {
+					return err
+				}
 				return enc.Encode(struct {
+					File  string         `json:"file"`
 					Hosts []hostListItem `json:"hosts"`
-				}{Hosts: items})
+				}{File: path, Hosts: items})
 			}
 			if len(items) == 0 {
 				_, err := fmt.Fprintln(out, "No saved remote hosts. Pair one in the desktop app under Settings → Remote hosts.")
 				return err
 			}
 			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(tw, "LABEL\tHOST ID\tURL\tSTATUS")
+			_, _ = fmt.Fprintln(tw, "LABEL\tHOST ID\tURL\tSTATUS\tREPORTS")
 			for _, item := range items {
 				status := item.Status
 				if item.Detail != "" {
 					status += " (" + item.Detail + ")"
 				}
-				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", item.Label, item.HostID, item.URL, status)
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", item.Label, item.HostID, item.URL, status, item.ReportsState)
 			}
 			return tw.Flush()
 		},
@@ -107,7 +124,9 @@ func (c *commandContext) listHosts(ctx context.Context) ([]hostListItem, error) 
 }
 
 func (c *commandContext) probeHost(ctx context.Context, entry remoteEntry, localID string) hostListItem {
-	item := hostListItem{Label: entry.Label, HostID: entry.HostID, URL: entry.URL}
+	// Nothing reaches a host that needs pairing, is unreachable, or is this
+	// machine, so REPORTS starts as unreachable and the probe upgrades it.
+	item := hostListItem{Label: entry.Label, HostID: entry.HostID, URL: entry.URL, ReportsState: reportsUnreachable}
 	if entry.HostID == "" {
 		item.Status = hostStatusNeedsPairing
 		return item
@@ -115,6 +134,12 @@ func (c *commandContext) probeHost(ctx context.Context, entry remoteEntry, local
 	base, err := remoteBaseURL(entry.URL)
 	if err != nil {
 		item.Status, item.Detail = hostStatusOffline, err.Error()
+		return item
+	}
+	// The daemon's policy gate runs before any request: a blocked host gets
+	// neither the identity probe nor the password.
+	if err := remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP); err != nil {
+		item.Status, item.ReportsState = hostStatusNotProbed, reportsBlocked
 		return item
 	}
 	actual, err := c.readRemoteIdentity(ctx, base)
@@ -147,9 +172,9 @@ func (c *commandContext) probeHost(ctx context.Context, entry remoteEntry, local
 	_ = resp.Body.Close()
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		item.Status = hostStatusUnauthorized
+		item.Status, item.ReportsState = hostStatusUnauthorized, reportsRefused
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		item.Status = hostStatusOnline
+		item.Status, item.ReportsState = hostStatusOnline, reportsOK
 	default:
 		item.Status, item.Detail = hostStatusOffline, fmt.Sprintf("healthz returned HTTP %d", resp.StatusCode)
 	}
