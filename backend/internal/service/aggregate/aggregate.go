@@ -85,8 +85,9 @@ type Deps struct {
 type Service struct {
 	deps Deps
 
-	mu          sync.Mutex    // guards the fields below
-	flight      chan struct{} // closed when the in-flight pass ends
+	mu          sync.Mutex      // guards the fields below
+	flight      chan struct{}   // closed when the in-flight pass ends
+	life        context.Context // ends every pass; set by Start
 	hosts       map[string]*hostState
 	fingerprint string
 	lastPass    time.Time
@@ -126,7 +127,7 @@ func New(deps Deps) *Service {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &Service{deps: deps, hosts: map[string]*hostState{}}
+	return &Service{deps: deps, hosts: map[string]*hostState{}, life: context.Background()}
 }
 
 func readRegistry() ([]remotehost.Entry, error) {
@@ -140,6 +141,9 @@ func readRegistry() ([]remotehost.Entry, error) {
 // Start runs a pass now, then passes when the registry changes or Interval
 // elapses. It returns a channel closed when ctx ends.
 func (s *Service) Start(ctx context.Context) <-chan struct{} {
+	s.mu.Lock()
+	s.life = ctx
+	s.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -174,7 +178,7 @@ func (s *Service) registryChanged() bool {
 }
 
 // Refresh runs one pass over all paired hosts. A call during a pass joins it
-// instead of queuing. The pass is detached from ctx.
+// instead of queuing. Passes end with the Start lifetime, not ctx.
 func (s *Service) Refresh(ctx context.Context) {
 	s.mu.Lock()
 	if flight := s.flight; flight != nil {
@@ -187,6 +191,7 @@ func (s *Service) Refresh(ctx context.Context) {
 	}
 	flight := make(chan struct{})
 	s.flight = flight
+	life := s.life
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
@@ -194,7 +199,7 @@ func (s *Service) Refresh(ctx context.Context) {
 		s.mu.Unlock()
 		close(flight)
 	}()
-	s.pass(context.WithoutCancel(ctx))
+	s.pass(life)
 }
 
 // pass is one discovery pass. The caller must own the in-flight slot.

@@ -326,6 +326,35 @@ func TestRefreshCallerCancelDoesNotCutHostsShort(t *testing.T) {
 	assertEntries(t, svc.Effective("app", "https://github.com/o/app", domain.ProjectConfig{}), []Entry{{HostID: "h_a", HostLabel: "Alpha", ProjectID: "app", Source: SourceDiscovered, MatchedBy: MatchedByRepo}})
 }
 
+func TestStartShutdownEndsInFlightPassPromptly(t *testing.T) {
+	started := make(chan struct{}, 1)
+	hosts := &fakeHosts{
+		entries: []remotehost.Entry{entry("h_a", "Alpha", "pw")},
+		behavior: map[string]func(context.Context) (Remote, error){
+			"h_a": func(ctx context.Context) (Remote, error) {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				<-ctx.Done()
+				return nil, ctx.Err()
+			},
+		},
+		opens: map[string]int{},
+	}
+	svc := newTestService(hosts, time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := svc.Start(ctx)
+	<-started
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown waited for an in-flight pass after its context was cancelled")
+	}
+}
+
 func assertEntries(t *testing.T, got, want []Entry) {
 	t.Helper()
 	if len(got) != len(want) {
