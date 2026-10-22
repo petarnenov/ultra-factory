@@ -714,7 +714,8 @@ export function useProjectIdentity(hostId: string | undefined, projectId: string
 				repo: data.project.repo,
 				workspaceRepos: data.project.workspaceRepos,
 				aggregateProjects: data.project.config?.aggregateProjects ?? [],
-				aggregateEffective: data.aggregateEffective ?? [],
+				// Absent when the daemon predates aggregateEffective.
+				aggregateEffective: "aggregateEffective" in data ? data.aggregateEffective : undefined,
 			};
 		},
 		enabled: Boolean(projectId),

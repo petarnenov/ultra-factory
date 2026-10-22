@@ -12,6 +12,17 @@ export function validateCompletedTasksSearch(search: Record<string, unknown>): C
 	return typeof search.task === "string" && search.task ? { task: search.task } : {};
 }
 
+type ProjectRef = { hostId: string; projectId: string };
+
+// Uses the effective aggregate set, falling back to the explicit list only when
+// the daemon predates aggregateEffective.
+export function completedTaskAssociations(identity: {
+	aggregateEffective?: ProjectRef[];
+	aggregateProjects?: ProjectRef[];
+} | undefined): ProjectRef[] | undefined {
+	return identity?.aggregateEffective ?? identity?.aggregateProjects;
+}
+
 // Explicit host/project references come from project identity (#194); they are
 // never inferred from URLs or display names.
 export function buildCompletedTaskRefs(
@@ -33,9 +44,10 @@ export function buildCompletedTaskRefs(
 export function CompletedTasksRoute({ hostId = LOCAL_HOST, projectId, task }: { hostId?: HostId; projectId: string; task?: string }) {
 	const navigate = useNavigate();
 	const identity = useProjectIdentity(hostId === LOCAL_HOST ? undefined : hostId, projectId);
+	const associations = identity.data;
 	const refs = useMemo(
-		() => buildCompletedTaskRefs(hostId, projectId, identity.data?.aggregateEffective),
-		[hostId, projectId, identity.data?.aggregateEffective],
+		() => buildCompletedTaskRefs(hostId, projectId, completedTaskAssociations(associations)),
+		[hostId, projectId, associations],
 	);
 	const loaded = useCompletedTasks(refs, undefined, 1);
 	const selectedRef =

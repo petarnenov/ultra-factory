@@ -1,6 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { buildCompletedTaskRefs } from "./CompletedTasksRoute";
+import { buildCompletedTaskRefs, completedTaskAssociations } from "./CompletedTasksRoute";
 import { LOCAL_HOST } from "../lib/hosts";
+
+describe("completedTaskAssociations", () => {
+	it("falls back to the explicit list when the daemon omits aggregateEffective", () => {
+		expect(completedTaskAssociations({
+			aggregateEffective: undefined,
+			aggregateProjects: [{ hostId: "host-b", projectId: "proj-b" }],
+		})).toEqual([{ hostId: "host-b", projectId: "proj-b" }]);
+	});
+
+	it("keeps an empty effective set instead of falling back", () => {
+		expect(completedTaskAssociations({
+			aggregateEffective: [],
+			aggregateProjects: [{ hostId: "host-b", projectId: "proj-b" }],
+		})).toEqual([]);
+	});
+
+	it("returns undefined without identity", () => {
+		expect(completedTaskAssociations(undefined)).toBeUndefined();
+	});
+});
 
 describe("buildCompletedTaskRefs", () => {
 	it("always includes the selected project before explicit associations", () => {
