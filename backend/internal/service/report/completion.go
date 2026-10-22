@@ -73,11 +73,24 @@ func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput)
 		return nil
 	}
 	var prs []string
+	var claimed []string
 	for _, pr := range in.PRs {
 		if pr.Number <= 0 || strings.TrimSpace(pr.MergeCommitSHA) == "" {
 			return apierr.Invalid("INVALID_COMPLETION_REPORT", "PR number and merge commit are required", nil)
 		}
+		// A merge the observer already announced is not repeated here.
+		won, err := c.store.ClaimPRMergeAnnouncement(ctx, pr.MergeCommitSHA, "", domain.SessionID(in.SessionID), c.now().UTC())
+		if err != nil {
+			return err
+		}
+		if !won {
+			continue
+		}
+		claimed = append(claimed, pr.MergeCommitSHA)
 		prs = append(prs, fmt.Sprintf("PR #%d merge commit %s", pr.Number, pr.MergeCommitSHA))
+	}
+	if len(prs) == 0 {
+		return nil
 	}
 	message := fmt.Sprintf("TICK completion: worker %s/%s; %s; action %s completed.",
 		in.HostID, in.SessionID, strings.Join(prs, "; "), in.Kind)
@@ -88,7 +101,22 @@ func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput)
 	if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return errors.Join(err, c.releaseMergeClaims(ctx, claimed))
+	}
+	return nil
+}
+
+// releaseMergeClaims drops claims whose message was not delivered so the
+// next observation or tick announces those merges.
+func (c *Coordinator) releaseMergeClaims(ctx context.Context, shas []string) error {
+	var errs []error
+	for _, sha := range shas {
+		if err := c.store.ReleasePRMergeAnnouncement(ctx, sha); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // CompletionRecipient is a hub-owned snapshot taken before a completion action.

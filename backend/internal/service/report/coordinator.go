@@ -39,6 +39,8 @@ type DeliveryStore interface {
 	ClearSessionOwnerIf(context.Context, domain.SessionID, domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.SessionRecord, bool, error)
 	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	ClearRemoteWorkerOwnerIf(context.Context, string, domain.SessionID, domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
+	ClaimPRMergeAnnouncement(context.Context, string, string, domain.SessionID, time.Time) (bool, error)
+	ReleasePRMergeAnnouncement(context.Context, string) error
 }
 
 // Delivery submits accepted semantic context and interrupts active work.

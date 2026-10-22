@@ -29,13 +29,10 @@ func TestCompletionResolvesLocalCoordinatorOwnerAndStableAcceptanceKey(t *testin
 			if err := c.DeliverCompletion(context.Background(), input); err != nil {
 				t.Fatal(err)
 			}
-			if err := c.DeliverCompletion(context.Background(), input); err != nil {
-				t.Fatal(err)
+			if len(delivery.submissions) != 1 {
+				t.Fatalf("a repeated completion for a merge already announced was sent: %+v", delivery.submissions)
 			}
-			if len(delivery.submissions) != 2 || delivery.submissions[0].key != delivery.submissions[1].key {
-				t.Fatalf("unstable retry: %+v", delivery.submissions)
-			}
-			got := delivery.submissions[1]
+			got := delivery.submissions[0]
 			if key, ok := domain.ReportDeliveryID(domain.WrapReportDelivery(got.key, got.message)); !ok || key != got.key {
 				t.Fatalf("notification key cannot be accepted by report hooks: %q", got.key)
 			}
@@ -43,10 +40,12 @@ func TestCompletionResolvesLocalCoordinatorOwnerAndStableAcceptanceKey(t *testin
 				t.Fatalf("notification: %+v", got)
 			}
 			store.sessions[0].IsTerminated = true
-			if err := c.DeliverCompletion(context.Background(), input); err != nil {
+			next := input
+			next.PRs = []CompletionPR{{Number: 202, MergeCommitSHA: "merge-commit-2"}}
+			if err := c.DeliverCompletion(context.Background(), next); err != nil {
 				t.Fatal(err)
 			}
-			if len(delivery.submissions) != 2 {
+			if len(delivery.submissions) != 1 {
 				t.Fatal("notified terminated owner")
 			}
 		})
@@ -116,8 +115,18 @@ func TestCompletionConsumesSemanticTimeoutAndRetriesOtherErrors(t *testing.T) {
 		t.Fatalf("semantic timeout should be consumed: %v", err)
 	}
 	delivery.submitErr = ErrRecipientUnavailable
-	if err := c.DeliverCompletion(context.Background(), input); err == nil {
+	retry := CompletionInput{SessionID: "worker", ActionKey: "merge:2@head", Kind: "merge", PRs: []CompletionPR{{Number: 2, MergeCommitSHA: "commit-2"}}}
+	if err := c.DeliverCompletion(context.Background(), retry); err == nil {
 		t.Fatal("delivery failure was not returned for retry")
+	}
+	delivery.submitErr = nil
+	if err := c.DeliverCompletion(context.Background(), retry); err != nil {
+		t.Fatalf("retry after a failed send: %v", err)
+	}
+	// The failed attempt is not recorded, so the one submission is the retry:
+	// the claim was released and the retry was not dropped as a duplicate.
+	if n := len(delivery.submissions); n != 1 || !strings.Contains(delivery.submissions[0].message, "commit-2") {
+		t.Fatalf("failed claim was not released for retry: %+v", delivery.submissions)
 	}
 }
 

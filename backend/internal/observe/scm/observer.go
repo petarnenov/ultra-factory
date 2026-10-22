@@ -90,6 +90,12 @@ type Lifecycle interface {
 	RetryCompletedSessionTermination(ctx context.Context, sessionID domain.SessionID) error
 }
 
+// MergeAnnouncer tells the owning coordinator that a worker's PR merged. The
+// observer calls it once per merge transition it persists.
+type MergeAnnouncer interface {
+	AnnounceMerged(ctx context.Context, worker domain.SessionID, prURL string, number int, sha string) error
+}
+
 type credentialChecker interface {
 	SCMCredentialsAvailable(ctx context.Context) (bool, error)
 }
@@ -153,6 +159,9 @@ func defaultRateLimitCooldown(now time.Time) time.Duration {
 
 // Config holds optional observer knobs. Zero values use production defaults.
 type Config struct {
+	// MergeAnnouncer receives a notice for each newly merged worker PR. Nil
+	// disables merge notices.
+	MergeAnnouncer MergeAnnouncer
 	// Tick is the fast PR/CI polling interval. Zero uses DefaultTickInterval.
 	Tick time.Duration
 	// ReviewInterval is the slower review-thread refresh interval.
@@ -261,12 +270,15 @@ type Observer struct {
 	// account-scoped token. Guarded by reviewReposMu.
 	reviewReposMu sync.Mutex
 	reviewRepos   map[string]ports.SCMRepo
+
+	// mergeAnnouncer notifies owners of newly merged worker PRs. Optional.
+	mergeAnnouncer MergeAnnouncer
 }
 
 // New constructs an Observer with default cadence/cache settings for zero
 // values in cfg.
 func New(provider Provider, store Store, lifecycle Lifecycle, cfg Config) *Observer {
-	o := &Observer{provider: provider, store: store, lifecycle: lifecycle, tick: cfg.Tick, reviewInterval: cfg.ReviewInterval, clock: cfg.Clock, logger: cfg.Logger, scopedIdentityResolver: cfg.ScopedIdentityResolver, Cache: newCache(cfg.CacheMax), rateLimitUntil: map[string]time.Time{}, branchStates: cfg.BranchStates}
+	o := &Observer{provider: provider, store: store, lifecycle: lifecycle, tick: cfg.Tick, reviewInterval: cfg.ReviewInterval, clock: cfg.Clock, logger: cfg.Logger, scopedIdentityResolver: cfg.ScopedIdentityResolver, Cache: newCache(cfg.CacheMax), rateLimitUntil: map[string]time.Time{}, branchStates: cfg.BranchStates, mergeAnnouncer: cfg.MergeAnnouncer}
 	if o.tick <= 0 {
 		o.tick = DefaultTickInterval
 	}
@@ -620,6 +632,12 @@ func (o *Observer) Poll(ctx context.Context) error {
 			o.logger.Error("scm observer: DB write failed", "session", subj.session.ID, "pr", pr.URL, "err", err)
 			markRepoRefreshFailed(subj.repo)
 			continue
+		}
+		if o.mergeAnnouncer != nil && !local.Merged && prepared.PR.Merged {
+			prURL := firstNonEmpty(prepared.PR.URL, prepared.PR.HTMLURL, local.URL)
+			if err := o.mergeAnnouncer.AnnounceMerged(ctx, subj.session.ID, prURL, prepared.PR.Number, prepared.PR.MergeCommitSHA); err != nil {
+				o.logger.Error("scm observer: merge announcement failed", "session", subj.session.ID, "pr", prURL, "err", err)
+			}
 		}
 		if o.lifecycle != nil {
 			if err := o.lifecycle.ApplySCMObservation(ctx, subj.session.ID, prepared); err != nil {

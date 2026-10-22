@@ -323,6 +323,8 @@ type coordinatorStore struct {
 	acked       int
 	ownerEvents []coordinatorOwnerEvent
 	links       map[string]domain.RemoteWorkerLink
+	// merges holds merge commit SHAs already claimed for announcement.
+	merges map[string]bool
 	// beforeRemoteClear runs before a remote compare-and-clear reads the link.
 	beforeRemoteClear func()
 	// claims counts batch claims so a regression can bound a spin instead of
@@ -521,6 +523,26 @@ func (s *coordinatorStore) GetRemoteWorkerLink(_ context.Context, hostID string,
 	defer s.mu.Unlock()
 	link, ok := s.links[hostID+"/"+string(remote)]
 	return link, ok, nil
+}
+
+func (s *coordinatorStore) ClaimPRMergeAnnouncement(_ context.Context, sha, _ string, _ domain.SessionID, _ time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.merges == nil {
+		s.merges = map[string]bool{}
+	}
+	if s.merges[sha] {
+		return false, nil
+	}
+	s.merges[sha] = true
+	return true, nil
+}
+
+func (s *coordinatorStore) ReleasePRMergeAnnouncement(_ context.Context, sha string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.merges, sha)
+	return nil
 }
 
 func (s *coordinatorStore) ClearRemoteWorkerOwnerIf(_ context.Context, hostID string, remote, expected domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
