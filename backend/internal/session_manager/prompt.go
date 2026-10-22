@@ -271,7 +271,7 @@ This project enables helper coordinators. When an assignment has two or more bou
 
 - Spawn a coordinator with `+"`ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>`"+`. Size the hosts with the host allocation below. Do not pass `+"`--host`"+` for a coordinator; it runs where you run.
 - Project limits: %d live coordinators, %d workers per coordinator and %d workers per project. The hard maximums are %d, %d and %d. Check coordinators with `+"`ao coordinator ls`"+` and change one's limits with `+"`ao coordinator set-limits <coordinator-id>`"+`.
-- Send the brief with the five sections of `+"`docs/coordinators/operating-contract.md`"+`: scope, out of scope, task list with acceptance criteria, worker cap and branch rules, and reporting cadence.
+- Send the brief with five sections: scope, out of scope, task list with acceptance criteria, worker cap and branch rules, and reporting cadence.
 - Move an existing worker with `+"`ao session assign <worker> --owner <coordinator-id>`"+`, or `+"`ao remote-worker assign`"+` for a remote link. Return it with `+"`--owner root`"+`.
 - You stay the only merger. A coordinator reports a ready pull request with `+"`ao coordinator report --ready-pr <number>@<head-sha>`"+`; you check the head and CI, then merge.
 - Do not announce merges or slot changes by hand: the daemon notifies a coordinator when its worker's pull request merges and when you change its host slots.`,

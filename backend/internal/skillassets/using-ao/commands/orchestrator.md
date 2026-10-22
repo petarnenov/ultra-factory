@@ -44,7 +44,8 @@ every worker yourself:
 ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>
 ```
 
-The brief follows the template in `docs/coordinators/operating-contract.md`.
+The brief has five sections: scope, out of scope, task list with acceptance
+criteria, worker cap and branch rules, and reporting cadence.
 Check coordinators with `ao coordinator ls`, change limits with
 `ao coordinator set-limits <coordinator-id>`, and move a worker with
 `ao session assign <worker> --owner <coordinator-id>`. Only the root merges; a
