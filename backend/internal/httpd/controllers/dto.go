@@ -4106,3 +4106,42 @@ type CompletionReportRequest = reportsvc.CompletionInput
 type CompletionReportResponse struct {
 	Accepted bool `json:"accepted"`
 }
+
+// CreateLessonRequest records a worker's lesson in the knowledge graph.
+type CreateLessonRequest struct {
+	SessionID string   `json:"sessionId" description:"Worker session recording the lesson."`
+	Kind      string   `json:"kind,omitempty" enum:"pitfall,fix,tip,context" description:"Defaults to tip."`
+	Text      string   `json:"text" maxLength:"1000"`
+	Topics    []string `json:"topics,omitempty" description:"Up to 5 short topic names."`
+}
+
+// CreateLessonResponse identifies the stored lesson.
+type CreateLessonResponse struct {
+	ID string `json:"id"`
+}
+
+// KnowledgeSearchQuery scopes a knowledge search to a session's project or
+// an explicit project.
+type KnowledgeSearchQuery struct {
+	Q         string `query:"q" required:"true" description:"Free-text query."`
+	SessionID string `query:"sessionId,omitempty" description:"Asking worker; implies its project."`
+	ProjectID string `query:"projectId,omitempty" description:"Project to search when no session is given."`
+	Limit     int    `query:"limit,omitempty" description:"Results per section, 1 to 50. Defaults to 5."`
+}
+
+// KnowledgeItem is one lesson or past task from the knowledge graph.
+type KnowledgeItem struct {
+	Section string   `json:"section" enum:"attempt,lesson,task"`
+	ID      string   `json:"id"`
+	Kind    string   `json:"kind"`
+	Title   string   `json:"title"`
+	Outcome string   `json:"outcome"`
+	Text    string   `json:"text"`
+	Lessons []string `json:"lessons"`
+	Score   float64  `json:"score"`
+}
+
+// KnowledgeSearchResponse lists matching knowledge, best first per section.
+type KnowledgeSearchResponse struct {
+	Items []KnowledgeItem `json:"items"`
+}

@@ -62,7 +62,8 @@ func CLIActorType(actorType, commandPath string) string {
 	case "ao session agent-switch", "ao session agent-switch ls", "ao session switch-agent":
 		return "user"
 	}
-	if normalized == "ao hooks" || normalized == "ao report" {
+	switch normalized {
+	case "ao hooks", "ao report", "ao knowledge", "ao knowledge add", "ao knowledge search":
 		return "agent"
 	}
 	return "system"

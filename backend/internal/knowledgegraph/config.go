@@ -1,0 +1,114 @@
+// Package knowledgegraph connects the daemon to the central Neo4j knowledge
+// graph (ADR 0012): task outcomes and lessons go in, prior context comes out.
+package knowledgegraph
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+// Config locates the graph. A zero URL disables the integration.
+type Config struct {
+	URL      string `json:"url"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Database string `json:"database"`
+	// Timeout bounds one query; spawn-time lookups never wait longer.
+	Timeout time.Duration `json:"-"`
+}
+
+// Enabled reports whether a graph is configured.
+func (c Config) Enabled() bool { return c.URL != "" }
+
+const (
+	defaultUser     = "neo4j"
+	defaultDatabase = "neo4j"
+	defaultTimeout  = 3 * time.Second
+	// DefaultConfigFile is relative to the user's home directory.
+	DefaultConfigFile = ".ao/knowledge-graph.json"
+)
+
+// Load reads ~/.ao/knowledge-graph.json (or AO_KNOWLEDGE_GRAPH_CONFIG), then
+// overlays AO_KNOWLEDGE_GRAPH_* variables. A missing file is not an error.
+func Load(getenv func(string) string) (Config, error) {
+	var cfg Config
+	path := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_CONFIG"))
+	if path == "" {
+		if home := getenv("HOME"); home != "" {
+			path = filepath.Join(home, DefaultConfigFile)
+		}
+	}
+	if path != "" {
+		fileCfg, err := readConfigFile(path)
+		if err != nil {
+			return Config{}, err
+		}
+		cfg = fileCfg
+	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_URL")); v != "" {
+		cfg.URL = v
+	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_USER")); v != "" {
+		cfg.User = v
+	}
+	if v := getenv("AO_KNOWLEDGE_GRAPH_PASSWORD"); v != "" {
+		cfg.Password = v
+	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_DATABASE")); v != "" {
+		cfg.Database = v
+	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_TIMEOUT")); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			return Config{}, fmt.Errorf("invalid AO_KNOWLEDGE_GRAPH_TIMEOUT %q", v)
+		}
+		cfg.Timeout = d
+	}
+	if !cfg.Enabled() {
+		return Config{}, nil
+	}
+	u, err := url.Parse(cfg.URL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return Config{}, fmt.Errorf("knowledge graph url %q must be http(s)://host[:port]", cfg.URL)
+	}
+	cfg.URL = strings.TrimRight(cfg.URL, "/")
+	if cfg.User == "" {
+		cfg.User = defaultUser
+	}
+	if cfg.Database == "" {
+		cfg.Database = defaultDatabase
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = defaultTimeout
+	}
+	return cfg, nil
+}
+
+func readConfigFile(path string) (Config, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return Config{}, nil
+	}
+	if err != nil {
+		return Config{}, fmt.Errorf("stat %s: %w", path, err)
+	}
+	// The file holds a password: refuse one others can read.
+	if info.Mode().Perm()&0o077 != 0 {
+		return Config{}, fmt.Errorf("%s must not be readable by group or others (chmod 600)", path)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	var cfg Config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return Config{}, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return cfg, nil
+}

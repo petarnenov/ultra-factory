@@ -2215,6 +2215,124 @@ paths:
       summary: Validate a selected folder for project import onboarding
       tags:
       - import
+  /api/v1/knowledge/lessons:
+    post:
+      operationId: createLesson
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLessonRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateLessonResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Record a worker's lesson in the knowledge graph
+      tags:
+      - knowledge
+  /api/v1/knowledge/search:
+    get:
+      operationId: searchKnowledge
+      parameters:
+      - description: Free-text query.
+        in: query
+        name: q
+        required: true
+        schema:
+          description: Free-text query.
+          type: string
+      - description: Asking worker; implies its project.
+        in: query
+        name: sessionId
+        schema:
+          description: Asking worker; implies its project.
+          type: string
+      - description: Project to search when no session is given.
+        in: query
+        name: projectId
+        schema:
+          description: Project to search when no session is given.
+          type: string
+      - description: Results per section, 1 to 50. Defaults to 5.
+        in: query
+        name: limit
+        schema:
+          description: Results per section, 1 to 50. Defaults to 5.
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeSearchResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Search lessons and past tasks in the knowledge graph
+      tags:
+      - knowledge
   /api/v1/link-preview:
     get:
       operationId: getLinkPreview
@@ -15887,6 +16005,38 @@ components:
       required:
       - side
       type: object
+    CreateLessonRequest:
+      properties:
+        kind:
+          description: Defaults to tip.
+          enum:
+          - pitfall
+          - fix
+          - tip
+          - context
+          type: string
+        sessionId:
+          description: Worker session recording the lesson.
+          type: string
+        text:
+          maxLength: 1000
+          type: string
+        topics:
+          description: Up to 5 short topic names.
+          items:
+            type: string
+          type: array
+      required:
+      - sessionId
+      - text
+      type: object
+    CreateLessonResponse:
+      properties:
+        id:
+          type: string
+      required:
+      - id
+      type: object
     CreateRemoteWorkerLinkRequest:
       properties:
         displayName:
@@ -16891,6 +17041,50 @@ components:
       required:
       - ok
       - sessionId
+      type: object
+    KnowledgeItem:
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        lessons:
+          items:
+            type: string
+          type: array
+        outcome:
+          type: string
+        score:
+          format: double
+          type: number
+        section:
+          enum:
+          - attempt
+          - lesson
+          - task
+          type: string
+        text:
+          type: string
+        title:
+          type: string
+      required:
+      - section
+      - id
+      - kind
+      - title
+      - outcome
+      - text
+      - lessons
+      - score
+      type: object
+    KnowledgeSearchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/KnowledgeItem'
+          type: array
+      required:
+      - items
       type: object
     LinkPreviewResponse:
       properties:
