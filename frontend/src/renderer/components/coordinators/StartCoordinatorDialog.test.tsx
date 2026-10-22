@@ -25,6 +25,7 @@ const roster: CoordinatorRoster = {
 	rootSessionId: "ao-root",
 	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 0, activeWorkers: 0, staleWorkers: 0 },
 	coordinators: [],
+	rootWorkers: [],
 	rootWorkerSessionIds: [],
 };
 
