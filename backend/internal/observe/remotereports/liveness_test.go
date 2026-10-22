@@ -106,10 +106,11 @@ func TestRefusedPasswordIsNotSentAgain(t *testing.T) {
 	}
 }
 
-func TestDiscoveryDoesNotRelinkATerminatedRemovedWorker(t *testing.T) {
+// A worker an operator removed by hand is not linked by the periodic pass
+// even though the host lists it live, and no detail read is spent on it.
+func TestPeriodicDiscoveryDoesNotRelinkAHandRemovedWorker(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	host.sessionList = sessionsJSON(session("w-1", "worker", "widgets", false))
-	host.terminated["w-1"] = true
 	store := newMemStore()
 	store.removals = []domain.RemoteWorkerLinkRemoval{{HostID: "host-build", RemoteSessionID: "w-1", RemovedAt: time.Now()}}
 	linker := newLinker()
@@ -117,11 +118,18 @@ func TestDiscoveryDoesNotRelinkATerminatedRemovedWorker(t *testing.T) {
 	observer := newDiscoveryObserver(store, linker, host)
 	observer.discoverIfDue(context.Background())
 	if store.linkCount() != 0 || len(store.removals) != 1 {
-		t.Fatalf("links = %d, removals = %d; the removed terminated worker was linked again", store.linkCount(), len(store.removals))
+		t.Fatalf("links = %d, removals = %d; the removed worker was linked again", store.linkCount(), len(store.removals))
+	}
+	for _, request := range host.seen() {
+		if request.path == "/api/v1/sessions/w-1" {
+			t.Fatalf("the removed worker was read again: %+v", request)
+		}
 	}
 }
 
-func TestDiscoveryRelinksARemovedWorkerThatIsLiveAgain(t *testing.T) {
+// An operator's sync links a removed live worker again and forgets the
+// removal, so the periodic pass keeps the link from then on.
+func TestOperatorSyncRelinksAHandRemovedWorker(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	host.sessionList = sessionsJSON(session("w-1", "worker", "widgets", false))
 	store := newMemStore()
@@ -129,9 +137,11 @@ func TestDiscoveryRelinksARemovedWorkerThatIsLiveAgain(t *testing.T) {
 	linker := newLinker()
 	linker.store = store
 	observer := newDiscoveryObserver(store, linker, host)
-	observer.discoverIfDue(context.Background())
+	if _, err := observer.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	if store.linkCount() != 1 || len(store.removals) != 0 {
-		t.Fatalf("links = %d, removals = %d; a live removed worker should be linked again", store.linkCount(), len(store.removals))
+		t.Fatalf("links = %d, removals = %d; an operator sync should link the removed worker again", store.linkCount(), len(store.removals))
 	}
 }
 

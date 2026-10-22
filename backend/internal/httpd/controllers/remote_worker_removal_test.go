@@ -66,9 +66,9 @@ func TestRemoteWorkerLinkReleaseAfterAKillIsIdempotent(t *testing.T) {
 	if _, ok, _ := store.GetRemoteWorkerLink(ctx, "host-build", "widgets-4"); ok {
 		t.Fatal("release kept the link")
 	}
-	// Removed, so discovery will not link a terminated worker again.
+	// A kill leaves no removal memory: the worker is terminated anyway.
 	removals, err := store.ListRemoteWorkerLinkRemovals(ctx)
-	if err != nil || len(removals) != 1 || removals[0].RemoteSessionID != "widgets-4" {
+	if err != nil || len(removals) != 0 {
 		t.Fatalf("removals = %+v err=%v", removals, err)
 	}
 }

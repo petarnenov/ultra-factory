@@ -293,7 +293,8 @@ func newRemoteWorkerSyncCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Link live remote workers on saved hosts now",
-		Long: "Run one discovery pass: link every live worker on a saved host that has no link yet. " +
+		Long: "Run one discovery pass: link every live worker on a saved host that has no link yet, " +
+			"including workers removed by hand with rm. " +
 			"Each host prints its linked and skipped counts; a blocked or offline host is reported, not fatal.",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

@@ -11,7 +11,7 @@ import (
 )
 
 // RemoveLink drops a linked remote worker by hand; only the live root may.
-// The removal is logged and kept so discovery skips terminated workers.
+// The removal is logged and kept so discovery skips the worker until a sync.
 func (s *Service) RemoveLink(
 	ctx context.Context,
 	hostID string,
@@ -50,8 +50,8 @@ func (s *Service) RemoveLink(
 	return link, nil
 }
 
-// ReleaseKilled drops the link of a worker this daemon just killed.
-// No root check: the kill already succeeded. A missing link is fine.
+// ReleaseKilled drops the link of a worker this daemon just killed, with no
+// root check and no removal memory: discovery skips a terminated worker.
 func (s *Service) ReleaseKilled(ctx context.Context, hostID string, remoteSessionID domain.SessionID) error {
 	if s == nil || s.store == nil {
 		return fmt.Errorf("remoteworker: store is required")
@@ -63,7 +63,7 @@ func (s *Service) ReleaseKilled(ctx context.Context, hostID string, remoteSessio
 	projectLock := s.capacity.Project(link.ProjectID)
 	projectLock.Lock()
 	defer projectLock.Unlock()
-	if err := s.store.RemoveRemoteWorkerLink(ctx, hostID, remoteSessionID, s.now()); err != nil {
+	if err := s.store.DeleteRemoteWorkerLink(ctx, hostID, remoteSessionID); err != nil {
 		return err
 	}
 	slog.Info("remote worker link released after kill",

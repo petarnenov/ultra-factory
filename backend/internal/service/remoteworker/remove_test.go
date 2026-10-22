@@ -56,7 +56,7 @@ func TestReleaseKilledDropsTheLinkWithoutACaller(t *testing.T) {
 			t.Fatalf("release %d: %v", i, err)
 		}
 	}
-	if len(store.stored) != 0 || len(store.removals) != 1 {
-		t.Fatalf("stored = %d, removals = %d; want the link gone and one removal", len(store.stored), len(store.removals))
+	if len(store.stored) != 0 || len(store.removals) != 0 {
+		t.Fatalf("stored = %d, removals = %d; want the link gone and no removal", len(store.stored), len(store.removals))
 	}
 }

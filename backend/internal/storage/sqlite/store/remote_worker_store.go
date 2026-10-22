@@ -93,7 +93,7 @@ func (s *Store) UpdateRemoteWorkerLinkLiveness(ctx context.Context, hostID strin
 }
 
 // RemoveRemoteWorkerLink drops a link by hand and remembers the removal in
-// the same transaction, so discovery does not link a terminated worker again.
+// the same transaction, so periodic discovery does not link the worker again.
 func (s *Store) RemoveRemoteWorkerLink(ctx context.Context, hostID string, remoteSessionID domain.SessionID, at time.Time) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -128,8 +128,8 @@ func (s *Store) ListRemoteWorkerLinkRemovals(ctx context.Context) ([]domain.Remo
 	return removals, nil
 }
 
-// DeleteRemoteWorkerLinkRemoval forgets a removal, e.g. once a live worker
-// is linked again.
+// DeleteRemoteWorkerLinkRemoval forgets a removal, once an operator asks for
+// the worker to be linked again.
 func (s *Store) DeleteRemoteWorkerLinkRemoval(ctx context.Context, hostID string, remoteSessionID domain.SessionID) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

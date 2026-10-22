@@ -119,8 +119,10 @@ worker is linked again by the next discovery pass.
 An operator can drop a link by hand with `ao remote-worker rm` or `DELETE
 /api/v1/remote-worker-links/{hostId}/{remoteSessionId}?requestedBySessionId=`.
 Only the live root may do it, and the daemon logs every removal. The removal
-is remembered, so discovery does not link a terminated worker again. A live
-worker that was removed is linked again once discovery sees it live.
+is remembered, so the periodic discovery pass does not link that worker again
+while it stays live on the host. `ao remote-worker sync` is the operator's way
+back: it forgets the removal and links the worker again. A kill leaves no
+memory; the worker is terminated and discovery skips it anyway.
 
 ### Discovery
 

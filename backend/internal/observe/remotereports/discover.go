@@ -23,9 +23,15 @@ type Linker interface {
 	LinkDiscovered(context.Context, domain.RemoteWorkerLink) (bool, error)
 }
 
-// Sync runs one discovery pass over every saved host, in parallel.
-// Each host has its own budget, so an offline host cannot delay the rest.
+// Sync runs one discovery pass over every saved host on an operator's
+// request. Unlike the periodic pass, it links hand-removed workers again.
 func (o *Observer) Sync(ctx context.Context) ([]remoteworker.HostSync, error) {
+	return o.sync(ctx, true)
+}
+
+// sync runs one discovery pass over every saved host, in parallel.
+// Each host has its own budget, so an offline host cannot delay the rest.
+func (o *Observer) sync(ctx context.Context, relink bool) ([]remoteworker.HostSync, error) {
 	if o == nil || o.linker == nil || o.entries == nil {
 		return nil, errors.New("remote discovery: linker and saved hosts are required")
 	}
@@ -37,7 +43,7 @@ func (o *Observer) Sync(ctx context.Context) ([]remoteworker.HostSync, error) {
 	}
 	o.lastDiscovery = o.now()
 	o.savedHosts = savedHostsSignature(entries)
-	results := o.discoverAll(ctx, entries)
+	results := o.discoverAll(ctx, entries, relink)
 	linked := 0
 	for _, result := range results {
 		linked += result.Linked
@@ -66,13 +72,13 @@ func (o *Observer) discoverIfDue(ctx context.Context) {
 	if !due {
 		return
 	}
-	if _, err := o.Sync(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if _, err := o.sync(ctx, false); err != nil && !errors.Is(err, context.Canceled) {
 		o.log.Warn("remote discovery: pass failed", "err", err)
 	}
 }
 
 // discoverAll scans each distinct saved host, skipping this machine.
-func (o *Observer) discoverAll(ctx context.Context, entries []remotehost.Entry) []remoteworker.HostSync {
+func (o *Observer) discoverAll(ctx context.Context, entries []remotehost.Entry, relink bool) []remoteworker.HostSync {
 	seen := map[string]bool{}
 	var hosts []remotehost.Entry
 	for _, entry := range entries {
@@ -90,7 +96,7 @@ func (o *Observer) discoverAll(ctx context.Context, entries []remotehost.Entry) 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results[i] = o.discoverHost(ctx, entry)
+			results[i] = o.discoverHost(ctx, entry, relink)
 		}()
 	}
 	wg.Wait()
@@ -98,8 +104,8 @@ func (o *Observer) discoverAll(ctx context.Context, entries []remotehost.Entry) 
 }
 
 // discoverHost links the live workers of one saved host that have no link.
-// A blocked or refused host is not contacted.
-func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) remoteworker.HostSync {
+// A hand-removed worker stays unlinked unless relink forgets the removal.
+func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry, relink bool) remoteworker.HostSync {
 	label := strings.TrimSpace(entry.Label)
 	if label == "" {
 		label = entry.HostID
@@ -143,7 +149,7 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 			result.Skipped++
 			continue
 		}
-		if removed[session.ID] && !o.relinkRemoved(hostCtx, client, entry.HostID, session.ID) {
+		if removed[session.ID] && (!relink || !o.forgetRemoval(ctx, entry.HostID, session.ID)) {
 			result.Skipped++
 			continue
 		}
@@ -187,13 +193,9 @@ func (o *Observer) removedWorkers(ctx context.Context, hostID string) (map[domai
 	return removed, nil
 }
 
-// relinkRemoved reports whether a removed worker may be linked again.
-// Not while the host reports it terminated; a live worker is linked.
-func (o *Observer) relinkRemoved(ctx context.Context, client *hostClient, hostID string, sessionID domain.SessionID) bool {
-	terminated, err := client.terminated(ctx, sessionID)
-	if err != nil || terminated {
-		return false
-	}
+// forgetRemoval drops the removal memory of a worker an operator asked to
+// link again. A failed forget keeps the worker unlinked for this pass.
+func (o *Observer) forgetRemoval(ctx context.Context, hostID string, sessionID domain.SessionID) bool {
 	if err := o.store.DeleteRemoteWorkerLinkRemoval(ctx, hostID, sessionID); err != nil {
 		o.log.Error("remote discovery: forget link removal failed", "host", hostID, "session", sessionID, "err", err)
 		return false
