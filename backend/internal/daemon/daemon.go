@@ -753,8 +753,16 @@ func Run() error {
 		log.Warn("session health: invalid environment, using defaults", "err", healthConfigErr)
 		healthConfig = sessionhealth.DefaultConfig()
 	}
+	var healthOps sessionhealth.OperationSource
+	if manager, ok := wiredSessMgr.(interface {
+		AgentOperationInProgress(domain.SessionID) (sessionmanager.AgentOperationStatus, bool)
+		AbandonAgentOperation(domain.SessionID) bool
+	}); ok {
+		healthOps = healthOperations{manager: manager}
+	}
 	healthObserver := sessionhealth.NewObserver(store, notificationWriter, sessionhealth.ObserverConfig{
 		Health:            healthConfig,
+		Operations:        healthOps,
 		Tick:              sessionhealth.TickInterval(os.Getenv),
 		Logger:            log,
 		Messenger:         lifecycleMessenger,

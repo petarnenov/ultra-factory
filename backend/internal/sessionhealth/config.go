@@ -11,26 +11,28 @@ import (
 
 // Configuration environment variables.
 const (
-	EnvProviderAfter = "AO_STALL_PROVIDER_AFTER_SECONDS"
-	EnvToolAfter     = "AO_STALL_TOOL_AFTER_SECONDS"
-	EnvLongToolAfter = "AO_STALL_LONG_TOOL_AFTER_SECONDS"
-	EnvTerminalAfter = "AO_STALL_TERMINAL_AFTER_SECONDS"
-	EnvGitAfter      = "AO_STALL_GIT_AFTER_SECONDS"
-	EnvBlockedAfter  = "AO_STALL_BLOCKED_AFTER_SECONDS"
-	EnvLongTools     = "AO_STALL_LONG_TOOLS"
-	EnvTick          = "AO_STALL_TICK_SECONDS"
+	EnvProviderAfter  = "AO_STALL_PROVIDER_AFTER_SECONDS"
+	EnvToolAfter      = "AO_STALL_TOOL_AFTER_SECONDS"
+	EnvLongToolAfter  = "AO_STALL_LONG_TOOL_AFTER_SECONDS"
+	EnvTerminalAfter  = "AO_STALL_TERMINAL_AFTER_SECONDS"
+	EnvGitAfter       = "AO_STALL_GIT_AFTER_SECONDS"
+	EnvBlockedAfter   = "AO_STALL_BLOCKED_AFTER_SECONDS"
+	EnvOperationAfter = "AO_STALL_OPERATION_AFTER_SECONDS"
+	EnvLongTools      = "AO_STALL_LONG_TOOLS"
+	EnvTick           = "AO_STALL_TICK_SECONDS"
 )
 
 // Default thresholds. They are deliberately conservative: a legitimate long
 // tool call must finish inside its budget before health reports a stall.
 const (
-	DefaultProviderAfter = 15 * time.Minute
-	DefaultToolAfter     = 30 * time.Minute
-	DefaultLongToolAfter = 60 * time.Minute
-	DefaultTerminalAfter = 20 * time.Minute
-	DefaultGitAfter      = 20 * time.Minute
-	DefaultBlockedAfter  = 20 * time.Minute
-	defaultTick          = 30 * time.Second
+	DefaultProviderAfter  = 15 * time.Minute
+	DefaultToolAfter      = 30 * time.Minute
+	DefaultLongToolAfter  = 60 * time.Minute
+	DefaultTerminalAfter  = 20 * time.Minute
+	DefaultGitAfter       = 20 * time.Minute
+	DefaultBlockedAfter   = 20 * time.Minute
+	DefaultOperationAfter = 5 * time.Minute
+	defaultTick           = 30 * time.Second
 )
 
 // Config controls the derived-health thresholds.
@@ -51,6 +53,9 @@ type Config struct {
 	// BlockedAfter is how long a needs-input or reported credential failure may
 	// sit before it is surfaced as blocked rather than merely waiting.
 	BlockedAfter time.Duration
+	// OperationAfter is how long a wake, exit, or switch may hold the session
+	// before it is surfaced as stuck and abandoned.
+	OperationAfter time.Duration
 	// LongTools are the normalized tool names given LongToolSilence.
 	LongTools map[string]struct{}
 }
@@ -64,6 +69,7 @@ func DefaultConfig() Config {
 		TerminalSilence: DefaultTerminalAfter,
 		GitSilence:      DefaultGitAfter,
 		BlockedAfter:    DefaultBlockedAfter,
+		OperationAfter:  DefaultOperationAfter,
 		LongTools:       defaultLongTools(),
 	}
 }
@@ -102,6 +108,7 @@ func FromEnv(getenv func(string) string) (Config, error) {
 	seconds(EnvTerminalAfter, &cfg.TerminalSilence)
 	seconds(EnvGitAfter, &cfg.GitSilence)
 	seconds(EnvBlockedAfter, &cfg.BlockedAfter)
+	seconds(EnvOperationAfter, &cfg.OperationAfter)
 	if raw := strings.TrimSpace(getenv(EnvLongTools)); raw != "" {
 		cfg.LongTools = map[string]struct{}{}
 		for _, name := range strings.Split(raw, ",") {

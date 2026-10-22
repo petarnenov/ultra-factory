@@ -251,6 +251,23 @@ func (m *Manager) AgentOperationInProgress(id domain.SessionID) (AgentOperationS
 	return AgentOperationStatus{Kind: string(kind), StartedAt: m.agentOperationRecords[id].startedAt}, true
 }
 
+// AbandonAgentOperation cancels the gate holder if it is cancellable (a wake) and
+// reports whether it did. The holder releases the gate itself when it returns.
+func (m *Manager) AbandonAgentOperation(id domain.SessionID) bool {
+	if m == nil {
+		return false
+	}
+	id = domain.SessionID(strings.TrimSpace(string(id)))
+	m.agentOpMu.Lock()
+	cancel := m.agentOperationRecords[id].cancel
+	m.agentOpMu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
+}
+
 // agentOperationBusy refuses an operation that cannot share the gate. It names
 // the holder and its age; it matches the holder's sentinel and the generic one.
 type agentOperationBusy struct {

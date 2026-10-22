@@ -36,6 +36,9 @@ type ObserverConfig struct {
 	// Messenger optionally sends a checkpoint request to a stalled session.
 	// Nil disables it.
 	Messenger ports.AgentMessenger
+	// Operations optionally surfaces and abandons transitions stuck past
+	// Health.OperationAfter. Nil disables it.
+	Operations OperationSource
 	// RequestCheckpoint enables the optional session-side nudge.
 	RequestCheckpoint bool
 }
@@ -53,6 +56,7 @@ type Observer struct {
 	onRecovered func(context.Context, domain.SessionRecord, domain.SessionProgress, domain.SessionHealth) error
 	messenger   ports.AgentMessenger
 	checkpoint  bool
+	operations  OperationSource
 }
 
 // NewObserver builds a health observer.
@@ -62,6 +66,7 @@ func NewObserver(store ObserverStore, notifier Notifier, cfg ObserverConfig) *Ob
 		clock: cfg.Clock, logger: cfg.Logger, onStalled: cfg.OnStalled,
 		onRecovered: cfg.OnRecovered,
 		messenger:   cfg.Messenger, checkpoint: cfg.RequestCheckpoint,
+		operations: cfg.Operations,
 	}
 	if o.cfg.ProviderSilence <= 0 {
 		o.cfg = DefaultConfig()
@@ -115,12 +120,30 @@ func (o *Observer) Poll(ctx context.Context) error {
 	now := o.clock().UTC()
 	for _, rec := range sessions {
 		progress := progressBySession[rec.ID]
-		health := Derive(rec, progress, now, o.cfg)
+		health := o.deriveHealth(rec, progress, now)
 		if err := o.evaluate(ctx, rec, progress, health, now); err != nil {
 			o.logger.Warn("session health: evaluate failed", "session", rec.ID, "err", err)
 		}
 	}
 	return nil
+}
+
+// deriveHealth overlays a stuck transition and abandons it so the session
+// becomes usable again.
+func (o *Observer) deriveHealth(rec domain.SessionRecord, progress domain.SessionProgress, now time.Time) domain.SessionHealth {
+	health := Derive(rec, progress, now, o.cfg)
+	if o.operations == nil {
+		return health
+	}
+	op, held := o.operations.AgentOperation(rec.ID)
+	if !held {
+		return health
+	}
+	stuck := WithOperation(health, &op, now, o.cfg)
+	if stuck.Reason == ReasonAgentOperationStuck && o.operations.AbandonAgentOperation(rec.ID) {
+		o.logger.Warn("session health: abandoned stuck agent operation", "session", rec.ID, "operation", op.Kind, "since", op.StartedAt)
+	}
+	return stuck
 }
 
 func (o *Observer) evaluate(ctx context.Context, rec domain.SessionRecord, progress domain.SessionProgress, health domain.SessionHealth, now time.Time) error {
