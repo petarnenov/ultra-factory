@@ -790,3 +790,19 @@ func TestSendCarriesCooperativeSessionIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestSend_PassesA16KiBMessageToTheDaemon(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	cfg := setConfigEnv(t)
+	srv, capture := sendServer(t, http.StatusOK, `{"ok":true,"sessionId":"demo-1","message":"hi","delivery":{"queued":true}}`)
+	writeRunFileFor(t, cfg, srv)
+	message := strings.Repeat("a", 16*1024)
+
+	_, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", message)
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(capture.body, message) {
+		t.Fatalf("request body is %d bytes, want the full 16 KiB message", len(capture.body))
+	}
+}

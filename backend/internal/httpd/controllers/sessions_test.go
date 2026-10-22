@@ -4017,6 +4017,18 @@ func TestSessionsAPI_SendValidation(t *testing.T) {
 	assertErrorCode(t, body, status, http.StatusBadRequest, "MESSAGE_REQUIRED")
 }
 
+func TestSessionsAPI_SendMessageSizeLimit(t *testing.T) {
+	srv := newSessionTestServer(t, newFakeSessionService())
+
+	atLimit := `{"message":"` + strings.Repeat("a", 16*1024) + `"}`
+	if body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/ao-1/send", atLimit); status != http.StatusOK {
+		t.Fatalf("send at 16 KiB = %d, want 200; body=%s", status, body)
+	}
+	overLimit := `{"message":"` + strings.Repeat("a", 16*1024+1) + `"}`
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/ao-1/send", overLimit)
+	assertErrorCode(t, body, status, http.StatusBadRequest, "MESSAGE_TOO_LONG")
+}
+
 func TestSessionsAPI_DelegateTask(t *testing.T) {
 	svc := newFakeSessionService()
 	srv := newSessionTestServer(t, svc)
