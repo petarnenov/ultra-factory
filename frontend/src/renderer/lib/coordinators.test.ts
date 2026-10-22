@@ -88,6 +88,33 @@ describe("coordinatorsConfigFrom", () => {
 		expect(form.maxCoordinators).toBe("3");
 		expect(coordinatorsConfigFrom(form)).toMatchObject(saved);
 	});
+
+	test("reads an empty or unknown mode as inherit (#502)", () => {
+		const form = coordinatorsFormFrom({
+			enabled: true,
+			coordinatorAgent: { mode: "" },
+			workerAgent: { mode: "shuffle" },
+			rootWorkerAgent: {},
+		});
+		expect(form.coordinatorAgent.mode).toBe("inherit");
+		expect(form.workerAgent.mode).toBe("inherit");
+		expect(form.rootWorkerAgent.mode).toBe("inherit");
+	});
+
+	test("writes no empty mode back to the daemon (#502)", () => {
+		const config = coordinatorsConfigFrom(
+			coordinatorsFormFrom({
+				enabled: true,
+				coordinatorAgent: { mode: "" },
+				workerAgent: { mode: "" },
+				rootWorkerAgent: { mode: "" },
+			}),
+		);
+		expect(JSON.stringify(config)).not.toContain('"mode":""');
+		expect(config.coordinatorAgent).toBeUndefined();
+		expect(config.workerAgent).toBeUndefined();
+		expect(config.rootWorkerAgent).toBeUndefined();
+	});
 });
 
 describe("validateCoordinatorsForm", () => {

@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +198,34 @@ func TestCoordinatorsConfigValidatesAllowedHosts(t *testing.T) {
 		if err := (CoordinatorsConfig{AllowedHosts: hosts}).Validate(); err == nil {
 			t.Fatalf("%s allowedHosts must be rejected", name)
 		}
+	}
+}
+
+// TestCoordinatorsConfigOmitsUnsetSelections keeps the stored config clean:
+// an unset selection is inherit, so it must not serialize as {"mode":""}.
+func TestCoordinatorsConfigOmitsUnsetSelections(t *testing.T) {
+	data, err := json.Marshal(CoordinatorsConfig{Enabled: true})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, key := range []string{"coordinatorAgent", "workerAgent", "rootWorkerAgent"} {
+		if strings.Contains(string(data), key) {
+			t.Fatalf("%s written for an unset selection: %s", key, data)
+		}
+	}
+	explicit, err := json.Marshal(CoordinatorsConfig{
+		CoordinatorAgent: AgentSelection{Mode: AgentSelectionFixed, ProfileID: "fast"},
+		WorkerAgent:      AgentSelection{Mode: AgentSelectionInherit},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, want := range []string{`"coordinatorAgent":{"mode":"fixed","profileId":"fast"}`, `"workerAgent":{"mode":"inherit"}`} {
+		if !strings.Contains(string(explicit), want) {
+			t.Fatalf("marshal = %s, want %s", explicit, want)
+		}
+	}
+	if strings.Contains(string(explicit), "rootWorkerAgent") {
+		t.Fatalf("unset rootWorkerAgent written: %s", explicit)
 	}
 }

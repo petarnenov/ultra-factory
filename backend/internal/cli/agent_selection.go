@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -8,9 +9,24 @@ import (
 
 // agentSelection mirrors domain.AgentSelection.
 type agentSelection struct {
-	Mode       string   `json:"mode"`
+	Mode       string   `json:"mode,omitempty"`
 	ProfileID  string   `json:"profileId,omitempty"`
 	ProfileIDs []string `json:"profileIds,omitempty"`
+}
+
+// UnmarshalJSON reads a missing or empty mode as inherit, which is what the
+// daemon stores for an unset selection (#502).
+func (s *agentSelection) UnmarshalJSON(data []byte) error {
+	type mirror agentSelection
+	var parsed mirror
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return err
+	}
+	if parsed.Mode == "" {
+		parsed.Mode = "inherit"
+	}
+	*s = agentSelection(parsed)
+	return nil
 }
 
 // agentProfile mirrors domain.AgentProfile.
