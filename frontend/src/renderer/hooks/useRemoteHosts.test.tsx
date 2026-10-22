@@ -37,7 +37,7 @@ beforeEach(() => {
 		base: "http://127.0.0.1:4000",
 	}));
 	remotes.disconnect.mockReset().mockResolvedValue(undefined);
-	useUiStore.setState({ developerMode: true, remoteHosts: false });
+	useUiStore.setState({ developerMode: true, remoteHosts: false, remoteHostsCloudSync: false });
 });
 
 afterEach(() => {
@@ -309,7 +309,7 @@ it("connects the hub's hosts in the web build without AO Cloud sign-in", async (
 it("publishes saved hosts before a slow cloud directory responds", async () => {
 	cloud.baseUrl = "https://cloud.example";
 	cloud.list.mockReturnValue(new Promise(() => {}));
-	useUiStore.setState({ remoteHosts: true });
+	useUiStore.setState({ remoteHosts: true, remoteHostsCloudSync: true });
 	const { result } = renderHook(() => useRemoteHosts());
 	await waitFor(() => expect(cloud.list).toHaveBeenCalled());
 	expect(result.current.hosts).toEqual([
@@ -319,7 +319,7 @@ it("publishes saved hosts before a slow cloud directory responds", async () => {
 });
 
 it("keeps existing proxies when a newly mounted observer loads its account", async () => {
-	useUiStore.setState({ remoteHosts: true });
+	useUiStore.setState({ remoteHosts: true, remoteHostsCloudSync: true });
 	const existing = renderHook(() => useRemoteHosts());
 	await waitFor(() => expect(existing.result.current.hosts.every((host) => host.status === "connected")).toBe(true));
 	await waitFor(() => expect(connectedHosts()).toEqual(["box-a", "box-b"]));

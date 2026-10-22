@@ -81,13 +81,13 @@ describe("Local Coordinators while remote probes are pending", () => {
 	beforeEach(async () => {
 		remotes.connect.mockResolvedValueOnce({ hostId: "h_imac", label: "IMac", url: "http://h_imac:3011", base: "http://127.0.0.1:4000" });
 		await connectHost("http://h_imac:3011", "h_imac");
-		useUiStore.setState({ developerMode: true, remoteHosts: true });
+		useUiStore.setState({ developerMode: true, remoteHosts: true, remoteHostsCloudSync: true });
 		remotes.connect.mockClear();
 		rosterQuery.data = emptyRoster;
 		rosterQuery.isLoading = false;
 	});
 	afterEach(async () => act(async () => {
-		useUiStore.setState({ developerMode: false, remoteHosts: false });
+		useUiStore.setState({ developerMode: false, remoteHosts: false, remoteHostsCloudSync: false });
 		await Promise.all(connectedHosts().map(disconnectHost));
 	}));
 
