@@ -250,6 +250,9 @@ type Manager struct {
 	// completionTerminator is late-bound because Session Manager itself depends
 	// on this lifecycle reducer. It is required before the SCM observer starts.
 	completionTerminator sessionTerminator
+	// reviewThreads re-reads a PR's review threads before a review-comment
+	// nudge is written. Guarded by react.mu; nil holds those nudges.
+	reviewThreads ReviewThreadFetcher
 	// usageFinalizer is late-bound because the usage pipeline is optional. It
 	// receives terminal intent before is_terminated makes the session ineligible
 	// for normal source discovery.
@@ -334,6 +337,14 @@ func (m *Manager) SetCompletionTerminator(terminator sessionTerminator) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.completionTerminator = terminator
+}
+
+// SetReviewThreadFetcher wires the provider read that confirms a review-comment
+// nudge is still current at delivery. The SCM observer supplies it at startup.
+func (m *Manager) SetReviewThreadFetcher(fetcher ReviewThreadFetcher) {
+	m.react.mu.Lock()
+	defer m.react.mu.Unlock()
+	m.reviewThreads = fetcher
 }
 
 // SetUsageFinalizer wires termination and relaunches to usage collection.

@@ -3775,3 +3775,25 @@ func TestMergeabilityFromProviderFacts_UnstableOutranksBlockers(t *testing.T) {
 		})
 	}
 }
+
+func TestFetchPRReviewThreadsUsesObservedRepo(t *testing.T) {
+	repo := ports.SCMRepo{Provider: "github", Host: "github.com", Owner: "o", Name: "r", Repo: "o/r"}
+	provider := &fakeProvider{reviews: map[string]ports.SCMReviewObservation{
+		prKey(repo, 7): {Threads: []ports.SCMReviewThreadObservation{{ID: "T1", Resolved: true}}},
+	}}
+	o := newTestObserver(&fakeStore{}, provider, &fakeLifecycle{}, time.Now())
+	pr := domain.PullRequest{URL: "https://github.com/o/r/pull/7", Number: 7, Provider: "github", Host: "github.com", Repo: "o/r"}
+
+	o.rememberReviewRepo(pr.URL, repo)
+	got, err := o.FetchPRReviewThreads(context.Background(), pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Threads) != 1 || !got.Threads[0].Resolved {
+		t.Fatalf("threads = %+v, want the resolved thread from the provider", got.Threads)
+	}
+
+	if _, err := o.FetchPRReviewThreads(context.Background(), domain.PullRequest{URL: "https://example.test/x/1", Number: 1}); err == nil {
+		t.Fatal("want an error when no repo is known for the PR")
+	}
+}
