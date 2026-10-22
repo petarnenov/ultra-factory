@@ -3461,5 +3461,7 @@
   "coordinators.start.errors.customAgentRequired": "Escribe un harness para el agente de coordinador personalizado.",
   "coordinators.errors.selectionProfileRequired": "Elige un perfil para esta selección.",
   "coordinators.errors.selectionProfileUnknown": "Esta selección usa un perfil que ya no existe. Elige otro.",
-  "coordinators.errors.fixBeforeSave": "Corrige los campos marcados antes de guardar."
+  "coordinators.errors.fixBeforeSave": "Corrige los campos marcados antes de guardar.",
+  "coordinators.errors.renderFailed": "No se pudo mostrar la sección de coordinadores.",
+  "coordinators.errors.retry": "Reintentar"
 }

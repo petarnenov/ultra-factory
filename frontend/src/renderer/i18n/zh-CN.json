@@ -3398,5 +3398,7 @@
   "coordinators.start.errors.customAgentRequired": "请为自定义协调器代理输入 harness。",
   "coordinators.errors.selectionProfileRequired": "请为此选择一个配置。",
   "coordinators.errors.selectionProfileUnknown": "此选择使用的配置已不存在，请重新选择。",
-  "coordinators.errors.fixBeforeSave": "保存前请修正标出的字段。"
+  "coordinators.errors.fixBeforeSave": "保存前请修正标出的字段。",
+  "coordinators.errors.renderFailed": "无法显示协调器部分。",
+  "coordinators.errors.retry": "重试"
 }
