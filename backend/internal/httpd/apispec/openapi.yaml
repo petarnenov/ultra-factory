@@ -3348,6 +3348,65 @@ paths:
       summary: List a project's coordinators and owned workers
       tags:
       - sessions
+  /api/v1/projects/{id}/issues/{number}:
+    get:
+      operationId: getProjectIssue
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      - description: Issue number in the project's tracker.
+        in: path
+        name: number
+        required: true
+        schema:
+          description: Issue number in the project's tracker.
+          minimum: 1
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersProjectIssueResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Read one issue from the project's tracker
+      tags:
+      - projects
   /api/v1/projects/{id}/permissions:
     patch:
       operationId: setProjectPermissions
@@ -14599,6 +14658,26 @@ components:
       properties:
         deleteArtifacts:
           type: boolean
+      type: object
+    ControllersProjectIssueResponse:
+      properties:
+        body:
+          description: Issue body as Markdown; may be empty.
+          type: string
+        number:
+          description: Issue number.
+          type: integer
+        title:
+          description: Issue title.
+          type: string
+        url:
+          description: Web URL of the issue.
+          type: string
+      required:
+      - number
+      - title
+      - body
+      - url
       type: object
     ControllersReadyPRRequest:
       properties:

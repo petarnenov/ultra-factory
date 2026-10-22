@@ -40,6 +40,9 @@ import (
 )
 
 type fakeSessionService struct {
+	projectIssue               domain.Issue
+	projectIssueErr            error
+	projectIssueNumber         int
 	cleanupPending             bool
 	artifactsDeleted           []domain.SessionID
 	deleteArtifactsErr         error
@@ -230,6 +233,12 @@ func (f *fakeManagedPreviewServer) Status(sessionID domain.SessionID) previewser
 		status.Logs = []string{}
 	}
 	return status
+}
+
+// ProjectIssue returns the configured issue and records the requested number.
+func (f *fakeSessionService) ProjectIssue(_ context.Context, _ domain.ProjectID, number int) (domain.Issue, error) {
+	f.projectIssueNumber = number
+	return f.projectIssue, f.projectIssueErr
 }
 
 func newFakeSessionService() *fakeSessionService {

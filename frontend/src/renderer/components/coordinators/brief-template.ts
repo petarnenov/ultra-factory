@@ -84,6 +84,21 @@ export function firstUnfilledPlaceholder(brief: string): string | null {
 	return placeholdersIn(brief)[0] ?? null;
 }
 
+/** The issue body's "Acceptance criteria" section as one line, or null. */
+
+export function acceptanceCriteriaFrom(body: string): string | null {
+	const lines = body.split(/\r?\n/);
+	const start = lines.findIndex((line) => /^(?:#{1,6}\s*|\*\*)acceptance criteria:?(?:\*\*)?$/i.test(line.trim()));
+	if (start === -1) return null;
+	const items: string[] = [];
+	for (const line of lines.slice(start + 1)) {
+		if (/^#{1,6}\s/.test(line.trim())) break;
+		const item = line.replace(/^\s*(?:[-*+]|\d+[.)])\s*(?:\[[ xX]\]\s*)?/, "").trim();
+		if (item !== "") items.push(item);
+	}
+	return items.length > 0 ? items.join("; ") : null;
+}
+
 const TASK_LIST_START = "Task list (work these, nothing else):\n";
 const TASK_LIST_END = "\n\nWorker cap:";
 

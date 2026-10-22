@@ -3774,6 +3774,19 @@ func sessionOperations() []operation {
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
 		},
+		{
+			method: http.MethodGet, path: "/api/v1/projects/{id}/issues/{number}", id: "getProjectIssue", tag: "projects",
+			summary:    "Read one issue from the project's tracker",
+			pathParams: []any{controllers.ProjectIDParam{}, controllers.ProjectIssueNumberParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.ProjectIssueResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusServiceUnavailable, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
 	}
 }
 

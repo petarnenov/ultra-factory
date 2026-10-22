@@ -4121,3 +4121,17 @@ type CompletionReportRequest = reportsvc.CompletionInput
 type CompletionReportResponse struct {
 	Accepted bool `json:"accepted"`
 }
+
+// ProjectIssueNumberParam is the {number} of
+// GET /projects/{id}/issues/{number}.
+type ProjectIssueNumberParam struct {
+	Number int `path:"number" description:"Issue number in the project's tracker." minimum:"1"`
+}
+
+// ProjectIssueResponse is the body of GET /projects/{id}/issues/{number}.
+type ProjectIssueResponse struct {
+	Number int    `json:"number" description:"Issue number."`
+	Title  string `json:"title" description:"Issue title."`
+	Body   string `json:"body" description:"Issue body as Markdown; may be empty."`
+	URL    string `json:"url" description:"Web URL of the issue."`
+}

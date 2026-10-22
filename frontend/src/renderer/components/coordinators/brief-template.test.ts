@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+	acceptanceCriteriaFrom,
 	BRIEF_PLACEHOLDERS,
 	COORDINATOR_BRIEF_TEMPLATE,
 	defaultBranchPrefix,
@@ -115,5 +116,20 @@ describe("defaultBranchPrefix", () => {
 	test("derives a co- prefix from the scope", () => {
 		expect(defaultBranchPrefix("Auth Module / v2!")).toBe("co-auth-module-v2");
 		expect(defaultBranchPrefix("  ")).toBe("");
+	});
+});
+
+describe("acceptanceCriteriaFrom", () => {
+	test("joins the bullets of the acceptance section into one line", () => {
+		expect(acceptanceCriteriaFrom("Intro.\n\n## Acceptance criteria\n- first\n* second\n- [ ] third\n\n## Notes\nignored")).toBe("first; second; third");
+	});
+
+	test("accepts a bold header and numbered items", () => {
+		expect(acceptanceCriteriaFrom("**Acceptance criteria**\n1. one\n2) two")).toBe("one; two");
+	});
+
+	test("returns null when the section is missing or empty", () => {
+		expect(acceptanceCriteriaFrom("## Context\nNo criteria here.")).toBeNull();
+		expect(acceptanceCriteriaFrom("## Acceptance criteria\n\n## Next\nx")).toBeNull();
 	});
 });

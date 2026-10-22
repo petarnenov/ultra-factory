@@ -217,6 +217,7 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Put("/sessions/{sessionId}/coordinator-limits", c.setCoordinatorLimits)
 	r.Put("/sessions/{sessionId}/coordinator-worker-agent", c.setCoordinatorWorkerAgent)
 	r.Get("/projects/{id}/coordinators", c.listCoordinators)
+	r.Get("/projects/{id}/issues/{number}", c.getProjectIssue)
 	r.Get("/sessions/{sessionId}/preview", c.preview)
 	r.Post("/sessions/{sessionId}/preview", c.setPreview)
 	r.Delete("/sessions/{sessionId}/preview", c.clearPreview)

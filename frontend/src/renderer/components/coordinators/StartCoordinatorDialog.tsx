@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRemoteHosts } from "../../hooks/useRemoteHosts";
 import { apiErrorMessage } from "../../lib/api-client";
+import { clientForSessionHost } from "../../lib/host-clients";
 import {
 	COORDINATOR_HARD_LIMITS,
 	COORDINATOR_SCOPE_MAX,
@@ -39,6 +40,7 @@ import {
 	ACCEPTANCE_MARKER,
 	type BriefTask,
 	COORDINATOR_BRIEF_TEMPLATE,
+	acceptanceCriteriaFrom,
 	defaultBranchPrefix,
 	renderBrief,
 } from "./brief-template";
@@ -48,6 +50,15 @@ type CoordinatorAgentMode = SpawnCoordinatorForm["coordinatorAgent"];
 const emptySelection = (): SelectionForm => ({ mode: "inherit", profileId: "", profileIds: [] });
 
 const emptyTask = (): BriefTask => ({ taskId: "", title: "", acceptance: "", files: "" });
+
+/** Comma or space separated issue numbers; null when one is not valid. */
+const parseIssueNumbers = (input: string): number[] | null => {
+	const parts = input.split(/[\s,]+/).filter((part) => part !== "");
+	if (parts.length === 0 || !parts.every((part) => /^\d+$/.test(part) && Number(part) > 0)) return null;
+	return parts.map(Number);
+};
+
+const isBlankTask = (task: BriefTask) => task.taskId === "" && task.title === "" && task.acceptance === "" && task.files === "";
 
 /** Regenerates the brief from the fields unless edited by hand. */
 const withRenderedBrief = (form: SpawnCoordinatorForm): SpawnCoordinatorForm => {
@@ -100,6 +111,9 @@ export function StartCoordinatorDialog({
 	const [submitting, setSubmitting] = useState(false);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [started, setStarted] = useState<{ id: string } | null>(null);
+	const [issueNumbers, setIssueNumbers] = useState("");
+	const [issueLoading, setIssueLoading] = useState(false);
+	const [issueMessage, setIssueMessage] = useState<string | null>(null);
 	const allowedHosts = config.coordinators?.allowedHosts ?? [];
 	const profiles = coordinatorsFormFrom(config.coordinators).agentProfiles;
 	const limits = {
@@ -116,6 +130,40 @@ export function StartCoordinatorDialog({
 		update({ tasks: form.tasks.map((task, position) => (position === index ? { ...task, ...patch } : task)) });
 	const setSlot = (index: number, patch: Partial<SpawnCoordinatorForm["hostSlots"][number]>) =>
 		update({ hostSlots: form.hostSlots.map((row, position) => (position === index ? { ...row, ...patch } : row)) });
+
+	// One task row per issue: title and acceptance criteria. A missing
+	// section leaves the marker, which blocks Start.
+	const loadIssues = async () => {
+		const numbers = parseIssueNumbers(issueNumbers);
+		if (numbers === null) {
+			setIssueMessage(t("coordinators.start.issueNumbersInvalid"));
+			return;
+		}
+		setIssueLoading(true);
+		setIssueMessage(null);
+		try {
+			const loaded: BriefTask[] = [];
+			const missing: number[] = [];
+			for (const number of numbers) {
+				const { data, error } = await clientForSessionHost(hostId).GET("/api/v1/projects/{id}/issues/{number}", {
+					params: { path: { id: projectId, number } },
+				});
+				if (error || !data) {
+					setIssueMessage(apiErrorMessage(error, t("coordinators.start.issueLoadFailed", { number })));
+					return;
+				}
+				const acceptance = acceptanceCriteriaFrom(data.body);
+				if (acceptance === null) missing.push(number);
+				loaded.push({ taskId: `#${number}`, title: data.title, acceptance: acceptance ?? "", files: "" });
+			}
+			update({ tasks: [...form.tasks.filter((task) => !isBlankTask(task)), ...loaded] });
+			if (missing.length > 0) {
+				setIssueMessage(t("coordinators.start.issueNoAcceptance", { numbers: missing.map((number) => `#${number}`).join(", ") }));
+			}
+		} finally {
+			setIssueLoading(false);
+		}
+	};
 
 	const submit = async () => {
 		setSubmitting(true);
@@ -320,6 +368,16 @@ export function StartCoordinatorDialog({
 
 							<div className="flex flex-col gap-2">
 								<span className="text-sm font-medium">{t("coordinators.start.tasks")}</span>
+								<div className="flex items-end gap-2">
+									<div className="flex flex-1 flex-col gap-1">
+										<Label htmlFor="start-issues">{t("coordinators.start.issueNumbers")}</Label>
+										<Input id="start-issues" onChange={(event) => setIssueNumbers(event.target.value)} value={issueNumbers} />
+									</div>
+									<Button disabled={issueLoading || submitting} onClick={() => void loadIssues()} size="sm" type="button" variant="outline">
+										{t("coordinators.start.loadFromIssue")}
+									</Button>
+								</div>
+								{issueMessage ? <p className="text-sm text-error" role="alert">{issueMessage}</p> : null}
 								{form.tasks.map((task, index) => (
 									<div className="grid grid-cols-2 gap-2 rounded-md border border-input p-2" key={index}>
 										<Input aria-label={t("coordinators.start.taskId")} onChange={(event) => setTask(index, { taskId: event.target.value })} placeholder={t("coordinators.start.taskId")} value={task.taskId} />
