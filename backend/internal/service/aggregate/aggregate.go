@@ -85,9 +85,8 @@ type Deps struct {
 type Service struct {
 	deps Deps
 
-	passMu sync.Mutex // one pass at a time
-
-	mu          sync.Mutex // guards the fields below
+	mu          sync.Mutex    // guards the fields below
+	flight      chan struct{} // closed when the in-flight pass ends
 	hosts       map[string]*hostState
 	fingerprint string
 	lastPass    time.Time
@@ -174,11 +173,32 @@ func (s *Service) registryChanged() bool {
 	return registryFingerprint(entries) != s.fingerprint
 }
 
-// Refresh runs one discovery pass across every paired host, in parallel. Each
-// host is bounded by the budget, so a slow host never delays the others.
+// Refresh runs one pass over all paired hosts. A call during a pass joins it
+// instead of queuing. The pass is detached from ctx.
 func (s *Service) Refresh(ctx context.Context) {
-	s.passMu.Lock()
-	defer s.passMu.Unlock()
+	s.mu.Lock()
+	if flight := s.flight; flight != nil {
+		s.mu.Unlock()
+		select {
+		case <-flight:
+		case <-ctx.Done():
+		}
+		return
+	}
+	flight := make(chan struct{})
+	s.flight = flight
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.flight = nil
+		s.mu.Unlock()
+		close(flight)
+	}()
+	s.pass(context.WithoutCancel(ctx))
+}
+
+// pass is one discovery pass. The caller must own the in-flight slot.
+func (s *Service) pass(ctx context.Context) {
 	entries, err := s.deps.Hosts()
 	if err != nil {
 		s.deps.Logger.Warn("aggregate: read paired hosts", "err", err)

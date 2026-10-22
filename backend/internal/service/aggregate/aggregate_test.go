@@ -263,6 +263,69 @@ func TestRemovedHostLeavesSetAndExclusionsAreKept(t *testing.T) {
 	}
 }
 
+func TestRefreshDuringInFlightPassJoinsWithinCallerContext(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	hosts := &fakeHosts{
+		entries: []remotehost.Entry{entry("h_a", "Alpha", "pw")},
+		behavior: map[string]func(context.Context) (Remote, error){
+			"h_a": func(context.Context) (Remote, error) {
+				close(started)
+				<-release
+				return fakeRemote{projects: []RemoteProject{{ID: "app", Repo: "https://github.com/o/app"}}}, nil
+			},
+		},
+		opens: map[string]int{},
+	}
+	svc := newTestService(hosts, 5*time.Second)
+	done := make(chan struct{})
+	go func() {
+		svc.Refresh(context.Background())
+		close(done)
+	}()
+	<-started
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	begin := time.Now()
+	svc.Refresh(ctx)
+	if elapsed := time.Since(begin); elapsed > 2*time.Second {
+		t.Fatalf("refresh during an in-flight pass took %s, want it bounded by the caller context", elapsed)
+	}
+	hosts.mu.Lock()
+	opens := hosts.opens["h_a"]
+	hosts.mu.Unlock()
+	if opens != 1 {
+		t.Fatalf("joined refresh started a second pass: %d opens, want 1", opens)
+	}
+
+	close(release)
+	<-done
+	assertEntries(t, svc.Effective("app", "https://github.com/o/app", domain.ProjectConfig{}), []Entry{{HostID: "h_a", HostLabel: "Alpha", ProjectID: "app", Source: SourceDiscovered, MatchedBy: MatchedByRepo}})
+}
+
+func TestRefreshCallerCancelDoesNotCutHostsShort(t *testing.T) {
+	hosts := &fakeHosts{
+		entries: []remotehost.Entry{entry("h_a", "Alpha", "pw")},
+		behavior: map[string]func(context.Context) (Remote, error){
+			"h_a": func(ctx context.Context) (Remote, error) {
+				select {
+				case <-time.After(20 * time.Millisecond):
+					return fakeRemote{projects: []RemoteProject{{ID: "app", Repo: "https://github.com/o/app"}}}, nil
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			},
+		},
+		opens: map[string]int{},
+	}
+	svc := newTestService(hosts, time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	svc.Refresh(ctx)
+	assertEntries(t, svc.Effective("app", "https://github.com/o/app", domain.ProjectConfig{}), []Entry{{HostID: "h_a", HostLabel: "Alpha", ProjectID: "app", Source: SourceDiscovered, MatchedBy: MatchedByRepo}})
+}
+
 func assertEntries(t *testing.T, got, want []Entry) {
 	t.Helper()
 	if len(got) != len(want) {
