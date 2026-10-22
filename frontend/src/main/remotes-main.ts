@@ -162,9 +162,8 @@ export function registerRemotesIpc(
 		const discovery = await discover(daemonBaseUrl());
 		if (!discovery) return null;
 		const localHostId = await localIdentity();
-		// Return saved metadata rather than waiting behind an in-flight probe.
-		if (pendingOperations) return lastDiscovery;
-		return ordered(async () => {
+		const busy = pendingOperations > 0;
+		const reconciliation = ordered(async () => {
 			if (generation !== discoveryGeneration) return lastDiscovery;
 			const drop = [...discovery.localHostIds, ...(localHostId ? [localHostId] : [])];
 			const visible = discovery.hosts.filter((host) => !host.hidden && !drop.includes(host.hostId));
@@ -172,6 +171,13 @@ export function registerRemotesIpc(
 			lastDiscovery = discovery;
 			return discovery;
 		});
+		if (busy) {
+			// A later refresh retries a failed background reconciliation.
+			void reconciliation.catch(() => {});
+		} else {
+			await reconciliation;
+		}
+		return discovery;
 	};
 	const onlineByHost = (discovery: TailnetDiscovery | null) =>
 		new Map((discovery?.hosts ?? []).map((host) => [host.hostId, host.online]));
