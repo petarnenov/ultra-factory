@@ -335,3 +335,27 @@ it("keeps existing proxies when a newly mounted observer loads its account", asy
 	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
 	expect(remotes.disconnect).not.toHaveBeenCalled();
 });
+
+
+it("keeps rejected credentials offline during a soft refresh with a slow cloud directory", async () => {
+	cloud.baseUrl = "https://cloud.example";
+	cloud.list.mockRejectedValue(new Error("Cloud unavailable"));
+	remotes.list.mockResolvedValue([{ hostId: "box-a", label: "Box A", url: "http://box-a:3001" }]);
+	remotes.connect.mockRejectedValue(new Error("host http://box-a:3001 is unauthorized"));
+	useUiStore.setState({ remoteHosts: true, remoteHostsCloudSync: true });
+	const { result } = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(result.current.hosts[0]).toMatchObject({ status: "offline", failureReason: "unauthorized" }));
+	remotes.connect.mockClear();
+	let finishDirectory!: () => void;
+	cloud.list.mockReturnValueOnce(new Promise((_, reject) => {
+		finishDirectory = () => reject(new Error("Cloud unavailable"));
+	}));
+	let refresh!: Promise<void>;
+	await act(async () => { refresh = result.current.refresh({ soft: true }); });
+	await waitFor(() => expect(cloud.list).toHaveBeenCalledTimes(2));
+	expect(result.current.hosts[0]).toMatchObject({ status: "offline", failureReason: "unauthorized" });
+	expect(remotes.connect).not.toHaveBeenCalled();
+	await act(async () => { finishDirectory(); await refresh; });
+	expect(result.current.hosts[0]).toMatchObject({ status: "offline", failureReason: "unauthorized" });
+	expect(remotes.connect).not.toHaveBeenCalled();
+});

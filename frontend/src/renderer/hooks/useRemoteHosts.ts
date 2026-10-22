@@ -66,10 +66,10 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: Ref
 		const current = () => enabledRef.current && accountRef.current === accountId && refreshGeneration.current === generation;
 		let saved = await aoBridge.remotes.list();
 		if (!current()) return;
-		setHosts((previous) => saved.map((host) => ({
-			...host,
-			status: previous.some((entry) => entry.hostId === host.hostId && entry.url === host.url && entry.status === "connected") ? "connected" : "connecting",
-		})));
+		setHosts((previous) => saved.map((host) => {
+			const known = previous.find((entry) => entry.hostId === host.hostId && entry.url === host.url);
+			return { ...host, status: known?.status ?? "connecting", ...(known?.failureReason ? { failureReason: known.failureReason } : {}) };
+		}));
 		if (cloudBaseUrl) {
 			try {
 				const accountHosts = await listAccountRemoteHosts(cloudBaseUrl);
