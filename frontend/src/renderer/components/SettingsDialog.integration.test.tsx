@@ -130,7 +130,7 @@ describe("Settings recovery modal integration", () => {
 			useUiStore.getState().openProjectSettings("proj-1", { section: "coordinators" });
 			renderDialogs();
 			await screen.findByRole("switch", { name: "Enable coordinators" });
-			// The dialog opens with focus on the form: Enter must not submit a clean draft.
+			// Enter on the focused form must not submit a clean draft.
 			await userEvent.keyboard("{Enter}");
 			await userEvent.click(screen.getByRole("button", { name: "General" }));
 			await screen.findByRole("button", { name: "Edit Project name" });
