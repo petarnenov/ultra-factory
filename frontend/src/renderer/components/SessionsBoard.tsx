@@ -42,6 +42,7 @@ import { RestoreUnavailableDialog } from "./RestoreUnavailableDialog";
 import { DaemonStartupLoader } from "./DaemonStartupLoader";
 import { useBoardPresentation } from "../hooks/useBoardPresentation";
 import { useProjectOrchestratorAction } from "../hooks/useProjectOrchestratorAction";
+import { useBoardTools } from "../webmcp/tools/board";
 import { openRemoteOrchestrator } from "../lib/remote-orchestrator";
 import { labelForHost } from "../lib/host-clients";
 import { useConnectedHosts } from "../hooks/useHostConnection";
@@ -181,6 +182,16 @@ export function SessionsBoard({ projectId, hostId }: SessionsBoardProps) {
 		useUiStore.getState().requestWorkspaceFileOpen(session.id, path, hostId, "artifact");
 		openSession(session);
 	}, [openSession, hostId]);
+	// Hidden while the starting chat replaces the board, so no tool acts on it.
+	useBoardTools({
+		scopeKey,
+		enabled: !(projectId && (isProvisioning || projectActions.isSpawning)),
+		projectId,
+		columns,
+		sessions: boardSessions,
+		openSession,
+		requestNewTask: projectActions.openNewTask,
+	});
 
 	const restartOrchestrator = async () => {
 		if (!projectId || isProjectRestarting || isProvisioning) return;

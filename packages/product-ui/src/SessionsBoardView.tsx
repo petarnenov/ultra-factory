@@ -442,7 +442,7 @@ export function SessionCardView({
 	);
 }
 
-function boardSessionNeedsAttention(session: BoardSessionPresentation): boolean {
+export function boardSessionNeedsAttention(session: BoardSessionPresentation): boolean {
 	if (session.statusReadiness && session.statusReadiness !== "ready") return false;
 	if (session.statusPresentation) return false;
 	switch (session.displayStatus) {
