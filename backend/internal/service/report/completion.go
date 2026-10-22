@@ -72,16 +72,19 @@ func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput)
 		recipient.ProjectID != project || recipient.Activity.State == domain.ActivityExited {
 		return nil
 	}
-	var prs []string
-	var claimed []string
+	// Validate every PR before claiming any, so a bad entry leaves no claim.
 	for _, pr := range in.PRs {
 		if pr.Number <= 0 || strings.TrimSpace(pr.MergeCommitSHA) == "" {
 			return apierr.Invalid("INVALID_COMPLETION_REPORT", "PR number and merge commit are required", nil)
 		}
-		// A merge the observer already announced is not repeated here.
+	}
+	var prs []string
+	var claimed []string
+	// A merge the observer already announced is not repeated here.
+	for _, pr := range in.PRs {
 		won, err := c.store.ClaimPRMergeAnnouncement(ctx, pr.MergeCommitSHA, "", domain.SessionID(in.SessionID), c.now().UTC())
 		if err != nil {
-			return err
+			return errors.Join(err, c.releaseMergeClaims(ctx, claimed))
 		}
 		if !won {
 			continue

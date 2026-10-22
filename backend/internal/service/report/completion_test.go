@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -144,5 +145,62 @@ func TestCompletionOwnerSnapshotSurvivesRemoteLinkRemoval(t *testing.T) {
 	}
 	if len(delivery.submissions) != 1 || delivery.submissions[0].target != "coordinator" {
 		t.Fatalf("lost close notification: %+v", delivery.submissions)
+	}
+}
+
+func TestCompletionClaimsNothingWhenAnyPRIsInvalid(t *testing.T) {
+	store := newCoordinatorStore(time.Now())
+	owner := domain.SessionID("coordinator")
+	store.sessions = []domain.SessionRecord{
+		{ID: owner, ProjectID: "p", Kind: domain.KindCoordinator},
+		{ID: "worker", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+	}
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery})
+	ctx := context.Background()
+
+	bad := CompletionInput{SessionID: "worker", ActionKey: "merge:1-2@head", Kind: "merge",
+		PRs: []CompletionPR{{Number: 1, MergeCommitSHA: "sha-a"}, {Number: 2}}}
+	if err := c.DeliverCompletion(ctx, bad); err == nil {
+		t.Fatal("invalid PR was accepted")
+	}
+	if len(store.merges) != 0 {
+		t.Fatalf("invalid completion left claims: %v", store.merges)
+	}
+	// The observer can still announce sha-a, because nothing was claimed.
+	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/1", 1, "sha-a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("observer notice blocked by a leaked claim: %+v", delivery.submissions)
+	}
+}
+
+func TestCompletionReleasesEarlierClaimsWhenALaterClaimFails(t *testing.T) {
+	store := newCoordinatorStore(time.Now())
+	owner := domain.SessionID("coordinator")
+	store.sessions = []domain.SessionRecord{
+		{ID: owner, ProjectID: "p", Kind: domain.KindCoordinator},
+		{ID: "worker", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: &owner},
+	}
+	store.claimErrSHA = "sha-b"
+	store.claimErr = errors.New("database locked")
+	delivery := &coordinatorDelivery{}
+	c := NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery})
+	ctx := context.Background()
+
+	in := CompletionInput{SessionID: "worker", ActionKey: "merge:1-2@head", Kind: "merge",
+		PRs: []CompletionPR{{Number: 1, MergeCommitSHA: "sha-a"}, {Number: 2, MergeCommitSHA: "sha-b"}}}
+	if err := c.DeliverCompletion(ctx, in); err == nil {
+		t.Fatal("claim failure was not returned")
+	}
+	if len(store.merges) != 0 {
+		t.Fatalf("claim failure left an earlier claim behind: %v", store.merges)
+	}
+	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/1", 1, "sha-a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("earlier merge never announced: %+v", delivery.submissions)
 	}
 }
