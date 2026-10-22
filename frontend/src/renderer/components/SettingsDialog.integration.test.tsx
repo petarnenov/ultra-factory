@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { agentReadinessQueryKey } from "../hooks/useAgentReadinessQuery";
@@ -11,6 +11,7 @@ import { useUiStore } from "../stores/ui-store";
 import { agentReadiness } from "../test/agent-readiness-fixtures";
 import { CreateProjectAgentSheet } from "./CreateProjectAgentSheet";
 import { NewTaskDialog } from "./NewTaskDialog";
+import type { ProjectConfig } from "../lib/coordinators";
 import { SettingsDialog } from "./SettingsPageTestHarness";
 import { TooltipProvider } from "./ui/tooltip";
 
@@ -21,9 +22,17 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	useNavigate: () => vi.fn(),
 }));
 
-const project = {
+const defaultProject = {
 	id: "proj-1", name: "Project One", kind: "single_repo", path: "/repo/project-one", repo: "",
-	config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } },
+	config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } } as ProjectConfig,
+};
+let project = defaultProject;
+const roster = {
+	projectId: "proj-1",
+	rootSessionId: "proj-1-root",
+	capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 0, activeWorkers: 0 },
+	coordinators: [],
+	rootWorkerSessionIds: [],
 };
 let catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
 
@@ -59,6 +68,7 @@ function requireCodexLogin(client?: QueryClient) {
 }
 
 beforeEach(() => {
+	project = defaultProject;
 	useUiStore.setState({ settingsModal: null });
 	catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
 	vi.spyOn(apiClient, "GET").mockImplementation(async (path) => {
@@ -69,6 +79,7 @@ beforeEach(() => {
 		if (path === "/api/v1/agents/auth-plans") return { data: { plans: [{ agentId: "codex", action: "login", available: true, launchMode: "terminal" }] } } as never;
 		if (path === "/api/v1/agents/{agent}/models") return { data: { agentId: "codex", models: [], selectionMode: "text", allowCustom: true, source: "manual", fetchedAt: "2026-09-19T00:00:00Z", stale: false } } as never;
 		if (path === "/api/v1/settings") return { data: { defaultSessionMode: "tui", chatHarnesses: [], cloudEnabled: false, localEnabled: true, trackerIntakeEnabled: true } } as never;
+		if (path === "/api/v1/projects/{id}/coordinators") return { data: roster } as never;
 		throw new Error(`Unexpected GET ${path}`);
 	});
 	vi.spyOn(apiClient, "POST").mockImplementation(async (path) => {
@@ -249,5 +260,45 @@ describe("Settings recovery modal integration", () => {
 			expect.objectContaining({ body: expect.objectContaining({ displayName: "Unsaved project name" }) }),
 		));
 		await waitFor(() => expect(screen.queryByTestId("settings-page")).not.toBeInTheDocument());
+	});
+	it("renders a configured Coordinators section and keeps an unsaved draft unsent through the autosave window", async () => {
+		project = {
+			...defaultProject,
+			config: {
+				...defaultProject.config,
+				coordinators: {
+					enabled: true,
+					maxCoordinators: 3,
+					maxWorkersPerCoordinator: 3,
+					maxWorkers: 9,
+					allowedHosts: ["imac", "linux", "z600"],
+					allowLocalWorkers: false,
+				},
+			},
+		};
+		const put = vi.spyOn(apiClient, "PUT");
+		useUiStore.getState().openProjectSettings("proj-1");
+		renderDialogs();
+		await userEvent.click(await screen.findByRole("button", { name: "Coordinators" }));
+
+		expect(await screen.findByRole("switch", { name: "Enable coordinators" })).toBeChecked();
+		expect(screen.getByLabelText("Coordinators", { selector: "input" })).toHaveValue("3");
+		expect(screen.getByLabelText("Workers per coordinator")).toHaveValue("3");
+		expect(screen.getByLabelText("Workers in project")).toHaveValue("9");
+		expect(await screen.findByTestId("roster-capacity")).toHaveTextContent("Coordinators 0/3 · Workers 0/9");
+		expect(screen.queryByText("Could not load coordinators.")).not.toBeInTheDocument();
+
+		vi.useFakeTimers();
+		try {
+			const workers = screen.getByLabelText("Workers in project");
+			fireEvent.change(workers, { target: { value: "8" } });
+			await act(() => vi.advanceTimersByTimeAsync(2000));
+			expect(workers).toHaveValue("8");
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(put).not.toHaveBeenCalled();
+		expect(screen.queryByText(/Invalid JSON body/)).not.toBeInTheDocument();
 	});
 });
