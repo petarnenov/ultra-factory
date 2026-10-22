@@ -159,6 +159,9 @@ func (o *Observer) Wake() {
 // Start polls until ctx is cancelled and returns its completion signal.
 func (o *Observer) Start(ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
+	if remotehost.AllowHTTPEnvSet() {
+		o.log.Warn(remotehost.AllowHTTPEnvDeprecation)
+	}
 	go func() {
 		defer close(done)
 		ticker := time.NewTicker(o.interval)
@@ -562,7 +565,7 @@ func (o *Observer) connect(ctx context.Context, hostID string) (*hostClient, err
 	if err != nil {
 		return nil, err
 	}
-	if err := remotehost.UnattendedTransportAllowed(base); err != nil {
+	if err := remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP); err != nil {
 		return nil, err
 	}
 	if o.refusedPassword(hostID, entry.Password) {

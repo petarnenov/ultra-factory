@@ -41,7 +41,10 @@ func (s *Service) queueWithoutController(
 			return domain.ConversationTurn{}, err
 		}
 	}
-	if !record.ProvisionState.IsProvisioning() && record.HibernatedAt == nil {
+	if s.isWaking(record.ID) {
+		ctx = domain.WithWakeInFlight(ctx)
+	}
+	if !record.ProvisionState.IsProvisioning() && record.HibernatedAt == nil && !domain.WakeInFlight(ctx) {
 		return domain.ConversationTurn{}, ErrNotProvisioning
 	}
 	conversation, err := s.ensureConversation(ctx, record)

@@ -1203,3 +1203,83 @@ func TestSendDuringHibernationAcceptsThenWakesNativeConversation(t *testing.T) {
 		t.Fatalf("session after wake = %+v, %v, %v", rec.HibernatedAt, found, err)
 	}
 }
+
+// A wake clears the sleep marker before its controller is live. Sends in that
+// window queue behind the wake instead of blocking until the request dies.
+func TestSendInWakeWindowQueuesAndDrainsWithoutBlocking(t *testing.T) {
+	h, old := settledHibernationHarness(t, domain.TurnStateCompleted)
+	var ids atomic.Int32
+	ctx := context.Background()
+	if hibernated, err := h.svc.HibernateChat(ctx, testSession); err != nil || !hibernated {
+		t.Fatalf("hibernate = %v, %v", hibernated, err)
+	}
+
+	resumed := newFakeConversation()
+	resumed.turnSeq = 1
+	var resumeConfig ports.ChatResumeConfig
+	wakeService := chatsvc.New(chatsvc.Options{
+		Store: h.st, Reader: fullSnapshotReader(h.st), Sessions: h.st,
+		Drivers:  fakeRegistry{driver: fakeDriver{conv: resumed, resumeCfg: &resumeConfig}},
+		Activity: h.activity, Log: slog.New(slog.DiscardHandler), Now: h.now,
+		NewID: func() string { return fmt.Sprintf("wake-window-%d", ids.Add(1)) },
+	})
+	t.Cleanup(func() { _ = wakeService.Stop(context.Background(), testSession) })
+	windowOpen := make(chan struct{})
+	releaseWake := make(chan struct{})
+	wakeService.SetWakeCallback(func(ctx context.Context, id domain.SessionID) error {
+		rec, found, err := h.st.GetSession(ctx, id)
+		if err != nil || !found || rec.HibernatedAt == nil {
+			return fmt.Errorf("read hibernated session: found=%v err=%w", found, err)
+		}
+		if cleared, err := h.st.SetSessionHibernated(ctx, id, rec.Revision, nil); err != nil || !cleared {
+			return fmt.Errorf("clear hibernation: applied=%v err=%w", cleared, err)
+		}
+		close(windowOpen)
+		select {
+		case <-releaseWake:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		_, err = wakeService.Start(ctx, chatsvc.StartConfig{
+			SessionID: id, ProjectID: testProject, Harness: domain.HarnessCodex,
+			WorkspacePath: t.TempDir(), ProviderConversationID: old.ProviderConversationID(),
+		})
+		return err
+	})
+
+	if _, err := wakeService.Send(ctx, testSession, ports.ChatUserMessage{
+		Text: "first message", ClientMessageID: "wake-window-1",
+	}); err != nil {
+		t.Fatalf("first send = %v", err)
+	}
+	select {
+	case <-windowOpen:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wake never reached its window")
+	}
+
+	sendCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	turn, err := wakeService.Send(sendCtx, testSession, ports.ChatUserMessage{
+		Text: "second message", ClientMessageID: "wake-window-2",
+	})
+	if err != nil || turn.State != domain.TurnStateQueued || time.Since(started) > 200*time.Millisecond {
+		t.Fatalf("send in wake window = %+v, %v; elapsed=%s", turn, err, time.Since(started))
+	}
+	close(releaseWake)
+
+	// Drain is serialized: the first queued turn reaches the provider, and the
+	// second waits behind it instead of being failed by the wake.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if got := resumed.sentTexts(); len(got) >= 1 {
+			if got[0] != "first message" {
+				t.Fatalf("drained out of order: %v", got)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("queued messages were not drained: %v", resumed.sentTexts())
+}

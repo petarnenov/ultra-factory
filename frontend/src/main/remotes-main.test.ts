@@ -386,7 +386,7 @@ describe("registerRemotesIpc", () => {
 	it("lists hosts without their passwords", async () => {
 		const ipc = fakeIpc();
 		registerRemotes(ipc.ipcMain, { file: await tempFile(), registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn });
-		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1" }]);
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1", allowInsecureHTTP: false }]);
 	});
 
 	it("saves a new host only after it answers as a daemon", async () => {
@@ -408,6 +408,26 @@ describe("registerRemotesIpc", () => {
 		await expect(ipc.invoke("remotes:add", mini)).resolves.toBe("online");
 		expect(JSON.parse(await readFile(file, "utf8")).remotes).toHaveLength(2);
 		expect(JSON.parse(await readFile(file, "utf8")).remotes[1].hostId).toBe("h_mini");
+	});
+
+	it("writes the plain-http opt-in without probing or reconnecting, so revoking it works against an unauthorized host", async () => {
+		const file = await tempFile();
+		await writeFile(file, JSON.stringify({ remotes: [
+			{ hostId: "h_lan", label: "LAN", url: "http://192.168.0.164:3011", password: "rotated", accountUserId: "user-a", allowInsecureHTTP: true },
+			{ hostId: "h_other", label: "Other", url: "http://192.168.0.165:3011", password: "pw", accountUserId: "user-b" },
+		] }));
+		const probe = vi.fn(async () => "unauthorized" as const);
+		const registry = new RemoteRegistry(async () => { throw new Error("unused"); });
+		const disconnect = vi.spyOn(registry, "disconnect");
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, { file, registry, requireAccount: signedIn, getAccountId: async () => "user-a", identity: async () => "h_workbox", probe, localIdentity: async () => "h_workbox" });
+
+		await expect(ipc.invoke("remotes:setAllowInsecureHTTP", "http://192.168.0.164:3011", false)).resolves.toBeUndefined();
+		expect(probe).not.toHaveBeenCalled();
+		expect(disconnect).not.toHaveBeenCalled();
+		const saved = JSON.parse(await readFile(file, "utf8")) as { remotes: Array<{ url: string; allowInsecureHTTP?: boolean; password: string }> };
+		expect(saved.remotes[0]).toMatchObject({ url: "http://192.168.0.164:3011", allowInsecureHTTP: false, password: "rotated" });
+		await expect(ipc.invoke("remotes:setAllowInsecureHTTP", "http://192.168.0.165:3011", true)).rejects.toThrow(/does not belong/);
 	});
 
 	it("drops the proxy of a removed host", async () => {
@@ -434,17 +454,17 @@ describe("registerRemotesIpc", () => {
 		});
 		await ipc.invoke("remotes:importAccountHost", "user-a", { hostId: "h_cloud", label: "Cloud", url: "https://cloud.example", password: "a".repeat(64) });
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_manual", label: "Manual", url: "https://manual.example" },
-			{ hostId: "h_cloud", label: "Cloud", url: "https://cloud.example" },
+			{ hostId: "h_manual", label: "Manual", url: "https://manual.example", allowInsecureHTTP: false },
+			{ hostId: "h_cloud", label: "Cloud", url: "https://cloud.example", allowInsecureHTTP: false },
 		]);
 		await ipc.invoke("remotes:pruneAccountHosts", "user-a", []);
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_manual", label: "Manual", url: "https://manual.example" },
+			{ hostId: "h_manual", label: "Manual", url: "https://manual.example", allowInsecureHTTP: false },
 		]);
 		account = "user-b";
 		await expect(ipc.invoke("remotes:importAccountHost", "user-a", { hostId: "h_leak", label: "Leak", url: "https://leak.example", password: "a".repeat(64) })).rejects.toThrow(/Invalid account/);
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_other", label: "Other", url: "https://other.example" },
+			{ hostId: "h_other", label: "Other", url: "https://other.example", allowInsecureHTTP: false },
 		]);
 	});
 
@@ -463,7 +483,7 @@ describe("registerRemotesIpc", () => {
 			hostId: "h_legacy", label: "Discovered", url: "https://new.example", password: "a".repeat(64),
 		});
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_legacy", label: "Discovered", url: "https://new.example" },
+			{ hostId: "h_legacy", label: "Discovered", url: "https://new.example", allowInsecureHTTP: false },
 		]);
 		const saved = JSON.parse(await readFile(file, "utf8")) as { remotes: Array<{ password: string }> };
 		expect(saved.remotes[0]?.password).toBe("pairing-password");

@@ -29,7 +29,7 @@ describe("web remotes bridge", () => {
 	it("lists the registry's hosts without the hub's own entry", async () => {
 		fetchMock.mockResolvedValueOnce(hostsResponse(hub, worker));
 
-		await expect(remotes.list()).resolves.toEqual([{ hostId: "h_worker", label: "Worker 1", url: worker.url }]);
+		await expect(remotes.list()).resolves.toEqual([{ hostId: "h_worker", label: "Worker 1", url: worker.url, allowInsecureHTTP: false }]);
 		expect(fetchMock).toHaveBeenCalledWith("/hub/hosts", expect.objectContaining({ cache: "no-store" }));
 	});
 

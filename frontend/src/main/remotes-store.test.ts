@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { chmod, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { addRemote, readRemotes, removeRemote, RemotesFilePermissionError, updateRemote } from "./remotes-store";
+import { addRemote, applyRemoteChanges, readRemotes, removeRemote, RemotesFilePermissionError, updateRemote } from "./remotes-store";
 
 async function tempFile(contents?: string, mode = 0o600): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "ao-remotes-"));
@@ -192,5 +192,14 @@ describe("removeRemote", () => {
 		const path = await tempFile(TWO_HOSTS, 0o644);
 		await expect(removeRemote(path, "http://192.0.2.1:1")).rejects.toBeInstanceOf(RemotesFilePermissionError);
 		expect(await readFile(path, "utf8")).toBe(TWO_HOSTS);
+	});
+});
+
+describe("per-host plain-http setting", () => {
+	it("is toggled without touching the other saved fields and stays absent when never edited", () => {
+		const entry = { label: "office", url: "http://192.168.0.164:3011", password: "pw", hostId: "h1" };
+		expect(applyRemoteChanges(entry, { allowInsecureHTTP: true })).toMatchObject({ allowInsecureHTTP: true, password: "pw", hostId: "h1" });
+		expect(applyRemoteChanges({ ...entry, allowInsecureHTTP: true }, { label: "renamed" })).toMatchObject({ allowInsecureHTTP: true, label: "renamed" });
+		expect(JSON.stringify(applyRemoteChanges(entry, { label: "renamed" }))).not.toContain("allowInsecureHTTP");
 	});
 });

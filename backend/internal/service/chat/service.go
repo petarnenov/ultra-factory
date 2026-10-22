@@ -1220,7 +1220,10 @@ func (s *Service) Send(
 		msg.Text = reports.AppendToUserMessage(msg.Text)
 	}
 	var turn domain.ConversationTurn
-	if record.ProvisionState.IsProvisioning() || record.HibernatedAt != nil {
+	// A wake clears the sleep marker before its controller is live. Sends in
+	// that window queue like hibernated sends; blocking would surface as a 503.
+	waking := s.isWaking(id)
+	if record.ProvisionState.IsProvisioning() || record.HibernatedAt != nil || waking {
 		// Keep messages on the durable queue until provisioning finishes so a
 		// new message cannot overtake the opening prompt during handoff.
 		turn, err = s.queueWithoutController(ctx, record, msg)
@@ -1242,7 +1245,7 @@ func (s *Service) Send(
 				}
 			}
 		}
-		if err == nil && record.HibernatedAt != nil && turn.ID != "" {
+		if err == nil && (record.HibernatedAt != nil || waking) && turn.ID != "" {
 			s.startBackgroundWake(id)
 		}
 	} else {

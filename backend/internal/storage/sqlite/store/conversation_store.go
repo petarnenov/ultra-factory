@@ -1201,7 +1201,8 @@ func (s *Store) appendUserMessage(
 		if readErr != nil {
 			return false, nil, fmt.Errorf("check queued session %s: %w", session, readErr)
 		}
-		if record.IsTerminated || (!record.ProvisionState.IsProvisioning() && !record.HibernatedAt.Valid) {
+		waking := domain.WakeInFlight(ctx)
+		if record.IsTerminated || (!record.ProvisionState.IsProvisioning() && !record.HibernatedAt.Valid && !waking) {
 			return false, nil, domain.ErrSessionNotProvisioning
 		}
 		// The caller read the conversation before taking writeMu. An orchestrator's

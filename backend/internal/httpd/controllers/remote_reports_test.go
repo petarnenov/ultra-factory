@@ -138,7 +138,7 @@ func TestRemoteWorkerLinkRouteStoresTheLinkAgainstTheParentsProject(t *testing.T
 	if got.HostLabel != "build-box" || got.ProjectID != "ao" || got.RemoteSessionID != "widgets-3" || got.RemoteProjectID != "widgets" {
 		t.Fatalf("link = %s", body)
 	}
-	if !strings.Contains(got.PullBlocked, "AO_REMOTE_REPORTS_ALLOW_HTTP") {
+	if !strings.Contains(got.PullBlocked, "Allow report pulls over plain HTTP") {
 		t.Fatalf("a plain-http LAN host must report why it is not polled: %s", body)
 	}
 	stored, err := store.ListRemoteWorkerLinks(context.Background())

@@ -1043,7 +1043,7 @@ func Run() error {
 	if mobilebridge.KeepAwakeSupported() {
 		bs.KeepAwake = mobilebridge.NewKeepAwake(os.Getpid())
 	}
-	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, capacityGuard, log)
+	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, capacityGuard, sessMgr, log)
 	remoteReportsDone := remoteReports.Start(ctx)
 	defer func() {
 		stop()

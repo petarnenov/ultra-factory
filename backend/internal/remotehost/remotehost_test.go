@@ -112,24 +112,64 @@ func TestDirectClientNeverFollowsRedirectsOrProxies(t *testing.T) {
 	}
 }
 
-func TestUnattendedTransportAllowedOnlyOverEncryptedOrLocalPaths(t *testing.T) {
-	t.Setenv(AllowHTTPEnv, "")
-	for base, allowed := range map[string]bool{
+func TestUnattendedTransportAllowedPolicyMatrix(t *testing.T) {
+	// Scheme × address class × per-host flag × deprecated env override.
+	bases := map[string]bool{ // base → allowed without any opt-in
 		"https://build.example":         true,
 		"http://127.0.0.1:3001":         true,
 		"http://localhost:3001":         true,
 		"http://100.101.102.103:3001":   true,
 		"http://build-box.tail1.ts.net": true,
-		"http://192.168.1.223:3001":     false,
+		"http://192.168.0.164:3011":     false,
 		"http://100.128.0.1:3001":       false,
 		"http://build.example":          false,
-	} {
-		if err := UnattendedTransportAllowed(base); (err == nil) != allowed {
-			t.Errorf("%s: err = %v, want allowed=%v", base, err, allowed)
+	}
+	for _, env := range []string{"", "1"} {
+		t.Setenv(AllowHTTPEnv, env)
+		for base, trusted := range bases {
+			for _, flag := range []bool{false, true} {
+				err := UnattendedTransportAllowed(base, flag)
+				want := trusted || flag || env == "1"
+				if (err == nil) != want {
+					t.Errorf("%s flag=%v env=%q: err = %v, want allowed=%v", base, flag, env, err, want)
+				}
+				if err != nil && !strings.Contains(err.Error(), "Allow report pulls over plain HTTP") {
+					t.Errorf("%s: refusal does not name the setting: %v", base, err)
+				}
+			}
 		}
 	}
-	t.Setenv(AllowHTTPEnv, "1")
-	if err := UnattendedTransportAllowed("http://192.168.1.223:3001"); err != nil {
-		t.Fatalf("opt-in ignored: %v", err)
+}
+
+func TestNeedsInsecureOptInOnlyForPlainHTTPOffLoopbackAndTailnet(t *testing.T) {
+	for base, want := range map[string]bool{
+		"https://build.example":         false,
+		"http://127.0.0.1:3001":         false,
+		"http://build-box.tail1.ts.net": false,
+		"http://100.106.144.10:3011":    false,
+		"http://192.168.0.164:3011":     true,
+		"http://build.example":          true,
+	} {
+		if got := NeedsInsecureOptIn(base); got != want {
+			t.Errorf("NeedsInsecureOptIn(%q) = %v, want %v", base, got, want)
+		}
+	}
+}
+
+func TestEntryWithoutAllowInsecureHTTPLoadsUnchanged(t *testing.T) {
+	path := writeEntries(t, 0o600, Entry{Label: "office", URL: "http://192.168.0.164:3011", Password: "pw", HostID: "h1"})
+	entries, err := ReadEntries(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].AllowInsecureHTTP {
+		t.Fatalf("entries = %+v, want one entry with the flag off", entries)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "allowInsecureHTTP") {
+		t.Fatalf("an unedited remotes.json gained the field: %s", raw)
 	}
 }

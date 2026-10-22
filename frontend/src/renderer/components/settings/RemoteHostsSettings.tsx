@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { aoBridge } from "../../lib/bridge";
 import { disconnectHost } from "../../lib/host-clients";
 import { requestRemoteHostsRefresh } from "../../hooks/useRemoteHosts";
+import { needsPlainHTTPOptIn } from "../../lib/remote-reports-transport";
 import { useCloudLocalAuth } from "../../hooks/useCloudLocalAuth";
 import { useCloudSession } from "../../lib/cloud-session";
 import { deleteAccountRemoteHost, saveAccountRemoteHost } from "../../lib/account-remote-hosts";
@@ -12,13 +13,14 @@ import { useSettings } from "../../hooks/useSettings";
 import { useLocalSignInDialogStore } from "../../stores/local-signin-dialog-store";
 import { useUiStore } from "../../stores/ui-store";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { SettingsRow } from "./SettingsRow";
 import { SettingsSection } from "./SettingsSection";
 
-type SavedHost = { hostId: string; label: string; url: string };
+type SavedHost = { hostId: string; label: string; url: string; allowInsecureHTTP: boolean };
 
 export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) {
 	const { t } = useTranslation();
@@ -44,6 +46,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 	const [confirmingRemoval, setConfirmingRemoval] = useState<SavedHost | null>(null);
 	const [removeBusy, setRemoveBusy] = useState(false);
 	const [removeError, setRemoveError] = useState("");
+	const [reportsError, setReportsError] = useState("");
 	const formRef = useRef<HTMLFormElement>(null);
 
 	const load = async () => {
@@ -112,6 +115,22 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 		}
 	};
 
+	const setPlainHTTPAllowed = async (host: SavedHost, allowed: boolean) => {
+		setBusy(true);
+		setReportsError("");
+		try {
+			// No probe and no reconnect: turning the switch off must work even when
+			// the host is offline or its password has changed.
+			await aoBridge.remotes.setAllowInsecureHTTP(host.url, allowed);
+			await load();
+			requestRemoteHostsRefresh();
+		} catch (cause) {
+			setReportsError(cause instanceof Error ? cause.message : t("remote.addHostFailed"));
+		} finally {
+			setBusy(false);
+		}
+	};
+
 	const remove = async () => {
 		if (!confirmingRemoval) return;
 		setRemoveBusy(true);
@@ -172,7 +191,15 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 					</div>
 				</SettingsRow>
 				{!host.hostId ? <p className="px-3 py-1 text-xs text-settings-muted">{t("remote.repairRequired")}</p> : null}
+				{/* Only plain http to another machine's address needs the switch. */}
+				{isWebBuild || !needsPlainHTTPOptIn(host.url) ? null : <SettingsRow label={t("remote.allowPlainHTTP")} description={t("remote.allowPlainHTTPDescription")}>
+					<div className="flex items-center gap-2">
+						{host.allowInsecureHTTP ? null : <Badge variant="warning">{t("remote.reportsBlocked")}</Badge>}
+						<Switch aria-label={t("remote.allowPlainHTTP")} checked={host.allowInsecureHTTP} disabled={busy || removeBusy} onCheckedChange={(checked) => void setPlainHTTPAllowed(host, checked)} />
+					</div>
+				</SettingsRow>}
 			</div>)}
+			{reportsError ? <p className="px-3 py-1 text-xs text-error" role="alert">{reportsError}</p> : null}
 			{loadError ? <div className="flex items-center gap-2 px-3 py-2 text-xs text-error" role="alert">{loadError}<Button onClick={() => void load()} size="sm" type="button" variant="outline">{t("notify.retry")}</Button></div> : null}
 		</SettingsSection>
 
