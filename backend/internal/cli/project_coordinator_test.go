@@ -145,24 +145,26 @@ func TestProjectSetConfigLocalWorkerFlagsAreExclusiveAndHostsMustResolve(t *test
 // readable: an empty or missing mode is inherit, not a mode echo.
 func TestProjectGetReadsAnEmptyAgentModeAsInherit(t *testing.T) {
 	cfg := setConfigEnv(t)
-	stored := `{"status":"ok","project":{"id":"demo","config":{"coordinators":{"enabled":true,"coordinatorAgent":{"mode":""},"workerAgent":{},"rootWorkerAgent":{"mode":"inherit"}}}}}`
+	stored := `{"status":"ok","project":{"id":"demo","config":{"coordinators":{"enabled":true,"coordinatorAgent":{"mode":""},"workerAgent":{},"rootWorkerAgent":{"mode":""}}}}}`
 	srv, _ := projectServer(t, http.StatusOK, stored)
 	writeRunFileFor(t, cfg, srv)
 
-	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "project", "get", "demo")
-	if err != nil {
-		t.Fatalf("project get: %v\nstderr=%s", err, errOut)
-	}
-	if strings.Contains(out, `"mode":""`) {
-		t.Fatalf("project get kept an empty mode: %s", out)
-	}
-	for _, want := range []string{
-		`"coordinatorAgent":{"mode":"inherit"}`,
-		`"workerAgent":{"mode":"inherit"}`,
-		`"rootWorkerAgent":{"mode":"inherit"}`,
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("project get = %s, want %s", out, want)
+	for _, args := range [][]string{{"project", "get", "demo"}, {"project", "get", "demo", "--json"}} {
+		out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, args...)
+		if err != nil {
+			t.Fatalf("project get: %v\nstderr=%s", err, errOut)
+		}
+		if strings.Contains(strings.Join(strings.Fields(out), ""), `"mode":""`) {
+			t.Fatalf("project get kept an empty mode: %s", out)
+		}
+		for _, want := range []string{
+			`"coordinatorAgent":{"mode":"inherit"}`,
+			`"workerAgent":{"mode":"inherit"}`,
+			`"rootWorkerAgent":{"mode":"inherit"}`,
+		} {
+			if !strings.Contains(strings.Join(strings.Fields(out), ""), want) {
+				t.Fatalf("project get = %s, want %s", out, want)
+			}
 		}
 	}
 }
@@ -229,5 +231,41 @@ func TestProjectSetConfigMergePreservesFieldsTheCLIDoesNotModel(t *testing.T) {
 	}
 	if string(coordinators["customCoordinatorKey"]) != `"kept"` || string(coordinators["maxWorkers"]) != "2" || string(coordinators["enabled"]) != "true" {
 		t.Fatalf("coordinators = %s", got.Config["coordinators"])
+	}
+}
+
+func TestProjectSetConfigMergeNormalizesStoredAgentModes(t *testing.T) {
+	cfg := setConfigEnv(t)
+	stored := `{"project":{"config":{"futureConfig":{"keep":true},"coordinators":{"futureCoordinator":42,"coordinatorAgent":{"mode":"","futureSelection":true},"workerAgent":{"mode":""},"rootWorkerAgent":{}}}}}`
+	srv, capture := projectServer(t, http.StatusOK, stored)
+	writeRunFileFor(t, cfg, srv)
+	_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }},
+		"project", "set-config", "demo", "--merge", "--coordinators")
+	if err != nil {
+		t.Fatalf("set-config --merge: %v\nstderr=%s", err, errOut)
+	}
+	var body struct {
+		Config map[string]json.RawMessage `json:"config"`
+	}
+	if err := json.Unmarshal(capture.body, &body); err != nil {
+		t.Fatal(err)
+	}
+	var coordinators map[string]json.RawMessage
+	if err := json.Unmarshal(body.Config["coordinators"], &coordinators); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"coordinatorAgent", "workerAgent", "rootWorkerAgent"} {
+		var selection map[string]json.RawMessage
+		if err := json.Unmarshal(coordinators[key], &selection); err != nil {
+			t.Fatal(err)
+		}
+		if string(selection["mode"]) != `"inherit"` {
+			t.Fatalf("%s = %s", key, coordinators[key])
+		}
+	}
+	if string(body.Config["futureConfig"]) != `{"keep":true}` ||
+		string(coordinators["futureCoordinator"]) != "42" ||
+		!strings.Contains(string(coordinators["coordinatorAgent"]), `"futureSelection":true`) {
+		t.Fatalf("merge lost unknown fields: %s", capture.body)
 	}
 }

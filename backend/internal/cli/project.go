@@ -626,6 +626,28 @@ func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, op
 			delete(coordinators, key)
 		}
 	}
+	for _, key := range []string{"coordinatorAgent", "workerAgent", "rootWorkerAgent"} {
+		raw, ok := coordinators[key]
+		if !ok || string(raw) == "null" {
+			continue
+		}
+		var selection agentSelection
+		if err := json.Unmarshal(raw, &selection); err != nil {
+			return nil, fmt.Errorf("stored %s: %w", key, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		fields["mode"], err = json.Marshal(selection.Mode)
+		if err != nil {
+			return nil, err
+		}
+		coordinators[key], err = json.Marshal(fields)
+		if err != nil {
+			return nil, err
+		}
+	}
 	coordRaw, err := json.Marshal(coordinators)
 	if err != nil {
 		return nil, err
