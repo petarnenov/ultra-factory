@@ -218,6 +218,11 @@ type RemoteWorkerLinkResponse struct {
 	// PullBlocked explains why this daemon will not poll the host with no one
 	// acting (plain http without the opt-in). The link is stored either way.
 	PullBlocked string `json:"pullBlocked,omitempty"`
+	// State is "live", "stale" (the host has not answered within the grace
+	// period, so the link no longer counts toward capacity), or "terminated".
+	State string `json:"state"`
+	// LastSeenAt is the last time the host answered a read of this worker.
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
 }
 
 // RemoteWorkerSyncResponse is the outcome of one discovery pass, one entry
@@ -248,6 +253,11 @@ type ListRemoteWorkerLinksResponse struct {
 }
 
 // RemoteWorkerLinkOwnerParam identifies one link on its ownership route.
+type RemoveRemoteWorkerLinkQuery struct {
+	RequestedBySessionID string `query:"requestedBySessionId" description:"The live root removing the link." validate:"required"`
+}
+
+// RemoteWorkerLinkOwnerParam names one link in the owner and removal routes.
 type RemoteWorkerLinkOwnerParam struct {
 	HostID          string `path:"hostId" description:"Linked remote host identifier."`
 	RemoteSessionID string `path:"remoteSessionId" description:"Session identifier on the remote host."`
@@ -785,6 +795,9 @@ type CoordinatorCapacity struct {
 	MaxWorkers               int `json:"maxWorkers"`
 	ActiveCoordinators       int `json:"activeCoordinators"`
 	ActiveWorkers            int `json:"activeWorkers"`
+	// StaleWorkers counts remote links whose host stopped answering; they
+	// are not in ActiveWorkers.
+	StaleWorkers int `json:"staleWorkers"`
 }
 
 // SessionOwnershipResponse is one session's durable ownership relation with

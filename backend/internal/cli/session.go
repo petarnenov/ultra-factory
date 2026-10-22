@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -700,6 +701,15 @@ func (c *commandContext) killSession(ctx context.Context, cmd *cobra.Command, id
 	var res killSessionResponse
 	if err := c.postJSON(ctx, "sessions/"+url.PathEscape(id)+"/kill", struct{}{}, &res); err != nil {
 		return err
+	}
+	if c.targetsRemote() && c.remote != nil {
+		// The kill went to the host, but the slot is counted here: drop the
+		// link now rather than waiting for the liveness pass.
+		releasePath := "/api/v1/remote-worker-links/" + url.PathEscape(c.remote.hostID) + "/" +
+			url.PathEscape(res.SessionID) + "/release"
+		if err := c.localContext().doJSONPath(ctx, http.MethodPost, releasePath, struct{}{}, nil); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: session %s killed, but its remote worker link was not released: %v\n", res.SessionID, err)
+		}
 	}
 	if res.CleanupPending {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "session %s killed (workspace cleanup pending)\n", res.SessionID)

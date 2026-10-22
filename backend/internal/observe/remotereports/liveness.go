@@ -1,0 +1,61 @@
+package remotereports
+
+import (
+	"context"
+	"errors"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+)
+
+// checkHostLiveness reads each link's worker over the host's connection,
+// apart from report pulling, so a host whose reports are blocked still frees
+// its capacity. It drops a link whose worker is gone or ended with nothing
+// pending, and records when the host last answered. It returns the links
+// still in use. A refused password ends the host's reads; the remaining
+// links are kept.
+func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, links []domain.RemoteWorkerLink) []domain.RemoteWorkerLink {
+	var kept []domain.RemoteWorkerLink
+	for i, link := range links {
+		terminated, err := client.terminated(ctx, link.RemoteSessionID)
+		switch {
+		case errors.Is(err, errSessionGone):
+			if o.drop(ctx, client, link, "remote session no longer exists") != nil {
+				kept = append(kept, link)
+			}
+		case errors.Is(err, errCredentialRefused):
+			o.refuse(link.HostID, client.password)
+			return append(kept, links[i:]...)
+		case err != nil:
+			o.note("liveness "+link.HostID+"/"+string(link.RemoteSessionID), client.label, err)
+			kept = append(kept, link)
+		case !terminated:
+			o.recordLiveness(ctx, link, domain.RemoteLinkLive)
+			kept = append(kept, link)
+		default:
+			o.recordLiveness(ctx, link, domain.RemoteLinkTerminated)
+			if !o.endedWithNothingPending(ctx, client, link) {
+				kept = append(kept, link)
+			}
+		}
+	}
+	return kept
+}
+
+// endedWithNothingPending drops a terminated worker's link once it has no
+// report left to deliver, due or not. Otherwise the pull delivers them first.
+func (o *Observer) endedWithNothingPending(ctx context.Context, client *hostClient, link domain.RemoteWorkerLink) bool {
+	result, err := client.pending(ctx, link.RemoteSessionID)
+	if errors.Is(err, errSessionGone) {
+		return o.drop(ctx, client, link, "remote session no longer exists") == nil
+	}
+	if err != nil || len(result.reports) > 0 || len(result.rejected) > 0 || result.more {
+		return false
+	}
+	return o.drop(ctx, client, link, "remote session terminated") == nil
+}
+
+func (o *Observer) recordLiveness(ctx context.Context, link domain.RemoteWorkerLink, state string) {
+	if err := o.store.UpdateRemoteWorkerLinkLiveness(ctx, link.HostID, link.RemoteSessionID, o.now(), state); err != nil {
+		o.log.Error("remote reports: record link liveness failed", "host", link.HostID, "session", link.RemoteSessionID, "err", err)
+	}
+}

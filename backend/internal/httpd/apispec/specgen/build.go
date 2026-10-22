@@ -942,6 +942,30 @@ func reportOperations() []operation {
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},
 	}, {
+		method: http.MethodDelete, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}", id: "removeRemoteWorkerLink", tag: "reports",
+		summary: "Drop a linked remote worker by hand (root only; the removal is logged)",
+		respNotes: map[int]string{
+			http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
+		},
+		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}, controllers.RemoveRemoteWorkerLinkQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.RemoteWorkerLinkResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusForbidden, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodPost, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release", id: "releaseRemoteWorkerLink", tag: "reports",
+		summary:    "Drop the link of a worker this daemon just killed on its host",
+		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}},
+		resps: []respUnit{
+			{http.StatusNoContent, nil},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
 		method: http.MethodPost, path: "/api/v1/reports", id: "createReport", tag: "reports",
 		summary: "Persist a worker report for later orchestrator delivery",
 		reqBody: controllers.CreateReportRequest{},

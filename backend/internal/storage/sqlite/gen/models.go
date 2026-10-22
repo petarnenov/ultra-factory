@@ -643,6 +643,14 @@ type RemoteWorkerLink struct {
 	CreatedAt       time.Time
 	OwnerSessionID  *domain.SessionID
 	Source          string
+	LastSeenAt      sql.NullTime
+	LastState       string
+}
+
+type RemoteWorkerLinkRemoval struct {
+	HostID          string
+	RemoteSessionID string
+	RemovedAt       time.Time
 }
 
 type RemoteWorkerOwnerEvent struct {

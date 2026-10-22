@@ -128,6 +128,11 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 		return result
 	}
 	coordinated, live := remoteCoordination(sessions)
+	removed, err := o.removedWorkers(ctx, entry.HostID)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
 	for _, session := range sessions {
 		if session.Kind != string(domain.KindWorker) || session.IsTerminated {
 			continue
@@ -135,6 +140,10 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 		// The host's own coordinator drives this worker; linking it would
 		// let this daemon pull and claim reports the host still needs.
 		if coordinated[session.ProjectID] || (session.OwnerSessionID != nil && live[*session.OwnerSessionID]) {
+			result.Skipped++
+			continue
+		}
+		if removed[session.ID] && !o.relinkRemoved(hostCtx, client, entry.HostID, session.ID) {
 			result.Skipped++
 			continue
 		}
@@ -161,6 +170,36 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry) rem
 	}
 	o.note("discover "+entry.HostID, label, nil)
 	return result
+}
+
+// removedWorkers returns the sessions of one host an operator dropped by hand.
+func (o *Observer) removedWorkers(ctx context.Context, hostID string) (map[domain.SessionID]bool, error) {
+	removals, err := o.store.ListRemoteWorkerLinkRemovals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	removed := map[domain.SessionID]bool{}
+	for _, removal := range removals {
+		if removal.HostID == hostID {
+			removed[removal.RemoteSessionID] = true
+		}
+	}
+	return removed, nil
+}
+
+// relinkRemoved reports whether a removed worker may be linked again. It may
+// not while the host reports it terminated; once it is live again the
+// removal is forgotten and discovery links it as usual.
+func (o *Observer) relinkRemoved(ctx context.Context, client *hostClient, hostID string, sessionID domain.SessionID) bool {
+	terminated, err := client.terminated(ctx, sessionID)
+	if err != nil || terminated {
+		return false
+	}
+	if err := o.store.DeleteRemoteWorkerLinkRemoval(ctx, hostID, sessionID); err != nil {
+		o.log.Error("remote discovery: forget link removal failed", "host", hostID, "session", sessionID, "err", err)
+		return false
+	}
+	return true
 }
 
 // remoteCoordination returns the projects with a live orchestrator or

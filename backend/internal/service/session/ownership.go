@@ -143,6 +143,8 @@ type CapacityView struct {
 	Limits             domain.CoordinatorLimits
 	ActiveCoordinators int
 	ActiveWorkers      int
+	// StaleWorkers counts remote links that no longer count as active.
+	StaleWorkers int
 	// WorkerLimit and CoordinatorWorkers are set for a coordinator only.
 	WorkerLimit        int
 	CoordinatorWorkers int
@@ -187,7 +189,10 @@ func (s *Service) capacityView(ctx context.Context, project domain.ProjectID, co
 }
 
 func capacityFrom(counts coordownership.Counts, limits domain.CoordinatorLimits, coordinator *domain.SessionID) CapacityView {
-	view := CapacityView{Limits: limits, ActiveCoordinators: counts.Coordinators, ActiveWorkers: counts.Workers}
+	view := CapacityView{
+		Limits: limits, ActiveCoordinators: counts.Coordinators, ActiveWorkers: counts.Workers,
+		StaleWorkers: counts.StaleWorkers,
+	}
 	if coordinator != nil {
 		view.WorkerLimit = counts.OwnerLimit(*coordinator, limits)
 		view.CoordinatorWorkers = counts.ByOwner[*coordinator]
