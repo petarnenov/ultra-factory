@@ -10,9 +10,8 @@ import (
 	coordownership "github.com/aoagents/agent-orchestrator/backend/internal/service/ownership"
 )
 
-// RemoveLink drops one linked remote worker by hand. Only the live root may
-// remove a link; the removal is logged and not re-linked by discovery while
-// the worker stays terminated.
+// RemoveLink drops a linked remote worker by hand; only the live root may.
+// The removal is logged and kept so discovery skips terminated workers.
 func (s *Service) RemoveLink(
 	ctx context.Context,
 	hostID string,
@@ -51,9 +50,8 @@ func (s *Service) RemoveLink(
 	return link, nil
 }
 
-// ReleaseKilled drops the link of a worker whose kill this daemon just
-// relayed to its host. The kill already succeeded, so no root check applies.
-// A missing link is not an error.
+// ReleaseKilled drops the link of a worker this daemon just killed.
+// No root check: the kill already succeeded. A missing link is fine.
 func (s *Service) ReleaseKilled(ctx context.Context, hostID string, remoteSessionID domain.SessionID) error {
 	if s == nil || s.store == nil {
 		return fmt.Errorf("remoteworker: store is required")

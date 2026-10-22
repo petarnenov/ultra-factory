@@ -6,9 +6,8 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// Migration 0227 adds the liveness columns and the removal memory. Rows written
-// before it have never been read, so after a down and up round trip they must
-// read no last state and no last-seen time.
+// Migration 0227 adds the liveness columns and the removal memory. Rows from
+// before it were never read, so after a round trip they must read as unread.
 func TestMigrationRemoteWorkerLinkLivenessRoundTrips(t *testing.T) {
 	db := openMigratedTestDB(t)
 	if _, err := db.Exec(`

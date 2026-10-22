@@ -187,9 +187,8 @@ func (o *Observer) removedWorkers(ctx context.Context, hostID string) (map[domai
 	return removed, nil
 }
 
-// relinkRemoved reports whether a removed worker may be linked again. It may
-// not while the host reports it terminated; once it is live again the
-// removal is forgotten and discovery links it as usual.
+// relinkRemoved reports whether a removed worker may be linked again.
+// Not while the host reports it terminated; a live worker is linked.
 func (o *Observer) relinkRemoved(ctx context.Context, client *hostClient, hostID string, sessionID domain.SessionID) bool {
 	terminated, err := client.terminated(ctx, sessionID)
 	if err != nil || terminated {

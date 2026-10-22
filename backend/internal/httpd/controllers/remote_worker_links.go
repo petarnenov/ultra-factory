@@ -75,8 +75,8 @@ func (c *RemoteWorkerLinksController) Register(r chi.Router) {
 	r.Post("/remote-worker-links/{hostId}/{remoteSessionId}/release", c.release)
 }
 
-// remove drops a link by hand. The caller is named in the requestedBySessionId
-// query parameter and must be the live root; anyone else gets OWNERSHIP_ROOT_ONLY.
+// remove drops a link by hand; only the live root may (OWNERSHIP_ROOT_ONLY).
+// The caller is named in the requestedBySessionId query parameter.
 func (c *RemoteWorkerLinksController) remove(w http.ResponseWriter, r *http.Request) {
 	svc, ok := c.Svc.(RemoteWorkerRemovalService)
 	if !ok {

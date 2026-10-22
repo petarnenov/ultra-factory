@@ -66,7 +66,7 @@ func TestRemoteWorkerLinkReleaseAfterAKillIsIdempotent(t *testing.T) {
 	if _, ok, _ := store.GetRemoteWorkerLink(ctx, "host-build", "widgets-4"); ok {
 		t.Fatal("release kept the link")
 	}
-	// The removal is remembered, so discovery will not link a terminated worker again.
+	// Removed, so discovery will not link a terminated worker again.
 	removals, err := store.ListRemoteWorkerLinkRemovals(ctx)
 	if err != nil || len(removals) != 1 || removals[0].RemoteSessionID != "widgets-4" {
 		t.Fatalf("removals = %+v err=%v", removals, err)
@@ -80,9 +80,8 @@ func linkFor(session string) domain.RemoteWorkerLink {
 	}
 }
 
-// TestRosterCountsLiveLinksAndReportsStaleOnesApart checks the roster: a live
-// link adds to activeWorkers, and a link whose host stopped answering is
-// counted in staleWorkers instead.
+// TestRosterCountsLiveLinksAndReportsStaleOnesApart: a live link counts as
+// active; a link whose host stopped answering counts as stale, not active.
 func TestRosterCountsLiveLinksAndReportsStaleOnesApart(t *testing.T) {
 	f := newOwnershipFixture(t)
 	srv := f.server(t)

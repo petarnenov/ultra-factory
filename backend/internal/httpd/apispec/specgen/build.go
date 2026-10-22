@@ -943,7 +943,7 @@ func reportOperations() []operation {
 		},
 	}, {
 		method: http.MethodDelete, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}", id: "removeRemoteWorkerLink", tag: "reports",
-		summary: "Drop a linked remote worker by hand (root only; the removal is logged)",
+		summary: "Remove a linked remote worker (root only; logged)",
 		respNotes: map[int]string{
 			http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
 		},

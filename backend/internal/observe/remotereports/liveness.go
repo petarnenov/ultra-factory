@@ -7,12 +7,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
-// checkHostLiveness reads each link's worker over the host's connection,
-// apart from report pulling, so a host whose reports are blocked still frees
-// its capacity. It drops a link whose worker is gone or ended with nothing
-// pending, and records when the host last answered. It returns the links
-// still in use. A refused password ends the host's reads; the remaining
-// links are kept.
+// checkHostLiveness reads each link's worker over the host's connection.
+// It drops links that are gone or ended, and returns the links still used.
 func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, links []domain.RemoteWorkerLink) []domain.RemoteWorkerLink {
 	var kept []domain.RemoteWorkerLink
 	for i, link := range links {

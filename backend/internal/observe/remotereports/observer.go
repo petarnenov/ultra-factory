@@ -303,9 +303,8 @@ func (o *Observer) liveHost(ctx context.Context, hostID string, links []domain.R
 	return client, o.checkHostLiveness(hostCtx, client, links), nil
 }
 
-// pollHost pulls every link of one host within hostBudget, so a slow host
-// cannot hold up the others for long. A refused credential stops the host.
-// The caller closes the client after settling.
+// pollHost pulls every link of one host within hostBudget; a refused
+// credential stops the host. The caller closes the client after settling.
 func (o *Observer) pollHost(ctx context.Context, client *hostClient, links []domain.RemoteWorkerLink) ([]*pulled, error) {
 	hostID := client.hostID
 	if o.refusedPassword(hostID, client.password) {
