@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	defaultTimeout    = 5 * time.Second
+	defaultTimeout = 5 * time.Second
 	// defaultChunkBytes keeps each send-keys argument well under tmux's
 	// MAX_IMSGSIZE (16 KiB), so a large message never hits "command too long".
 	defaultChunkBytes = 8 * 1024
