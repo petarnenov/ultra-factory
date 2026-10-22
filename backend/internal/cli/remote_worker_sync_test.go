@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -44,6 +45,27 @@ func TestRemoteWorkerSyncRejectsArguments(t *testing.T) {
 	var usage usageError
 	if !errors.As(err, &usage) {
 		t.Fatalf("err = %v, want a usage error", err)
+	}
+}
+
+func TestRemoteWorkerListJSONCarriesTheLocalProjectID(t *testing.T) {
+	srv, _ := ownershipServer(t, http.StatusOK,
+		`{"links":[{"hostId":"host-build","remoteSessionId":"widgets-3","remoteProjectId":"widgets","projectId":"demo","localProjectId":"demo","ownerSessionId":null,"source":"discovered"}]}`)
+
+	out, _, err := runOwnershipCLI(t, srv, "remote-worker", "ls", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Links []struct {
+			LocalProjectID string `json:"localProjectId"`
+		} `json:"links"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, out)
+	}
+	if len(payload.Links) != 1 || payload.Links[0].LocalProjectID != "demo" {
+		t.Fatalf("links = %+v, want localProjectId demo", payload.Links)
 	}
 }
 

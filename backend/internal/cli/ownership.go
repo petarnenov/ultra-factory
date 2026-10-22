@@ -105,6 +105,7 @@ type remoteWorkerLinkDTO struct {
 	RemoteSessionID string  `json:"remoteSessionId"`
 	RemoteProjectID string  `json:"remoteProjectId"`
 	ProjectID       string  `json:"projectId"`
+	LocalProjectID  string  `json:"localProjectId"`
 	DisplayName     string  `json:"displayName,omitempty"`
 	OwnerSessionID  *string `json:"ownerSessionId"`
 	Source          string  `json:"source"`

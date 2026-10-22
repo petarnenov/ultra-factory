@@ -209,7 +209,7 @@ func remoteWorkerLinkResponse(link domain.RemoteWorkerLink) RemoteWorkerLinkResp
 	return RemoteWorkerLinkResponse{
 		HostID: link.HostID, HostLabel: link.HostLabel,
 		RemoteSessionID: string(link.RemoteSessionID), RemoteProjectID: string(link.RemoteProjectID),
-		ProjectID: string(link.ProjectID), DisplayName: link.DisplayName,
+		ProjectID: string(link.ProjectID), LocalProjectID: string(link.ProjectID), DisplayName: link.DisplayName,
 		OwnerSessionID: sessionIDString(link.OwnerSessionID), Source: string(link.Source), CreatedAt: link.CreatedAt,
 	}
 }
