@@ -4350,6 +4350,18 @@ paths:
         schema:
           description: Worker session identifier on this daemon.
           type: string
+      - description: Puller instance ID for per-puller acks.
+        in: query
+        name: pullerId
+        schema:
+          description: Puller instance ID for per-puller acks.
+          type: string
+      - description: Last expiredTotal the puller logged.
+        in: query
+        name: expiredSeen
+        schema:
+          description: Last expiredTotal the puller logged.
+          type: integer
       responses:
         "200":
           content:
@@ -12004,6 +12016,8 @@ components:
       type: object
     AcknowledgeReportsRequest:
       properties:
+        pullerId:
+          type: string
         reportIds:
           items:
             type: string
@@ -16825,7 +16839,15 @@ components:
       type: object
     ListPendingReportsResponse:
       properties:
+        expiredBeforePull:
+          format: int64
+          type: integer
+        expiredTotal:
+          format: int64
+          type: integer
         morePending:
+          type: boolean
+        pullerAcks:
           type: boolean
         reports:
           items:

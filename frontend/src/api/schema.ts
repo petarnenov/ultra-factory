@@ -3934,6 +3934,7 @@ export interface components {
             requestId?: string;
         };
         AcknowledgeReportsRequest: {
+            pullerId?: string;
             reportIds: string[];
             sessionId: string;
         };
@@ -5699,7 +5700,12 @@ export interface components {
             truncated: boolean;
         };
         ListPendingReportsResponse: {
+            /** Format: int64 */
+            expiredBeforePull?: number;
+            /** Format: int64 */
+            expiredTotal?: number;
             morePending: boolean;
+            pullerAcks?: boolean;
             reports: components["schemas"]["ReportResponse"][];
         };
         ListProjectsResponse: {
@@ -13113,6 +13119,10 @@ export interface operations {
             query: {
                 /** @description Worker session identifier on this daemon. */
                 sessionId: string;
+                /** @description Puller instance ID for per-puller acks. */
+                pullerId?: string;
+                /** @description Last expiredTotal the puller logged. */
+                expiredSeen?: number;
             };
             header?: never;
             path?: never;

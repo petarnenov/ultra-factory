@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -263,14 +264,41 @@ func decodeReportCursor(raw string) (time.Time, string, string, string, error) {
 	return createdAt.UTC(), hostID, sessionID, id, nil
 }
 
+// PullOptions identifies one pull. An empty PullerID is the legacy pull: the
+// first daemon to acknowledge a report settles it for every daemon.
+type PullOptions struct {
+	// PullerID is the pulling daemon's instance ID.
+	PullerID string
+	// ExpiredSeen is the ExpiredTotal the puller last logged.
+	ExpiredSeen int64
+}
+
+// PullResult is one worker's pending reports for one pull.
+type PullResult struct {
+	Due         []domain.ReportRecord
+	MorePending bool
+	// ExpiredTotal is the worker's monotonic count of reports that expired
+	// before this puller acknowledged them. Zero for a legacy pull.
+	ExpiredTotal int64
+	// ExpiredBeforePull is ExpiredTotal minus the ExpiredSeen the puller sent.
+	ExpiredBeforePull int64
+}
+
 // ListDuePending returns one worker's pending, due reports. A terminated
 // worker's queue is due at once; batching holds, delivery state is unchanged.
 func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID) (due []domain.ReportRecord, morePending bool, err error) {
+	result, err := s.PullFor(ctx, sessionID, PullOptions{})
+	return result.Due, result.MorePending, err
+}
+
+// PullFor returns one worker's reports due for the puller in opts. A puller
+// with an ID receives every pending report it has not acknowledged itself.
+func (s *Service) PullFor(ctx context.Context, sessionID domain.SessionID, opts PullOptions) (PullResult, error) {
 	if s == nil || s.store == nil {
-		return nil, false, errors.New("report: store is required")
+		return PullResult{}, errors.New("report: store is required")
 	}
 	if err := s.pullableWorker(ctx, sessionID); err != nil {
-		return nil, false, err
+		return PullResult{}, err
 	}
 	// A peer daemon pulling this worker's reports runs its orchestrator. Mark
 	// the worker as remotely started so this machine refuses an orchestrator
@@ -281,19 +309,42 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 			MarkRemoteSpawned(context.Context, domain.SessionID, time.Time) error
 		}); ok {
 			if err := marker.MarkRemoteSpawned(ctx, sessionID, s.now().UTC()); err != nil {
-				return nil, false, err
+				return PullResult{}, err
 			}
+		}
+	}
+	var (
+		expired int64
+		acked   map[string]bool
+	)
+	if opts.PullerID != "" {
+		if err := validPullerID(opts.PullerID); err != nil {
+			return PullResult{}, err
+		}
+		if err := s.compactReports(ctx, sessionID); err != nil {
+			return PullResult{}, err
+		}
+		puller, ok := s.store.(interface {
+			TouchReportPuller(context.Context, domain.SessionID, string, time.Time) (int64, map[string]bool, error)
+		})
+		if !ok {
+			return PullResult{}, errors.New("report: puller store is required")
+		}
+		var err error
+		expired, acked, err = puller.TouchReportPuller(ctx, sessionID, opts.PullerID, s.now().UTC())
+		if err != nil {
+			return PullResult{}, err
 		}
 	}
 	reader, ok := s.store.(interface {
 		ListReportsBySession(context.Context, domain.SessionID) ([]domain.ReportRecord, error)
 	})
 	if !ok {
-		return nil, false, errors.New("report: session reader is required")
+		return PullResult{}, errors.New("report: session reader is required")
 	}
 	reports, err := reader.ListReportsBySession(ctx, sessionID)
 	if err != nil {
-		return nil, false, err
+		return PullResult{}, err
 	}
 	terminated := false
 	if session, found, lookupErr := s.store.GetSession(ctx, sessionID); lookupErr == nil && found {
@@ -306,26 +357,41 @@ func (s *Service) ListDuePending(ctx context.Context, sessionID domain.SessionID
 	}
 	now := s.now().UTC()
 	budget := 0
-	due = make([]domain.ReportRecord, 0, len(reports))
+	result := PullResult{ExpiredTotal: expired, ExpiredBeforePull: max(expired-opts.ExpiredSeen, 0)}
+	result.Due = make([]domain.ReportRecord, 0, len(reports))
 	for _, report := range reports {
-		if report.DeliveryState != domain.ReportPending {
+		if report.DeliveryState != domain.ReportPending || acked[report.ID] {
 			continue
 		}
 		if report.AvailableAt.After(now) && !terminated {
-			morePending = true
+			result.MorePending = true
 			continue
 		}
 		size := encodedReportBytes(report)
-		if len(due) == MaxAcknowledgeReports || (len(due) > 0 && budget+size > MaxPulledReportBytes) {
+		if len(result.Due) == MaxAcknowledgeReports || (len(result.Due) > 0 && budget+size > MaxPulledReportBytes) {
 			// Stop rather than skip, so a later small report never overtakes
 			// an earlier large one.
-			morePending = true
+			result.MorePending = true
 			break
 		}
 		budget += size
-		due = append(due, report)
+		result.Due = append(result.Due, report)
 	}
-	return due, morePending, nil
+	return result, nil
+}
+
+// compactReports expires the worker's pending reports past PullRetention or
+// beyond MaxReportsPerSession. A store without compaction keeps them all.
+func (s *Service) compactReports(ctx context.Context, sessionID domain.SessionID) error {
+	compactor, ok := s.store.(interface {
+		CompactExpiredReports(context.Context, domain.SessionID, time.Time, int, time.Time) (int64, error)
+	})
+	if !ok {
+		return nil
+	}
+	now := s.now().UTC()
+	_, err := compactor.CompactExpiredReports(ctx, sessionID, now.Add(-PullRetention), MaxReportsPerSession, now)
+	return err
 }
 
 // AcknowledgePulled settles reports a peer daemon pulled and delivered. Only
@@ -334,13 +400,8 @@ func (s *Service) AcknowledgePulled(ctx context.Context, sessionID domain.Sessio
 	if s == nil || s.store == nil {
 		return nil, errors.New("report: store is required")
 	}
-	if len(ids) == 0 || len(ids) > MaxAcknowledgeReports {
-		return nil, apierr.Invalid("INVALID_REPORT_IDS", "Between 1 and 200 report ids are required", nil)
-	}
-	for _, id := range ids {
-		if strings.TrimSpace(id) == "" {
-			return nil, apierr.Invalid("INVALID_REPORT_IDS", "Report ids must not be empty", nil)
-		}
+	if err := validateAckIDs(ids); err != nil {
+		return nil, err
 	}
 	if err := s.pullableWorker(ctx, sessionID); err != nil {
 		return nil, err
@@ -359,6 +420,57 @@ func (s *Service) AcknowledgePulled(ctx context.Context, sessionID domain.Sessio
 		acknowledged = []string{}
 	}
 	return acknowledged, nil
+}
+
+// AcknowledgePulledFor records that pullerID received the named reports. The
+// reports stay pending for every other puller and for the worker's own queue.
+func (s *Service) AcknowledgePulledFor(ctx context.Context, sessionID domain.SessionID, ids []string, pullerID string) ([]string, error) {
+	if s == nil || s.store == nil {
+		return nil, errors.New("report: store is required")
+	}
+	if err := validateAckIDs(ids); err != nil {
+		return nil, err
+	}
+	if err := validPullerID(pullerID); err != nil {
+		return nil, err
+	}
+	if err := s.pullableWorker(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	acker, ok := s.store.(interface {
+		AcknowledgePendingSessionReportsFor(context.Context, domain.SessionID, []string, string, time.Time) ([]string, error)
+	})
+	if !ok {
+		return nil, errors.New("report: acknowledgement store is required")
+	}
+	acknowledged, err := acker.AcknowledgePendingSessionReportsFor(ctx, sessionID, ids, pullerID, s.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if acknowledged == nil {
+		acknowledged = []string{}
+	}
+	return acknowledged, nil
+}
+
+func validateAckIDs(ids []string) error {
+	if len(ids) == 0 || len(ids) > MaxAcknowledgeReports {
+		return apierr.Invalid("INVALID_REPORT_IDS", "Between 1 and 200 report ids are required", nil)
+	}
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			return apierr.Invalid("INVALID_REPORT_IDS", "Report ids must not be empty", nil)
+		}
+	}
+	return nil
+}
+
+// validPullerID accepts an instance ID of up to 128 printable, non-space bytes.
+func validPullerID(pullerID string) error {
+	if pullerID == "" || len(pullerID) > MaxPullerIDBytes || strings.ContainsFunc(pullerID, unicode.IsSpace) {
+		return apierr.Invalid("INVALID_PULLER_ID", "Puller id must be 1-128 characters without spaces", nil)
+	}
+	return nil
 }
 
 func (s *Service) pullableWorker(ctx context.Context, sessionID domain.SessionID) error {
@@ -455,6 +567,17 @@ const MaxAcknowledgeReports = 200
 // MaxPulledReportBytes bounds pending reports per response.
 // It prevents large pages from failing to decode.
 const MaxPulledReportBytes = 2 << 20
+
+// PullRetention is how long a worker keeps a pending report for a puller to
+// pull. Older reports expire, and each unacknowledged puller counts them.
+const PullRetention = 7 * 24 * time.Hour
+
+// MaxReportsPerSession caps a worker's retained reports; the oldest pending
+// reports beyond it expire the same way PullRetention does.
+const MaxReportsPerSession = 10000
+
+// MaxPullerIDBytes bounds a puller instance ID.
+const MaxPullerIDBytes = 128
 
 // encodedReportBytes is a report's size as the pending route encodes it,
 // including HTML escaping that turns one byte into six.

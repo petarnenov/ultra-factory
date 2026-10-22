@@ -228,6 +228,7 @@ var shippedMigrations = map[int64]string{
 	223: "0223_session_ci_gate_events.sql",
 	224: "0224_coordinator_operator_spawns.sql",
 	225: "0225_remote_worker_link_source.sql",
+	226: "0226_report_pull_acks.sql",
 }
 
 // burnedVersion reports version numbers that must never be (re)used: they

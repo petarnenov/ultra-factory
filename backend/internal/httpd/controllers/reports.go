@@ -30,8 +30,9 @@ type reportProjectPager interface {
 // reportPuller serves a peer daemon that delivers this daemon's worker
 // reports to its own orchestrator.
 type reportPuller interface {
-	ListDuePending(context.Context, domain.SessionID) ([]domain.ReportRecord, bool, error)
+	PullFor(context.Context, domain.SessionID, reportsvc.PullOptions) (reportsvc.PullResult, error)
 	AcknowledgePulled(context.Context, domain.SessionID, []string) ([]string, error)
+	AcknowledgePulledFor(context.Context, domain.SessionID, []string, string) ([]string, error)
 }
 
 // MaxCreateReportBytes bounds one report creation request.
@@ -142,12 +143,28 @@ func (c *ReportsController) pending(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "INVALID_REPORT_SESSION", "Worker session id is required", nil)
 		return
 	}
-	records, morePending, err := puller.ListDuePending(r.Context(), sessionID)
+	query := r.URL.Query()
+	opts := reportsvc.PullOptions{PullerID: query.Get("pullerId")}
+	if raw := query.Get("expiredSeen"); raw != "" {
+		seen, err := strconv.Atoi(raw)
+		if err != nil || seen < 0 {
+			envelope.WriteAPIError(w, r, http.StatusBadRequest, "validation", "INVALID_EXPIRED_SEEN", "expiredSeen must be a non-negative integer", nil)
+			return
+		}
+		opts.ExpiredSeen = int64(seen)
+	}
+	result, err := puller.PullFor(r.Context(), sessionID, opts)
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, ListPendingReportsResponse{Reports: listReportsResponse(records).Reports, MorePending: morePending})
+	envelope.WriteJSON(w, http.StatusOK, ListPendingReportsResponse{
+		Reports:           listReportsResponse(result.Due).Reports,
+		MorePending:       result.MorePending,
+		PullerAcks:        opts.PullerID != "",
+		ExpiredBeforePull: result.ExpiredBeforePull,
+		ExpiredTotal:      result.ExpiredTotal,
+	})
 }
 
 func (c *ReportsController) acknowledge(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +180,13 @@ func (c *ReportsController) acknowledge(w http.ResponseWriter, r *http.Request) 
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
 		return
 	}
-	acknowledged, err := puller.AcknowledgePulled(r.Context(), domain.SessionID(req.SessionID), req.ReportIDs)
+	var acknowledged []string
+	var err error
+	if req.PullerID != "" {
+		acknowledged, err = puller.AcknowledgePulledFor(r.Context(), domain.SessionID(req.SessionID), req.ReportIDs, req.PullerID)
+	} else {
+		acknowledged, err = puller.AcknowledgePulled(r.Context(), domain.SessionID(req.SessionID), req.ReportIDs)
+	}
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return

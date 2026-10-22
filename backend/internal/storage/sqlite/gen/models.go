@@ -717,6 +717,19 @@ type ReportOutput struct {
 	Label     string
 }
 
+type ReportPullAck struct {
+	ReportID       string
+	PullerID       string
+	AcknowledgedAt time.Time
+}
+
+type ReportPuller struct {
+	SessionID    string
+	PullerID     string
+	ExpiredTotal int64
+	LastPulledAt time.Time
+}
+
 type ReportWorkerInterrupt struct {
 	SessionID         string
 	LastInterruptedAt time.Time
