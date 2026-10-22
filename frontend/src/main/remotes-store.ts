@@ -5,8 +5,8 @@ import { dirname } from "node:path";
 // Saved desktop connections. Older records have no hostId and must be paired
 // again before a saved password can be sent to their address.
 
-// A tailscale entry was found on the tailnet: its url is the Tailscale
-// address and it has no password; the host admits this machine on identity.
+// A tailscale entry was found on the tailnet and uses its address. A password
+// from an earlier pairing is retained for hosts that still require it.
 export type RemoteEntry = {
 	label: string;
 	url: string;
@@ -148,12 +148,12 @@ export type DiscoveredRemote = { hostId: string; label: string; url: string };
 // Keep the file in step with tailnet discovery; returns whether it changed.
 // Entries for this machine or a sibling install (dropHostIds) are removed.
 
-// A discovered host ID already in the file moves to its Tailscale address and
-// loses its password; a new one is added with the machine name as its label.
+// A discovered host ID moves to its Tailscale address without losing an
+// existing pairing password; a new one uses the machine name as its label.
 
 // Labels of existing entries are kept: they are the user's.
 export async function reconcileTailnetRemotes(path: string, discovered: DiscoveredRemote[], dropHostIds: string[]): Promise<boolean> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		const drop = new Set(dropHostIds);
 		let changed = false;
@@ -171,8 +171,8 @@ export async function reconcileTailnetRemotes(path: string, discovered: Discover
 				continue;
 			}
 			const current = remotes[index];
-			if (current.url === host.url && current.password === "" && current.tailscale) continue;
-			remotes[index] = { ...current, url: host.url, password: "", tailscale: true };
+			if (current.url === host.url && current.tailscale) continue;
+			remotes[index] = { ...current, url: host.url, tailscale: true };
 			changed = true;
 		}
 		// Two rows cannot share a url: the Tailscale address wins over a stale one.
@@ -184,7 +184,7 @@ export async function reconcileTailnetRemotes(path: string, discovered: Discover
 		});
 		if (changed) await writeRemotes(path, deduped);
 		return changed;
-	});
+	}));
 }
 
 export async function updateRemote(path: string, url: string, changes: RemoteChanges): Promise<RemoteEntry> {

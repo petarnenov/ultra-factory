@@ -6,6 +6,7 @@ import { useUiStore } from "../../stores/ui-store";
 const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string; tailscale?: boolean; online?: boolean; allowInsecureHTTP?: boolean }> }));
 const tailnet = vi.hoisted(() => ({ status: { available: true, hidden: [] } as { available: boolean; error?: string; hidden: Array<{ hostId: string; label: string; name: string; address: string; url: string; online: boolean }> } }));
 const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" | "unauthenticated" }));
+const cloudSettings = vi.hoisted(() => ({ url: "" }));
 const remotes = vi.hoisted(() => ({
 	list: vi.fn(async () => saved.entries),
 	add: vi.fn(async ({ label, url }: { label: string; url: string }) => {
@@ -16,6 +17,7 @@ const remotes = vi.hoisted(() => ({
 	disconnect: vi.fn(async () => undefined),
 	remove: vi.fn(async () => undefined),
 	setAllowInsecureHTTP: vi.fn(async () => undefined),
+	issueAccountToken: vi.fn(async () => ({ token: "token", url: "https://host.example" })),
 	update: vi.fn(async (_oldUrl: string, changes: { label?: string; url?: string }) => {
 		saved.entries = saved.entries.map((host) => ({ ...host, label: changes.label ?? host.label, url: changes.url ?? host.url }));
 		return "online" as const;
@@ -27,7 +29,7 @@ const remotes = vi.hoisted(() => ({
 vi.mock("../../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, signIn: vi.fn() }) }));
 vi.mock("../../hooks/useCloudLocalAuth", () => ({ useCloudLocalAuth: () => ({ available: false }) }));
-vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: cloudSettings.url } }) }));
 const platform = vi.hoisted(() => ({ web: false }));
 vi.mock("../../lib/platform", () => ({ get isWebBuild() { return platform.web; } }));
 
@@ -37,6 +39,7 @@ const renderSettings = () => render(<QueryClientProvider client={new QueryClient
 
 afterEach(() => {
 	account.status = "authenticated";
+	cloudSettings.url = "";
 	platform.web = false;
 	saved.entries = [];
 	tailnet.status = { available: true, hidden: [] };
@@ -48,6 +51,7 @@ afterEach(() => {
 	remotes.add.mockClear();
 	remotes.update.mockClear();
 	remotes.remove.mockClear();
+	remotes.issueAccountToken.mockClear();
 });
 
 it("lists hosts without an AO Cloud sign-in and keeps cloud sync out of sight", async () => {
@@ -95,6 +99,19 @@ it("renames a Tailscale host without asking for an address or password", async (
 	fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Z600" } });
 	fireEvent.click(screen.getByRole("button", { name: "Save host" }));
 	await waitFor(() => expect(remotes.update).toHaveBeenCalledWith("http://100.106.144.10:3011", { label: "Z600" }));
+});
+
+it("renames a Tailscale host with cloud sync on without trying account linking", async () => {
+	cloudSettings.url = "https://api.aoagents.dev";
+	useUiStore.setState({ remoteHostsCloudSync: true });
+	saved.entries = [{ hostId: "h_z600", label: "hpz600", url: "http://100.106.144.10:3011", tailscale: true, online: true }];
+	renderSettings();
+	fireEvent.click(await screen.findByRole("button", { name: "Rename hpz600" }));
+	fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Z600" } });
+	fireEvent.click(screen.getByRole("button", { name: "Save host" }));
+	await waitFor(() => expect(remotes.update).toHaveBeenCalledWith("http://100.106.144.10:3011", { label: "Z600" }));
+	await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(""));
+	expect(remotes.issueAccountToken).not.toHaveBeenCalled();
 });
 
 it("says when Tailscale is unavailable instead of hiding the section", async () => {

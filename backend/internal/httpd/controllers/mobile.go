@@ -334,11 +334,10 @@ func (b *BridgeService) Status() MobileStatusResponse {
 	enabled := st.Enabled && b.LAN.Running()
 	lan := b.lanHosts()
 	ts := b.tailscaleHosts()
-	tailscaleHost := ""
 	if st.LoopbackOnly {
 		lan, ts = nil, nil
 	}
-	tailscaleHost = first(ts)
+	tailscaleHost := first(ts)
 	if st.TailnetOnly {
 		lan = nil
 	}
@@ -927,7 +926,7 @@ func (b *BridgeService) startAdditionalTailnetLocked() error {
 	}
 	host := first(b.tailscaleHosts())
 	if host == "" {
-		return errors.New("Tailscale is unavailable for the additional listener")
+		return errors.New("tailscale is unavailable for the additional listener")
 	}
 	if _, err := starter.StartTailnetFixed(port, host); err != nil {
 		return fmt.Errorf("restore additional Tailscale listener on %s:%d: %w", host, port, err)
@@ -1066,7 +1065,7 @@ func (b *BridgeService) EnableAlsoTailnet() (MobileStatusResponse, error) {
 	}
 	host := first(b.tailscaleHosts())
 	if host == "" {
-		return MobileStatusResponse{}, errors.New("Tailscale is unavailable; start Tailscale before enabling --also-tailnet")
+		return MobileStatusResponse{}, errors.New("tailscale is unavailable; start Tailscale before enabling --also-tailnet")
 	}
 	port := b.TailnetPort
 	if port <= 0 {

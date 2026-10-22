@@ -112,7 +112,7 @@ export function RemoteHostsSettings({ titleHidden }: { titleHidden?: boolean }) 
 			if (editing?.hostId && !editing.tailscale) await disconnectHost(editing.hostId);
 			if (editing && !editing.hostId && editing.url !== nextUrl) await aoBridge.remotes.remove(editing.url);
 			const current = (await aoBridge.remotes.list()).find((item) => item.url === nextUrl);
-			if (current?.hostId && cloudBaseUrl) {
+			if (current?.hostId && !current.tailscale && cloudBaseUrl) {
 				const { token, url: accountUrl } = await aoBridge.remotes.issueAccountToken(current.url);
 				await saveAccountRemoteHost(cloudBaseUrl, { hostId: current.hostId, label: current.label, url: accountUrl, token });
 			}

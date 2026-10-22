@@ -260,7 +260,7 @@ describe("registerRemotesIpc", () => {
 		const ipc = fakeIpc();
 		const requireAccount = vi.fn(async () => { throw new Error("Sign in to AO Cloud to use remote hosts."); });
 		registerRemotes(ipc.ipcMain, { file, registry, requireAccount, getAccountId: async () => "" });
-		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1" }]);
+		await expect(ipc.invoke("remotes:list")).resolves.toEqual([{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1", allowInsecureHTTP: false }]);
 		await expect(ipc.invoke("remotes:importAccountHost", TEST_ACCOUNT, { hostId: "h_x", label: "x", url: "https://x.example", password: "a".repeat(64) })).rejects.toThrow(/Sign in to AO Cloud/);
 		await expect(ipc.invoke("remotes:issueAccountToken", "http://192.0.2.1:1")).rejects.toThrow(/Sign in to AO Cloud/);
 		expect(requireAccount).toHaveBeenCalledTimes(2);
@@ -285,12 +285,12 @@ describe("registerRemotesIpc", () => {
 		const ipc = fakeIpc();
 		registerRemotes(ipc.ipcMain, { file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }), requireAccount: signedIn, getAccountId: async () => "", daemonBaseUrl: () => "http://127.0.0.1:3002", discover: async () => discovery, updateTailnet });
 		await expect(ipc.invoke("remotes:list")).resolves.toEqual([
-			{ hostId: "h_workbox", label: "Workbox (LAN)", url: "http://100.100.160.17:3011", tailscale: true, online: false },
-			{ hostId: "h_tunnel", label: "tunnel-box", url: "https://tunnel.example" },
-			{ hostId: "h_z600", label: "hpz600", url: "http://100.106.144.10:3011", tailscale: true, online: true },
+			{ hostId: "h_workbox", label: "Workbox (LAN)", url: "http://100.100.160.17:3011", tailscale: true, online: false, allowInsecureHTTP: false },
+			{ hostId: "h_tunnel", label: "tunnel-box", url: "https://tunnel.example", allowInsecureHTTP: false },
+			{ hostId: "h_z600", label: "hpz600", url: "http://100.106.144.10:3011", tailscale: true, online: true, allowInsecureHTTP: false },
 		]);
 		expect(JSON.parse(await readFile(file, "utf8")).remotes).toEqual([
-			{ hostId: "h_workbox", label: "Workbox (LAN)", url: "http://100.100.160.17:3011", password: "", tailscale: true },
+			{ hostId: "h_workbox", label: "Workbox (LAN)", url: "http://100.100.160.17:3011", password: "old", tailscale: true },
 			{ hostId: "h_tunnel", label: "tunnel-box", url: "https://tunnel.example", password: "t" },
 			{ hostId: "h_z600", label: "hpz600", url: "http://100.106.144.10:3011", password: "", tailscale: true },
 		]);

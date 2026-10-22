@@ -85,6 +85,14 @@ describe("probeRemote", () => {
 		expect(doFetch.mock.calls[1][0]).toBe("http://workbox:3011/healthz");
 	});
 
+	it("retains a prior pairing credential as fallback after tailnet discovery", async () => {
+		const doFetch = fakeFetch(200, daemonProbe);
+		await probeRemote({ ...entry, hostId: "h_workbox", tailscale: true, url: "http://100.64.0.1:3011" }, doFetch);
+		const [, init] = doFetch.mock.calls[0] as unknown as [string, RequestInit];
+		expect(new Headers(init.headers).get("Authorization")).toBe("Bearer pw");
+		expect(new Headers(init.headers).get("X-AO-Expected-Host-ID")).toBe("h_workbox");
+	});
+
 	it("refuses embedded URL credentials before sending the saved credential", async () => {
 		const doFetch = fakeFetch(200, daemonProbe);
 		await expect(probeRemote({ ...entry, url: "http://attacker:secret@192.0.2.1:3011" }, doFetch)).resolves.toBe("offline");

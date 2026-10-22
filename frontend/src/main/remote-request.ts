@@ -74,7 +74,7 @@ export async function probeRemote(
 		const response = await fetchImpl(url.href, {
 			method: "GET",
 			redirect: "error",
-			// A Tailscale host has no password: tailscaled vouches for this machine.
+			// New tailnet hosts use identity; retained pairings remain a fallback.
 			headers: {
 				...(entry.password ? { Authorization: `Bearer ${entry.password}` } : {}),
 				...(entry.hostId ? { "X-AO-Expected-Host-ID": entry.hostId } : {}),
