@@ -74,6 +74,18 @@ describe("readBoard", () => {
 		]);
 	});
 
+	it("orders each lane the way the board renders it", () => {
+		// Input is newest-first without attention; the lane shows attention first.
+		const board = readBoard(
+			context([
+				session({ id: "newer", status: "working", kanbanColumn: "needs_review", updatedAt: "2026-10-23T02:00:00.000Z" }),
+				session({ id: "attention", status: "needs_input", kanbanColumn: "needs_review", updatedAt: "2026-10-23T01:00:00.000Z" }),
+			]),
+		);
+
+		expect(board.columns[2].cards.map((card) => card.id)).toEqual(["attention", "newer"]);
+	});
+
 	it("reports the derived lane, status and attention of each card", () => {
 		const board = readBoard(context([session({ id: "blocked", status: "needs_input", kanbanColumn: "needs_review" })]));
 

@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef } from "react";
-import { boardSessionNeedsAttention, toKanbanColumn } from "@aoagents/product-ui";
+import {
+	boardSessionNeedsAttention,
+	orderBoardColumnSessions,
+	toKanbanColumn,
+} from "@aoagents/product-ui";
 import { boardKanbanColumnOrder, type KanbanColumnView } from "../../lib/session-presentation";
 import type { WorkspaceSession } from "../../types/workspace";
 import { ToolError, type ToolDescriptor } from "../model-context";
@@ -52,7 +56,9 @@ export function readBoard(context: BoardContext): BoardRead {
 		columns: context.columns.map((column) => ({
 			id: column.column,
 			label: column.label,
-			cards: context.sessions.filter((session) => laneOf(session) === column.column).map(toCard),
+			cards: orderBoardColumnSessions(
+				context.sessions.filter((session) => laneOf(session) === column.column),
+			).map(toCard),
 		})),
 	};
 }

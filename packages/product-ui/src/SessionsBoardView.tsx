@@ -174,6 +174,20 @@ export function SessionsBoardGridView<TSession extends BoardSessionPresentation>
 	);
 }
 
+/**
+ * Card order inside one lane: attention first, then most recently updated.
+ * Exported so other readers of the board list cards in the same order.
+ */
+export function orderBoardColumnSessions<TSession extends BoardSessionPresentation>(
+	sessions: TSession[],
+): TSession[] {
+	return [...sessions].sort((left, right) => {
+		const attentionPriority =
+			Number(boardSessionNeedsAttention(right)) - Number(boardSessionNeedsAttention(left));
+		return attentionPriority || right.updatedAt.localeCompare(left.updatedAt);
+	});
+}
+
 function BoardColumnView<TSession extends BoardSessionPresentation>({
 	column,
 	labels,
@@ -187,11 +201,7 @@ function BoardColumnView<TSession extends BoardSessionPresentation>({
 	renderSessionCard: (session: TSession) => ReactNode;
 	sessions: TSession[];
 }) {
-	const ordered = [...sessions].sort((left, right) => {
-		const attentionPriority =
-			Number(boardSessionNeedsAttention(right)) - Number(boardSessionNeedsAttention(left));
-		return attentionPriority || right.updatedAt.localeCompare(left.updatedAt);
-	});
+	const ordered = orderBoardColumnSessions(sessions);
 	return (
 		<section
 			aria-label={labels.columnAria(column.label)}
