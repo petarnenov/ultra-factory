@@ -584,8 +584,12 @@ func TestBuildSystemPrompt_RootCoordinatorSectionFollowsGate(t *testing.T) {
 	})
 	for _, want := range []string{
 		"## Coordinators",
-		"ao spawn --kind coordinator --scope <area>",
-		"It runs with the project's per-coordinator worker limit and allowed hosts.",
+		"ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>",
+		"Do not pass `--host` for a coordinator",
+		"ao coordinator set-limits <coordinator-id>",
+		"ao session assign <worker> --owner <coordinator-id>",
+		"ao coordinator report --ready-pr <number>@<head-sha>",
+		"Do not announce merges or slot changes by hand",
 		"Project limits: 3 live coordinators, 4 workers per coordinator and 8 workers per project.",
 		"The hard maximums are 4, 6 and 12.",
 		"five sections",
@@ -598,8 +602,8 @@ func TestBuildSystemPrompt_RootCoordinatorSectionFollowsGate(t *testing.T) {
 	if size := len(rootCoordinatorPrompt(coordinationPromptConfig{
 		Enabled: true,
 		Limits:  domain.HardCoordinatorLimits,
-	})); size >= 1536 {
-		t.Fatalf("root coordinator section is %d bytes, want under 1.5 KB", size)
+	})); size >= 2560 {
+		t.Fatalf("root coordinator section is %d bytes, want under 2.5 KB", size)
 	}
 
 	disabled := buildSystemPromptText(systemPromptConfig{
@@ -713,11 +717,6 @@ func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
 		},
 	})
 	for _, want := range []string{
-		"## Delegation Through Coordinators",
-		"ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>",
-		"This project allows 3 live coordinators, 3 workers per coordinator and 9 workers per project.",
-		"ao coordinator set-limits <coordinator-id>",
-		"Do not announce merges or slot changes by hand",
 		"## Host Allocation",
 		"`ao host ls`",
 		"`LOCAL_ORCHESTRATOR_ACTIVE`",
@@ -732,9 +731,6 @@ func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
 			t.Fatalf("root prompt must not hard-code host label %q:\n%s", label, enabled)
 		}
 	}
-	if size := len(rootDelegationPrompt(coordinationPromptConfig{Enabled: true, Limits: domain.HardCoordinatorLimits})); size >= 2048 {
-		t.Fatalf("delegation section is %d bytes, want under 2 KB", size)
-	}
 	if size := len(rootHostAllocationPrompt(coordinationPromptConfig{Enabled: true})); size >= 1536 {
 		t.Fatalf("host allocation section is %d bytes, want under 1.5 KB", size)
 	}
@@ -743,7 +739,7 @@ func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
 		Role:    sessionPromptRoleOrchestrator,
 		Project: promptProject{ID: "mer", Name: "Mercury"},
 	})
-	for _, absent := range []string{"## Delegation Through Coordinators", "## Host Allocation", "Do not announce merges or slot changes by hand"} {
+	for _, absent := range []string{"## Host Allocation", "Do not announce merges or slot changes by hand"} {
 		if strings.Contains(disabled, absent) {
 			t.Fatalf("disabled root prompt must omit %q:\n%s", absent, disabled)
 		}

@@ -127,7 +127,6 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		sections = append(sections, orchestratorSystemPrompt(cfg.Project))
 		for _, section := range []string{
 			rootCoordinatorPrompt(cfg.Coordination),
-			rootDelegationPrompt(cfg.Coordination),
 			rootHostAllocationPrompt(cfg.Coordination),
 			rootWorkerProfilePrompt(cfg.Coordination),
 		} {
@@ -257,8 +256,9 @@ func allowedHostsSentence(c coordinationPromptConfig) string {
 	}
 }
 
-// rootCoordinatorPrompt explains coordinators to the root when the project
-// enables them. It is empty otherwise, so disabled projects pay nothing.
+// rootCoordinatorPrompt tells the root when and how to delegate through
+// coordinators when the project enables them. It is empty otherwise, so
+// disabled projects pay nothing.
 func rootCoordinatorPrompt(c coordinationPromptConfig) string {
 	if !c.Enabled {
 		return ""
@@ -267,33 +267,16 @@ func rootCoordinatorPrompt(c coordinationPromptConfig) string {
 	hard := domain.HardCoordinatorLimits
 	return fmt.Sprintf(`## Coordinators
 
-This project enables helper coordinators. Delegate to one when several independent tasks touch disjoint file areas; keep single tasks with direct workers.
+This project enables helper coordinators. When an assignment has two or more bounded areas that can run independently, delegate each area to a coordinator instead of spawning every worker yourself; keep one-off tasks with direct workers.
 
-- Spawn a coordinator with `+"`ao spawn --kind coordinator --scope <area> --prompt <brief>`"+`. It runs with the project's per-coordinator worker limit and allowed hosts. Do not pass `+"`--host`"+` for a coordinator; it runs where you run.
-- Project limits: %d live coordinators, %d workers per coordinator and %d workers per project. The hard maximums are %d, %d and %d.
-- Send the brief with the five sections of the assignment: scope, out of scope, task list with acceptance criteria, worker cap and branch rules, and reporting cadence.
-- You stay the only merger. A coordinator reports a ready pull request with its head and approved review; you check the head and CI, then merge.`,
-		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers,
-		hard.Coordinators, hard.WorkersPerCoordinator, hard.Workers)
-}
-
-// rootDelegationPrompt tells the root when to delegate an initiative through
-// coordinators. Empty when the project disables coordinators.
-func rootDelegationPrompt(c coordinationPromptConfig) string {
-	if !c.Enabled {
-		return ""
-	}
-	limits := c.Limits
-	return fmt.Sprintf(`## Delegation Through Coordinators
-
-For a multi-task initiative with two or more bounded areas that can run independently, delegate each area to a coordinator instead of spawning every worker yourself. Keep one-off tasks as direct workers.
-
-- Spawn each coordinator with `+"`ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>`"+`. The brief follows the five-section template in `+"`docs/coordinators/operating-contract.md`"+`. Size the hosts with the host allocation below.
-- This project allows %d live coordinators, %d workers per coordinator and %d workers per project. Check coordinators with `+"`ao coordinator ls`"+` and change one's limits with `+"`ao coordinator set-limits <coordinator-id>`"+`.
+- Spawn a coordinator with `+"`ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>`"+`. Size the hosts with the host allocation below. Do not pass `+"`--host`"+` for a coordinator; it runs where you run.
+- Project limits: %d live coordinators, %d workers per coordinator and %d workers per project. The hard maximums are %d, %d and %d. Check coordinators with `+"`ao coordinator ls`"+` and change one's limits with `+"`ao coordinator set-limits <coordinator-id>`"+`.
+- Send the brief with the five sections of `+"`docs/coordinators/operating-contract.md`"+`: scope, out of scope, task list with acceptance criteria, worker cap and branch rules, and reporting cadence.
 - Move an existing worker with `+"`ao session assign <worker> --owner <coordinator-id>`"+`, or `+"`ao remote-worker assign`"+` for a remote link. Return it with `+"`--owner root`"+`.
 - You stay the only merger. A coordinator reports a ready pull request with `+"`ao coordinator report --ready-pr <number>@<head-sha>`"+`; you check the head and CI, then merge.
 - Do not announce merges or slot changes by hand: the daemon notifies a coordinator when its worker's pull request merges and when you change its host slots.`,
-		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers)
+		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers,
+		hard.Coordinators, hard.WorkersPerCoordinator, hard.Workers)
 }
 
 // rootHostAllocationPrompt has the root pick coordinator hosts from the
