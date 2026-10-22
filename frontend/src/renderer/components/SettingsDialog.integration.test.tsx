@@ -27,6 +27,13 @@ const defaultProject = {
 	config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } } as ProjectConfig,
 };
 let project = defaultProject;
+const roster = {
+	projectId: "proj-1",
+	rootSessionId: "proj-1-root",
+	capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 0, activeWorkers: 0 },
+	coordinators: [],
+	rootWorkerSessionIds: [],
+};
 let catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
 
 function RecoveryDialogs({ origin }: { origin?: "create-project" | "new-task" }) {
@@ -72,6 +79,7 @@ beforeEach(() => {
 		if (path === "/api/v1/agents/auth-plans") return { data: { plans: [{ agentId: "codex", action: "login", available: true, launchMode: "terminal" }] } } as never;
 		if (path === "/api/v1/agents/{agent}/models") return { data: { agentId: "codex", models: [], selectionMode: "text", allowCustom: true, source: "manual", fetchedAt: "2026-09-19T00:00:00Z", stale: false } } as never;
 		if (path === "/api/v1/settings") return { data: { defaultSessionMode: "tui", chatHarnesses: [], cloudEnabled: false, localEnabled: true, trackerIntakeEnabled: true } } as never;
+		if (path === "/api/v1/projects/{id}/coordinators") return { data: roster } as never;
 		throw new Error(`Unexpected GET ${path}`);
 	});
 	vi.spyOn(apiClient, "POST").mockImplementation(async (path) => {
@@ -253,7 +261,7 @@ describe("Settings recovery modal integration", () => {
 		));
 		await waitFor(() => expect(screen.queryByTestId("settings-page")).not.toBeInTheDocument());
 	});
-	it("opens a configured Coordinators section without sending a save or showing an error", async () => {
+	it("renders a configured Coordinators section and keeps an unsaved draft unsent through the autosave window", async () => {
 		project = {
 			...defaultProject,
 			config: {
@@ -272,11 +280,26 @@ describe("Settings recovery modal integration", () => {
 		useUiStore.getState().openProjectSettings("proj-1");
 		renderDialogs();
 		await userEvent.click(await screen.findByRole("button", { name: "Coordinators" }));
-		await screen.findByRole("switch", { name: "Enable coordinators" });
-		await new Promise((resolve) => setTimeout(resolve, 1000));
 
-		expect(screen.queryByText(/Invalid JSON body/)).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+		expect(await screen.findByRole("switch", { name: "Enable coordinators" })).toBeChecked();
+		expect(screen.getByLabelText("Coordinators", { selector: "input" })).toHaveValue("3");
+		expect(screen.getByLabelText("Workers per coordinator")).toHaveValue("3");
+		expect(screen.getByLabelText("Workers in project")).toHaveValue("9");
+		expect(await screen.findByTestId("roster-capacity")).toHaveTextContent("Coordinators 0/3 · Workers 0/9");
+		expect(screen.queryByText("Could not load coordinators.")).not.toBeInTheDocument();
+
+		const workers = screen.getByLabelText("Workers in project");
+		await userEvent.clear(workers);
+		await userEvent.type(workers, "8");
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		try {
+			await act(() => vi.advanceTimersByTimeAsync(2000));
+		} finally {
+			vi.useRealTimers();
+		}
+
+		expect(workers).toHaveValue("8");
 		expect(put).not.toHaveBeenCalled();
+		expect(screen.queryByText(/Invalid JSON body/)).not.toBeInTheDocument();
 	});
 });
