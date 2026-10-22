@@ -251,8 +251,8 @@ func (m *Manager) AgentOperationInProgress(id domain.SessionID) (AgentOperationS
 	return AgentOperationStatus{Kind: string(kind), StartedAt: m.agentOperationRecords[id].startedAt}, true
 }
 
-// AbandonAgentOperation cancels the gate holder if it is cancellable (a wake) and
-// reports whether it did. The holder releases the gate itself when it returns.
+// AbandonAgentOperation cancels a cancellable gate holder (a wake) and
+// reports whether it did. The holder releases the gate when it returns.
 func (m *Manager) AbandonAgentOperation(id domain.SessionID) bool {
 	if m == nil {
 		return false
