@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -90,7 +90,24 @@ vi.mock("../hooks/useHostConnection", async (importOriginal) => ({
 	useConnectedHosts: () => ["linux"],
 }));
 
-const coordinatorsSection = vi.hoisted(() => ({ throwOnRender: false }));
+const coordinatorsSection = vi.hoisted(() => ({ throwOnRender: false, throwOnForm: false }));
+
+vi.mock("./coordinators/CoordinatorsSettingsForm", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./coordinators/CoordinatorsSettingsForm")>();
+	return {
+		...actual,
+		CoordinatorsSettingsForm: (props: Parameters<typeof actual.CoordinatorsSettingsForm>[0]) => {
+			const [armed, setArmed] = useState(false);
+			useEffect(() => {
+				// Report a dirty draft first, then fail on the next render.
+				props.onSaveState?.({ phase: "idle", dirty: true });
+				setArmed(true);
+			}, []);
+			if (armed && coordinatorsSection.throwOnForm) throw new Error("form exploded");
+			return <actual.CoordinatorsSettingsForm {...props} />;
+		},
+	};
+});
 
 vi.mock("./coordinators/CoordinatorRoster", () => ({
 	CoordinatorRoster: () => {
@@ -123,6 +140,7 @@ function TestProjectSettings({
 	return (
 		<>
 			<ProjectSettingsForm projectId={projectId} hostId={hostId} section={section} onSaveState={setSaveState} />
+			<span data-testid="save-phase">{saveState.dirty ? "dirty" : "clean"}</span>
 			{saveState.error && <span>{saveState.error}</span>}
 			{saveState.phase === "saved" && <span>{"Saved"}</span>}
 			{saveState.replacementError && <span>{`Orchestrator restart failed: ${saveState.replacementError}`}</span>}
@@ -2420,6 +2438,29 @@ describe("Coordinators section render errors", () => {
 		coordinatorsSection.throwOnRender = false;
 		await userEvent.click(screen.getByRole("button", { name: "Retry" }));
 		expect(await screen.findByText("roster stub")).toBeInTheDocument();
+		consoleError.mockRestore();
+	});
+});
+
+describe("Coordinators form render errors", () => {
+	it("contains a throw in the whole form, resets the save state and keeps Retry", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: { coordinators: { enabled: true } },
+		});
+		coordinatorsSection.throwOnForm = true;
+		const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+		renderSettings("proj-1", [{ id: "proj-1", name: "Project One", path: "/repo/project-one", sessions: [] }] as unknown as WorkspaceSummary[], "coordinators");
+		expect(await screen.findByRole("alert")).toHaveTextContent("form exploded");
+		expect(screen.getByTestId("save-phase")).toHaveTextContent("clean");
+		coordinatorsSection.throwOnForm = false;
+		await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => expect(document.getElementById("project-settings-form")).not.toBeNull());
 		consoleError.mockRestore();
 	});
 });

@@ -6,7 +6,7 @@ import { Button } from "../ui/button";
 type State = { error: Error | null };
 
 class SectionErrorBoundary extends React.Component<
-	{ children: React.ReactNode; title: string; retry: string },
+	{ children: React.ReactNode; title: string; retry: string; onError?: () => void },
 	State
 > {
 	state: State = { error: null };
@@ -17,6 +17,7 @@ class SectionErrorBoundary extends React.Component<
 
 	componentDidCatch(error: Error) {
 		void captureRendererException(error, { source: "react-error-boundary", operation: "coordinators_render" });
+		this.props.onError?.();
 	}
 
 	render() {
@@ -37,10 +38,10 @@ class SectionErrorBoundary extends React.Component<
 }
 
 /** Keeps a render failure in the Coordinators section inline, with Retry. */
-export function CoordinatorsErrorBoundary({ children }: { children: React.ReactNode }) {
+export function CoordinatorsErrorBoundary({ children, onError }: { children: React.ReactNode; onError?: () => void }) {
 	const { t } = useTranslation();
 	return (
-		<SectionErrorBoundary retry={t("coordinators.errors.retry")} title={t("coordinators.errors.renderFailed")}>
+		<SectionErrorBoundary onError={onError} retry={t("coordinators.errors.retry")} title={t("coordinators.errors.renderFailed")}>
 			{children}
 		</SectionErrorBoundary>
 	);
