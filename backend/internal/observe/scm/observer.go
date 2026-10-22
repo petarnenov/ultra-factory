@@ -257,6 +257,10 @@ type Observer struct {
 	Cache ObserverCache
 	// branchStates refreshes local branch facts on each tick.
 	branchStates BranchStateReconciler
+	// reviewRepos maps a tracked PR URL to its observed repo, keeping the
+	// account-scoped token. Guarded by reviewReposMu.
+	reviewReposMu sync.Mutex
+	reviewRepos   map[string]ports.SCMRepo
 }
 
 // New constructs an Observer with default cadence/cache settings for zero
@@ -1682,6 +1686,7 @@ func (o *Observer) refreshReviews(ctx context.Context, subjects map[string]*subj
 			continue
 		}
 		pkey := keyForTrackedPR(s.known, s.repo)
+		o.rememberReviewRepo(s.known.URL, s.repo)
 		obs, hasObs := observations[pkey]
 		decision := string(s.known.Review)
 		if hasObs && obs.Review.Decision != "" {
@@ -1752,6 +1757,36 @@ func reviewDecisionPriority(d domain.ReviewDecision) int {
 	default:
 		return 0
 	}
+}
+
+// rememberReviewRepo records the repo a tracked PR was observed under.
+func (o *Observer) rememberReviewRepo(prURL string, repo ports.SCMRepo) {
+	if prURL == "" {
+		return
+	}
+	o.reviewReposMu.Lock()
+	defer o.reviewReposMu.Unlock()
+	if o.reviewRepos == nil {
+		o.reviewRepos = map[string]ports.SCMRepo{}
+	}
+	o.reviewRepos[prURL] = repo
+}
+
+// FetchPRReviewThreads re-reads one tracked PR's review threads for the
+// lifecycle's delivery-time check, using the repo last observed for the PR.
+func (o *Observer) FetchPRReviewThreads(ctx context.Context, pr domain.PullRequest) (ports.SCMReviewObservation, error) {
+	o.reviewReposMu.Lock()
+	repo, ok := o.reviewRepos[pr.URL]
+	o.reviewReposMu.Unlock()
+	// repoForTrackedPR panics on an empty repo list with no PR repo name, so
+	// the fallback only runs when the PR row names its repo.
+	if !ok && pr.Repo != "" {
+		repo, ok = repoForTrackedPR(pr, nil)
+	}
+	if !ok {
+		return ports.SCMReviewObservation{}, fmt.Errorf("resolve repository for %s", pr.URL)
+	}
+	return o.provider.FetchReviewThreads(ctx, ports.SCMPRRef{Repo: repo, Number: pr.Number, URL: pr.URL})
 }
 
 func (o *Observer) needsReviewRefresh(key string, local domain.PullRequest, decision string, hasObs bool, updatedAtProvider, now time.Time) bool {

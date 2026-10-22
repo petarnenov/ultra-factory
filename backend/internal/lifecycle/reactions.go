@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -61,7 +62,21 @@ type pendingNudge struct {
 	// merge-conflict nudge (see ApplyPRObservation) — every other nudge type
 	// keeps the ordinary Nudge gate.
 	urgent bool
+	// comment marks a review-comment nudge, built at delivery by build from a
+	// fresh provider read. msg is unused for these.
+	comment *ports.PRCommentObservation
+	build   func([]ports.PRCommentObservation, time.Time) string
 }
+
+// ReviewThreadFetcher re-reads one PR's review threads from the provider,
+// right before a review-comment nudge is written.
+type ReviewThreadFetcher interface {
+	FetchPRReviewThreads(ctx context.Context, pr domain.PullRequest) (ports.SCMReviewObservation, error)
+}
+
+// errReviewFreshnessUnavailable means no provider read can confirm a review
+// comment is still unresolved, so the nudge is held rather than sent stale.
+var errReviewFreshnessUnavailable = fmt.Errorf("review thread freshness unavailable")
 
 // ApplyPRObservation reacts to a fetched PR observation after the PR service has
 // persisted it. It does not write PR rows; it owns PR-driven lifecycle effects
@@ -192,27 +207,25 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 			}
 		}
 
-		if hasUnresolvedComments(o.Comments) {
+		// Not queued while the worker is mid-turn: a paste would wait in the
+		// pane past the stored row's freshness. Idle observations queue it.
+		if hasUnresolvedComments(o.Comments) && rec.Activity.State != domain.ActivityActive {
 			comments := unresolvedReviewComments(o.Comments)
 			for _, comment := range comments {
 				if !comment.AutoInjectReview {
 					continue
 				}
 				commentSlice := []ports.PRCommentObservation{comment}
-				msg := formatReviewCommentsMessage(commentSlice)
-				if ident != "your PR" {
-					msg = strings.Replace(msg, "your PR", ident, 1)
-				}
-				if o.URL != "" {
-					msg += "\nPR: " + domain.SanitizeControlChars(o.URL)
-				}
 				sig := reviewCommentsSignature(commentSlice)
 				if sig == "" {
 					sig = string(o.Review)
 				}
 				// Per comment, like the review loop below: a shared key is a
 				// shared signature slot and a shared attempt budget.
-				nudges = append(nudges, pendingNudge{key: commentNudgeKey(o.URL, comment), sig: sig, msg: msg, maxAttempts: reviewMaxNudge})
+				nudges = append(nudges, pendingNudge{
+					key: commentNudgeKey(o.URL, comment), sig: sig, maxAttempts: reviewMaxNudge,
+					comment: &comment, build: reviewCommentNudgeBuilder(ident, o.URL),
+				})
 			}
 		}
 
@@ -264,7 +277,16 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 	// signature; rearmErr is surfaced at the end of this function alongside the
 	// other deferred read errors.
 
+	// A review-comment nudge that cannot be confirmed fresh is held alone: its
+	// error is deferred so the nudges queued after it still send.
+	var commentErr error
 	for _, n := range nudges {
+		if n.comment != nil {
+			if _, err := m.sendCommentNudge(ctx, id, o.URL, n); err != nil {
+				commentErr = errors.Join(commentErr, err)
+			}
+			continue
+		}
 		if _, err := m.sendOnce(ctx, id, o.URL, n.key, n.sig, n.msg, n.maxAttempts, n.urgent); err != nil {
 			return err
 		}
@@ -276,6 +298,9 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 	}
 	if blockedCheckErr != nil {
 		return blockedCheckErr
+	}
+	if commentErr != nil {
+		return commentErr
 	}
 	return rearmErr
 }
@@ -460,20 +485,20 @@ func (m *Manager) ApplySCMObservation(ctx context.Context, id domain.SessionID, 
 	if !o.Fetched {
 		return nil
 	}
-	if err := m.ApplyPRObservation(ctx, id, scmToPRObservation(o)); err != nil {
-		return err
-	}
+	// A PR reaction error is returned only after ready-to-merge and notification
+	// handling, so one held reaction cannot suppress the others.
+	prErr := m.ApplyPRObservation(ctx, id, scmToPRObservation(o))
 	ready, err := m.scmObservationReadyToMerge(ctx, o)
 	if err != nil {
-		return err
+		return errors.Join(prErr, err)
 	}
 	intent, err := m.notificationIntentForCurrentSCM(ctx, id, o, ready)
 	if err != nil {
-		return err
+		return errors.Join(prErr, err)
 	}
 	m.emitNotification(ctx, intent)
 	m.resolveNotifications(ctx, readyToMergeResolutions(id, o, ready, m.clock())...)
-	return nil
+	return prErr
 }
 
 // readyToMergeResolutions reports the ready-to-merge notification this
@@ -839,6 +864,8 @@ func unresolvedReviewComments(comments []ports.PRCommentObservation) []ports.PRC
 	return unresolved
 }
 
+// reviewCommentsSignature keys a nudge by comment IDs; a resolved comment
+// adds a token, so resolving it changes the signature.
 func reviewCommentsSignature(comments []ports.PRCommentObservation) string {
 	parts := make([]string, 0, len(comments))
 	for _, c := range comments {
@@ -847,7 +874,11 @@ func reviewCommentsSignature(comments []ports.PRCommentObservation) string {
 		if id == "" && threadID == "" {
 			continue
 		}
-		parts = append(parts, threadID+"\x00"+id)
+		part := threadID + "\x00" + id
+		if c.Resolved {
+			part += "\x00resolved"
+		}
+		parts = append(parts, part)
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "\x01")
@@ -873,12 +904,27 @@ func formatReviewChangesRequestedMessage(review domain.PullRequestReview) string
 	return msg.String()
 }
 
-func formatReviewCommentsMessage(comments []ports.PRCommentObservation) string {
+// reviewCommentNudgeBuilder renders a nudge for comments unresolved at a
+// provider read taken at checkedAt.
+func reviewCommentNudgeBuilder(ident, prURL string) func([]ports.PRCommentObservation, time.Time) string {
+	return func(comments []ports.PRCommentObservation, checkedAt time.Time) string {
+		msg := formatReviewCommentsMessage(comments, checkedAt)
+		if ident != "your PR" {
+			msg = strings.Replace(msg, "your PR", ident, 1)
+		}
+		if prURL != "" {
+			msg += "\nPR: " + domain.SanitizeControlChars(prURL)
+		}
+		return msg
+	}
+}
+
+func formatReviewCommentsMessage(comments []ports.PRCommentObservation, checkedAt time.Time) string {
 	if len(comments) == 0 {
 		return "A reviewer left feedback on your PR. Address it and push. Fetch the review details only if you need additional context beyond what AO has provided here."
 	}
 	var msg strings.Builder
-	fmt.Fprintf(&msg, "The following %d unresolved review comment(s) are on your PR as of just now. You should not need to re-fetch this data unless you need additional context.\n", len(comments))
+	fmt.Fprintf(&msg, "The following %d unresolved review comment(s) are on your PR as of %s, when AO last read the threads from the provider. You should not need to re-fetch this data unless you need additional context.\n", len(comments), checkedAt.UTC().Format(time.RFC3339))
 	for i, c := range comments {
 		location := "(general)"
 		if c.File != "" {
@@ -952,13 +998,89 @@ func (m *Manager) sendOnce(ctx context.Context, id domain.SessionID, prURL, key,
 	m.react.mu.Lock()
 	defer m.react.mu.Unlock()
 
-	if prURL != "" && !m.react.loaded[prURL] {
-		if err := m.loadPRSignaturesLocked(ctx, prURL); err != nil {
-			return sendOnceAccounted, err
-		}
-		m.react.loaded[prURL] = true
+	if err := m.loadReactionLocked(ctx, prURL); err != nil {
+		return sendOnceAccounted, err
 	}
+	return m.deliverNudgeLocked(ctx, id, prURL, key, sig, msg, maxAttempts, urgent)
+}
 
+// loadReactionLocked merges the PR's persisted dedup state once per process.
+// Caller must hold m.react.mu.
+func (m *Manager) loadReactionLocked(ctx context.Context, prURL string) error {
+	if prURL == "" || m.react.loaded[prURL] {
+		return nil
+	}
+	if err := m.loadPRSignaturesLocked(ctx, prURL); err != nil {
+		return err
+	}
+	m.react.loaded[prURL] = true
+	return nil
+}
+
+// sendCommentNudge sends a review-comment nudge only after a provider read
+// confirms it is unresolved; a resolved thread is marked handled instead.
+func (m *Manager) sendCommentNudge(ctx context.Context, id domain.SessionID, prURL string, n pendingNudge) (sendOnceOutcome, error) {
+	if m.guard == nil {
+		return sendOnceAccounted, nil
+	}
+	m.react.mu.Lock()
+	defer m.react.mu.Unlock()
+
+	if err := m.loadReactionLocked(ctx, prURL); err != nil {
+		return sendOnceAccounted, err
+	}
+	if m.react.seen[n.key] == n.sig {
+		return sendOnceAccounted, nil
+	}
+	if n.maxAttempts > 0 && m.react.attempts[n.key] >= n.maxAttempts {
+		return sendOnceAccounted, nil
+	}
+	fresh, checkedAt, err := m.freshReviewComments(ctx, prURL, *n.comment)
+	if err != nil {
+		return sendOnceSuppressed, err
+	}
+	if len(fresh) == 0 {
+		m.react.seen[n.key] = n.sig
+		if prURL != "" {
+			if err := m.persistPRSignaturesLocked(ctx, prURL); err != nil {
+				return sendOnceAccounted, err
+			}
+		}
+		return sendOnceAccounted, nil
+	}
+	msg := n.build(fresh, checkedAt)
+	return m.deliverNudgeLocked(ctx, id, prURL, n.key, n.sig, msg, n.maxAttempts, false)
+}
+
+// freshReviewComments re-reads the comment's thread and returns it when still
+// unresolved. A thread outside the fetched window keeps the stored state.
+func (m *Manager) freshReviewComments(ctx context.Context, prURL string, c ports.PRCommentObservation) ([]ports.PRCommentObservation, time.Time, error) {
+	if m.reviewThreads == nil {
+		return nil, time.Time{}, errReviewFreshnessUnavailable
+	}
+	pr, ok, err := m.store.GetPR(ctx, prURL)
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("load PR %s for review freshness: %w", prURL, err)
+	}
+	if !ok {
+		pr = domain.PullRequest{URL: prURL}
+	}
+	obs, err := m.reviewThreads.FetchPRReviewThreads(ctx, pr)
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("fetch review threads for %s: %w", prURL, err)
+	}
+	checkedAt := m.clock()
+	for _, thread := range obs.Threads {
+		if thread.ID == c.ThreadID && thread.Resolved {
+			return nil, checkedAt, nil
+		}
+	}
+	return []ports.PRCommentObservation{c}, checkedAt, nil
+}
+
+// deliverNudgeLocked is sendOnce's dedup, guarded write, and persist steps.
+// Caller must hold m.react.mu with the PR's persisted state loaded.
+func (m *Manager) deliverNudgeLocked(ctx context.Context, id domain.SessionID, prURL, key, sig, msg string, maxAttempts int, urgent bool) (sendOnceOutcome, error) {
 	if m.react.seen[key] == sig {
 		return sendOnceAccounted, nil
 	}
