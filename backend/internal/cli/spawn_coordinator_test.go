@@ -112,3 +112,68 @@ func TestSpawnCoordinatorCapacityErrorExitsOneWithTheEnvelope(t *testing.T) {
 		t.Fatalf("err=%v exit=%d, want the daemon envelope and exit 1", err, ExitCode(err))
 	}
 }
+
+func TestSpawnCoordinatorWarnsOnUnfilledBriefAndStillSpawns(t *testing.T) {
+	const filled = "Assignment for auth.\n\nScope: auth module\nWorker branch name: co-auth/<task-id>"
+	cases := []struct {
+		name       string
+		prompt     []string
+		wantWarned string
+	}{
+		{name: "no prompt", prompt: nil, wantWarned: "no --prompt"},
+		{name: "template placeholder", prompt: []string{"--prompt", "Assignment for <coordinator name>.\nScope: <one bounded area, at most 200 characters; same text as --scope>"}, wantWarned: "<coordinator name>"},
+		{name: "instruction tokens only", prompt: []string{"--prompt", filled}, wantWarned: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := setConfigEnv(t)
+			t.Setenv("AO_SESSION_ID", "demo-1")
+			var req spawnRequest
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/api/v1/projects/demo":
+					_, _ = io.WriteString(w, `{"status":"ok","project":{"id":"demo","name":"Demo","path":"/repo/demo"}}`)
+				case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Fatal(err)
+					}
+					_, _ = io.WriteString(w, `{"session":{"id":"demo-2","status":"idle"}}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			writeRunFileFor(t, cfg, srv)
+
+			args := []string{"spawn", "--project", "demo", "--agent", "codex", "--skip-agent-check", "--name", "auth", "--kind", "coordinator", "--scope", "auth module"}
+			args = append(args, tc.prompt...)
+			out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, args...)
+			if err != nil {
+				t.Fatalf("spawn failed: %v stderr=%s", err, errOut)
+			}
+			if req.Kind != "coordinator" {
+				t.Fatalf("spawn request = %#v; the spawn must still proceed", req)
+			}
+			if !strings.Contains(out, "spawned session demo-2") {
+				t.Fatalf("stdout = %q", out)
+			}
+			if tc.wantWarned == "" {
+				if errOut != "" {
+					t.Fatalf("stderr = %q, want no warning", errOut)
+				}
+				return
+			}
+			if !strings.HasPrefix(errOut, "warning: ") || !strings.Contains(errOut, tc.wantWarned) {
+				t.Fatalf("stderr = %q, want a warning naming %q", errOut, tc.wantWarned)
+			}
+		})
+	}
+}
+
+func TestCoordinatorBriefWarningNamesFirstPlaceholder(t *testing.T) {
+	got := coordinatorBriefWarning("Scope: x\nFiles likely touched: <paths>\nAssignment for <coordinator name>.")
+	if !strings.Contains(got, "<paths>") {
+		t.Fatalf("warning = %q, want the first placeholder in the text", got)
+	}
+}

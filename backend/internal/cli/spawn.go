@@ -142,6 +142,13 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if err := validateCoordinatorSpawn(opts, ctx.targetsRemote()); err != nil {
 				return err
 			}
+			if opts.kind == "coordinator" {
+				if w := coordinatorBriefWarning(opts.prompt); w != "" {
+					if _, werr := fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w); werr != nil {
+						return werr
+					}
+				}
+			}
 			workerAgent, coordinatorAgent, selErr := coordinatorAgentSelections(opts)
 			if selErr != nil {
 				return selErr
@@ -711,6 +718,39 @@ func pathContains(root, child string) bool {
 		return false
 	}
 	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// Template tokens from brief-template.ts that a filled brief must not keep.
+// <task-id>, <number>, and <head-sha> are exempt: the coordinator fills them.
+var coordinatorBriefPlaceholders = []string{
+	"<coordinator name>",
+	"<one bounded area, at most 200 characters; same text as --scope>",
+	"<areas and files this coordinator must not touch>",
+	"<issue or task id>",
+	"<title>",
+	"<testable criteria>",
+	"<paths>",
+	"<dev>",
+	"<prefix>",
+	"<acceptance criteria: fill in>",
+}
+
+// coordinatorBriefWarning names the first placeholder left in the prompt, or
+// the missing prompt; "" means filled. Spawns are never refused for this.
+func coordinatorBriefWarning(prompt string) string {
+	if strings.TrimSpace(prompt) == "" {
+		return "no --prompt: the coordinator starts with the generic one-line brief and no task list"
+	}
+	first, at := "", -1
+	for _, token := range coordinatorBriefPlaceholders {
+		if i := strings.Index(prompt, token); i != -1 && (at == -1 || i < at) {
+			first, at = token, i
+		}
+	}
+	if at == -1 {
+		return ""
+	}
+	return fmt.Sprintf("prompt still contains brief placeholder %s; fill in the assignment brief before spawning", first)
 }
 
 // validateCoordinatorSpawn rejects misuse of --scope and --kind coordinator
