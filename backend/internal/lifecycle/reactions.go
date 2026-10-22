@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -276,14 +277,17 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 	// signature; rearmErr is surfaced at the end of this function alongside the
 	// other deferred read errors.
 
+	// A review-comment nudge that cannot be confirmed fresh is held alone: its
+	// error is deferred so the nudges queued after it still send.
+	var commentErr error
 	for _, n := range nudges {
-		var err error
 		if n.comment != nil {
-			_, err = m.sendCommentNudge(ctx, id, o.URL, n)
-		} else {
-			_, err = m.sendOnce(ctx, id, o.URL, n.key, n.sig, n.msg, n.maxAttempts, n.urgent)
+			if _, err := m.sendCommentNudge(ctx, id, o.URL, n); err != nil {
+				commentErr = errors.Join(commentErr, err)
+			}
+			continue
 		}
-		if err != nil {
+		if _, err := m.sendOnce(ctx, id, o.URL, n.key, n.sig, n.msg, n.maxAttempts, n.urgent); err != nil {
 			return err
 		}
 	}
@@ -294,6 +298,9 @@ func (m *Manager) ApplyPRObservation(ctx context.Context, id domain.SessionID, o
 	}
 	if blockedCheckErr != nil {
 		return blockedCheckErr
+	}
+	if commentErr != nil {
+		return commentErr
 	}
 	return rearmErr
 }
@@ -478,20 +485,20 @@ func (m *Manager) ApplySCMObservation(ctx context.Context, id domain.SessionID, 
 	if !o.Fetched {
 		return nil
 	}
-	if err := m.ApplyPRObservation(ctx, id, scmToPRObservation(o)); err != nil {
-		return err
-	}
+	// A PR reaction error is returned only after ready-to-merge and notification
+	// handling, so one held reaction cannot suppress the others.
+	prErr := m.ApplyPRObservation(ctx, id, scmToPRObservation(o))
 	ready, err := m.scmObservationReadyToMerge(ctx, o)
 	if err != nil {
-		return err
+		return errors.Join(prErr, err)
 	}
 	intent, err := m.notificationIntentForCurrentSCM(ctx, id, o, ready)
 	if err != nil {
-		return err
+		return errors.Join(prErr, err)
 	}
 	m.emitNotification(ctx, intent)
 	m.resolveNotifications(ctx, readyToMergeResolutions(id, o, ready, m.clock())...)
-	return nil
+	return prErr
 }
 
 // readyToMergeResolutions reports the ready-to-merge notification this

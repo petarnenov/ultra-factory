@@ -173,3 +173,25 @@ func TestReviewCommentsSignatureChangesOnResolve(t *testing.T) {
 		t.Fatalf("resolving the same comment kept signature %q", got)
 	}
 }
+
+func TestReviewCommentNudge_FetchErrorDoesNotHoldOtherNudges(t *testing.T) {
+	m, st, msg, fetcher := reviewFreshnessFixture(t, idle("mer-1"))
+	fetcher.err = errors.New("provider unreachable")
+	st.reviews["pr1"] = []domain.PullRequestReview{
+		{ID: "r1", Author: "carol", State: domain.ReviewChangesRequest, Body: "rework", AutoInjectReview: true},
+	}
+
+	o := ports.PRObservation{Fetched: true, URL: "pr1", Review: domain.ReviewChangesRequest, Mergeability: domain.MergeConflicting}
+	err := m.ApplyPRObservation(ctx, "mer-1", o)
+	if err == nil {
+		t.Fatal("want the freshness error surfaced for the held comment")
+	}
+	var sawReview, sawConflict bool
+	for _, got := range msg.msgs {
+		sawReview = sawReview || strings.Contains(got, "Review ID: r1")
+		sawConflict = sawConflict || strings.Contains(got, "merge conflicts")
+	}
+	if !sawReview || !sawConflict {
+		t.Fatalf("freshness failure suppressed other nudges (review=%v conflict=%v): %v", sawReview, sawConflict, msg.msgs)
+	}
+}
