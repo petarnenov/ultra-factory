@@ -27,7 +27,10 @@ type TaskReports interface {
 
 // Deps configures a Service.
 type Deps struct {
-	Graph    *Graph
+	Graph *Graph
+	// Embedder enables semantic search; nil keeps full-text search.
+	Embedder Embedder
+	MinScore float64
 	Sessions Sessions
 	Tasks    TaskReports
 	HostID   string
@@ -46,6 +49,11 @@ type Service struct {
 	log      *slog.Logger
 	now      func() time.Time
 	newID    func() string
+
+	embedder Embedder
+	minScore float64
+	// embedKick wakes the embed loop after a write.
+	embedKick chan struct{}
 
 	queue chan job
 	mu    sync.Mutex
@@ -75,6 +83,7 @@ func New(d Deps) *Service {
 	return &Service{
 		graph: d.Graph, sessions: d.Sessions, tasks: d.Tasks, hostID: d.HostID,
 		log: d.Logger, now: d.Now, newID: d.NewID,
+		embedder: d.Embedder, minScore: d.MinScore, embedKick: make(chan struct{}, 1),
 		queue: make(chan job, queueSize), recorded: map[domain.SessionID]string{},
 	}
 }
@@ -133,6 +142,7 @@ func (s *Service) AddLesson(ctx context.Context, in LessonInput) (string, error)
 	if err != nil {
 		return "", unavailable(err)
 	}
+	s.kickEmbed()
 	return id, nil
 }
 
@@ -187,7 +197,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) ([]Item, error) {
 	if SearchTerms(in.Text) == "" {
 		return []Item{}, nil
 	}
-	items, err := s.graph.Prior(ctx, Query{Project: string(project), Text: in.Text, ExcludeTask: exclude, Limit: in.Limit})
+	items, err := s.prior(ctx, Query{Project: string(project), Text: in.Text, ExcludeTask: exclude, Limit: in.Limit})
 	if err != nil {
 		return nil, unavailable(err)
 	}
@@ -197,7 +207,7 @@ func (s *Service) Search(ctx context.Context, in SearchInput) ([]Item, error) {
 // PriorContext renders the spawn-time section for a new worker's task and
 // the lesson ids it carries. Errors leave the spawn to proceed without it.
 func (s *Service) PriorContext(ctx context.Context, project domain.ProjectID, issue domain.IssueID, text string) (string, []string, error) {
-	items, err := s.graph.Prior(ctx, Query{Project: string(project), Issue: string(issue), Text: text})
+	items, err := s.prior(ctx, Query{Project: string(project), Issue: string(issue), Text: text})
 	if err != nil {
 		return "", nil, err
 	}
@@ -213,6 +223,20 @@ func (s *Service) PriorContext(ctx context.Context, project domain.ProjectID, is
 // MarkServed records which lessons a spawned worker received.
 func (s *Service) MarkServed(ctx context.Context, id domain.SessionID, lessonIDs []string) error {
 	return s.graph.MarkServed(ctx, s.taskKey(id), lessonIDs, s.now())
+}
+
+// prior searches by meaning when an embedder is configured. An embedding
+// failure falls back to full-text search instead of failing the lookup.
+func (s *Service) prior(ctx context.Context, q Query) ([]Item, error) {
+	if s.embedder != nil && SearchTerms(q.Text) != "" {
+		vec, err := s.embedder.EmbedQuery(ctx, q.Text)
+		if err == nil {
+			q.Vector, q.MinScore = vec, s.minScore
+		} else {
+			s.log.Warn("knowledge graph: query embedding failed, using full-text search", "err", err)
+		}
+	}
+	return s.graph.Prior(ctx, q)
 }
 
 func unavailable(err error) error {

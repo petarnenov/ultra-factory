@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,7 +22,17 @@ type Config struct {
 	Database string `json:"database"`
 	// Timeout bounds one query; spawn-time lookups never wait longer.
 	Timeout time.Duration `json:"-"`
+	// EmbeddingURL is an Ollama endpoint for semantic search (ADR 0013).
+	// Empty keeps full-text search.
+	EmbeddingURL   string `json:"embeddingUrl"`
+	EmbeddingModel string `json:"embeddingModel"`
+	// MinScore drops vector matches below it; Neo4j cosine scores are
+	// (1 + cos) / 2, so 0.70 keeps cos >= 0.40.
+	MinScore float64 `json:"minScore"`
 }
+
+// SemanticEnabled reports whether embeddings are configured.
+func (c Config) SemanticEnabled() bool { return c.EmbeddingURL != "" }
 
 // Enabled reports whether a graph is configured.
 func (c Config) Enabled() bool { return c.URL != "" }
@@ -30,6 +41,10 @@ const (
 	defaultUser     = "neo4j"
 	defaultDatabase = "neo4j"
 	defaultTimeout  = 3 * time.Second
+	// DefaultEmbeddingModel has 1024 dimensions, matching schema.cypher;
+	// it ranked best on AO lessons and also embeds non-English text.
+	DefaultEmbeddingModel = "bge-m3"
+	defaultMinScore       = 0.70
 	// DefaultConfigFile sits next to the daemon's data dir, so ~/.ao/data
 	// reads ~/.ao/knowledge-graph.json and a scratch data dir reads none.
 	DefaultConfigFile = "knowledge-graph.json"
@@ -64,6 +79,19 @@ func Load(getenv func(string) string, dataDir string) (Config, error) {
 	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_DATABASE")); v != "" {
 		cfg.Database = v
 	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_EMBEDDING_URL")); v != "" {
+		cfg.EmbeddingURL = v
+	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_EMBEDDING_MODEL")); v != "" {
+		cfg.EmbeddingModel = v
+	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_MIN_SCORE")); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 || f > 1 {
+			return Config{}, fmt.Errorf("invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE %q", v)
+		}
+		cfg.MinScore = f
+	}
 	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_TIMEOUT")); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
@@ -87,6 +115,19 @@ func Load(getenv func(string) string, dataDir string) (Config, error) {
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = defaultTimeout
+	}
+	if cfg.SemanticEnabled() {
+		eu, err := url.Parse(cfg.EmbeddingURL)
+		if err != nil || (eu.Scheme != "http" && eu.Scheme != "https") || eu.Host == "" {
+			return Config{}, fmt.Errorf("knowledge graph embeddingUrl %q must be http(s)://host[:port]", cfg.EmbeddingURL)
+		}
+		cfg.EmbeddingURL = strings.TrimRight(cfg.EmbeddingURL, "/")
+		if cfg.EmbeddingModel == "" {
+			cfg.EmbeddingModel = DefaultEmbeddingModel
+		}
+		if cfg.MinScore == 0 {
+			cfg.MinScore = defaultMinScore
+		}
 	}
 	return cfg, nil
 }

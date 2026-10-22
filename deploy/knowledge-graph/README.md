@@ -17,7 +17,9 @@ starts Neo4j, waits until it is healthy, and applies the schema. Re-running it
 keeps the data volume and `.env`.
 
 Ports `7474` (HTTP, Query API and Browser) and `7687` (Bolt) bind to
-`127.0.0.1` and the Tailscale address only.
+`127.0.0.1` and the Tailscale address only, and so does the embedding service
+on `11435` (Ollama with `KG_EMBED_MODEL`, default `bge-m3`; see
+[ADR 0013](../../docs/adr/0013-semantic-search-with-local-embeddings.md)).
 
 ## Connect a daemon
 
@@ -25,8 +27,13 @@ On every machine whose daemon runs workers, write `~/.ao/knowledge-graph.json`
 with mode 600 and restart the daemon:
 
 ```json
-{"url": "http://100.121.193.125:7474", "user": "neo4j", "password": "<KG_PASSWORD from .env>", "database": "neo4j"}
+{"url": "http://100.121.193.125:7474", "user": "neo4j", "password": "<KG_PASSWORD from .env>", "database": "neo4j",
+ "embeddingUrl": "http://100.121.193.125:11435", "embeddingModel": "bge-m3"}
 ```
+
+Without `embeddingUrl` the daemon uses full-text search. `minScore` (default
+`0.70`) sets the vector match floor; `AO_KNOWLEDGE_GRAPH_EMBEDDING_URL`,
+`_EMBEDDING_MODEL` and `_MIN_SCORE` override the file.
 
 The daemon reads `knowledge-graph.json` next to its data dir, so the default
 `~/.ao/data` reads `~/.ao/knowledge-graph.json`, an isolated dev daemon
@@ -54,6 +61,7 @@ ao knowledge search "sqlite migration"
 | Session turns terminated | `Task` outcome, elapsed seconds, tokens, stage totals, PR URLs |
 | `ao knowledge add` | `Lesson` linked to its `Task` and `Topic`s |
 | Spawn | `RECEIVED` links from the new task to the lessons it was shown |
+| After any write, and every 5 minutes | `embedding` on lessons and tasks that lack one |
 
 When a task settles as `merged` its received lessons gain `helped`; `closed`
 or `failed` adds `hurt`.
@@ -72,6 +80,20 @@ ORDER BY l.helped - l.hurt DESC LIMIT 25;
 MATCH (t:Task) WHERE t.outcome IN ['failed', 'closed']
 RETURN t.project, t.title, t.summary, t.updatedAt ORDER BY t.updatedAt DESC LIMIT 25;
 ```
+
+## Change the embedding model
+
+The vector dimensions follow the model. Set `KG_EMBED_MODEL` in `.env`, update
+the dimensions in `schema.cypher`, then:
+
+```cypher
+DROP INDEX lesson_embedding IF EXISTS;
+DROP INDEX task_embedding IF EXISTS;
+MATCH (n) WHERE n:Lesson OR n:Task REMOVE n.embedding;
+```
+
+Run `make kg-deploy`, update `embeddingModel` in every daemon's config and
+restart the daemons; they re-embed every node in the background.
 
 ## Backup and restore
 
