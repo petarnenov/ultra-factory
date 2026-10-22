@@ -116,6 +116,8 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		sections = append(sections, orchestratorSystemPrompt(cfg.Project))
 		for _, section := range []string{
 			rootCoordinatorPrompt(cfg.Coordination),
+			rootDelegationPrompt(cfg.Coordination),
+			rootHostAllocationPrompt(cfg.Coordination),
 			rootWorkerProfilePrompt(cfg.Coordination),
 		} {
 			if section != "" {
@@ -150,10 +152,8 @@ func buildSystemPromptText(cfg systemPromptConfig) string {
 		}
 		orchestratorID := strings.TrimSpace(cfg.OrchestratorSessionID)
 		sections = append(sections, workerSystemPrompt(cfg.Project, orchestratorID != ""))
-		if coordinatorID := strings.TrimSpace(cfg.OwnerCoordinatorSessionID); coordinatorID != "" {
-			sections = append(sections, workerCoordinatorPrompt(coordinatorID))
-		} else if orchestratorID != "" {
-			sections = append(sections, workerOrchestratorPrompt(orchestratorID))
+		if orchestratorID != "" || strings.TrimSpace(cfg.OwnerCoordinatorSessionID) != "" {
+			sections = append(sections, workerEscalationPrompt())
 		}
 		if strings.TrimSpace(cfg.Project.Repo) != "" {
 			sections = append(sections, workerNativeReviewPrompt(cfg.Project, orchestratorID != ""))
@@ -264,6 +264,41 @@ This project enables helper coordinators. Delegate to one when several independe
 - You stay the only merger. A coordinator reports a ready pull request with its head and approved review; you check the head and CI, then merge.`,
 		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers,
 		hard.Coordinators, hard.WorkersPerCoordinator, hard.Workers)
+}
+
+// rootDelegationPrompt tells the root when to delegate an initiative through
+// coordinators. Empty when the project disables coordinators.
+func rootDelegationPrompt(c coordinationPromptConfig) string {
+	if !c.Enabled {
+		return ""
+	}
+	limits := c.Limits
+	return fmt.Sprintf(`## Delegation Through Coordinators
+
+For a multi-task initiative with two or more bounded areas that can run independently, delegate each area to a coordinator instead of spawning every worker yourself. Keep one-off tasks as direct workers.
+
+- Spawn each coordinator with `+"`ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>`"+`. The brief follows the five-section template in `+"`docs/coordinators/operating-contract.md`"+`. Size the hosts with the host allocation below.
+- This project allows %d live coordinators, %d workers per coordinator and %d workers per project. Check coordinators with `+"`ao coordinator ls`"+` and change one's limits with `+"`ao coordinator set-limits <coordinator-id>`"+`.
+- Move an existing worker with `+"`ao session assign <worker> --owner <coordinator-id>`"+`, or `+"`ao remote-worker assign`"+` for a remote link. Return it with `+"`--owner root`"+`.
+- You stay the only merger. A coordinator reports a ready pull request with `+"`ao coordinator report --ready-pr <number>@<head-sha>`"+`; you check the head and CI, then merge.
+- Interim until #496 lands: announce each merge and each slot change to the affected coordinator with `+"`ao send`"+`.`,
+		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers)
+}
+
+// rootHostAllocationPrompt has the root pick coordinator hosts from the
+// registry at run time, never from a label. Empty when coordinators are off.
+func rootHostAllocationPrompt(c coordinationPromptConfig) string {
+	if !c.Enabled {
+		return ""
+	}
+	return "## Host Allocation\n\n" + `Allocate hosts from the registry before you spawn coordinators. Do not copy a host label from a previous prompt or brief.
+
+1. List registered hosts with ` + "`ao host ls`" + `. Keep only reachable hosts.
+2. Drop any host that already runs an orchestrator or a coordinator: a spawn there is refused with ` + "`LOCAL_ORCHESTRATOR_ACTIVE`" + `. Check with ` + "`ao orchestrator ls --host <label>`" + `.
+3. Probe each remaining host with one short worker that reports its toolchain and required secrets, then end it.
+4. Pass each coordinator ` + "`--hosts <label>:<slots>`" + ` from the hosts that passed. Keep the total within the project's workers-per-project limit.
+
+` + allowedHostsSentence(c)
 }
 
 // rootWorkerProfilePrompt tells the root not to pass agent flags for the
@@ -596,24 +631,18 @@ How it works:
 - AO's review is internal. An AO approval is not a GitHub approval: it does not satisfy required or independent-account reviews or branch protection, and it never authorizes merging. Do not try to approve your own PR or work around branch protection; report what is still required to the human.`
 }
 
-func workerOrchestratorPrompt(orchestratorID string) string {
-	return fmt.Sprintf(`## Orchestrator Coordination
+// workerEscalationPrompt resolves the owner at send time, since a spawn-time
+// ID goes stale after `ao session assign` or `ao remote-worker assign`.
+func workerEscalationPrompt() string {
+	return `## Escalation Target
 
-An active orchestrator session exists for this project.
+Your owner can change after this prompt was written, by a reassignment. Resolve it right before you escalate:
 
-Message it only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
+` + "`ao session owner $AO_SESSION_ID --json`" + `
 
-`+"`ao send --session %s --message \"<your message>\"`", orchestratorID)
-}
+If ` + "`ownerSessionId`" + ` is set, that coordinator is your owner. If it is null, the project root owns you: use the live root from ` + "`ao orchestrator ls`" + `. Message the owner only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
 
-func workerCoordinatorPrompt(coordinatorID string) string {
-	return fmt.Sprintf(`## Coordinator Coordination
-
-This session is owned by coordinator session %s. Escalate to that coordinator, not to the project root.
-
-Message it only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
-
-`+"`ao send --session %s --message \"<your message>\"`", coordinatorID, coordinatorID)
+` + "`ao send --session <owner-session-id> --message \"<your message>\"`" + ``
 }
 
 // workerMultiPRPrompt explains the branch convention AO uses to attribute pull

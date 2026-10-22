@@ -46,8 +46,8 @@ func TestBuildSystemPrompt_WorkerIncludesRulesAndOrchestrator(t *testing.T) {
 	})
 	for _, want := range []string{
 		"## AO Worker Role",
-		"## Orchestrator Coordination",
-		`ao send --session mer-orchestrator --message "<your message>"`,
+		"## Escalation Target",
+		`ao session owner $AO_SESSION_ID --json`, `ao send --session <owner-session-id> --message "<your message>"`,
 		"## Pull Requests for This Session",
 		"For a workspace project whose recorded session branch",
 		"`<session-branch>-<topic>`",
@@ -699,6 +699,53 @@ func TestBuildSystemPrompt_CIGateCoordinationOnlyInGatedProjects(t *testing.T) {
 		})
 		if strings.Contains(ungated, mention) {
 			t.Fatalf("%s prompt in ungated project mentions the CI gate", role)
+		}
+	}
+}
+
+func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
+	enabled := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+		Coordination: coordinationPromptConfig{
+			Enabled: true,
+			Limits:  domain.CoordinatorLimits{Coordinators: 3, WorkersPerCoordinator: 3, Workers: 9},
+		},
+	})
+	for _, want := range []string{
+		"## Delegation Through Coordinators",
+		"ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>",
+		"This project allows 3 live coordinators, 3 workers per coordinator and 9 workers per project.",
+		"ao coordinator set-limits <coordinator-id>",
+		"Interim until #496 lands: announce each merge and each slot change",
+		"## Host Allocation",
+		"`ao host ls`",
+		"`LOCAL_ORCHESTRATOR_ACTIVE`",
+		"Do not copy a host label from a previous prompt or brief.",
+	} {
+		if !strings.Contains(enabled, want) {
+			t.Fatalf("enabled root prompt missing %q:\n%s", want, enabled)
+		}
+	}
+	for _, label := range []string{"IMac", "Linux", "Z600"} {
+		if strings.Contains(enabled, label) {
+			t.Fatalf("root prompt must not hard-code host label %q:\n%s", label, enabled)
+		}
+	}
+	if size := len(rootDelegationPrompt(coordinationPromptConfig{Enabled: true, Limits: domain.HardCoordinatorLimits})); size >= 2048 {
+		t.Fatalf("delegation section is %d bytes, want under 2 KB", size)
+	}
+	if size := len(rootHostAllocationPrompt(coordinationPromptConfig{Enabled: true})); size >= 1536 {
+		t.Fatalf("host allocation section is %d bytes, want under 1.5 KB", size)
+	}
+
+	disabled := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+	})
+	for _, absent := range []string{"## Delegation Through Coordinators", "## Host Allocation", "Interim until #496"} {
+		if strings.Contains(disabled, absent) {
+			t.Fatalf("disabled root prompt must omit %q:\n%s", absent, disabled)
 		}
 	}
 }
