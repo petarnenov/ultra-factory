@@ -9,7 +9,7 @@ import { useUiStore } from "../stores/ui-store";
 
 const HOSTS_CHANGED_EVENT = "ao:remote-hosts-changed";
 const OFFLINE_RETRY_MS = 15_000;
-// Tailnet discovery (and, when on, account sync) is re-read on this cadence.
+// Re-read tailnet discovery and enabled account sync on this cadence.
 const DISCOVERY_REFRESH_MS = 30_000;
 const NO_HOSTS: RemoteHost[] = [];
 
@@ -28,7 +28,7 @@ export type RemoteHost = {
 	status: "connecting" | "connected" | "offline";
 	failureReason?: "unauthorized" | "incompatible";
 	allowInsecureHTTP?: boolean;
-	// tailscale hosts were found on the tailnet; online is their discovery state.
+	// Tailscale hosts are discovered peers; online mirrors peer state.
 	tailscale?: boolean;
 	online?: boolean;
 };
