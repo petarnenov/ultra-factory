@@ -609,7 +609,7 @@ func (o *Observer) connect(ctx context.Context, hostID string) (*hostClient, err
 	}
 	return &hostClient{
 		http: client, base: base, hostID: hostID, password: entry.Password, label: label,
-		pullerID: o.selfHostID,
+		pullerID: o.selfHostID, insecureOK: entry.AllowInsecureHTTP,
 	}, nil
 }
 

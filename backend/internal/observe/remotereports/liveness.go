@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 )
 
 // checkHostLiveness reads each link's worker over the host's connection.
@@ -40,6 +41,11 @@ func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, li
 // endedWithNothingPending drops a terminated worker's link once it has no
 // report left to deliver, due or not. Otherwise the pull delivers them first.
 func (o *Observer) endedWithNothingPending(ctx context.Context, client *hostClient, link domain.RemoteWorkerLink) bool {
+	// Report contents follow the pull's transport policy; a blocked host
+	// keeps its terminated link, which already does not count.
+	if remotehost.UnattendedTransportAllowed(client.base, client.insecureOK) != nil {
+		return false
+	}
 	result, err := client.pending(ctx, link.RemoteSessionID)
 	if errors.Is(err, errSessionGone) {
 		return o.drop(ctx, client, link, "remote session no longer exists") == nil

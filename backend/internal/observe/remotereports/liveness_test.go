@@ -2,8 +2,10 @@ package remotereports
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"testing"
 	"time"
 
@@ -142,4 +144,48 @@ func newDiscoveryObserver(store *memStore, linker *fakeLinker, host *fakeHost) *
 		Entries: func() ([]remotehost.Entry, error) { return []remotehost.Entry{entry}, nil },
 		Logger:  slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
+}
+
+// A terminated link on a plain-http host without the opt-in must not have its
+// report contents read: the pending route stays unrequested and the link stays.
+func TestTerminatedLinkOnABlockedPlainHTTPHostReadsNoReports(t *testing.T) {
+	t.Setenv(remotehost.AllowHTTPEnv, "")
+	store := newMemStore(link("host-lan", "w-1"))
+	var paths []string
+	observer := New(Deps{
+		Store: store, Deliverer: &fakeDeliverer{},
+		Lookup: func(string) (remotehost.Entry, bool, error) {
+			return remotehost.Entry{Label: "linux", URL: "http://192.168.1.223:1", Password: "pw", HostID: "host-lan"}, true, nil
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			paths = append(paths, r.URL.Path)
+			return nil, errors.New("blocked")
+		})},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		if path == "/api/v1/reports/pending" {
+			t.Fatal("report contents were read from a blocked plain-http host")
+		}
+	}
+	if store.linkCount() != 1 {
+		t.Fatal("link dropped on a blocked host")
+	}
+}
+
+// The guard also holds when the policy is checked on the client itself: a
+// terminated worker with an opt-in host and nothing pending is dropped.
+func TestEndedWithNothingPendingChecksThePolicyOnTheClient(t *testing.T) {
+	store := newMemStore(link("host-lan", "w-1"))
+	observer := New(Deps{Store: store, Deliverer: &fakeDeliverer{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	blocked := &hostClient{base: "http://192.168.1.223:1", hostID: "host-lan", password: "pw", label: "linux"}
+	if observer.endedWithNothingPending(context.Background(), blocked, store.links[0]) {
+		t.Fatal("a blocked client was allowed to drop after a pending read")
+	}
+	if store.linkCount() != 1 {
+		t.Fatal("link dropped on a blocked client")
+	}
 }

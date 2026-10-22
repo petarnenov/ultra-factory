@@ -48,6 +48,9 @@ type hostClient struct {
 	// acknowledgements per puller. perPuller is set once the host confirms it.
 	pullerID  string
 	perPuller bool
+	// insecureOK records the host's plain-http opt-in, so a read that must
+	// keep the transport policy can check it on the client it already has.
+	insecureOK bool
 }
 
 // The wire shapes below mirror the remote daemon's DTOs
