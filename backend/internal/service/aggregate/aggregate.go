@@ -307,7 +307,11 @@ func (s *Service) Effective(projectID domain.ProjectID, repo string, cfg domain.
 		}
 		label, stale := ref.HostID, true
 		if state, ok := s.hosts[ref.HostID]; ok {
-			label, stale = state.label, state.stale || state.refused
+			// A refused host shows no columns; its config row is kept.
+			if state.refused {
+				continue
+			}
+			label, stale = state.label, state.stale
 		}
 		add(Entry{HostID: ref.HostID, HostLabel: label, ProjectID: ref.ProjectID, Source: SourceExplicit, Stale: stale})
 	}

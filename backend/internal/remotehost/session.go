@@ -33,7 +33,7 @@ func Open(ctx context.Context, base *http.Client, entry Entry, timeout time.Dura
 	if err != nil {
 		return nil, err
 	}
-	if err := UnattendedTransportAllowed(root); err != nil {
+	if err := UnattendedTransportAllowed(root, entry.AllowInsecureHTTP); err != nil {
 		return nil, err
 	}
 	client, gate := ProbedClient(base, timeout)

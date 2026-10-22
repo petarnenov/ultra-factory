@@ -198,6 +198,10 @@ func TestRefusedHostShowsNothingAndIsNotRetriedUntilEntryChanges(t *testing.T) {
 	if got := svc.Effective("app", "https://github.com/o/app", domain.ProjectConfig{}); len(got) != 0 {
 		t.Fatalf("refused host returned %+v, want none", got)
 	}
+	cfg := domain.ProjectConfig{AggregateProjects: []domain.AggregateProjectRef{{HostID: "h_a", ProjectID: "app"}}}
+	if got := svc.Effective("app", "https://github.com/o/app", cfg); len(got) != 0 {
+		t.Fatalf("refused host manual row returned %+v, want none", got)
+	}
 
 	hosts.mu.Lock()
 	hosts.entries = []remotehost.Entry{entry("h_a", "Alpha", "new")}
@@ -209,6 +213,9 @@ func TestRefusedHostShowsNothingAndIsNotRetriedUntilEntryChanges(t *testing.T) {
 	}
 	if got := svc.Effective("app", "https://github.com/o/app", domain.ProjectConfig{}); len(got) != 1 {
 		t.Fatalf("recovered host returned %+v, want one row", got)
+	}
+	if got := svc.Effective("app", "https://github.com/o/app", cfg); len(got) != 1 || got[0].Source != SourceExplicit {
+		t.Fatalf("recovered manual row returned %+v, want one row", got)
 	}
 }
 
