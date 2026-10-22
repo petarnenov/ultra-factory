@@ -91,7 +91,16 @@ func TestLiveSemantic(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := svc.embedMissing(ctx); err != nil {
+	// Embed only this test's lessons; embedMissing would touch real nodes.
+	targets := []EmbedTarget{
+		{Label: "Lesson", ID: "kgsem-1", Text: "The Coordinators settings form submits when the dialog opens; guard submit until the form is ready."},
+		{Label: "Lesson", ID: "kgsem-2", Text: "Codex goes idle right after start when AppArmor blocks bwrap user namespaces."},
+	}
+	vecs, err := svc.embedder.EmbedDocuments(ctx, []string{targets[0].Text, targets[1].Text})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.SetEmbeddings(ctx, targets, vecs); err != nil {
 		t.Fatal(err)
 	}
 	items, err := svc.prior(ctx, Query{Project: project, Text: "Settings window sends the form by itself as soon as it appears"})

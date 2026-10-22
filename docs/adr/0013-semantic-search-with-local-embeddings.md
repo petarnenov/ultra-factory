@@ -41,8 +41,8 @@ Bulgarian while lessons are in English, so useful lessons were missed.
 ## Consequences
 
 - Changing the model changes the vector dimensions: drop both vector
-  indexes, update `schema.cypher`, redeploy, and clear `embedding` on all
-  nodes so they are re-embedded.
+  indexes, update `schema.cypher` and redeploy. Daemons probe the model's
+  vector size and re-embed every node whose vector has another size.
 - The Ollama port is a second service on the tailnet behind no password;
   it only computes embeddings and holds no AO data.
 - A node is invisible to vector search until it is embedded, normally

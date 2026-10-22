@@ -89,11 +89,11 @@ the dimensions in `schema.cypher`, then:
 ```cypher
 DROP INDEX lesson_embedding IF EXISTS;
 DROP INDEX task_embedding IF EXISTS;
-MATCH (n) WHERE n:Lesson OR n:Task REMOVE n.embedding;
 ```
 
 Run `make kg-deploy`, update `embeddingModel` in every daemon's config and
-restart the daemons; they re-embed every node in the background.
+restart the daemons. Each daemon probes the model's vector size and re-embeds
+every node whose vector has another size, in the background.
 
 ## Backup and restore
 

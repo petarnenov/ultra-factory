@@ -604,3 +604,40 @@ func TestStartWithEmbedderStopsOnCancel(t *testing.T) {
 		t.Fatalf("Start did not close its channel after cancel")
 	}
 }
+
+func TestEmbedMissingProbesDimensionsOnce(t *testing.T) {
+	g := &embedGraph{}
+	e := &fakeEmbedder{vec: make([]float64, 3)}
+	svc := newSemanticService(g, e, &syncBuffer{})
+
+	for i := 0; i < 2; i++ {
+		if err := svc.embedMissing(context.Background()); err != nil {
+			t.Fatalf("embedMissing() error = %v", err)
+		}
+	}
+
+	if svc.embedDims != 3 {
+		t.Fatalf("embedDims = %d, want 3", svc.embedDims)
+	}
+	if n := len(e.queries); n != 1 {
+		t.Fatalf("probe calls = %d, want 1 (cached)", n)
+	}
+	if misses, _ := g.counts(); misses != 2 {
+		t.Fatalf("missing queries = %d, want 2", misses)
+	}
+}
+
+func TestEmbedMissingReturnsProbeError(t *testing.T) {
+	g := &embedGraph{}
+	e := &fakeEmbedder{err: errors.New("ollama down")}
+	svc := newSemanticService(g, e, &syncBuffer{})
+
+	err := svc.embedMissing(context.Background())
+
+	if err == nil || !strings.Contains(err.Error(), "ollama down") {
+		t.Fatalf("embedMissing() error = %v, want probe error", err)
+	}
+	if misses, _ := g.counts(); misses != 0 {
+		t.Fatalf("missing queries = %d, want 0 after a failed probe", misses)
+	}
+}
