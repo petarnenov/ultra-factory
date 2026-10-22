@@ -5,6 +5,7 @@ package knowledgegraph
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,8 @@ import (
 // TestLiveGraph runs the queries against a real graph configured in
 // ~/.ao/knowledge-graph.json: go test -tags kglive ./internal/knowledgegraph/
 func TestLiveGraph(t *testing.T) {
-	cfg, err := Load(os.Getenv)
+	home, _ := os.UserHomeDir()
+	cfg, err := Load(os.Getenv, filepath.Join(home, ".ao", "data"))
 	if err != nil || !cfg.Enabled() {
 		t.Skipf("no knowledge graph configured: %v", err)
 	}

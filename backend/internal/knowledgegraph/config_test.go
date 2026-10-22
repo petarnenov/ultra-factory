@@ -36,7 +36,7 @@ func TestLoad(t *testing.T) {
 		wantErr string
 	}{
 		{name: "missing file disables", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing}},
-		{name: "no config path and no home", env: map[string]string{}},
+		{name: "no config path and no data dir", env: map[string]string{}},
 		{
 			name: "private file with defaults", file: `{"url":"http://kg:7474"}`, perm: 0o600,
 			want: Config{URL: "http://kg:7474", User: "neo4j", Database: "neo4j", Timeout: 3 * time.Second},
@@ -93,7 +93,7 @@ func TestLoad(t *testing.T) {
 			if tt.file != "" {
 				env["AO_KNOWLEDGE_GRAPH_CONFIG"] = writeConfig(t, tt.file, tt.perm)
 			}
-			got, err := Load(envFunc(env))
+			got, err := Load(envFunc(env), "")
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("Load() error = %v, want containing %q", err, tt.wantErr)
@@ -113,22 +113,42 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestLoadReadsDefaultFileUnderHome(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, DefaultConfigFile)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
+func TestLoadReadsDefaultFileBesideDataDir(t *testing.T) {
+	aoDir := t.TempDir()
+	path := filepath.Join(aoDir, DefaultConfigFile)
 	if err := os.WriteFile(path, []byte(`{"url":"http://kg:7474"}`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	got, err := Load(envFunc(map[string]string{"HOME": home}))
+	got, err := Load(envFunc(nil), filepath.Join(aoDir, "data"))
 
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if got.URL != "http://kg:7474" {
 		t.Fatalf("URL = %q, want file value", got.URL)
+	}
+}
+
+// A scratch data dir (tests, isolated dev) must never pick up the user's
+// ~/.ao config just because HOME points at the real home.
+func TestLoadIgnoresHomeConfigForScratchDataDir(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".ao"), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cfgPath := filepath.Join(home, ".ao", DefaultConfigFile)
+	if err := os.WriteFile(cfgPath, []byte(`{"url":"http://kg:7474"}`), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	scratch := filepath.Join(t.TempDir(), "data")
+
+	got, err := Load(envFunc(map[string]string{"HOME": home}), scratch)
+
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got.Enabled() {
+		t.Fatalf("Load() = %+v, want disabled for a scratch data dir", got)
 	}
 }
