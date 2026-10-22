@@ -628,16 +628,23 @@ func (o *Observer) Poll(ctx context.Context) error {
 			}
 			pr, checks, reviews, threads, comments = domainFromObservation(subj.session.ID, subj.session, prepared, local, pendingOpts, now)
 		}
-		if err := o.store.WriteSCMObservation(ctx, pr, checks, reviews, threads, comments, reviewMode); err != nil {
-			o.logger.Error("scm observer: DB write failed", "session", subj.session.ID, "pr", pr.URL, "err", err)
-			markRepoRefreshFailed(subj.repo)
-			continue
-		}
+		// Announce before the merged flag becomes durable: once local.Merged is
+		// persisted this transition never recurs, and a root-driven merge has no
+		// tick to fall back on. A failed announce leaves local state unchanged so
+		// the next poll retries; the pr_merge_announcements claim dedupes the
+		// case where the announce succeeds and a later write fails.
 		if o.mergeAnnouncer != nil && !local.Merged && prepared.PR.Merged {
 			prURL := firstNonEmpty(prepared.PR.URL, prepared.PR.HTMLURL, local.URL)
 			if err := o.mergeAnnouncer.AnnounceMerged(ctx, subj.session.ID, prURL, prepared.PR.Number, prepared.PR.MergeCommitSHA); err != nil {
 				o.logger.Error("scm observer: merge announcement failed", "session", subj.session.ID, "pr", prURL, "err", err)
+				markRepoRefreshFailed(subj.repo)
+				continue
 			}
+		}
+		if err := o.store.WriteSCMObservation(ctx, pr, checks, reviews, threads, comments, reviewMode); err != nil {
+			o.logger.Error("scm observer: DB write failed", "session", subj.session.ID, "pr", pr.URL, "err", err)
+			markRepoRefreshFailed(subj.repo)
+			continue
 		}
 		if o.lifecycle != nil {
 			if err := o.lifecycle.ApplySCMObservation(ctx, subj.session.ID, prepared); err != nil {
