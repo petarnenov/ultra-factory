@@ -588,6 +588,13 @@ type PRComment struct {
 	ReviewID         string
 }
 
+type PRMergeAnnouncement struct {
+	MergeCommitSha string
+	PRURL          string
+	SessionID      string
+	AnnouncedAt    string
+}
+
 type PRReview struct {
 	PRURL            string
 	ReviewID         string
