@@ -27,7 +27,7 @@ DAEMON_REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's|^.*gith
 	sqlc api api-spec api-ts \
 	cloud-check product-ui-check hub-bff-check shared-check \
 	cloud-local cloud-local-down cloud-local-reset cloud-local-smoke \
-	promote-sync \
+	promote-sync kg-deploy \
 	ci-local
 
 help: ## Show this help
@@ -229,6 +229,11 @@ cloud-local-smoke: ## Smoke-test the local cloud stack
 # version-bump commit on main, merges it into dev, and pushes dev.
 promote-sync: ## Sync main back into dev after a promotion; ARGS="--timeout 1200"
 	@bash scripts/promote-sync.sh $(ARGS)
+
+##@ Knowledge graph
+
+kg-deploy: ## Deploy the central Neo4j knowledge graph over SSH; KG_HOST=petar@100.121.193.125
+	@bash deploy/knowledge-graph/deploy.sh
 
 ##@ CI
 

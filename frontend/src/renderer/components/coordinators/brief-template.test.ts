@@ -124,6 +124,10 @@ describe("acceptanceCriteriaFrom", () => {
 		expect(acceptanceCriteriaFrom("Intro.\n\n## Acceptance criteria\n- first\n* second\n- [ ] third\n\n## Notes\nignored")).toBe("first; second; third");
 	});
 
+	test("ends the section at a bold header on its own", () => {
+		expect(acceptanceCriteriaFrom("**Acceptance criteria**\n- a\n\n**Notes**\nfoo")).toBe("a");
+	});
+
 	test("accepts a bold header and numbered items", () => {
 		expect(acceptanceCriteriaFrom("**Acceptance criteria**\n1. one\n2) two")).toBe("one; two");
 	});
