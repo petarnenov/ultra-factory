@@ -6,11 +6,10 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
-// ReasonAgentOperationStuck marks a session whose wake, exit, or switch has held
-// it longer than Config.OperationAfter.
+// ReasonAgentOperationStuck marks a transition held past OperationAfter.
 const ReasonAgentOperationStuck = "agent_operation_stuck"
 
-// OperationSource reads and abandons the in-flight agent operation of a session.
+// OperationSource reads and abandons a session's in-flight operation.
 type OperationSource interface {
 	AgentOperation(domain.SessionID) (domain.SessionAgentOperation, bool)
 	// AbandonAgentOperation asks the operation to stop and reports whether it
