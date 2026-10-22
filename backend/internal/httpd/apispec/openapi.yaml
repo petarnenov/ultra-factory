@@ -4010,6 +4010,70 @@ paths:
         (loopback only)
       tags:
       - reports
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}:
+    delete:
+      operationId: removeRemoteWorkerLink
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      - description: The live root removing the link.
+        in: query
+        name: requestedBySessionId
+        schema:
+          description: The live root removing the link.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerLinkResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Remove a linked remote worker (root only; logged)
+      tags:
+      - reports
   /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner:
     put:
       operationId: assignRemoteWorkerOwner
@@ -4086,6 +4150,42 @@ paths:
         - OWNER_NOT_COORDINATOR
         - OWNER_TERMINATED
         - COORDINATOR_WORKER_LIMIT_REACHED
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release:
+    post:
+      operationId: releaseRemoteWorkerLink
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Drop the link of a worker this daemon just killed on its host
+      tags:
+      - reports
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -15454,12 +15554,15 @@ components:
           type: integer
         maxWorkersPerCoordinator:
           type: integer
+        staleWorkers:
+          type: integer
       required:
       - maxCoordinators
       - maxWorkersPerCoordinator
       - maxWorkers
       - activeCoordinators
       - activeWorkers
+      - staleWorkers
       type: object
     CoordinatorLimitsRequest:
       properties:
@@ -17810,6 +17913,11 @@ components:
           type: string
         hostLabel:
           type: string
+        lastSeenAt:
+          format: date-time
+          type:
+          - "null"
+          - string
         localProjectId:
           type: string
         ownerSessionId:
@@ -17826,6 +17934,8 @@ components:
           type: string
         source:
           type: string
+        state:
+          type: string
       required:
       - hostId
       - hostLabel
@@ -17836,6 +17946,7 @@ components:
       - ownerSessionId
       - source
       - createdAt
+      - state
       type: object
     RemoteWorkerSyncResponse:
       properties:
