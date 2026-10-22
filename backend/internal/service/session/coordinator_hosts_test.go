@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
@@ -171,8 +172,8 @@ func TestRosterListsHostSlotsWithUseAndThePlacementLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.store.links = []domain.RemoteWorkerLink{
-		{HostID: "host-linux", RemoteSessionID: "r1", ProjectID: "ao", OwnerSessionID: &c},
-		{HostID: "host-linux", RemoteSessionID: "r2", ProjectID: "ao", OwnerSessionID: &c},
+		{HostID: "host-linux", RemoteSessionID: "r1", ProjectID: "ao", OwnerSessionID: &c, CreatedAt: time.Now()},
+		{HostID: "host-linux", RemoteSessionID: "r2", ProjectID: "ao", OwnerSessionID: &c, CreatedAt: time.Now()},
 	}
 	roster, err := f.svc.CoordinatorRoster(context.Background(), "ao", false)
 	if err != nil {

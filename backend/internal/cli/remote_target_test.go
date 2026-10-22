@@ -231,6 +231,9 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 			}})
 		case strings.HasPrefix(r.URL.Path, "/internal/"):
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/remote-worker-links/") &&
+			strings.HasSuffix(r.URL.Path, "/release"):
+			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/v1/identity":
 			writeTestJSON(w, http.StatusOK, map[string]any{"hostId": hostID, "apiVersion": 1})
 		case strings.HasPrefix(r.URL.Path, "/api/v1/projects/"):

@@ -82,6 +82,22 @@ func (s *wiringRemoteStore) DeleteRemoteWorkerLink(context.Context, string, doma
 	return nil
 }
 
+func (s *wiringRemoteStore) RemoveRemoteWorkerLink(context.Context, string, domain.SessionID, time.Time) error {
+	return nil
+}
+
+func (s *wiringRemoteStore) UpdateRemoteWorkerLinkLiveness(context.Context, string, domain.SessionID, time.Time, string) error {
+	return nil
+}
+
+func (s *wiringRemoteStore) ListRemoteWorkerLinkRemovals(context.Context) ([]domain.RemoteWorkerLinkRemoval, error) {
+	return nil, nil
+}
+
+func (s *wiringRemoteStore) DeleteRemoteWorkerLinkRemoval(context.Context, string, domain.SessionID) error {
+	return nil
+}
+
 func (s *wiringRemoteStore) ListDeliveredRemoteReports(context.Context, string, domain.SessionID) (map[string]bool, error) {
 	return nil, nil
 }

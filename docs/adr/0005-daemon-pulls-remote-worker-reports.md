@@ -82,6 +82,48 @@ outbound HTTP to hosts the user has already paired in the desktop app.
    the link is dropped, in case it reported while its session was being read. Any other 404, such as an older AO without these routes, keeps
    the link.
 
+### Liveness
+
+Retirement in step 5 runs only when a pull reaches the host. A host whose
+pulls are blocked (plain http without the opt-in, or a refused password) would
+keep its killed workers' links forever, and each link counts toward
+`coordinators.maxWorkers`. The observer therefore runs a liveness read every
+tick, before the pulls, for every link:
+
+- It shares the host's one connection with the pulls of that pass, so the
+  credential still travels only over the connection that answered the probe.
+- It reads `GET /api/v1/sessions/{id}` only. A worker that is gone
+  (`SESSION_NOT_FOUND`) loses its link. A terminated worker loses it once its
+  pending reports are empty, and until then its state is `terminated`. A live
+  worker records `last_seen_at` and state `live`.
+- It follows the same transport policy as the pull, including the per-host
+  "Allow report pulls over plain HTTP" opt-in. A plain-http host without that
+  opt-in is not read at all, so its links are not cleared while it stays
+  blocked; they turn stale after the grace period instead, which still frees
+  their capacity. A host that opted in gets the status read on every tick.
+- A refused password (401 or 429) ends the host's reads, and the refusal
+  memory stops every later request, the liveness read included.
+
+A host that cannot be reached keeps its links. Its links are `stale` once
+`last_seen_at` (or the creation time, before the first read) is older than
+10 minutes. Stale links are not counted in `activeWorkers` or the spawn
+pre-check, and the coordinator roster reports them as `staleWorkers`. When the
+host answers again the link counts again. `ao remote-worker ls` shows
+`STATE live|stale|terminated`.
+
+`ao session kill --host` also drops the link at once: after the remote kill
+succeeds, the CLI asks its own daemon to release the link (`POST
+/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release`). A restored
+worker is linked again by the next discovery pass.
+
+An operator can drop a link by hand with `ao remote-worker rm` or `DELETE
+/api/v1/remote-worker-links/{hostId}/{remoteSessionId}?requestedBySessionId=`.
+Only the live root may do it, and the daemon logs every removal. The removal
+is remembered, so the periodic discovery pass does not link that worker again
+while it stays live on the host. `ao remote-worker sync` is the operator's way
+back: it forgets the removal and links the worker again. A kill leaves no
+memory; the worker is terminated and discovery skips it anyway.
+
 ### Discovery
 
 Spawning from an AO session is not the only way a worker reaches a saved
@@ -163,6 +205,8 @@ characters, because all of them reach the orchestrator's prompt.
   a second pulled feed and is out of scope.
 - Any authenticated caller can acknowledge a worker's pending reports. Such a
   caller can already create, kill, and message sessions.
+- The release route drops a link without a root check, because it follows a
+  kill that the caller has just made on the same host.
 - Longer term, a challenge-response (an HMAC of a server nonce) would remove the
   need to send the bearer at all; it would change the pairing contract and is
   out of scope here.

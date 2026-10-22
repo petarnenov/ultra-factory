@@ -28,6 +28,8 @@ type Store interface {
 	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
 	InsertDiscoveredRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) (bool, error)
 	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
+	RemoveRemoteWorkerLink(context.Context, string, domain.SessionID, time.Time) error
+	DeleteRemoteWorkerLink(context.Context, string, domain.SessionID) error
 }
 
 // MaxLinks bounds how many remote workers this daemon polls; every link costs

@@ -3,6 +3,7 @@ package ownership
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
@@ -71,5 +72,30 @@ func TestLoweredLimitKeepsWorkersButBlocksNewOnes(t *testing.T) {
 	counts.ByOwner[owner] = 0
 	if err := counts.CheckNewWorker("ao", &owner, limits); err != nil {
 		t.Fatalf("a free slot admits one worker: %v", err)
+	}
+}
+
+type listedLinks []domain.RemoteWorkerLink
+
+func (l listedLinks) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
+	return l, nil
+}
+
+// TestStaleLinksDoNotCountTowardCapacity keeps a link in the count only while
+// its host answered within the grace period; a stale link is reported apart.
+func TestStaleLinksDoNotCountTowardCapacity(t *testing.T) {
+	now := time.Now()
+	owner := domain.SessionID("coord-1")
+	fresh := now.Add(-time.Minute)
+	old := now.Add(-2 * domain.RemoteWorkerLinkStaleAfter)
+	live := domain.RemoteWorkerLink{HostID: "h", RemoteSessionID: "w-live", ProjectID: "p", OwnerSessionID: &owner, CreatedAt: now, LastSeenAt: &fresh, LastState: domain.RemoteLinkLive}
+	stale := domain.RemoteWorkerLink{HostID: "h", RemoteSessionID: "w-stale", ProjectID: "p", OwnerSessionID: &owner, CreatedAt: old, LastSeenAt: &old, LastState: domain.RemoteLinkLive}
+	ended := domain.RemoteWorkerLink{HostID: "h", RemoteSessionID: "w-ended", ProjectID: "p", OwnerSessionID: &owner, CreatedAt: now, LastSeenAt: &fresh, LastState: domain.RemoteLinkTerminated}
+	counts, err := Count(context.Background(), listedSessions{}, listedLinks{live, stale, ended}, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Workers != 1 || counts.ByOwner[owner] != 1 || counts.StaleWorkers != 1 {
+		t.Fatalf("workers=%d byOwner=%d stale=%d, want 1 live and 1 stale", counts.Workers, counts.ByOwner[owner], counts.StaleWorkers)
 	}
 }

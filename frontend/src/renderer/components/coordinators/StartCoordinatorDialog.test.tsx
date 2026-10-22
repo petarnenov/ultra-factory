@@ -23,7 +23,7 @@ import { StartCoordinatorDialog } from "./StartCoordinatorDialog";
 const roster: CoordinatorRoster = {
 	projectId: "ao",
 	rootSessionId: "ao-root",
-	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 0, activeWorkers: 0 },
+	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 0, activeWorkers: 0, staleWorkers: 0 },
 	coordinators: [],
 	rootWorkerSessionIds: [],
 };

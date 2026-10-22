@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -49,6 +50,13 @@ type RemoteWorkerSyncService interface {
 	Sync(context.Context) ([]remoteworker.HostSync, error)
 }
 
+// RemoteWorkerRemovalService drops a link by hand (root only) or once the
+// daemon has just killed its worker on the host.
+type RemoteWorkerRemovalService interface {
+	RemoveLink(context.Context, string, domain.SessionID, domain.SessionID) (domain.RemoteWorkerLink, error)
+	ReleaseKilled(context.Context, string, domain.SessionID) error
+}
+
 // RemoteWorkerLinksController owns /remote-worker-links. These routes make
 // this daemon contact saved hosts, so the LAN listener never serves them.
 type RemoteWorkerLinksController struct {
@@ -63,6 +71,45 @@ func (c *RemoteWorkerLinksController) Register(r chi.Router) {
 	r.Post("/remote-worker-links/sync", c.sync)
 	r.Get("/remote-worker-links", c.list)
 	r.Put("/remote-worker-links/{hostId}/{remoteSessionId}/owner", c.assignOwner)
+	r.Delete("/remote-worker-links/{hostId}/{remoteSessionId}", c.remove)
+	r.Post("/remote-worker-links/{hostId}/{remoteSessionId}/release", c.release)
+}
+
+// remove drops a link by hand; only the live root may (OWNERSHIP_ROOT_ONLY).
+// The caller is named in the requestedBySessionId query parameter.
+func (c *RemoteWorkerLinksController) remove(w http.ResponseWriter, r *http.Request) {
+	svc, ok := c.Svc.(RemoteWorkerRemovalService)
+	if !ok {
+		apispec.NotImplemented(w, r, "DELETE", "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}")
+		return
+	}
+	link, err := svc.RemoveLink(r.Context(),
+		chi.URLParam(r, "hostId"),
+		domain.SessionID(chi.URLParam(r, "remoteSessionId")),
+		domain.SessionID(strings.TrimSpace(r.URL.Query().Get("requestedBySessionId"))),
+	)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, remoteWorkerLinkResponse(link))
+}
+
+// release drops the link of a worker this daemon has just killed on its host.
+func (c *RemoteWorkerLinksController) release(w http.ResponseWriter, r *http.Request) {
+	svc, ok := c.Svc.(RemoteWorkerRemovalService)
+	if !ok {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release")
+		return
+	}
+	if err := svc.ReleaseKilled(r.Context(),
+		chi.URLParam(r, "hostId"),
+		domain.SessionID(chi.URLParam(r, "remoteSessionId")),
+	); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *RemoteWorkerLinksController) create(w http.ResponseWriter, r *http.Request) {
@@ -211,5 +258,6 @@ func remoteWorkerLinkResponse(link domain.RemoteWorkerLink) RemoteWorkerLinkResp
 		RemoteSessionID: string(link.RemoteSessionID), RemoteProjectID: string(link.RemoteProjectID),
 		ProjectID: string(link.ProjectID), LocalProjectID: string(link.ProjectID), DisplayName: link.DisplayName,
 		OwnerSessionID: sessionIDString(link.OwnerSessionID), Source: string(link.Source), CreatedAt: link.CreatedAt,
+		State: link.State(time.Now()), LastSeenAt: link.LastSeenAt,
 	}
 }

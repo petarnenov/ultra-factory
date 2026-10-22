@@ -38,7 +38,7 @@ const entry = (overrides: Partial<CoordinatorRosterEntry> = {}): CoordinatorRost
 const roster = (overrides: Partial<CoordinatorRoster> = {}): CoordinatorRoster => ({
 	projectId: "ao",
 	rootSessionId: "ao-root",
-	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 2 },
+	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 2, staleWorkers: 0 },
 	coordinators: [entry()],
 	rootWorkerSessionIds: [],
 	...overrides,

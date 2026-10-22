@@ -1500,6 +1500,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a linked remote worker (root only; logged) */
+        delete: operations["removeRemoteWorkerLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner": {
         parameters: {
             query?: never;
@@ -1511,6 +1528,23 @@ export interface paths {
         /** Assign or clear a linked remote worker's local owner */
         put: operations["assignRemoteWorkerOwner"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop the link of a worker this daemon just killed on its host */
+        post: operations["releaseRemoteWorkerLink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5195,6 +5229,7 @@ export interface components {
             maxCoordinators: number;
             maxWorkers: number;
             maxWorkersPerCoordinator: number;
+            staleWorkers: number;
         };
         CoordinatorLimitsRequest: {
             /** @description Omitted keeps stored slots; [] clears. */
@@ -6087,6 +6122,8 @@ export interface components {
             displayName?: string;
             hostId: string;
             hostLabel: string;
+            /** Format: date-time */
+            lastSeenAt?: null | string;
             localProjectId: string;
             ownerSessionId: null | string;
             projectId: string;
@@ -6094,6 +6131,7 @@ export interface components {
             remoteProjectId: string;
             remoteSessionId: string;
             source: string;
+            state: string;
         };
         RemoteWorkerSyncResponse: {
             hosts: components["schemas"]["RemoteWorkerHostSync"][];
@@ -12691,6 +12729,79 @@ export interface operations {
             };
         };
     };
+    removeRemoteWorkerLink: {
+        parameters: {
+            query?: {
+                /** @description The live root removing the link. */
+                requestedBySessionId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Linked remote host identifier. */
+                hostId: string;
+                /** @description Session identifier on the remote host. */
+                remoteSessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteWorkerLinkResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     assignRemoteWorkerOwner: {
         parameters: {
             query?: never;
@@ -12753,6 +12864,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["APIError"];
                 };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    releaseRemoteWorkerLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Linked remote host identifier. */
+                hostId: string;
+                /** @description Session identifier on the remote host. */
+                remoteSessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Internal Server Error */
             500: {

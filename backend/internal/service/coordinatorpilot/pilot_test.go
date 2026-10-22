@@ -326,7 +326,7 @@ func TestCoordinatorHierarchyEndToEnd(t *testing.T) {
 		// Coordinator B: two local workers plus one remote link fill its three
 		// slots, so a remote link is counted exactly like a local worker.
 		workersB = append(workersB, p.mustSpawn(domain.KindWorker, coordB, ""), p.mustSpawn(domain.KindWorker, coordB, ""))
-		link := domain.RemoteWorkerLink{HostID: hostID, HostLabel: "build", RemoteSessionID: remoteID, RemoteProjectID: "widgets", ProjectID: project, DisplayName: "remote seven", CreatedAt: p.now()}
+		link := domain.RemoteWorkerLink{HostID: hostID, HostLabel: "build", RemoteSessionID: remoteID, RemoteProjectID: "widgets", ProjectID: project, DisplayName: "remote seven", CreatedAt: time.Now()}
 		if err := p.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
 			t.Fatalf("seed remote link: %v", err)
 		}

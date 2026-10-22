@@ -30,3 +30,18 @@ INSERT INTO remote_worker_links (
     host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, owner_session_id, created_at, source
 ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 'discovered')
 ON CONFLICT(host_id, remote_session_id) DO NOTHING;
+
+-- name: UpdateRemoteWorkerLinkLiveness :exec
+UPDATE remote_worker_links SET last_seen_at = ?, last_state = ?
+WHERE host_id = ? AND remote_session_id = ?;
+
+-- name: InsertRemoteWorkerLinkRemoval :exec
+INSERT INTO remote_worker_link_removals (host_id, remote_session_id, removed_at)
+VALUES (?, ?, ?)
+ON CONFLICT(host_id, remote_session_id) DO UPDATE SET removed_at = excluded.removed_at;
+
+-- name: ListRemoteWorkerLinkRemovals :many
+SELECT * FROM remote_worker_link_removals ORDER BY host_id, remote_session_id;
+
+-- name: DeleteRemoteWorkerLinkRemoval :exec
+DELETE FROM remote_worker_link_removals WHERE host_id = ? AND remote_session_id = ?;

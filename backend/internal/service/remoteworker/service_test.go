@@ -19,7 +19,37 @@ type fakeStore struct {
 	sessions    map[domain.SessionID]domain.SessionRecord
 	stored      []domain.RemoteWorkerLink
 	ownerEvents []domain.RemoteWorkerOwnerEvent
+	removals    []domain.RemoteWorkerLinkRemoval
 	project     domain.ProjectRecord
+}
+
+// RemoveRemoteWorkerLink drops the link and remembers the removal.
+func (f *fakeStore) RemoveRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.stored[:0]
+	for _, link := range f.stored {
+		if link.HostID != hostID || link.RemoteSessionID != remoteSessionID {
+			kept = append(kept, link)
+		}
+	}
+	f.stored = kept
+	f.removals = append(f.removals, domain.RemoteWorkerLinkRemoval{HostID: hostID, RemoteSessionID: remoteSessionID, RemovedAt: at})
+	return nil
+}
+
+// DeleteRemoteWorkerLink drops the link without remembering a removal.
+func (f *fakeStore) DeleteRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.stored[:0]
+	for _, link := range f.stored {
+		if link.HostID != hostID || link.RemoteSessionID != remoteSessionID {
+			kept = append(kept, link)
+		}
+	}
+	f.stored = kept
+	return nil
 }
 
 func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
