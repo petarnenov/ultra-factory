@@ -26,7 +26,14 @@ const baseForm = (overrides: Partial<CoordinatorsForm> = {}): CoordinatorsForm =
 });
 
 const spawnForm = (overrides: Partial<SpawnCoordinatorForm> = {}): SpawnCoordinatorForm => ({
+	name: "Ada",
 	scope: "docs",
+	outOfScope: "billing",
+	integrationBranch: "dev",
+	branchPrefix: "co-docs",
+	tasks: [{ taskId: "#1", title: "Docs", acceptance: "builds", files: "" }],
+	briefEdited: true,
+	briefPlaceholders: [],
 	workerLimit: "",
 	hostSlots: [],
 	coordinatorAgent: "inherit",
@@ -143,6 +150,23 @@ describe("validateCoordinatorsForm selections", () => {
 
 describe("validateSpawnCoordinator", () => {
 	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[], profileIds: [] as string[] };
+
+	test("refuses a brief that still has a template placeholder and names the first one", () => {
+		const errors = validateSpawnCoordinator(spawnForm({ brief: "Assignment for <coordinator name>.\nScope: docs" }), limits);
+		expect(errors.brief).toBe("coordinators.start.errors.briefPlaceholder");
+		expect(errors.placeholder).toBe("<coordinator name>");
+	});
+
+	test("accepts a brief whose only angle brackets are coordinator instructions", () => {
+		const brief = "Worker branch name: co-docs/<task-id>\nao coordinator report --ready-pr <number>@<head-sha>";
+		expect(validateSpawnCoordinator(spawnForm({ brief }), limits).brief).toBeUndefined();
+	});
+
+	test("blocks a brief whose template placeholders are still unfilled", () => {
+		const errors = validateSpawnCoordinator(spawnForm({ briefEdited: false, briefPlaceholders: ["<dev>"] }), limits);
+		expect(errors.brief).toBe("coordinators.start.errors.briefPlaceholder");
+		expect(errors.placeholder).toBe("<dev>");
+	});
 
 	test("requires a scope and a brief", () => {
 		expect(validateSpawnCoordinator(spawnForm({ scope: "  " }), limits).scope).toBe("coordinators.start.errors.scopeRequired");
