@@ -10,8 +10,8 @@ func TestCoordinatorSummaryRemoteWorkerLabelsMigrationRoundTrips(t *testing.T) {
 	db := openMigratedTestDB(t)
 	if _, err := db.Exec(`
 INSERT INTO projects (id, path, registered_at) VALUES ('widgets', '/repo/widgets', '2026-10-22T09:00:00Z');
-INSERT INTO sessions (id, project_id, kind, coordinator_scope, created_at, updated_at)
-VALUES ('coord', 'widgets', 'coordinator', 'migration-test', '2026-10-22T09:00:00Z', '2026-10-22T09:00:00Z');
+INSERT INTO sessions (id, project_id, num, kind, coordinator_scope, activity_last_at, created_at, updated_at)
+VALUES ('coord', 'widgets', 1, 'coordinator', 'migration-test', '2026-10-22T09:00:00Z', '2026-10-22T09:00:00Z', '2026-10-22T09:00:00Z');
 INSERT INTO coordinator_summaries (id, coordinator_session_id, project_id, submission_key, scope, state, created_at, available_at)
 VALUES ('summary', 'coord', 'widgets', 'key', 'scope', 'working', '2026-10-22T09:00:00Z', '2026-10-22T09:00:00Z');
 INSERT INTO coordinator_summary_remote_workers (summary_id, host_id, remote_session_id, position)

@@ -92,7 +92,9 @@ export function CoordinatorRoster({ projectId, hostId, config }: { projectId: st
 										sessionId, agentProfileId: null, remote: false, hostId: "", hostLabel: "",
 									}))).map((worker) => (
 										<li key={`${worker.remote ? worker.hostId : "local"}:${worker.sessionId}`}>
-											{worker.remote ? `${worker.sessionId} on ${worker.hostLabel || hostLabel(worker.hostId)}` : worker.sessionId}
+											{worker.remote && (worker.hostLabel || worker.hostId)
+												? `${worker.sessionId} on ${worker.hostLabel || hostLabel(worker.hostId ?? "")}`
+												: worker.sessionId}
 										</li>
 									))}
 								</ul>
