@@ -115,3 +115,25 @@ func TestAnnounceMergedReleasesClaimOnFailureSoItRetries(t *testing.T) {
 		t.Fatalf("released claim did not retry: %+v", delivery.submissions)
 	}
 }
+
+func TestAnnounceMergedWithoutAMergeCommitIsNotDropped(t *testing.T) {
+	c, _, delivery := mergeAnnouncementFixture(t, true)
+	ctx := context.Background()
+
+	// A fast-forward or null mergeCommit reports no SHA; the notice must still go out.
+	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/203", 203, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("empty-SHA merge dropped: %+v", delivery.submissions)
+	}
+	if got := delivery.submissions[0].message; !strings.Contains(got, "PR #203") || !strings.Contains(got, "no merge commit reported") {
+		t.Fatalf("notice = %q", got)
+	}
+	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/203", 203, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 {
+		t.Fatalf("empty-SHA merge announced twice: %+v", delivery.submissions)
+	}
+}
