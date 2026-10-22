@@ -252,12 +252,12 @@ type ListRemoteWorkerLinksResponse struct {
 	Links []RemoteWorkerLinkResponse `json:"links"`
 }
 
-// RemoteWorkerLinkOwnerParam identifies one link on its ownership route.
+// RemoveRemoteWorkerLinkQuery names the live root removing a link.
 type RemoveRemoteWorkerLinkQuery struct {
 	RequestedBySessionID string `query:"requestedBySessionId" description:"The live root removing the link." validate:"required"`
 }
 
-// RemoteWorkerLinkOwnerParam names one link in the owner and removal routes.
+// RemoteWorkerLinkOwnerParam identifies one link on its ownership route.
 type RemoteWorkerLinkOwnerParam struct {
 	HostID          string `path:"hostId" description:"Linked remote host identifier."`
 	RemoteSessionID string `path:"remoteSessionId" description:"Session identifier on the remote host."`

@@ -708,7 +708,7 @@ func (c *commandContext) killSession(ctx context.Context, cmd *cobra.Command, id
 		releasePath := "/api/v1/remote-worker-links/" + url.PathEscape(c.remote.hostID) + "/" +
 			url.PathEscape(res.SessionID) + "/release"
 		if err := c.localContext().doJSONPath(ctx, http.MethodPost, releasePath, struct{}{}, nil); err != nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: session %s killed, but its remote worker link was not released: %v\n", res.SessionID, err)
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: session %s killed, but its remote worker link was not released: %v\n", res.SessionID, err)
 		}
 	}
 	if res.CleanupPending {
