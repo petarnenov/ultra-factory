@@ -1,6 +1,10 @@
 import type { components } from "../../api/schema";
 import { apiErrorMessage } from "./api-client";
 import { clientForSessionHost } from "./host-clients";
+import {
+	type BriefTask,
+	firstUnfilledPlaceholder,
+} from "../components/coordinators/brief-template";
 
 export type CoordinatorRoster = components["schemas"]["CoordinatorRosterResponse"];
 export type CoordinatorRosterEntry = components["schemas"]["CoordinatorRosterEntry"];
@@ -206,7 +210,14 @@ export function withCoordinatorsConfig(
 }
 
 export type SpawnCoordinatorForm = {
+	name: string;
 	scope: string;
+	outOfScope: string;
+	integrationBranch: string;
+	branchPrefix: string;
+	tasks: BriefTask[];
+	/** Set once the operator edits the brief by hand; fields stop rewriting it. */
+	briefEdited: boolean;
 	workerLimit: string;
 	hostSlots: { hostId: string; slots: string }[];
 	coordinatorAgent: "inherit" | "profile" | "custom";
@@ -220,7 +231,11 @@ export type SpawnCoordinatorForm = {
 
 export type SpawnCoordinatorErrors = Partial<
 	Record<"scope" | "workerLimit" | "hostSlots" | "brief" | "coordinatorAgent", CoordinatorsFormErrorKey | SpawnFormErrorKey>
-> & { workerAgent?: CoordinatorsFormErrorKey };
+> & {
+	workerAgent?: CoordinatorsFormErrorKey;
+	/** The placeholder named by the brief error, for interpolation. */
+	placeholder?: string;
+};
 
 export type SpawnFormErrorKey =
 	| "coordinators.start.errors.scopeRequired"
@@ -231,6 +246,7 @@ export type SpawnFormErrorKey =
 	| "coordinators.start.errors.hostSlotDuplicate"
 	| "coordinators.start.errors.hostNotAllowed"
 	| "coordinators.start.errors.briefRequired"
+	| "coordinators.start.errors.briefPlaceholder"
 	| "coordinators.start.errors.customAgentRequired";
 
 /** Validates the start dialog against the project's effective limits. */
@@ -276,7 +292,12 @@ export function validateSpawnCoordinator(
 		total += slots;
 	}
 	if (!errors.workerLimit && total > workerLimit) errors.hostSlots = "coordinators.start.errors.hostSlotsTotal";
+	const placeholder = firstUnfilledPlaceholder(form.brief);
 	if (form.brief.trim() === "") errors.brief = "coordinators.start.errors.briefRequired";
+	else if (placeholder) {
+		errors.brief = "coordinators.start.errors.briefPlaceholder";
+		errors.placeholder = placeholder;
+	}
 	if (form.coordinatorAgent === "custom" && form.customHarness.trim() === "") {
 		errors.coordinatorAgent = "coordinators.start.errors.customAgentRequired";
 	}

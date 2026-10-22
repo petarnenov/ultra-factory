@@ -35,24 +35,43 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { AgentSelectionField } from "./AgentSelectionField";
-import { COORDINATOR_BRIEF_TEMPLATE } from "./brief-template";
+import {
+	ACCEPTANCE_MARKER,
+	type BriefTask,
+	COORDINATOR_BRIEF_TEMPLATE,
+	defaultBranchPrefix,
+	renderBrief,
+} from "./brief-template";
 
 type CoordinatorAgentMode = SpawnCoordinatorForm["coordinatorAgent"];
 
 const emptySelection = (): SelectionForm => ({ mode: "inherit", profileId: "", profileIds: [] });
 
-const initialForm = (): SpawnCoordinatorForm => ({
-	scope: "",
-	workerLimit: "",
-	hostSlots: [{ hostId: "", slots: "1" }],
-	coordinatorAgent: "inherit",
-	coordinatorProfileId: "",
-	customHarness: "",
-	customModel: "",
-	customEffort: "",
-	workerAgent: emptySelection(),
-	brief: COORDINATOR_BRIEF_TEMPLATE,
-});
+const emptyTask = (): BriefTask => ({ taskId: "", title: "", acceptance: "", files: "" });
+
+/** Regenerates the brief from the fields unless edited by hand. */
+const withRenderedBrief = (form: SpawnCoordinatorForm): SpawnCoordinatorForm =>
+	form.briefEdited ? form : { ...form, brief: renderBrief(form) };
+
+const initialForm = (integrationBranch: string): SpawnCoordinatorForm =>
+	withRenderedBrief({
+		name: "",
+		scope: "",
+		outOfScope: "",
+		integrationBranch,
+		branchPrefix: "",
+		tasks: [emptyTask()],
+		briefEdited: false,
+		workerLimit: "",
+		hostSlots: [{ hostId: "", slots: "1" }],
+		coordinatorAgent: "inherit",
+		coordinatorProfileId: "",
+		customHarness: "",
+		customModel: "",
+		customEffort: "",
+		workerAgent: emptySelection(),
+		brief: "",
+	});
 
 /** Starts a coordinator for the live root; the start is audited. */
 export function StartCoordinatorDialog({
@@ -73,7 +92,7 @@ export function StartCoordinatorDialog({
 	onStarted: () => void;
 }) {
 	const { t } = useTranslation();
-	const [form, setForm] = useState<SpawnCoordinatorForm>(initialForm);
+	const [form, setForm] = useState<SpawnCoordinatorForm>(() => initialForm(config.defaultBranch ?? ""));
 	const [submitting, setSubmitting] = useState(false);
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [started, setStarted] = useState<{ id: string } | null>(null);
@@ -87,7 +106,10 @@ export function StartCoordinatorDialog({
 	const errors: SpawnCoordinatorErrors = validateSpawnCoordinator(form, limits);
 	const hasErrors = Object.keys(errors).length > 0;
 	const hosts = useRemoteHosts().hosts.filter((host) => allowedHosts.length === 0 || allowedHosts.includes(host.hostId));
-	const update = (patch: Partial<SpawnCoordinatorForm>) => setForm((current) => ({ ...current, ...patch }));
+	const update = (patch: Partial<SpawnCoordinatorForm>) =>
+		setForm((current) => withRenderedBrief({ ...current, ...patch }));
+	const setTask = (index: number, patch: Partial<BriefTask>) =>
+		update({ tasks: form.tasks.map((task, position) => (position === index ? { ...task, ...patch } : task)) });
 	const setSlot = (index: number, patch: Partial<SpawnCoordinatorForm["hostSlots"][number]>) =>
 		update({ hostSlots: form.hostSlots.map((row, position) => (position === index ? { ...row, ...patch } : row)) });
 
@@ -151,6 +173,31 @@ export function StartCoordinatorDialog({
 									value={form.scope}
 								/>
 								{errors.scope ? <p className="text-sm text-error">{t(errors.scope)}</p> : null}
+							</div>
+
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="start-name">{t("coordinators.start.name")}</Label>
+								<Input id="start-name" onChange={(event) => update({ name: event.target.value })} value={form.name} />
+							</div>
+
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="start-out-of-scope">{t("coordinators.start.outOfScope")}</Label>
+								<Input id="start-out-of-scope" onChange={(event) => update({ outOfScope: event.target.value })} value={form.outOfScope} />
+							</div>
+
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="start-integration">{t("coordinators.start.integrationBranch")}</Label>
+								<Input id="start-integration" onChange={(event) => update({ integrationBranch: event.target.value })} value={form.integrationBranch} />
+							</div>
+
+							<div className="flex flex-col gap-1.5">
+								<Label htmlFor="start-prefix">{t("coordinators.start.branchPrefix")}</Label>
+								<Input
+									id="start-prefix"
+									onChange={(event) => update({ branchPrefix: event.target.value })}
+									placeholder={defaultBranchPrefix(form.scope)}
+									value={form.branchPrefix}
+								/>
 							</div>
 
 							<div className="flex flex-col gap-1.5">
@@ -267,16 +314,50 @@ export function StartCoordinatorDialog({
 								value={form.workerAgent}
 							/>
 
+							<div className="flex flex-col gap-2">
+								<span className="text-sm font-medium">{t("coordinators.start.tasks")}</span>
+								{form.tasks.map((task, index) => (
+									<div className="grid grid-cols-2 gap-2 rounded-md border border-input p-2" key={index}>
+										<Input aria-label={t("coordinators.start.taskId")} onChange={(event) => setTask(index, { taskId: event.target.value })} placeholder={t("coordinators.start.taskId")} value={task.taskId} />
+										<Input aria-label={t("coordinators.start.taskTitle")} onChange={(event) => setTask(index, { title: event.target.value })} placeholder={t("coordinators.start.taskTitle")} value={task.title} />
+										<Input aria-label={t("coordinators.start.taskAcceptance")} className="col-span-2" onChange={(event) => setTask(index, { acceptance: event.target.value })} placeholder={ACCEPTANCE_MARKER} value={task.acceptance} />
+										<Input aria-label={t("coordinators.start.taskFiles")} className="col-span-2" onChange={(event) => setTask(index, { files: event.target.value })} placeholder={t("coordinators.start.taskFiles")} value={task.files} />
+										{form.tasks.length > 1 ? (
+											<Button
+												className="col-span-2 justify-self-end"
+												onClick={() => update({ tasks: form.tasks.filter((_, position) => position !== index) })}
+												size="sm"
+												type="button"
+												variant="ghost"
+											>
+												{t("coordinators.start.removeTask")}
+											</Button>
+										) : null}
+									</div>
+								))}
+								<div>
+									<Button onClick={() => update({ tasks: [...form.tasks, emptyTask()] })} size="sm" type="button" variant="outline">
+										{t("coordinators.start.addTask")}
+									</Button>
+								</div>
+							</div>
+
 							<div className="flex flex-col gap-1.5">
-								<Label htmlFor="start-brief">{t("coordinators.start.brief")}</Label>
+								<div className="flex items-center justify-between gap-2">
+									<Label htmlFor="start-brief">{t("coordinators.start.brief")}</Label>
+									<Button onClick={() => update({ brief: COORDINATOR_BRIEF_TEMPLATE, briefEdited: true })} size="sm" type="button" variant="ghost">
+										{t("coordinators.start.resetBrief")}
+									</Button>
+								</div>
+								{form.briefEdited ? <p className="text-xs text-settings-muted">{t("coordinators.start.briefEdited")}</p> : null}
 								<textarea
 									aria-invalid={errors.brief ? true : undefined}
 									className="min-h-48 w-full rounded-md border border-input bg-transparent p-2 font-mono text-xs"
 									id="start-brief"
-									onChange={(event) => update({ brief: event.target.value })}
+									onChange={(event) => update({ brief: event.target.value, briefEdited: true })}
 									value={form.brief}
 								/>
-								{errors.brief ? <p className="text-sm text-error">{t(errors.brief)}</p> : null}
+								{errors.brief ? <p className="text-sm text-error">{t(errors.brief, { placeholder: errors.placeholder })}</p> : null}
 							</div>
 
 							{submitError ? <p className="text-sm text-error" role="alert">{submitError}</p> : null}
