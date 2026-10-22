@@ -11,6 +11,7 @@ import (
 
 type knowledgeGraphDeps struct {
 	Getenv   func(string) string
+	DataDir  string
 	Sessions knowledgegraph.Sessions
 	Tasks    knowledgegraph.TaskReports
 	HostID   string
@@ -36,7 +37,7 @@ func (k *runningKnowledgeGraph) Stop() {
 // startKnowledgeGraph starts the recorder when a graph is configured (ADR
 // 0012). Off or misconfigured, both results are nil and routes answer 501.
 func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKnowledgeGraph, controllers.KnowledgeService) {
-	cfg, err := knowledgegraph.Load(d.Getenv)
+	cfg, err := knowledgegraph.Load(d.Getenv, d.DataDir)
 	if err != nil {
 		d.Log.Warn("knowledge graph: invalid configuration, disabled", "err", err)
 		return nil, nil

@@ -30,18 +30,19 @@ const (
 	defaultUser     = "neo4j"
 	defaultDatabase = "neo4j"
 	defaultTimeout  = 3 * time.Second
-	// DefaultConfigFile is relative to the user's home directory.
-	DefaultConfigFile = ".ao/knowledge-graph.json"
+	// DefaultConfigFile sits next to the daemon's data dir, so ~/.ao/data
+	// reads ~/.ao/knowledge-graph.json and a scratch data dir reads none.
+	DefaultConfigFile = "knowledge-graph.json"
 )
 
-// Load reads ~/.ao/knowledge-graph.json (or AO_KNOWLEDGE_GRAPH_CONFIG), then
-// overlays AO_KNOWLEDGE_GRAPH_* variables. A missing file is not an error.
-func Load(getenv func(string) string) (Config, error) {
+// Load reads DefaultConfigFile beside dataDir (or AO_KNOWLEDGE_GRAPH_CONFIG),
+// then overlays AO_KNOWLEDGE_GRAPH_*. A missing file is not an error.
+func Load(getenv func(string) string, dataDir string) (Config, error) {
 	var cfg Config
 	path := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_CONFIG"))
 	if path == "" {
-		if home := getenv("HOME"); home != "" {
-			path = filepath.Join(home, DefaultConfigFile)
+		if dataDir != "" {
+			path = filepath.Join(filepath.Dir(filepath.Clean(dataDir)), DefaultConfigFile)
 		}
 	}
 	if path != "" {

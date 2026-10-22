@@ -28,6 +28,11 @@ with mode 600 and restart the daemon:
 {"url": "http://100.121.193.125:7474", "user": "neo4j", "password": "<KG_PASSWORD from .env>", "database": "neo4j"}
 ```
 
+The daemon reads `knowledge-graph.json` next to its data dir, so the default
+`~/.ao/data` reads `~/.ao/knowledge-graph.json`, an isolated dev daemon
+(`~/.ao/dev/data`) reads `~/.ao/dev/knowledge-graph.json`, and test daemons
+with scratch data dirs read none and never write to the shared graph.
+
 `AO_KNOWLEDGE_GRAPH_URL`, `_USER`, `_PASSWORD`, `_DATABASE`, `_TIMEOUT` and
 `_CONFIG` (another file path) override the file. The daemon log shows
 `knowledge graph: enabled` at boot; a file readable by group or others is
