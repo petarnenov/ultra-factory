@@ -192,7 +192,10 @@ type RemoteWorkerLinkResponse struct {
 	RemoteSessionID string `json:"remoteSessionId"`
 	RemoteProjectID string `json:"remoteProjectId"`
 	ProjectID       string `json:"projectId"`
-	DisplayName     string `json:"displayName,omitempty"`
+	// LocalProjectID is the local project the link belongs to. It repeats
+	// projectId under the name the link identity uses.
+	LocalProjectID string `json:"localProjectId"`
+	DisplayName    string `json:"displayName,omitempty"`
 	// OwnerSessionID is the local coordinator owner. Null means root-owned.
 	OwnerSessionID *string `json:"ownerSessionId"`
 	// Source is "spawn" for a link written by `ao spawn --host` and

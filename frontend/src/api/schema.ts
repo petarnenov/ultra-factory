@@ -6080,6 +6080,7 @@ export interface components {
             displayName?: string;
             hostId: string;
             hostLabel: string;
+            localProjectId: string;
             ownerSessionId: null | string;
             projectId: string;
             pullBlocked?: string;

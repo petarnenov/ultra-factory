@@ -17786,6 +17786,8 @@ components:
           type: string
         hostLabel:
           type: string
+        localProjectId:
+          type: string
         ownerSessionId:
           type:
           - "null"
@@ -17806,6 +17808,7 @@ components:
       - remoteSessionId
       - remoteProjectId
       - projectId
+      - localProjectId
       - ownerSessionId
       - source
       - createdAt
