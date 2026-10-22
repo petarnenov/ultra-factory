@@ -23,6 +23,9 @@ func TestRemoteHostCLIUsesLocalControlAPI(t *testing.T) {
 			body, _ := io.ReadAll(r.Body)
 			requests = append(requests, "body="+strings.TrimSpace(string(body)))
 			_, _ = io.WriteString(w, `{"enabled":true,"tailnetOnly":true,"hostId":"host-a","endpoints":[{"kind":"tailscale","host":"100.121.193.125","port":3011,"secure":false}],"password":""}`)
+		case "/api/v1/mobile/enable-also-tailnet":
+			enabled = true
+			_, _ = io.WriteString(w, `{"enabled":true,"tailnetListenerEnabled":true,"tailnetListenerPort":3011,"hostId":"host-a","endpoints":[{"kind":"lan","host":"192.168.1.10","port":3011},{"kind":"tailscale","host":"100.121.193.125","port":3011}]}`)
 		case "/api/v1/mobile/enable-lan-only":
 			enabled = true
 			_, _ = io.WriteString(w, `{"enabled":true,"hostId":"host-a","endpoints":[{"kind":"lan","host":"192.168.1.10","port":3011,"secure":false}],"password":"pairing-secret"}`)
@@ -51,6 +54,7 @@ func TestRemoteHostCLIUsesLocalControlAPI(t *testing.T) {
 	}{
 		{"enable", []string{"enable"}, []string{"POST /api/v1/mobile/enable-tailnet", `body={"passwordFallback":false}`}, []string{"enabled on Tailscale", "host-a", "http://100.121.193.125:3011", "Tailscale identity"}, "Password"},
 		{"enable with password fallback", []string{"enable", "--allow-password"}, []string{"POST /api/v1/mobile/enable-tailnet", `body={"passwordFallback":true}`}, []string{"enabled on Tailscale"}, ""},
+		{"also enable tailnet", []string{"enable", "--also-tailnet"}, []string{"POST /api/v1/mobile/enable-also-tailnet"}, []string{"Additional Tailscale listener enabled", "http://100.121.193.125:3011", "existing LAN/mobile listener remains enabled"}, "Password"},
 		{"enable lan", []string{"enable", "--lan"}, []string{"POST /api/v1/mobile/enable-lan-only"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, "Tailscale identity"},
 		{"status", []string{"status"}, []string{"GET /api/v1/mobile/status"}, []string{"host-a", "http://192.168.1.10:3011", "pairing-secret"}, ""},
 		{"disable", []string{"disable"}, []string{"POST /api/v1/mobile/disable"}, []string{"disabled"}, "pairing-secret"},

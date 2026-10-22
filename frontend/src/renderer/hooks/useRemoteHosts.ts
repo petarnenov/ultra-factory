@@ -27,14 +27,14 @@ export type RemoteHost = {
 	url: string;
 	status: "connecting" | "connected" | "offline";
 	failureReason?: "unauthorized" | "incompatible";
+	allowInsecureHTTP?: boolean;
 	// tailscale hosts were found on the tailnet; online is their discovery state.
 	tailscale?: boolean;
 	online?: boolean;
 };
 
-// A periodic refresh is "soft": it re-reads discovery but does not retry a
-// saved host that rejected its password, so a stale credential never hammers
-// the host's lockout. Every other refresh retries everything.
+// Soft refresh rereads discovery but skips saved hosts with rejected passwords.
+// This avoids stale credentials repeatedly hitting host lockouts.
 type RefreshOptions = { soft?: boolean };
 
 export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: RefreshOptions) => Promise<void> } {

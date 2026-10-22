@@ -167,7 +167,7 @@ func selectRemoteEntry(entries []remoteEntry, selector string) (remoteEntry, err
 	if len(entries) == 0 {
 		return remoteEntry{}, usageError{fmt.Errorf("--host %q: no remote hosts; %s", selector, noHostsHint)}
 	}
-	return remoteEntry{}, usageError{fmt.Errorf("--host %q matches no saved host or discovered remote host (known: %s)", selector, remoteLabels(entries))}
+	return remoteEntry{}, usageError{fmt.Errorf("--host %q matches no remote host (saved or discovered; known: %s)", selector, remoteLabels(entries))}
 }
 
 func remoteLabels(entries []remoteEntry) string {

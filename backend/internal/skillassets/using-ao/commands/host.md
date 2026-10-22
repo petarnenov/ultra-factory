@@ -10,7 +10,7 @@ local sessions.
 Hosts come from two places:
 
 - **Tailscale (automatic).** Every AO daemon on the user's Tailscale network
-  that has remote access on (`ao remote-host enable`) is found by this
+  that has its Tailscale listener enabled is found by this
   machine's daemon, with no AO Cloud account, password, or pairing. Its URL is
   always its Tailscale address (`http://100.x.y.z:3011`). The host admits this
   machine on its Tailscale identity, checked through `tailscaled`: by default
@@ -48,6 +48,14 @@ Passwords are never printed. A Tailscale host never receives one.
 Hosts bind the well-known tailnet port 3011 (`AO_TAILNET_PORT`). A host that
 had to bind another port is found only if that port is listed in
 `AO_TAILNET_PROBE_PORTS` on the discovering machine.
+
+Legacy hosts whose Connect Mobile listener uses a nondefault port must opt in
+once with `ao remote-host enable --also-tailnet`. This adds the identity-only
+listener on the discovery port (default `3011`) and preserves the existing
+mobile/LAN listener. If the listener already uses port `3011`, AO reuses it
+and requires Tailscale identity for tailnet requests while LAN clients retain
+password access. It starts only after that explicit command and fails if the
+port or Tailscale address is unavailable.
 
 ## Commands that accept `--host`
 

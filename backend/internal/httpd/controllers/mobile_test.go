@@ -37,6 +37,7 @@ func (f *fakeBridge) Regenerate() (MobileStatusResponse, error) {
 	return r, nil
 }
 func (f *fakeBridge) EnableTailnet(bool) (MobileStatusResponse, error) { return f.Enable() }
+func (f *fakeBridge) EnableAlsoTailnet() (MobileStatusResponse, error) { return f.Enable() }
 func (f *fakeBridge) SetKeepAwake(on bool) (MobileStatusResponse, error) {
 	r := f.Status()
 	r.KeepAwake.Enabled = on
@@ -50,11 +51,12 @@ func (f *fakeBridge) SetSecurePairing(on bool) (MobileStatusResponse, error) {
 
 // fakeLAN is a minimal LANController for exercising BridgeService directly.
 type fakeLAN struct {
-	running     bool
-	hash        string
-	accountHash string
-	stopCalls   int
-	bindHost    string
+	running      bool
+	hash         string
+	accountHash  string
+	stopCalls    int
+	bindHost     string
+	identityOnly bool
 }
 
 func (f *fakeLAN) Start(port int) (int, error) {
@@ -80,10 +82,12 @@ func (f *fakeLAN) BoundPort() int {
 	}
 	return 3011
 }
-func (f *fakeLAN) SetPasswordHash(h string)     { f.hash = h }
-func (f *fakeLAN) PasswordHash() string         { return f.hash }
-func (f *fakeLAN) SetAccountTokenHash(h string) { f.accountHash = h }
-func (f *fakeLAN) AccountTokenHash() string     { return f.accountHash }
+func (f *fakeLAN) BoundHost() string              { return f.bindHost }
+func (f *fakeLAN) SetTailnetIdentityOnly(on bool) { f.identityOnly = on }
+func (f *fakeLAN) SetPasswordHash(h string)       { f.hash = h }
+func (f *fakeLAN) PasswordHash() string           { return f.hash }
+func (f *fakeLAN) SetAccountTokenHash(h string)   { f.accountHash = h }
+func (f *fakeLAN) AccountTokenHash() string       { return f.accountHash }
 
 func TestIssueAccountTokenRequiresPairingPasswordAndPersistsHash(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mobile", "config.json")

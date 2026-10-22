@@ -23,8 +23,9 @@ type authState struct {
 	hashes atomic.Pointer[authHashes]
 	// tailnetOnly is set while the listener is bound to the Tailscale address;
 	// the password then works only with passwordFallback, the explicit opt-in.
-	tailnetOnly      atomic.Bool
-	passwordFallback atomic.Bool
+	tailnetOnly         atomic.Bool
+	passwordFallback    atomic.Bool
+	identityOnlyTailnet atomic.Bool
 }
 
 // passwordAllowed reports whether a connection password may authenticate a
@@ -351,6 +352,11 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 					"too many failed attempts; try again shortly", nil)
 				return
 			}
+			if remotehost.IsTailnetHost(remoteSrc) && tailnetAuth == nil && state.identityOnlyTailnet.Load() {
+				envelope.WriteAPIError(w, r, http.StatusForbidden, "forbidden", "TAILSCALE_UNAVAILABLE",
+					"this listener requires a Tailscale identity check", nil)
+				return
+			}
 			if tailnetAuth != nil && remotehost.IsTailnetHost(remoteSrc) {
 				identity, err := tailnetAuth.Authorize(r.Context(), remoteSrc)
 				if err == nil {
@@ -359,7 +365,7 @@ func authMiddleware(state *authState, lock *lockout, connected *mobileConnectRep
 					next.ServeHTTP(w, r)
 					return
 				}
-				if !state.passwordAllowed() {
+				if !state.passwordAllowed() || state.identityOnlyTailnet.Load() {
 					log.Warn("remote-host auth: tailnet caller rejected", "peer", remoteSrc, "node", identity.NodeName, "err", err)
 					writeTailnetDenied(w, r, err)
 					return

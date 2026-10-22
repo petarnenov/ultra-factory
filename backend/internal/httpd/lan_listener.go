@@ -252,9 +252,26 @@ func (m *LANManager) StartTailnet(port int, host string) (int, error) {
 	return m.start(port, host)
 }
 
+// StartTailnetFixed binds a tailnet listener without choosing an ephemeral
+// port when the requested port is unavailable.
+func (m *LANManager) StartTailnetFixed(port int, host string) (int, error) {
+	if !remotehost.IsTailnetHost(host) {
+		return 0, fmt.Errorf("bind tailnet listener: %q is not a Tailscale address", host)
+	}
+	if m.tailnetAuth == nil {
+		return 0, errors.New("bind tailnet listener: no Tailscale authorizer is configured")
+	}
+	return m.startFixed(port, host)
+}
+
 // SetPasswordFallback lets the connection password authenticate callers on a
 // tailnet-only listener. Off by default; LAN and loopback binds ignore it.
 func (m *LANManager) SetPasswordFallback(enabled bool) { m.state.passwordFallback.Store(enabled) }
+
+// SetTailnetIdentityOnly requires WhoIs for tailnet source addresses.
+func (m *LANManager) SetTailnetIdentityOnly(enabled bool) {
+	m.state.identityOnlyTailnet.Store(enabled)
+}
 
 // TailnetOnly reports whether the listener is bound to the Tailscale address.
 func (m *LANManager) TailnetOnly() bool {
@@ -263,7 +280,22 @@ func (m *LANManager) TailnetOnly() bool {
 	return m.srv != nil && remotehost.IsTailnetHost(m.bindHost)
 }
 
+// BoundHost reports the host address used by the active listener.
+func (m *LANManager) BoundHost() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bindHost
+}
+
 func (m *LANManager) start(port int, host string) (int, error) {
+	return m.startOn(port, host, true)
+}
+
+func (m *LANManager) startFixed(port int, host string) (int, error) {
+	return m.startOn(port, host, false)
+}
+
+func (m *LANManager) startOn(port int, host string, allowEphemeral bool) (int, error) {
 	m.transitionMu.Lock()
 	defer m.transitionMu.Unlock()
 	m.mu.Lock()
@@ -271,6 +303,9 @@ func (m *LANManager) start(port int, host string) (int, error) {
 		defer m.mu.Unlock()
 		if m.bindHost != host {
 			return 0, fmt.Errorf("authenticated listener already bound to %s; disable it before changing modes", m.bindHost)
+		}
+		if !allowEphemeral && m.bound != port {
+			return 0, fmt.Errorf("authenticated listener already bound to port %d; fixed port %d is required", m.bound, port)
 		}
 		return m.bound, nil // idempotent
 	}
@@ -280,7 +315,7 @@ func (m *LANManager) start(port int, host string) (int, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		if !isAddrInUse(err) {
+		if !allowEphemeral || !isAddrInUse(err) {
 			m.mu.Unlock()
 			return 0, fmt.Errorf("bind authenticated listener %s: %w", addr, err)
 		}

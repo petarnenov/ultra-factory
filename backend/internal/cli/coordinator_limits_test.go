@@ -53,7 +53,7 @@ func TestParseHostSlotsRejectsMalformedAndUnknownHosts(t *testing.T) {
 		{"zero slots", "Linux:0", "whole number of at least 1"},
 		{"text slots", "Linux:many", "whole number of at least 1"},
 		{"duplicate host", "Linux:1,Linux:2", "listed more than once"},
-		{"unknown host", "Mars:1", "matches no saved host"},
+		{"unknown host", "Mars:1", "matches no remote host"},
 		{"unpaired host", "Unpaired:1", "must be paired again"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -133,7 +133,7 @@ func TestCoordinatorSetLimitsUsageErrorsExitTwoWithoutContactingTheDaemon(t *tes
 		{"no flags", "demo-root", nil, "pass --max-workers, --hosts, or both"},
 		{"zero limit", "demo-root", []string{"--max-workers", "0"}, "--max-workers must be at least 1"},
 		{"no caller", "", []string{"--max-workers", "1"}, "requested-by session id is required"},
-		{"unknown host", "demo-root", []string{"--hosts", "Mars:1"}, "matches no saved host"},
+		{"unknown host", "demo-root", []string{"--hosts", "Mars:1"}, "matches no remote host"},
 		{"malformed hosts", "demo-root", []string{"--hosts", "Linux"}, "want <host>:<slots>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -257,7 +257,7 @@ func TestSpawnLimitFlagsAreUsageErrorsOutsideCoordinators(t *testing.T) {
 		{"max-workers on a worker", []string{"--max-workers", "2"}, "--max-workers and --hosts are supported with --kind coordinator only"},
 		{"hosts on an orchestrator", []string{"--kind", "orchestrator", "--hosts", "Linux:1"}, "--max-workers and --hosts are supported with --kind coordinator only"},
 		{"zero max-workers", []string{"--kind", "coordinator", "--scope", "auth", "--max-workers", "0"}, "--max-workers must be at least 1"},
-		{"unknown host", []string{"--kind", "coordinator", "--scope", "auth", "--hosts", "Mars:1"}, "matches no saved host"},
+		{"unknown host", []string{"--kind", "coordinator", "--scope", "auth", "--hosts", "Mars:1"}, "matches no remote host"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			args := append([]string{"spawn", "--project", "demo", "--name", "coord"}, tc.args...)

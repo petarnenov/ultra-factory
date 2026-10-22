@@ -2267,6 +2267,14 @@ func mobileOperations() []operation {
 			},
 		},
 		{
+			method: http.MethodPost, path: "/api/v1/mobile/enable-also-tailnet", id: "enableMobileAlsoTailnet", tag: "mobile",
+			summary: "Add the fixed-port Tailscale listener without changing the LAN/mobile listener",
+			resps: []respUnit{
+				{http.StatusOK, controllers.MobileStatusResponse{}},
+				{http.StatusConflict, envelope.APIError{}},
+			},
+		},
+		{
 			method: http.MethodPost, path: "/api/v1/mobile/enable-tunnel-only", id: "enableMobileTunnelOnly", tag: "mobile",
 			summary: "Enable the authenticated listener on loopback for a managed tunnel",
 			resps: []respUnit{

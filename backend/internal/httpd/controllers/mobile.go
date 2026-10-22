@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ type mobileBridge interface {
 	EnableLANOnly() (MobileStatusResponse, error)
 	EnableTunnelOnly() (MobileStatusResponse, error)
 	EnableTailnet(passwordFallback bool) (MobileStatusResponse, error)
+	EnableAlsoTailnet() (MobileStatusResponse, error)
 	Disable() error
 	Regenerate() (MobileStatusResponse, error)
 	StartRemoteAccess() (MobileStatusResponse, error)
@@ -143,6 +145,16 @@ func (c *MobileController) EnableTailnet(w http.ResponseWriter, r *http.Request)
 	envelope.WriteJSON(w, http.StatusOK, withWarning(res))
 }
 
+// EnableAlsoTailnet adds the fixed discovery listener without changing mobile.
+func (c *MobileController) EnableAlsoTailnet(w http.ResponseWriter, r *http.Request) {
+	res, err := c.Bridge.EnableAlsoTailnet()
+	if err != nil {
+		envelope.WriteAPIError(w, r, http.StatusConflict, "conflict", "MOBILE_ENABLE_ALSO_TAILNET", err.Error(), nil)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, withWarning(res))
+}
+
 // Disable turns the bridge off and returns the resulting status.
 func (c *MobileController) Disable(w http.ResponseWriter, r *http.Request) {
 	if err := c.Bridge.Disable(); err != nil {
@@ -229,6 +241,7 @@ type KeepAwakeController interface {
 // the LAN listener. Password plaintext exists only transiently in the response.
 type BridgeService struct {
 	LAN         LANController
+	TailnetLAN  LANController
 	ConfigPath  string
 	DefaultPort int
 	// PickLANHosts and PickTailscaleHosts resolve every advertised address.
@@ -321,28 +334,48 @@ func (b *BridgeService) Status() MobileStatusResponse {
 	enabled := st.Enabled && b.LAN.Running()
 	lan := b.lanHosts()
 	ts := b.tailscaleHosts()
+	tailscaleHost := ""
 	if st.LoopbackOnly {
 		lan, ts = nil, nil
 	}
+	tailscaleHost = first(ts)
 	if st.TailnetOnly {
 		lan = nil
 	}
+	tailnetRunning := b.alsoTailnetRunning(st)
+	separateTailnetRunning := tailnetRunning && b.TailnetLAN != nil && b.TailnetLAN.Running()
+	if separateTailnetRunning {
+		ts = nil
+		if listener, ok := b.TailnetLAN.(fixedTailnetLAN); ok {
+			tailscaleHost = listener.BoundHost()
+		}
+	}
 	res := MobileStatusResponse{
-		Enabled:          enabled,
-		LoopbackOnly:     st.LoopbackOnly,
-		TailnetOnly:      st.TailnetOnly,
-		PasswordFallback: st.TailnetOnly && st.PasswordFallback,
-		NoPublicTunnel:   st.NoPublicTunnel,
-		Host:             first(lan),
-		TailscaleHost:    first(ts),
-		Port:             b.LAN.BoundPort(),
-		Warning:          mobileUnencryptedWarning,
-		Endpoints: mobilebridge.Endpoints(mobilebridge.EndpointInputs{
+		Enabled:                enabled,
+		LoopbackOnly:           st.LoopbackOnly,
+		TailnetOnly:            st.TailnetOnly,
+		PasswordFallback:       st.TailnetOnly && st.PasswordFallback,
+		TailnetListenerEnabled: tailnetRunning,
+		TailnetListenerPort: func() int {
+			if separateTailnetRunning {
+				return b.TailnetLAN.BoundPort()
+			}
+			if tailnetRunning {
+				return b.LAN.BoundPort()
+			}
+			return 0
+		}(),
+		NoPublicTunnel: st.NoPublicTunnel,
+		Host:           first(lan),
+		TailscaleHost:  tailscaleHost,
+		Port:           b.LAN.BoundPort(),
+		Warning:        mobileUnencryptedWarning,
+		Endpoints: append(mobilebridge.Endpoints(mobilebridge.EndpointInputs{
 			LANHosts:       lan,
 			TailscaleHosts: ts,
 			Port:           b.LAN.BoundPort(),
 			Tunnel:         b.tunnelEndpoint(),
-		}),
+		}), b.additionalTailnetEndpoints(separateTailnetRunning)...),
 		Tunnel: b.tunnelStatus(),
 		HostID: b.HostID,
 	}
@@ -372,12 +405,44 @@ func (b *BridgeService) AdvertisedEndpoints() []mobilebridge.Endpoint {
 	if st.TailnetOnly {
 		lan = nil
 	}
-	return mobilebridge.Endpoints(mobilebridge.EndpointInputs{
+	tailnetRunning := b.alsoTailnetRunning(st)
+	separateTailnetRunning := tailnetRunning && b.TailnetLAN != nil && b.TailnetLAN.Running()
+	if separateTailnetRunning {
+		ts = nil
+	}
+	return append(mobilebridge.Endpoints(mobilebridge.EndpointInputs{
 		LANHosts:       lan,
 		TailscaleHosts: ts,
 		Port:           b.LAN.BoundPort(),
 		Tunnel:         b.tunnelEndpoint(),
-	})
+	}), b.additionalTailnetEndpoints(separateTailnetRunning)...)
+}
+
+func (b *BridgeService) alsoTailnetRunning(st mobilebridge.State) bool {
+	if !st.AlsoTailnet {
+		return false
+	}
+	if b.TailnetLAN != nil && b.TailnetLAN.Running() {
+		return true
+	}
+	bound, ok := b.LAN.(interface{ BoundHost() string })
+	port := b.TailnetPort
+	if port <= 0 {
+		port = mobilebridge.DefaultPort
+	}
+	return ok && b.LAN.Running() && bound.BoundHost() == "0.0.0.0" && b.LAN.BoundPort() == port
+}
+
+func (b *BridgeService) additionalTailnetEndpoints(running bool) []mobilebridge.Endpoint {
+	if !running {
+		return nil
+	}
+	port := b.TailnetLAN.BoundPort()
+	listener, ok := b.TailnetLAN.(fixedTailnetLAN)
+	if !ok || listener.BoundHost() == "" {
+		return nil
+	}
+	return []mobilebridge.Endpoint{{Kind: mobilebridge.KindTailscale, Host: listener.BoundHost(), Port: port}}
 }
 
 // tunnel reads the current connector without resolving one.
@@ -651,6 +716,11 @@ type tailnetLAN interface {
 	SetPasswordFallback(enabled bool)
 }
 
+type fixedTailnetLAN interface {
+	StartTailnetFixed(port int, host string) (int, error)
+	BoundHost() string
+}
+
 // tailnetStarter returns the Start function for a tailnet-only bind.
 func (b *BridgeService) tailnetStarter() (func(int) (int, error), error) {
 	lan, ok := b.LAN.(tailnetLAN)
@@ -734,7 +804,7 @@ func (b *BridgeService) enableWithPasswordLocked(pw string, noPublicTunnel bool,
 		accountToken = ""
 		accountTokenOwner = ""
 	}
-	nextSt := mobilebridge.State{Enabled: true, Password: pw, LastPort: port, RetiredPasswordHash: retired, AccountTokenHash: accountTokenHash, AccountToken: accountToken, AccountTokenOwner: accountTokenOwner, SecurePairing: prevSt.SecurePairing, ServeCleanupPending: prevSt.ServeCleanupPending, KeepAwake: prevSt.KeepAwake, NoPublicTunnel: noPublicTunnel, LoopbackOnly: loopbackOnly, TailnetOnly: mode.tailnetOnly, PasswordFallback: mode.tailnetOnly && mode.passwordFallback}
+	nextSt := mobilebridge.State{Enabled: true, Password: pw, LastPort: port, RetiredPasswordHash: retired, AccountTokenHash: accountTokenHash, AccountToken: accountToken, AccountTokenOwner: accountTokenOwner, SecurePairing: prevSt.SecurePairing, ServeCleanupPending: prevSt.ServeCleanupPending, KeepAwake: prevSt.KeepAwake, NoPublicTunnel: noPublicTunnel, LoopbackOnly: loopbackOnly, TailnetOnly: mode.tailnetOnly, PasswordFallback: mode.tailnetOnly && mode.passwordFallback, AlsoTailnet: prevSt.AlsoTailnet}
 	if err := mobilebridge.Save(b.ConfigPath, nextSt); err != nil {
 		// Persist failed after the listener came up. A running listener still
 		// serves the old hash; a fresh enable must tear the listener back down.
@@ -789,16 +859,8 @@ func (b *BridgeService) startConnectorsLocked(port int, st mobilebridge.State) {
 	}
 }
 
-// RestoreOnBoot re-arms the LAN listener from persisted state across a daemon
-// restart, reusing the existing password (no rotation — an already-paired
-// phone keeps working) and re-applying the secure-pairing proxy against the
-// port Start actually bound, never the persisted LastPort. That distinction is
-// the entire point of this method: Start falls back to an ephemeral port when
-// LastPort is taken (e.g. by another AO instance), and a `tailscale serve`
-// config pinned to a stale port would proxy the tailnet at this machine's
-// hostname to whatever now holds that port. A failure to apply is recorded in
-// serveErr, never returned — the caller (restoreMobileOnBoot) treats this as
-// best-effort and must never block daemon boot on it.
+// RestoreOnBoot restores listener state from disk without rotating passwords.
+// It reapplies the tunnel to the current port and restores the extra listener.
 func (b *BridgeService) RestoreOnBoot(state mobilebridge.State) error {
 	b.transitionMu.Lock()
 	defer b.transitionMu.Unlock()
@@ -838,6 +900,38 @@ func (b *BridgeService) RestoreOnBoot(state mobilebridge.State) error {
 		return err
 	}
 	b.startConnectorsLocked(port, state)
+	if state.AlsoTailnet {
+		b.setMainTailnetIdentityOnly(true)
+		if err := b.startAdditionalTailnetLocked(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *BridgeService) startAdditionalTailnetLocked() error {
+	port := b.TailnetPort
+	if port <= 0 {
+		port = mobilebridge.DefaultPort
+	}
+	mainBound, ok := b.LAN.(interface{ BoundHost() string })
+	if ok && mainBound.BoundHost() == "0.0.0.0" && b.LAN.BoundPort() == port {
+		return nil
+	}
+	if b.TailnetLAN == nil {
+		return errors.New("additional Tailscale listener is configured but unavailable")
+	}
+	starter, ok := b.TailnetLAN.(fixedTailnetLAN)
+	if !ok {
+		return errors.New("additional Tailscale listener cannot bind a fixed discovery port")
+	}
+	host := first(b.tailscaleHosts())
+	if host == "" {
+		return errors.New("Tailscale is unavailable for the additional listener")
+	}
+	if _, err := starter.StartTailnetFixed(port, host); err != nil {
+		return fmt.Errorf("restore additional Tailscale listener on %s:%d: %w", host, port, err)
+	}
 	return nil
 }
 
@@ -952,6 +1046,70 @@ func (b *BridgeService) EnableTailnet(passwordFallback bool) (MobileStatusRespon
 		return MobileStatusResponse{}, err
 	}
 	return b.enableWithPasswordLocked(pw, true, bindMode{tailnetOnly: true, passwordFallback: passwordFallback})
+}
+
+// EnableAlsoTailnet adds an identity-authenticated listener while preserving
+// the existing password-authenticated LAN listener.
+func (b *BridgeService) EnableAlsoTailnet() (MobileStatusResponse, error) {
+	b.transitionMu.Lock()
+	defer b.transitionMu.Unlock()
+	st, err := mobilebridge.Load(b.ConfigPath)
+	if err != nil {
+		return MobileStatusResponse{}, err
+	}
+	if !st.Enabled || !b.LAN.Running() || st.TailnetOnly || st.LoopbackOnly {
+		return MobileStatusResponse{}, errors.New("--also-tailnet requires the existing LAN/mobile listener to be enabled")
+	}
+	if st.AlsoTailnet && b.alsoTailnetRunning(st) {
+		b.setMainTailnetIdentityOnly(true)
+		return b.Status(), nil
+	}
+	host := first(b.tailscaleHosts())
+	if host == "" {
+		return MobileStatusResponse{}, errors.New("Tailscale is unavailable; start Tailscale before enabling --also-tailnet")
+	}
+	port := b.TailnetPort
+	if port <= 0 {
+		port = mobilebridge.DefaultPort
+	}
+	mainBound, ok := b.LAN.(interface{ BoundHost() string })
+	reuseMain := ok && mainBound.BoundHost() == "0.0.0.0" && b.LAN.BoundPort() == port
+	if !reuseMain {
+		if b.TailnetLAN == nil {
+			return MobileStatusResponse{}, errors.New("this daemon cannot start an additional Tailscale listener")
+		}
+		starter, ok := b.TailnetLAN.(fixedTailnetLAN)
+		if !ok {
+			return MobileStatusResponse{}, errors.New("this daemon cannot bind the fixed Tailscale discovery port")
+		}
+		b.setMainTailnetIdentityOnly(true)
+		if _, err := starter.StartTailnetFixed(port, host); err != nil {
+			b.setMainTailnetIdentityOnly(false)
+			return MobileStatusResponse{}, fmt.Errorf("start additional Tailscale listener on %s:%d: %w", host, port, err)
+		}
+	} else {
+		// A wildcard mobile listener on the discovery port already serves the
+		// tailnet address; enforce WhoIs there without opening another socket.
+		b.setMainTailnetIdentityOnly(true)
+	}
+	st.AlsoTailnet = true
+	if err := mobilebridge.Save(b.ConfigPath, st); err != nil {
+		var stopErr error
+		if !reuseMain {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			stopErr = b.TailnetLAN.Stop(ctx)
+		}
+		b.setMainTailnetIdentityOnly(false)
+		return MobileStatusResponse{}, errors.Join(err, stopErr)
+	}
+	return b.Status(), nil
+}
+
+func (b *BridgeService) setMainTailnetIdentityOnly(enabled bool) {
+	if listener, ok := b.LAN.(interface{ SetTailnetIdentityOnly(bool) }); ok {
+		listener.SetTailnetIdentityOnly(enabled)
+	}
 }
 
 // EnableLANOnly opts into the existing authenticated listener without
@@ -1109,8 +1267,12 @@ func (b *BridgeService) Disable() error {
 	if b.KeepAwake != nil {
 		b.KeepAwake.Stop()
 	}
-	stopErr := b.LAN.Stop(ctx)
-	if stopErr != nil && b.LAN.Running() {
+	var tailnetStopErr error
+	if b.TailnetLAN != nil {
+		tailnetStopErr = b.TailnetLAN.Stop(ctx)
+	}
+	stopErr := errors.Join(tailnetStopErr, b.LAN.Stop(ctx))
+	if stopErr != nil && (b.LAN.Running() || (b.TailnetLAN != nil && b.TailnetLAN.Running())) {
 		return stopErr
 	}
 	// Forced cleanup can finish after the graceful-shutdown deadline. Persist
@@ -1125,7 +1287,12 @@ func (b *BridgeService) Disable() error {
 		st.ServeCleanupPending = b.clearServe() != nil
 	}
 	st.Enabled = false
-	return errors.Join(stopErr, mobilebridge.Save(b.ConfigPath, st))
+	st.AlsoTailnet = false
+	saveErr := mobilebridge.Save(b.ConfigPath, st)
+	if saveErr == nil {
+		b.setMainTailnetIdentityOnly(false)
+	}
+	return errors.Join(stopErr, saveErr)
 }
 
 // ShutdownTunnel stops the managed connector on the way out.

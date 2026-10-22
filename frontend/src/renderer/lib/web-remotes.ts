@@ -56,7 +56,7 @@ export function createWebRemotesBridge(apiBaseUrl: () => string): Remotes {
 	};
 
 	return {
-		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url })),
+		list: async () => (await listHosts()).map(({ id, label, url }) => ({ hostId: id, label, url, allowInsecureHTTP: false })),
 		// The hub has no tailnet of its own; its hosts are registered explicitly.
 		tailnet: async () => ({ available: false, hidden: [] }),
 		hide: unsupported,

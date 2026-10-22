@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import { useUiStore } from "../../stores/ui-store";
 
-const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string; tailscale?: boolean; online?: boolean }> }));
+const saved = vi.hoisted(() => ({ entries: [] as Array<{ hostId: string; label: string; url: string; tailscale?: boolean; online?: boolean; allowInsecureHTTP?: boolean }> }));
 const tailnet = vi.hoisted(() => ({ status: { available: true, hidden: [] } as { available: boolean; error?: string; hidden: Array<{ hostId: string; label: string; name: string; address: string; url: string; online: boolean }> } }));
 const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" | "unauthenticated" }));
 const remotes = vi.hoisted(() => ({

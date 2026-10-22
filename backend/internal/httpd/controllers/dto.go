@@ -2808,6 +2808,10 @@ type MobileStatusResponse struct {
 	TailnetOnly bool `json:"tailnetOnly"`
 	// PasswordFallback means a tailnet-only listener also accepts the password.
 	PasswordFallback bool `json:"passwordFallback"`
+	// TailnetListenerEnabled reports the explicit additional listener state.
+	TailnetListenerEnabled bool `json:"tailnetListenerEnabled"`
+	// TailnetListenerPort is the configured discovery port, defaulting to 3011.
+	TailnetListenerPort int `json:"tailnetListenerPort"`
 	// NoPublicTunnel means the user disabled the managed public connector.
 	NoPublicTunnel bool `json:"noPublicTunnel"`
 	// Endpoints is every way the phone can reach this daemon, in the client's

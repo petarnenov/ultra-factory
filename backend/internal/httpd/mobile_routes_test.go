@@ -34,6 +34,9 @@ func (fakeMobileBridge) EnableTunnelOnly() (controllers.MobileStatusResponse, er
 func (fakeMobileBridge) EnableTailnet(bool) (controllers.MobileStatusResponse, error) {
 	return controllers.MobileStatusResponse{}, nil
 }
+func (fakeMobileBridge) EnableAlsoTailnet() (controllers.MobileStatusResponse, error) {
+	return controllers.MobileStatusResponse{}, nil
+}
 
 func (fakeMobileBridge) Disable() error { return nil }
 

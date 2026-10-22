@@ -914,6 +914,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mobile/enable-also-tailnet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add the fixed-port Tailscale listener without changing the LAN/mobile listener */
+        post: operations["enableMobileAlsoTailnet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mobile/enable-lan-only": {
         parameters: {
             query?: never;
@@ -5948,6 +5965,8 @@ export interface components {
             passwordFallback: boolean;
             port: number;
             securePairing: components["schemas"]["ControllersSecurePairingStatus"];
+            tailnetListenerEnabled: boolean;
+            tailnetListenerPort: number;
             tailnetOnly: boolean;
             tailscaleHost: string;
             tunnel: components["schemas"]["MobileTunnelStatus"];
@@ -10723,6 +10742,35 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    enableMobileAlsoTailnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobileStatusResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

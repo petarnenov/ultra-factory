@@ -2409,6 +2409,26 @@ paths:
       summary: Enable the Connect Mobile LAN bridge and issue a fresh password
       tags:
       - mobile
+  /api/v1/mobile/enable-also-tailnet:
+    post:
+      operationId: enableMobileAlsoTailnet
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileStatusResponse'
+          description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+      summary: Add the fixed-port Tailscale listener without changing the LAN/mobile
+        listener
+      tags:
+      - mobile
   /api/v1/mobile/enable-lan-only:
     post:
       operationId: enableMobileLANOnly
@@ -17424,6 +17444,10 @@ components:
           type: integer
         securePairing:
           $ref: '#/components/schemas/ControllersSecurePairingStatus'
+        tailnetListenerEnabled:
+          type: boolean
+        tailnetListenerPort:
+          type: integer
         tailnetOnly:
           type: boolean
         tailscaleHost:
@@ -17437,6 +17461,8 @@ components:
       - loopbackOnly
       - tailnetOnly
       - passwordFallback
+      - tailnetListenerEnabled
+      - tailnetListenerPort
       - noPublicTunnel
       - endpoints
       - hostId

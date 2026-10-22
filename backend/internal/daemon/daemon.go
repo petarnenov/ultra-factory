@@ -1164,6 +1164,9 @@ func Run() error {
 		httpd.WithTrustedProxy(cfg.RemoteTrustedProxy), httpd.WithTailnetAuth(tailnetAuth))
 	bs.LAN = lan
 	bs.TailnetPort = cfg.TailnetPort
+	// The opt-in listener has independent identity-only auth state and lifecycle.
+	bs.TailnetLAN = httpd.NewMobileLAN(srv.Handler(), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink,
+		httpd.WithTailnetAuth(tailnetAuth))
 
 	// Restore Connect Mobile across a daemon restart: if the bridge was left
 	// enabled, re-arm the listener on its last port with the same password
@@ -1343,6 +1346,11 @@ func Run() error {
 	defer lanCancel()
 	if err := lan.Stop(lanStopCtx); err != nil {
 		log.Error("mobile LAN listener shutdown", "err", err)
+	}
+	if bs.TailnetLAN != nil {
+		if err := bs.TailnetLAN.Stop(lanStopCtx); err != nil {
+			log.Error("additional Tailscale listener shutdown", "err", err)
+		}
 	}
 	if err := cdcPipe.Stop(); err != nil {
 		log.Error("cdc pipeline shutdown", "err", err)

@@ -28,6 +28,14 @@ ao remote-host status
 
 This binds the authenticated listener to that machine's Tailscale address only (port `3011`, `AO_TAILNET_PORT`) and admits callers on their Tailscale identity, checked through the local `tailscaled` on every request. By default only nodes of the same Tailscale user are allowed; tagged devices and other users are rejected unless the host's daemon runs with `AO_TAILNET_ALLOW_USERS=login1,login2` or `AO_TAILNET_ALLOW_TAGS=tag:ci`. Requests from a LAN address, and every request while `tailscaled` is down, are rejected. The connection password is not needed; `ao remote-host enable --allow-password` keeps it usable for clients Tailscale cannot identify.
 
+For an existing host whose Connect Mobile/LAN listener is already enabled, use this explicit one-time host-side opt-in instead:
+
+```bash
+ao remote-host enable --also-tailnet
+```
+
+It adds the identity-only listener on the discovery port (default `3011`) while preserving the active mobile/LAN listener and its password. If that listener already uses `3011`, AO reuses it and requires Tailscale identity for requests arriving over Tailscale; LAN clients keep using the existing password. The additional listener is persisted across daemon restarts and stops with `ao remote-host disable`. It does not start implicitly; it fails clearly if Tailscale has no local address or the fixed port is occupied. Legacy hosts using another port are not automatically discovered until this opt-in is run.
+
 Every other AO desktop and CLI of the same user then lists that machine automatically under **Settings → Remote hosts → Tailscale hosts** and in `ao host ls`, with its `100.x` address and online state, and `--host <name>` works without a password. Turning remote access off makes the host show as offline within a refresh; turning it back on brings it back. Hosts can be renamed or hidden there; this machine and its other AO installs never appear. Settings → Remote hosts does not require an AO Cloud sign-in. **Sync hosts through AO Cloud** is a separate, off-by-default switch for a signed-in account; while it is off, nothing about remote hosts is sent to AO Cloud.
 
 ## Use this desktop from another machine outside Tailscale
@@ -64,7 +72,7 @@ Do not point `tailscale serve`, a public proxy, or port forwarding at the unauth
 ## Security model
 
 - The primary API stays on `127.0.0.1`, with no network-facing bind or added authentication. Its host cannot be changed; do not expose it with `HOST=0.0.0.0`, a public reverse proxy, or port forwarding.
-- Connect Mobile's separate listener is disabled by default, binds to the LAN only while enabled, requires a bearer connection password, and exposes app API routes without daemon-control routes. `ao remote-host enable` binds that same listener to the Tailscale address instead and admits callers on their Tailscale identity (WhoIs through the local `tailscaled`, same user by default); the password then works only with `--allow-password`. Direct HTTP transport is for trusted networks; a managed connector endpoint marked `secure: true` can wrap this authenticated path for remote access. Current Tailscale entries are advertised as plaintext.
+- Connect Mobile's separate listener is disabled by default, binds to the LAN only while enabled, requires a bearer connection password, and exposes app API routes without daemon-control routes. `ao remote-host enable` binds that same listener to the Tailscale address instead and admits callers on their Tailscale identity (WhoIs through the local `tailscaled`, same user by default); the password then works only with `--allow-password`. On a legacy host, `--also-tailnet` adds an independent identity-only listener at the fixed discovery port while preserving that mobile listener. Both network listeners use the authenticated app API surface without daemon-control routes. Direct HTTP transport is for trusted networks; a managed connector endpoint marked `secure: true` can wrap the mobile path for remote access. Current Tailscale entries are advertised as plaintext.
 - Exactly `GET /api/v1/identity` is unauthenticated. It returns an opaque host identity and mobile contract version, which QR pairing checks before presenting a credential. The current link includes the host identity and available endpoints, and carries the credential in its fragment. It does not expose sessions. New manual connections can continue after ordinary identity-check errors, so enter only a host you trust.
 - Other mobile REST and terminal connections require the rotating bearer password. Repeated failed authentication is locked out per source.
 - Shutdown, telemetry, mobile-control, and browser-control routes remain loopback-only.

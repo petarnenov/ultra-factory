@@ -739,3 +739,28 @@ func TestLANListenerKeepsPasswordPathForRejectedTailnetCallers(t *testing.T) {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestAlsoTailnetKeepsLANPasswordAndRequiresTailnetIdentity(t *testing.T) {
+	state := &authState{}
+	state.setHash(mobilebridge.HashPassword("secret12"))
+	state.identityOnlyTailnet.Store(true)
+	deny := fakeTailnetAuth{allow: map[string]bool{}}
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	h := authMiddleware(state, newLockout(time.Now), nil, false, deny, nil)(ok)
+
+	for _, tc := range []struct {
+		name, remote, authorization string
+		want                        int
+	}{
+		{name: "tailnet password cannot bypass WhoIs", remote: "100.99.0.2:4444", authorization: "Bearer secret12", want: http.StatusForbidden},
+		{name: "LAN mobile password remains available", remote: "192.168.1.50:4444", authorization: "Bearer secret12", want: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, reqFrom(tc.remote, tc.authorization))
+			if w.Code != tc.want {
+				t.Fatalf("got %d %s, want %d", w.Code, w.Body.String(), tc.want)
+			}
+		})
+	}
+}

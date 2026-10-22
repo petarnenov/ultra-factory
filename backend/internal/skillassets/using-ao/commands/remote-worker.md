@@ -10,6 +10,13 @@ Tailscale address with this machine's Tailscale identity and no password; for
 a host paired by address it uses the saved password. Either way the host must
 have remote access on and be reachable.
 
+For a legacy host whose mobile listener uses a nondefault port, run
+`ao remote-host enable --also-tailnet` on that host once. It adds the
+identity-only listener on the discovery port (default `3011`) while keeping
+the existing mobile/LAN listener. If it already uses port `3011`, AO reuses
+it and requires Tailscale identity only for tailnet requests. No extra
+listener starts automatically.
+
 ## Syntax
 
 ```
