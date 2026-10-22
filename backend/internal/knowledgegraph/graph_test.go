@@ -300,3 +300,225 @@ func TestSearchTerms(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordTaskClearsEmbeddingOnNewReport(t *testing.T) {
+	_, afterReport, found := strings.Cut(recordTaskCypher, "WHEN $report = ''")
+	reportClause, _, _ := strings.Cut(afterReport, "MERGE (p:Project")
+
+	if !found || !strings.Contains(reportClause, "t.embedding = null") {
+		t.Fatalf("report clause must null t.embedding:\n%s", recordTaskCypher)
+	}
+}
+
+func TestPriorWithVectorUsesVectorParts(t *testing.T) {
+	tests := []struct {
+		name      string
+		query     Query
+		wantParts int
+		wantK     int
+	}{
+		{name: "vector with text", query: Query{Project: "ao", Text: "flaky sqlite", Limit: 3}, wantParts: 2, wantK: 60},
+		{name: "vector without terms", query: Query{Project: "ao", Text: "the a", Limit: 2}, wantParts: 2, wantK: 40},
+		{name: "vector with issue", query: Query{Project: "ao", Issue: "7", Text: "flaky"}, wantParts: 3, wantK: 100},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRunner{}
+			vec := []float64{0.1, 0.2}
+			q := tt.query
+			q.Vector, q.MinScore = vec, 0.7
+
+			if _, err := NewGraph(r).Prior(context.Background(), q); err != nil {
+				t.Fatalf("Prior() error = %v", err)
+			}
+
+			call := r.snapshot()[0]
+			st := call.statement
+			if got := strings.Count(st, "CALL () {"); got != tt.wantParts {
+				t.Fatalf("subqueries = %d, want %d", got, tt.wantParts)
+			}
+			if !strings.Contains(st, lessonsVectorCypher) || !strings.Contains(st, tasksVectorCypher) {
+				t.Fatalf("vector parts missing:\n%s", st)
+			}
+			if strings.Contains(st, lessonsCypher) || strings.Contains(st, tasksCypher) {
+				t.Fatalf("full-text parts must not run with a vector")
+			}
+			p := call.params
+			if !reflect.DeepEqual(p["vector"], vec) || p["minScore"] != 0.7 || p["k"] != tt.wantK {
+				t.Fatalf("params vector=%v minScore=%v k=%v", p["vector"], p["minScore"], p["k"])
+			}
+		})
+	}
+}
+
+func TestPriorWithoutVectorSendsEmptyVector(t *testing.T) {
+	r := &fakeRunner{}
+
+	if _, err := NewGraph(r).Prior(context.Background(), Query{Project: "ao", Text: "flaky sqlite"}); err != nil {
+		t.Fatalf("Prior() error = %v", err)
+	}
+
+	got, ok := r.snapshot()[0].params["vector"].([]float64)
+	if !ok || got == nil || len(got) != 0 {
+		t.Fatalf("vector = %#v, want empty non-nil slice", r.snapshot()[0].params["vector"])
+	}
+}
+
+func similarityRows() []Row {
+	row := func(section, id string, sim float64) Row {
+		return Row{"section": section, "id": id, "score": sim, "similarity": sim}
+	}
+	return []Row{
+		row("attempt", "a1", 0.1),
+		row("lesson", "l1", 0.90),
+		row("lesson", "l2", 0.87),
+		row("lesson", "l3", 0.80),
+		row("task", "t1", 0.75),
+		row("task", "t2", 0.60),
+	}
+}
+
+func itemIDs(items []Item) []string {
+	ids := make([]string, 0, len(items))
+	for _, it := range items {
+		ids = append(ids, it.ID)
+	}
+	return ids
+}
+
+func TestPriorKeepsNearTopMatchesWithVector(t *testing.T) {
+	r := &fakeRunner{rows: similarityRows()}
+
+	items, err := NewGraph(r).Prior(context.Background(), Query{Project: "ao", Issue: "7", Vector: []float64{1}})
+
+	if err != nil {
+		t.Fatalf("Prior() error = %v", err)
+	}
+	if got := itemIDs(items); !reflect.DeepEqual(got, []string{"a1", "l1", "l2", "t1"}) {
+		t.Fatalf("ids = %v, want attempt plus near-top per section", got)
+	}
+	if items[1].similarity != 0.90 {
+		t.Fatalf("similarity = %v, want mapped from row", items[1].similarity)
+	}
+}
+
+func TestPriorKeepsAllMatchesWithoutVector(t *testing.T) {
+	r := &fakeRunner{rows: similarityRows()}
+
+	items, err := NewGraph(r).Prior(context.Background(), Query{Project: "ao", Issue: "7", Text: "flaky"})
+
+	if err != nil {
+		t.Fatalf("Prior() error = %v", err)
+	}
+	if got := itemIDs(items); len(got) != 6 {
+		t.Fatalf("ids = %v, want all rows", got)
+	}
+}
+
+func TestNearTop(t *testing.T) {
+	item := func(section, id string, sim float64) Item {
+		return Item{Section: section, ID: id, similarity: sim}
+	}
+	tests := []struct {
+		name  string
+		items []Item
+		want  []string
+	}{
+		{name: "empty", items: nil, want: []string{}},
+		{name: "attempt always kept", items: []Item{item("attempt", "a", 0), item("attempt", "b", 1)}, want: []string{"a", "b"}},
+		{
+			name:  "margin per section",
+			items: []Item{item("lesson", "l1", 0.5), item("task", "t1", 0.95), item("lesson", "l2", 0.47), item("task", "t2", 0.9)},
+			want:  []string{"l1", "t1", "l2"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := itemIDs(nearTop(tt.items)); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("nearTop() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMissingEmbeddings(t *testing.T) {
+	r := &fakeRunner{rows: []Row{
+		{"label": "Lesson", "id": "l1", "text": "run make sqlc"},
+		{"label": "Task", "id": "h/s1", "text": "Fix\ndone: ok"},
+	}}
+
+	got, err := NewGraph(r).MissingEmbeddings(context.Background(), 7)
+
+	if err != nil {
+		t.Fatalf("MissingEmbeddings() error = %v", err)
+	}
+	want := []EmbedTarget{{Label: "Lesson", ID: "l1", Text: "run make sqlc"}, {Label: "Task", ID: "h/s1", Text: "Fix\ndone: ok"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("targets = %#v, want %#v", got, want)
+	}
+	if p := r.snapshot()[0].params; p["limit"] != 7 {
+		t.Fatalf("params = %#v", p)
+	}
+}
+
+func TestMissingEmbeddingsReturnsRunnerError(t *testing.T) {
+	r := &fakeRunner{err: errors.New("down")}
+
+	got, err := NewGraph(r).MissingEmbeddings(context.Background(), 1)
+
+	if err == nil || got != nil {
+		t.Fatalf("MissingEmbeddings() = %v, %v; want error", got, err)
+	}
+}
+
+func TestSetEmbeddings(t *testing.T) {
+	lesson := EmbedTarget{Label: "Lesson", ID: "l1"}
+	task := EmbedTarget{Label: "Task", ID: "h/s1"}
+	tests := []struct {
+		name        string
+		targets     []EmbedTarget
+		vecs        [][]float64
+		wantLessons []map[string]any
+		wantTasks   []map[string]any
+	}{
+		{
+			name: "split by label", targets: []EmbedTarget{task, lesson}, vecs: [][]float64{{1}, {2}},
+			wantLessons: []map[string]any{{"id": "l1", "v": []float64{2}}},
+			wantTasks:   []map[string]any{{"id": "h/s1", "v": []float64{1}}},
+		},
+		{
+			name: "no tasks sends empty list", targets: []EmbedTarget{lesson}, vecs: [][]float64{{2}},
+			wantLessons: []map[string]any{{"id": "l1", "v": []float64{2}}},
+			wantTasks:   []map[string]any{},
+		},
+		{
+			name: "no lessons sends empty list", targets: []EmbedTarget{task}, vecs: [][]float64{{1}},
+			wantLessons: []map[string]any{},
+			wantTasks:   []map[string]any{{"id": "h/s1", "v": []float64{1}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRunner{}
+
+			if err := NewGraph(r).SetEmbeddings(context.Background(), tt.targets, tt.vecs); err != nil {
+				t.Fatalf("SetEmbeddings() error = %v", err)
+			}
+
+			p := r.snapshot()[0].params
+			if !reflect.DeepEqual(p["lessons"], tt.wantLessons) || !reflect.DeepEqual(p["tasks"], tt.wantTasks) {
+				t.Fatalf("lessons = %#v, tasks = %#v", p["lessons"], p["tasks"])
+			}
+		})
+	}
+}
+
+func TestSetEmbeddingsReturnsRunnerError(t *testing.T) {
+	r := &fakeRunner{err: errors.New("down")}
+
+	err := NewGraph(r).SetEmbeddings(context.Background(), []EmbedTarget{{Label: "Lesson", ID: "l1"}}, [][]float64{{1}})
+
+	if err == nil || err.Error() != "down" {
+		t.Fatalf("SetEmbeddings() error = %v", err)
+	}
+}

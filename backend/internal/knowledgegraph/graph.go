@@ -52,7 +52,8 @@ SET t.sessionId = $sessionId, t.host = $host, t.project = $project,
     t.updatedAt = datetime($at)
 SET t += $props
 FOREACH (r IN CASE WHEN $report = '' THEN [] ELSE [$report] END |
-  SET t.summary = r, t.reports = coalesce(t.reports, []) + [r])
+  SET t.summary = r, t.reports = coalesce(t.reports, []) + [r],
+      t.embedding = null)
 MERGE (p:Project {id: $project})
 MERGE (t)-[:IN_PROJECT]->(p)
 FOREACH (_ IN CASE WHEN $issueKey = '' THEN [] ELSE [1] END |
@@ -167,6 +168,10 @@ type Query struct {
 	// ExcludeTask keeps the asking task out of its own results.
 	ExcludeTask string
 	Limit       int
+	// Vector, when set, replaces full-text matching with vector search
+	// over embeddings scoring at least MinScore.
+	Vector   []float64
+	MinScore float64
 }
 
 // Item is one piece of prior context.
@@ -180,6 +185,8 @@ type Item struct {
 	Text    string
 	Lessons []string
 	Score   float64
+	// similarity is the raw match score before outcome weighting.
+	similarity float64
 }
 
 const (
@@ -190,24 +197,43 @@ OPTIONAL MATCH (t)-[:LEARNED]->(l:Lesson)
 WITH t, collect(l.text)[..5] AS lessons
 RETURN 'attempt' AS section, t.id AS id, '' AS kind, t.title AS title,
        coalesce(t.outcome, 'in_progress') AS outcome,
-       coalesce(t.summary, '') AS text, lessons, 1.0 AS score
+       coalesce(t.summary, '') AS text, lessons, 1.0 AS score, 1.0 AS similarity
 ORDER BY t.updatedAt DESC LIMIT $limit`
 	lessonsCypher = `
 CALL db.index.fulltext.queryNodes('lesson_text', $q) YIELD node AS l, score
 WHERE l.project = $project
-WITH l, score * (1.0 + coalesce(l.helped, 0)) / (1.0 + coalesce(l.hurt, 0)) AS rank
+WITH l, score AS similarity,
+     score * (1.0 + coalesce(l.helped, 0)) / (1.0 + coalesce(l.hurt, 0)) AS rank
 ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
        coalesce(t.title, '') AS title, coalesce(t.outcome, '') AS outcome,
-       l.text AS text, [] AS lessons, rank AS score`
+       l.text AS text, [] AS lessons, rank AS score, similarity`
+	lessonsVectorCypher = `
+CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
+WHERE l.project = $project AND score >= $minScore
+WITH l, score AS similarity,
+     score * (1.0 + coalesce(l.helped, 0)) / (1.0 + coalesce(l.hurt, 0)) AS rank
+ORDER BY rank DESC LIMIT $limit
+OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
+RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
+       coalesce(t.title, '') AS title, coalesce(t.outcome, '') AS outcome,
+       l.text AS text, [] AS lessons, rank AS score, similarity`
+	tasksVectorCypher = `
+CALL db.index.vector.queryNodes('task_embedding', $k, $vector) YIELD node AS t, score
+WHERE t.project = $project AND t.outcome IS NOT NULL AND t.id <> $exclude
+  AND ($issue = '' OR coalesce(t.issue, '') <> $issue) AND score >= $minScore
+RETURN 'task' AS section, t.id AS id, '' AS kind, t.title AS title,
+       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons,
+       score, score AS similarity
+ORDER BY score DESC LIMIT $limit`
 	tasksCypher = `
 CALL db.index.fulltext.queryNodes('task_text', $q) YIELD node AS t, score
 WHERE t.project = $project AND t.outcome IS NOT NULL AND t.id <> $exclude
   AND ($issue = '' OR coalesce(t.issue, '') <> $issue)
 RETURN 'task' AS section, t.id AS id, '' AS kind, t.title AS title,
        t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons,
-       score
+       score, score AS similarity
 ORDER BY score DESC LIMIT $limit`
 )
 
@@ -221,7 +247,10 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 	if q.Issue != "" {
 		parts = append(parts, attemptsCypher)
 	}
-	if terms != "" {
+	switch {
+	case len(q.Vector) > 0:
+		parts = append(parts, lessonsVectorCypher, tasksVectorCypher)
+	case terms != "":
 		parts = append(parts, lessonsCypher, tasksCypher)
 	}
 	if len(parts) == 0 {
@@ -233,11 +262,14 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 		if i > 0 {
 			b.WriteString("\nUNION ALL\n")
 		}
-		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, score")
+		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, score, similarity")
 	}
 	rows, err := g.run.Run(ctx, b.String(), map[string]any{
 		"issueKey": issueKey(q.Project, q.Issue), "issue": q.Issue, "project": q.Project,
 		"q": terms, "exclude": q.ExcludeTask, "limit": q.Limit,
+		"vector": vectorParam(q.Vector), "minScore": q.MinScore,
+		// The index is filtered by project after the k nearest are found.
+		"k": q.Limit * vectorOversample,
 	})
 	if err != nil {
 		return nil, err
@@ -248,9 +280,104 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 			Section: r.String("section"), ID: r.String("id"), Kind: r.String("kind"),
 			Title: r.String("title"), Outcome: r.String("outcome"), Text: r.String("text"),
 			Lessons: r.Strings("lessons"), Score: r.Float("score"),
+			similarity: r.Float("similarity"),
 		})
 	}
+	if len(q.Vector) > 0 {
+		items = nearTop(items)
+	}
 	return items, nil
+}
+
+// vectorMargin keeps matches near the best in their section: AO lessons
+// share one domain, so a score floor alone is not selective.
+const vectorMargin = 0.04
+
+func nearTop(items []Item) []Item {
+	best := map[string]float64{}
+	for _, it := range items {
+		if it.similarity > best[it.Section] {
+			best[it.Section] = it.similarity
+		}
+	}
+	out := items[:0]
+	for _, it := range items {
+		if it.Section == "attempt" || it.similarity >= best[it.Section]-vectorMargin {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// vectorOversample widens the nearest-neighbour pool before the project
+// filter narrows it.
+const vectorOversample = 20
+
+func vectorParam(v []float64) []float64 {
+	if v == nil {
+		return []float64{}
+	}
+	return v
+}
+
+// EmbedTarget is a node whose embedding is missing.
+type EmbedTarget struct {
+	Label string
+	ID    string
+	Text  string
+}
+
+// MissingEmbeddings lists up to limit lessons and tasks without vectors.
+func (g *Graph) MissingEmbeddings(ctx context.Context, limit int) ([]EmbedTarget, error) {
+	rows, err := g.run.Run(ctx, `
+CALL () {
+  MATCH (l:Lesson) WHERE l.embedding IS NULL
+  RETURN 'Lesson' AS label, l.id AS id, l.text AS text LIMIT $limit
+  UNION ALL
+  MATCH (t:Task) WHERE t.embedding IS NULL AND t.title IS NOT NULL
+  RETURN 'Task' AS label, t.id AS id,
+         t.title + '\n' + coalesce(t.summary, '') AS text LIMIT $limit
+}
+RETURN label, id, text`, map[string]any{"limit": limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EmbedTarget, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, EmbedTarget{Label: r.String("label"), ID: r.String("id"), Text: r.String("text")})
+	}
+	return out, nil
+}
+
+// SetEmbeddings stores vectors; vecs[i] belongs to targets[i].
+func (g *Graph) SetEmbeddings(ctx context.Context, targets []EmbedTarget, vecs [][]float64) error {
+	var lessons, tasks []map[string]any
+	for i, t := range targets {
+		row := map[string]any{"id": t.ID, "v": vecs[i]}
+		if t.Label == "Lesson" {
+			lessons = append(lessons, row)
+		} else {
+			tasks = append(tasks, row)
+		}
+	}
+	if lessons == nil {
+		lessons = []map[string]any{}
+	}
+	if tasks == nil {
+		tasks = []map[string]any{}
+	}
+	_, err := g.run.Run(ctx, `
+CALL () {
+  UNWIND $lessons AS row MATCH (l:Lesson {id: row.id})
+  CALL db.create.setNodeVectorProperty(l, 'embedding', row.v)
+  RETURN count(*) AS n
+  UNION ALL
+  UNWIND $tasks AS row MATCH (t:Task {id: row.id})
+  CALL db.create.setNodeVectorProperty(t, 'embedding', row.v)
+  RETURN count(*) AS n
+}
+RETURN sum(n) AS n`, map[string]any{"lessons": lessons, "tasks": tasks})
+	return err
 }
 
 func issueKey(project, issue string) string {

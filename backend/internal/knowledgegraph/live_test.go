@@ -62,3 +62,48 @@ func TestLiveGraph(t *testing.T) {
 		}
 	}
 }
+
+// TestLiveSemantic needs embeddingUrl in the config; it proves a lesson is
+// found by meaning when the query shares none of its words.
+func TestLiveSemantic(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	cfg, err := Load(os.Getenv, filepath.Join(home, ".ao", "data"))
+	if err != nil || !cfg.SemanticEnabled() {
+		t.Skipf("no embeddings configured: %v", err)
+	}
+	cfg.Timeout = 30 * time.Second
+	c := NewClient(cfg, nil)
+	ctx := context.Background()
+	const project = "__kglive_semantic"
+	t.Cleanup(func() {
+		_, _ = c.Run(ctx, "MATCH (n) WHERE n.project = $p OR n.id = $p DETACH DELETE n", map[string]any{"p": project})
+		_, _ = c.Run(ctx, "MATCH (t:Topic) WHERE NOT (t)--() DELETE t", nil)
+	})
+	svc := New(Deps{Graph: NewGraph(c), Embedder: NewOllamaEmbedder(cfg, nil), MinScore: cfg.MinScore, HostID: "h"})
+	g := svc.graph
+	now := time.Now()
+	for _, l := range []Lesson{
+		{ID: "kgsem-1", Text: "The Coordinators settings form submits when the dialog opens; guard submit until the form is ready.", Kind: "pitfall"},
+		{ID: "kgsem-2", Text: "Codex goes idle right after start when AppArmor blocks bwrap user namespaces.", Kind: "fix"},
+	} {
+		l.TaskKey, l.Session, l.Host, l.Project, l.At = "h/s-"+l.ID, "s-"+l.ID, "h", project, now
+		if err := g.AddLesson(ctx, l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.embedMissing(ctx); err != nil {
+		t.Fatal(err)
+	}
+	items, err := svc.prior(ctx, Query{Project: project, Text: "Settings window sends the form by itself as soon as it appears"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, it := range items {
+		got = append(got, it.ID)
+		t.Logf("%s score=%.3f %s", it.ID, it.Score, it.Text)
+	}
+	if len(got) != 1 || got[0] != "kgsem-1" {
+		t.Fatalf("semantic match = %v, want only kgsem-1", got)
+	}
+}
