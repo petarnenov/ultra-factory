@@ -101,15 +101,18 @@ export function renderBrief(fields: BriefFields): string {
 		.join("\n");
 	const from = COORDINATOR_BRIEF_TEMPLATE.indexOf(TASK_LIST_START) + TASK_LIST_START.length;
 	const to = COORDINATOR_BRIEF_TEMPLATE.indexOf(TASK_LIST_END);
+	// Fill the template parts only, so task text is never rewritten.
 	// Function replacers keep "$" in user text out of the pattern syntax.
-	return (COORDINATOR_BRIEF_TEMPLATE.slice(0, from) + taskLines + COORDINATOR_BRIEF_TEMPLATE.slice(to))
-		.replace("<coordinator name>", () => value(fields.name, "<coordinator name>"))
-		.replace("<one bounded area, at most 200 characters; same text as --scope>", () =>
-			value(fields.scope, "<one bounded area, at most 200 characters; same text as --scope>"),
-		)
-		.replace("<areas and files this coordinator must not touch>", () =>
-			value(fields.outOfScope, "<areas and files this coordinator must not touch>"),
-		)
-		.replace("<dev>", () => value(fields.integrationBranch, "<dev>"))
-		.replace("<prefix>", () => value(prefix, "<prefix>"));
+	const fill = (text: string) =>
+		text
+			.replace("<coordinator name>", () => value(fields.name, "<coordinator name>"))
+			.replace("<one bounded area, at most 200 characters; same text as --scope>", () =>
+				value(fields.scope, "<one bounded area, at most 200 characters; same text as --scope>"),
+			)
+			.replace("<areas and files this coordinator must not touch>", () =>
+				value(fields.outOfScope, "<areas and files this coordinator must not touch>"),
+			)
+			.replace("<dev>", () => value(fields.integrationBranch, "<dev>"))
+			.replace("<prefix>", () => value(prefix, "<prefix>"));
+	return fill(COORDINATOR_BRIEF_TEMPLATE.slice(0, from)) + taskLines + fill(COORDINATOR_BRIEF_TEMPLATE.slice(to));
 }

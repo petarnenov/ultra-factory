@@ -75,6 +75,16 @@ describe("renderBrief", () => {
 		expect(renderBrief({ ...filled, name: "$& $1" })).toContain("Assignment for $& $1.");
 	});
 
+	test("keeps placeholder-like text in task fields literal", () => {
+		const brief = renderBrief({
+			...filled,
+			tasks: [{ taskId: "#7", title: "Rename <prefix> and <dev> handling", acceptance: "tokens stay", files: "src/<dev>.ts" }],
+		});
+		expect(brief).toContain("1. #7 - Rename <prefix> and <dev> handling\n   Acceptance criteria: tokens stay\n   Files likely touched: src/<dev>.ts\n");
+		expect(brief).toContain("- Integration branch / PR base: dev\n");
+		expect(brief).toContain("- Worker branch name: co-auth-module/<task-id>\n");
+	});
+
 	test("keeps a task row when the list is empty", () => {
 		const brief = renderBrief({ ...filled, tasks: [] });
 		expect(firstUnfilledPlaceholder(brief)).toBe("<issue or task id>");
