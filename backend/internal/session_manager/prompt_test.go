@@ -47,7 +47,7 @@ func TestBuildSystemPrompt_WorkerIncludesRulesAndOrchestrator(t *testing.T) {
 	for _, want := range []string{
 		"## AO Worker Role",
 		"## Escalation Target",
-		`ao session owner $AO_SESSION_ID --json`, `ao send --session <owner-session-id> --message "<your message>"`,
+		`ao session owner $AO_SESSION_ID --json`, "is terminated or belongs to another project, the project root owns you: use `rootSessionId` from the same output", `ao send --session <owner-session-id> --message "<your message>"`,
 		"## Pull Requests for This Session",
 		"For a workspace project whose recorded session branch",
 		"`<session-branch>-<topic>`",

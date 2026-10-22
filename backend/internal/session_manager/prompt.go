@@ -651,7 +651,7 @@ Your owner can change after this prompt was written, by a reassignment. Resolve 
 
 ` + "`ao session owner $AO_SESSION_ID --json`" + `
 
-If ` + "`ownerSessionId`" + ` is set, that coordinator is your owner. If it is null, the project root owns you: use the live root from ` + "`ao orchestrator ls`" + `. Message the owner only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
+If ` + "`ownerSessionId`" + ` is set and that coordinator is live (check it with ` + "`ao session ls`" + `), it is your owner. If it is null, or the coordinator is terminated or belongs to another project, the project root owns you: use ` + "`rootSessionId`" + ` from the same output. Message the owner only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
 
 ` + "`ao send --session <owner-session-id> --message \"<your message>\"`" + ``
 }
