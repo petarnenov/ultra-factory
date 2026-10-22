@@ -3,14 +3,18 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { CoordinatorRoster as RosterData, CoordinatorRosterEntry, ProjectConfig } from "../../lib/coordinators";
 
-const { rosterQuery } = vi.hoisted(() => ({
+const { rosterQuery, workspaceSessions } = vi.hoisted(() => ({
 	rosterQuery: { data: undefined as RosterData | undefined, isLoading: false },
+	workspaceSessions: [] as Array<{ id: string; kind: string; ownerSessionId: string | null; provider: string; model: string; status: string }>,
 }));
 
 vi.mock("../../hooks/useCoordinatorRoster", () => ({ useCoordinatorRoster: () => rosterQuery }));
 vi.mock("../../hooks/useRemoteHosts", () => ({ useRemoteHosts: () => ({ hosts: [], refresh: async () => {} }) }));
 vi.mock("../../hooks/useWorkspaceQuery", () => ({
-	workspaceQueryOptions: { queryKey: ["workspaces"], queryFn: async () => [] },
+	workspaceQueryOptions: {
+		queryKey: ["workspaces"],
+		queryFn: async () => [{ id: "ao", name: "ao", sessions: workspaceSessions }],
+	},
 	useRemoteProjectQuery: () => ({ data: undefined }),
 }));
 vi.mock("./StartCoordinatorDialog", () => ({ StartCoordinatorDialog: () => null }));
@@ -104,5 +108,38 @@ describe("CoordinatorRoster", () => {
 		renderRoster();
 		expect(screen.getByRole("button", { name: "Start coordinator" })).toBeDisabled();
 		expect(screen.getByText("The coordinator limit is reached.")).toBeInTheDocument();
+	});
+
+	test("lists a live coordinator, its two workers and the root's remote workers", async () => {
+		workspaceSessions.length = 0;
+		workspaceSessions.push(
+			{ id: "ao-c1", kind: "coordinator", ownerSessionId: "ao-root", provider: "claude-code", model: "opus", status: "working" },
+			{ id: "ao-w1", kind: "worker", ownerSessionId: "ao-c1", provider: "claude-code", model: "sonnet", status: "working" },
+			{ id: "ao-w2", kind: "worker", ownerSessionId: "ao-c1", provider: "codex", model: "gpt-5", status: "working" },
+			{ id: "remote-w1", kind: "worker", ownerSessionId: "ao-root", provider: "claude-code", model: "opus", status: "working" },
+			{ id: "remote-w2", kind: "worker", ownerSessionId: "ao-root", provider: "claude-code", model: "opus", status: "working" },
+		);
+		rosterQuery.data = roster({
+			capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 1, activeWorkers: 4, staleWorkers: 0 },
+			coordinators: [
+				entry({
+					activeWorkerCount: 2,
+					workerSessionIds: ["ao-w1", "ao-w2"],
+					workers: [
+						{ sessionId: "ao-w1", agentProfileId: "fast" },
+						{ sessionId: "ao-w2", agentProfileId: null },
+					],
+				}),
+			],
+			rootWorkerSessionIds: ["remote-w1", "remote-w2"],
+		});
+		renderRoster();
+		expect(await screen.findByText("ao-w1")).toBeInTheDocument();
+		expect(screen.getByText("ao-w2")).toBeInTheDocument();
+		expect(await screen.findByText(/claude-code · sonnet/)).toBeInTheDocument();
+		expect(screen.getByTestId("roster-capacity")).toHaveTextContent("Workers 4/9");
+		expect(screen.getByText("Root workers: 2")).toBeInTheDocument();
+		expect(await screen.findByText("claude-code · opus")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Start coordinator" })).toBeEnabled();
 	});
 });

@@ -141,6 +141,60 @@ func TestProjectSetConfigLocalWorkerFlagsAreExclusiveAndHostsMustResolve(t *test
 	}
 }
 
+// TestProjectGetReadsAnEmptyAgentModeAsInherit keeps #502's stored config
+// readable: an empty or missing mode is inherit, not a mode echo.
+func TestProjectGetReadsAnEmptyAgentModeAsInherit(t *testing.T) {
+	cfg := setConfigEnv(t)
+	stored := `{"status":"ok","project":{"id":"demo","config":{"coordinators":{"enabled":true,"coordinatorAgent":{"mode":""},"workerAgent":{},"rootWorkerAgent":{"mode":"inherit"}}}}}`
+	srv, _ := projectServer(t, http.StatusOK, stored)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "project", "get", "demo")
+	if err != nil {
+		t.Fatalf("project get: %v\nstderr=%s", err, errOut)
+	}
+	if strings.Contains(out, `"mode":""`) {
+		t.Fatalf("project get kept an empty mode: %s", out)
+	}
+	for _, want := range []string{
+		`"coordinatorAgent":{"mode":"inherit"}`,
+		`"workerAgent":{"mode":"inherit"}`,
+		`"rootWorkerAgent":{"mode":"inherit"}`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("project get = %s, want %s", out, want)
+		}
+	}
+}
+
+// TestProjectSetConfigMergeWritesNoEmptyAgentMode covers the producer: a merge
+// that sets a selection never writes {"mode":""}.
+func TestProjectSetConfigMergeWritesNoEmptyAgentMode(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, storedCoordinatorProject)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }},
+		"project", "set-config", "demo", "--merge", "--coordinator-agent", "inherit")
+	if err != nil {
+		t.Fatalf("set-config --merge: %v\nstderr=%s", err, errOut)
+	}
+	var body struct {
+		Config struct {
+			Coordinators map[string]json.RawMessage `json:"coordinators"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(capture.body, &body); err != nil {
+		t.Fatalf("decode %q: %v", capture.body, err)
+	}
+	if got := string(body.Config.Coordinators["coordinatorAgent"]); got != `{"mode":"inherit"}` {
+		t.Fatalf("coordinatorAgent = %s, want {\"mode\":\"inherit\"} (body %s)", got, capture.body)
+	}
+	if strings.Contains(string(capture.body), `"mode":""`) {
+		t.Fatalf("merge wrote an empty mode: %s", capture.body)
+	}
+}
+
 // TestProjectSetConfigMergePreservesFieldsTheCLIDoesNotModel guards the raw
 // merge: stored preRemove, aggregateProjects and unknown keys stay unchanged.
 func TestProjectSetConfigMergePreservesFieldsTheCLIDoesNotModel(t *testing.T) {
