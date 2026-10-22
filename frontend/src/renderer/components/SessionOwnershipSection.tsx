@@ -85,7 +85,7 @@ function CoordinatorFacts({ entry, projectId }: { entry: CoordinatorRosterEntry;
 			) : (
 				entry.workers.map((worker) => worker.remote ? (
 					<p className="w-full truncate rounded-lg bg-settings-row px-3 py-1.5 text-sm" data-testid="coordinator-remote-worker-row" key={`${worker.hostId}:${worker.sessionId}`}>
-						{worker.sessionId} on {worker.hostLabel || worker.hostId}
+						{t("coordinators.roster.remoteWorker", { worker: worker.sessionId, host: worker.hostLabel || worker.hostId })}
 					</p>
 				) : (
 					<button

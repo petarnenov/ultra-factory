@@ -93,7 +93,7 @@ export function CoordinatorRoster({ projectId, hostId, config }: { projectId: st
 									}))).map((worker) => (
 										<li key={`${worker.remote ? worker.hostId : "local"}:${worker.sessionId}`}>
 											{worker.remote && (worker.hostLabel || worker.hostId)
-												? `${worker.sessionId} on ${worker.hostLabel || hostLabel(worker.hostId ?? "")}`
+								? t("coordinators.roster.remoteWorker", { worker: worker.sessionId, host: worker.hostLabel || hostLabel(worker.hostId ?? "") })
 												: worker.sessionId}
 										</li>
 									))}
@@ -204,7 +204,7 @@ function CoordinatorItem({
 			) : (
 				entry.workers.map((worker) => worker.remote ? (
 					<p className="text-xs text-settings-muted" data-testid="coordinator-remote-worker-row" key={`${worker.hostId}:${worker.sessionId}`}>
-						{worker.sessionId} on {worker.hostLabel || worker.hostId}
+						{t("coordinators.roster.remoteWorker", { worker: worker.sessionId, host: worker.hostLabel || worker.hostId })}
 					</p>
 				) : (
 					<WorkerRow

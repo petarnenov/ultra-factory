@@ -3334,6 +3334,7 @@
   "coordinators.roster.noRoot": "稼働中のルートなし",
   "coordinators.roster.capacity": "コーディネーター {{coordinators}} · ワーカー {{workers}}",
   "coordinators.roster.rootWorkers": "ルートのワーカー: {{count}}",
+  "coordinators.roster.remoteWorker": "{{host}} の {{worker}}",
   "coordinators.roster.none": "まだコーディネーターはありません。",
   "coordinators.roster.workers": "ワーカー",
   "coordinators.roster.used": "{{used}}/{{allowed}}",

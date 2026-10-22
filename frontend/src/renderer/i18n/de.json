@@ -3334,6 +3334,7 @@
   "coordinators.roster.noRoot": "Kein aktiver Root",
   "coordinators.roster.capacity": "Koordinatoren {{coordinators}} · Worker {{workers}}",
   "coordinators.roster.rootWorkers": "Root-Worker: {{count}}",
+  "coordinators.roster.remoteWorker": "{{worker}} auf {{host}}",
   "coordinators.roster.none": "Noch keine Koordinatoren.",
   "coordinators.roster.workers": "Worker",
   "coordinators.roster.used": "{{used}}/{{allowed}}",

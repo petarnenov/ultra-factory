@@ -3316,6 +3316,7 @@
   "coordinators.roster.noRoot": "没有运行中的根节点",
   "coordinators.roster.capacity": "协调器 {{coordinators}} · 工作者 {{workers}}",
   "coordinators.roster.rootWorkers": "根节点工作者：{{count}}",
+  "coordinators.roster.remoteWorker": "{{host}} 上的 {{worker}}",
   "coordinators.roster.none": "还没有协调器。",
   "coordinators.roster.workers": "工作者",
   "coordinators.roster.used": "{{used}}/{{allowed}}",

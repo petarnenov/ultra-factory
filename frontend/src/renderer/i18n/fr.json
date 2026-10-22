@@ -3379,6 +3379,7 @@
   "coordinators.roster.noRoot": "Aucune racine active",
   "coordinators.roster.capacity": "Coordinateurs {{coordinators}} · Workers {{workers}}",
   "coordinators.roster.rootWorkers": "Workers de la racine : {{count}}",
+  "coordinators.roster.remoteWorker": "{{worker}} sur {{host}}",
   "coordinators.roster.none": "Aucun coordinateur pour le moment.",
   "coordinators.roster.workers": "Workers",
   "coordinators.roster.used": "{{used}}/{{allowed}}",

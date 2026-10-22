@@ -3315,6 +3315,7 @@
   "coordinators.roster.noRoot": "No live root",
   "coordinators.roster.capacity": "Coordinators {{coordinators}} · Workers {{workers}}",
   "coordinators.roster.rootWorkers": "Root workers: {{count}}",
+  "coordinators.roster.remoteWorker": "{{worker}} on {{host}}",
   "coordinators.roster.none": "No coordinators yet.",
   "coordinators.roster.workers": "Workers",
   "coordinators.roster.used": "{{used}}/{{allowed}}",
