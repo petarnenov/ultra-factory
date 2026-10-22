@@ -267,6 +267,14 @@ In any mode, a source that becomes locked out logs one warning with the
 derived key, the TCP peer, and whether the key came from `X-Forwarded-For`,
 `CF-Connecting-IP`, or the peer.
 
+## Aggregate project board
+
+A project's **Aggregate** board shows worker sessions from the same project on paired hosts. The daemon finds those projects itself: every pass probes each paired host and keeps a remote project when its repository matches the local one (scheme, `.git` suffix, case, and trailing slash are ignored). When either side has no repository, it matches by project ID instead. Each host gets 45 seconds per pass; a host that cannot be reached keeps its last set, marked stale, and a host that refuses the saved password is not retried until its entry changes.
+
+Passes run at daemon start, when a paired host's entry changes (within about 30 seconds), and at least every 5 minutes. To run one now, use `ao project aggregate refresh <id>`. To see the effective set and the rule that matched each row, use `ao project aggregate ls <id>`.
+
+In **Project settings → General → Aggregate project hosts**, the **Discover same project on paired hosts** switch turns discovery off, **Hide** removes a discovered project from the board, and manual rows add projects that discovery does not find. Hidden projects are stored as `aggregateExcludes` and survive restarts; **Show** restores them.
+
 ## Security and limits
 
 - AO's unauthenticated listener stays on `127.0.0.1`. The opt-in remote

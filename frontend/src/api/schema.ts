@@ -1226,6 +1226,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/aggregate/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run one aggregate discovery pass and return the effective set */
+        post: operations["refreshProjectAggregate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/config": {
         parameters: {
             query?: never;
@@ -4310,6 +4327,19 @@ export interface components {
             /** @enum {string} */
             status: "unknown" | "current" | "behind_latest" | "ahead_of_latest";
         };
+        AggregateEffectiveResponse: {
+            aggregateEffective: components["schemas"]["AggregateEntry"][];
+        };
+        AggregateEntry: {
+            hostId: string;
+            hostLabel: string;
+            /** @enum {string} */
+            matchedBy?: "repo" | "projectId";
+            projectId: string;
+            /** @enum {string} */
+            source: "explicit" | "discovered";
+            stale: boolean;
+        };
         AggregateProjectRef: {
             hostId: string;
             projectId: string;
@@ -6095,6 +6125,8 @@ export interface components {
             agentConfig?: components["schemas"]["AgentConfig"];
             agentRules?: string;
             agentRulesFile?: string;
+            aggregateDiscovery?: null | boolean;
+            aggregateExcludes?: components["schemas"]["AggregateProjectRef"][];
             aggregateProjects?: components["schemas"]["AggregateProjectRef"][];
             autoReview?: boolean;
             canonicalRepoURL?: string;
@@ -6119,6 +6151,7 @@ export interface components {
             workersRequestReview?: boolean;
         };
         ProjectGetResponse: {
+            aggregateEffective: components["schemas"]["AggregateEntry"][];
             project: components["schemas"]["ProjectOrDegraded"];
             /** @enum {string} */
             status: "ok" | "degraded";
@@ -11834,6 +11867,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    refreshProjectAggregate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project identifier (registry key). */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AggregateEffectiveResponse"];
                 };
             };
             /** @description Not Found */

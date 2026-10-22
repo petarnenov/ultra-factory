@@ -308,11 +308,13 @@ describe("ProjectSettingsForm", () => {
 
 		const queryClient = renderSettings();
 		queryClient.setQueryData(["project-identity", "local", "proj-1"], { aggregateProjects: [] });
+		const identityUpdatesBefore = queryClient.getQueryState(["project-identity", "local", "proj-1"])?.dataUpdateCount ?? 0;
 		await userEvent.click(await screen.findByRole("switch", { name: "Auto review PRs" }));
 		await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}", expect.objectContaining({
 			body: expect.objectContaining({ config: expect.objectContaining({ autoReview: true }) }),
 		})));
-		await waitFor(() => expect(queryClient.getQueryState(["project-identity", "local", "proj-1"])?.isInvalidated).toBe(true));
+		// The mounted identity query refetches after the save.
+		await waitFor(() => expect(queryClient.getQueryState(["project-identity", "local", "proj-1"])?.dataUpdateCount ?? 0).toBeGreaterThan(identityUpdatesBefore));
 	});
 
 	it("preserves host-qualified aggregate project references when another setting is saved", async () => {

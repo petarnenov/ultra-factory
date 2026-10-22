@@ -19,9 +19,15 @@ import (
 // yet exist (tracker/SCM per-project config) are intentionally absent and land in
 // focused follow-up PRs alongside the code that reads them.
 type ProjectConfig struct {
-	// AggregateProjects links remote project identities to this project's
-	// aggregate board.
+	// AggregateProjects are explicit remote project identities shown on this
+	// project's aggregate board, in addition to discovered ones.
 	AggregateProjects []AggregateProjectRef `json:"aggregateProjects,omitempty"`
+	// AggregateExcludes hides remote projects from this project's aggregate
+	// board, whether they were discovered or added explicitly.
+	AggregateExcludes []AggregateProjectRef `json:"aggregateExcludes,omitempty"`
+	// AggregateDiscovery turns automatic same-project discovery on paired hosts
+	// off when false. Nil means on, so existing configs keep discovering.
+	AggregateDiscovery *bool `json:"aggregateDiscovery,omitempty"`
 	// CanonicalRepoURL explicitly trusts one upstream repository for PR claims.
 	// Numeric PR references use this repository when set; checkout/push stays on origin.
 	CanonicalRepoURL string `json:"canonicalRepoURL,omitempty"`
@@ -143,6 +149,12 @@ var githubAccountPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}
 type AggregateProjectRef struct {
 	HostID    string `json:"hostId"`
 	ProjectID string `json:"projectId"`
+}
+
+// AggregateDiscoveryEnabled reports whether same-project discovery on paired
+// hosts runs for this project. It is on unless explicitly switched off.
+func (c ProjectConfig) AggregateDiscoveryEnabled() bool {
+	return c.AggregateDiscovery == nil || *c.AggregateDiscovery
 }
 
 // ContainerReapConfig is the project-level opt-out for #2652's Docker
@@ -271,16 +283,11 @@ func (c ProjectConfig) IsZero() bool {
 // Validate rejects values outside the typed vocabulary so a bad config is
 // refused when it is set (CLI/API) rather than surfacing at spawn.
 func (c ProjectConfig) Validate() error {
-	seenAggregateProjects := make(map[string]bool, len(c.AggregateProjects))
-	for _, ref := range c.AggregateProjects {
-		if strings.TrimSpace(ref.HostID) == "" || strings.TrimSpace(ref.ProjectID) == "" || ref.HostID != strings.TrimSpace(ref.HostID) || ref.ProjectID != strings.TrimSpace(ref.ProjectID) {
-			return fmt.Errorf("aggregateProjects: hostId and projectId must be non-empty and trimmed")
-		}
-		key := ref.HostID + "\x00" + ref.ProjectID
-		if seenAggregateProjects[key] {
-			return fmt.Errorf("aggregateProjects: duplicate hostId and projectId")
-		}
-		seenAggregateProjects[key] = true
+	if err := validateAggregateRefs("aggregateProjects", c.AggregateProjects); err != nil {
+		return err
+	}
+	if err := validateAggregateRefs("aggregateExcludes", c.AggregateExcludes); err != nil {
+		return err
 	}
 	if c.CanonicalRepoURL != "" {
 		if err := c.ValidateCanonicalRepository(c.CanonicalRepoURL); err != nil {
@@ -342,6 +349,23 @@ func (c ProjectConfig) Validate() error {
 	}
 	if err := c.CIGate.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateAggregateRefs requires each hostId and projectId to be non-empty,
+// trimmed, and unique per field.
+func validateAggregateRefs(field string, refs []AggregateProjectRef) error {
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		if strings.TrimSpace(ref.HostID) == "" || strings.TrimSpace(ref.ProjectID) == "" || ref.HostID != strings.TrimSpace(ref.HostID) || ref.ProjectID != strings.TrimSpace(ref.ProjectID) {
+			return fmt.Errorf("%s: hostId and projectId must be non-empty and trimmed", field)
+		}
+		key := ref.HostID + "\x00" + ref.ProjectID
+		if seen[key] {
+			return fmt.Errorf("%s: duplicate hostId and projectId", field)
+		}
+		seen[key] = true
 	}
 	return nil
 }

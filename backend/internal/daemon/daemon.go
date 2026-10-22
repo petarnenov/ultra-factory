@@ -56,6 +56,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
+	aggregatesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/aggregate"
 	browsersvc "github.com/aoagents/agent-orchestrator/backend/internal/service/browser"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	cuesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/cue"
@@ -1060,6 +1061,12 @@ func Run() error {
 		stop()
 		<-remoteReportsDone
 	}()
+	aggregateSvc := aggregatesvc.New(aggregatesvc.Deps{Self: hostIdentity.HostID, Logger: log})
+	aggregateDone := aggregateSvc.Start(ctx)
+	defer func() {
+		stop()
+		<-aggregateDone
+	}()
 	stageHistoryDone := stagehistory.New(stagehistory.Deps{Sessions: sessionSvc, Store: store, Logger: log}).Start(ctx)
 	defer func() {
 		stop()
@@ -1072,6 +1079,7 @@ func Run() error {
 
 	srv, err := httpd.NewWithDeps(cfg, log, termMgr, httpd.APIDeps{
 		Projects:           projectSvc,
+		Aggregate:          aggregateSvc,
 		HostID:             hostIdentity.HostID,
 		Endpoints:          bs,
 		Agents:             agentSvc,
