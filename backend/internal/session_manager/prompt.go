@@ -292,7 +292,7 @@ For a multi-task initiative with two or more bounded areas that can run independ
 - This project allows %d live coordinators, %d workers per coordinator and %d workers per project. Check coordinators with `+"`ao coordinator ls`"+` and change one's limits with `+"`ao coordinator set-limits <coordinator-id>`"+`.
 - Move an existing worker with `+"`ao session assign <worker> --owner <coordinator-id>`"+`, or `+"`ao remote-worker assign`"+` for a remote link. Return it with `+"`--owner root`"+`.
 - You stay the only merger. A coordinator reports a ready pull request with `+"`ao coordinator report --ready-pr <number>@<head-sha>`"+`; you check the head and CI, then merge.
-- Interim until #496 lands: announce each merge and each slot change to the affected coordinator with `+"`ao send`"+`.`,
+- Do not announce merges or slot changes by hand: the daemon notifies a coordinator when its worker's pull request merges and when you change its host slots.`,
 		limits.Coordinators, limits.WorkersPerCoordinator, limits.Workers)
 }
 

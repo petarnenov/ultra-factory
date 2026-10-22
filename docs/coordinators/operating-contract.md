@@ -221,7 +221,7 @@ area instead of spawning every worker:
 - `ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>`, where the brief follows the five-section template above.
 - Check coordinators with `ao coordinator ls`; change limits with `ao coordinator set-limits <coordinator-id>`.
 - Keep single tasks as direct workers. Root-owned workers still count toward the project's workers-per-project limit.
-- Interim until #496 lands: announce each merge and each slot change to the affected coordinator with `ao send`.
+- Do not announce merges or slot changes by hand: the daemon notifies a coordinator when its worker's pull request merges and when you change its host slots.
 
 ### Host allocation
 

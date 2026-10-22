@@ -717,7 +717,7 @@ func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
 		"ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>",
 		"This project allows 3 live coordinators, 3 workers per coordinator and 9 workers per project.",
 		"ao coordinator set-limits <coordinator-id>",
-		"Interim until #496 lands: announce each merge and each slot change",
+		"Do not announce merges or slot changes by hand",
 		"## Host Allocation",
 		"`ao host ls`",
 		"`LOCAL_ORCHESTRATOR_ACTIVE`",
@@ -743,7 +743,7 @@ func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
 		Role:    sessionPromptRoleOrchestrator,
 		Project: promptProject{ID: "mer", Name: "Mercury"},
 	})
-	for _, absent := range []string{"## Delegation Through Coordinators", "## Host Allocation", "Interim until #496"} {
+	for _, absent := range []string{"## Delegation Through Coordinators", "## Host Allocation", "Do not announce merges or slot changes by hand"} {
 		if strings.Contains(disabled, absent) {
 			t.Fatalf("disabled root prompt must omit %q:\n%s", absent, disabled)
 		}
