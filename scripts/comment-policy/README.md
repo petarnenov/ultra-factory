@@ -37,7 +37,7 @@ parser dependency. The baseline records the initial per-file count of overlong
 blocks and lines; the baseline gate prevents those counts from increasing,
 while changed comments must satisfy the full rule.
 
-The inventory excludes generated and vendored sources, `gen`, `dist`, and `out` directories, and semantic directives and license notices. The narrowly preserved directives include Go build/compiler directives, TypeScript checking directives, and exact formatter/linter directives such as `//nolint`. Copyright and SPDX notices remain intact. These are exclusions from enforcement, not a general linter suppression mechanism.
+The inventory excludes generated and vendored sources, `gen`, `dist`, and `out` directories, and the files listed in `generatedFiles` in `check.mjs` (today `frontend/src/api/schema.ts`, which `npm run api` writes from the OpenAPI descriptions in `backend/internal/httpd/apispec`), and semantic directives and license notices. The narrowly preserved directives include Go build/compiler directives, TypeScript checking directives, and exact formatter/linter directives such as `//nolint`. Copyright and SPDX notices remain intact. These are exclusions from enforcement, not a general linter suppression mechanism.
 
 This first enforcement stage covers Go and TypeScript-family comments. The repository also contains SQL, shell, Python, Swift, Java, Terraform, CSS, HTML, Dockerfile, YAML, and other source formats. They remain under the written policy but are outside this parser-backed baseline and changed-comment check. Existing violations are inventoried debt, not remediated comments; this PR does not complete issue #193.
 
