@@ -70,6 +70,28 @@ describe("remotesFilePath", () => {
 });
 
 describe("registerRemotesIpc", () => {
+	it("lists saved metadata while a remote probe is pending", async () => {
+		const file = await tempFile();
+		let finish!: (health: "offline") => void;
+		const probe = vi.fn(() => new Promise<"offline">((resolve) => { finish = resolve; }));
+		const ipc = fakeIpc();
+		registerRemotes(ipc.ipcMain, {
+			file, registry: new RemoteRegistry(async () => { throw new Error("unused"); }),
+			requireAccount: signedIn, identity: async () => "h_workbox", probe,
+		});
+		const connection = ipc.invoke("remotes:connect", "http://192.0.2.1:1");
+		const failedConnection = expect(connection).rejects.toThrow("offline");
+		await vi.waitFor(() => expect(probe).toHaveBeenCalled());
+		try {
+			await expect(ipc.invoke("remotes:list")).resolves.toEqual([
+				{ hostId: "h_workbox", label: "workbox", url: "http://192.0.2.1:1", allowInsecureHTTP: false },
+			]);
+		} finally {
+			finish("offline");
+			await failedConnection;
+		}
+	});
+
 	it("keeps a locally paired LAN URL when the account directory returns the Tailscale URL", async () => {
 		const file = await tempFile();
 		const ipc = fakeIpc();

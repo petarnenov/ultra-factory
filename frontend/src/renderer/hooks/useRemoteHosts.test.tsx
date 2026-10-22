@@ -12,7 +12,9 @@ const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" |
 
 vi.mock("../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, session: account.status === "authenticated" ? { user: { id: "user-a" } } : null }) }));
-vi.mock("./useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
+vi.mock("./useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: cloud.baseUrl } }) }));
+const cloud = vi.hoisted(() => ({ baseUrl: "", list: vi.fn() }));
+vi.mock("../lib/account-remote-hosts", () => ({ listAccountRemoteHosts: (...args: unknown[]) => cloud.list(...args) }));
 const platform = vi.hoisted(() => ({ web: false }));
 vi.mock("../lib/platform", () => ({ get isWebBuild() { return platform.web; } }));
 
@@ -21,6 +23,8 @@ import { useConnectedHosts } from "./useHostConnection";
 import { requestRemoteHostsRefresh, useRemoteHosts } from "./useRemoteHosts";
 
 beforeEach(() => {
+	cloud.baseUrl = "";
+	cloud.list.mockReset();
 	account.status = "authenticated";
 	remotes.list.mockReset().mockResolvedValue([
 		{ hostId: "box-a", label: "Box A", url: "http://box-a:3001" },
@@ -300,4 +304,16 @@ it("connects the hub's hosts in the web build without AO Cloud sign-in", async (
 	const { result } = renderHook(() => useRemoteHosts());
 	await waitFor(() => expect(result.current.hosts.map((host) => host.status)).toEqual(["connected", "connected"]));
 	expect(baseUrlForHost("box-a")).toBe("/hosts/box-a");
+});
+
+it("publishes saved hosts before a slow cloud directory responds", async () => {
+	cloud.baseUrl = "https://cloud.example";
+	cloud.list.mockReturnValue(new Promise(() => {}));
+	useUiStore.setState({ remoteHosts: true });
+	const { result } = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(cloud.list).toHaveBeenCalled());
+	expect(result.current.hosts).toEqual([
+		{ hostId: "box-a", label: "Box A", url: "http://box-a:3001", status: "connecting" },
+		{ hostId: "box-b", label: "Box B", url: "http://box-b:3001", status: "connecting" },
+	]);
 });

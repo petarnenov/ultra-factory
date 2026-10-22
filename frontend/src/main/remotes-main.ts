@@ -172,12 +172,13 @@ export function registerRemotesIpc(
 		return lastDiscovery?.localHostIds.includes(hostId) ?? false;
 	};
 
-	ipcMain.handle("remotes:list", () => ordered(async () => {
+	ipcMain.handle("remotes:list", async () => {
+		await accountID();
 		const discovery = await syncDiscovered();
 		const localHostId = await localIdentity();
 		const entries = await owned();
 		return toHostViews(entries.filter((entry) => !localHostId || entry.hostId !== localHostId), onlineByHost(discovery));
-	}));
+	});
 	ipcMain.handle("remotes:tailnet", () => ordered(async (): Promise<TailnetStatusView> => {
 		const discovery = lastDiscovery ?? await syncDiscovered();
 		if (!discovery) return { available: false, error: "The local AO daemon is not running.", hidden: [] };
