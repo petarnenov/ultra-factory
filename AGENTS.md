@@ -148,6 +148,7 @@ For code entry points:
 - Use `context.Context` as the first argument for functions that do I/O or blocking work.
 - Do not add abstractions for one-off use cases. Add helpers only when they remove duplication across real call sites.
 - Tests should cover the user-visible behavior and boundary being changed: happy path, validation/missing args, daemon error envelopes, and any destructive confirmation path.
+- Test coverage must be at least 75%.
 
 ## Hard rules and boundaries
 
