@@ -56,6 +56,12 @@ func (m *manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	return true, m.p.store.UpdateSession(ctx, rec)
 }
 
+// Send accepts ownership notices; the pilot checks report delivery through
+// its own delivery fake, so the notices need no recipient here.
+func (m *manager) Send(context.Context, domain.SessionID, string, *ports.SpawnAttachment) error {
+	return nil
+}
+
 // The service probes these optional capabilities on its manager; the embedded
 // nil Manager would panic on them.
 func (m *manager) StatusRecoveryRevision() uint64 { return 0 }
