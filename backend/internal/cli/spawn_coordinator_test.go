@@ -122,6 +122,9 @@ func TestSpawnCoordinatorWarnsOnUnfilledBriefAndStillSpawns(t *testing.T) {
 	}{
 		{name: "no prompt", prompt: nil, wantWarned: "no --prompt"},
 		{name: "template placeholder", prompt: []string{"--prompt", "Assignment for <coordinator name>.\nScope: <one bounded area, at most 200 characters; same text as --scope>"}, wantWarned: "<coordinator name>"},
+		{name: "docs template placeholder", prompt: []string{"--prompt", "Worker cap: <N> active workers at once."}, wantWarned: "<N>"},
+		{name: "docs host placement", prompt: []string{"--prompt", "Host placement: <host list> (the project's allowed hosts)."}, wantWarned: "<host list>"},
+		{name: "docs worker agent", prompt: []string{"--prompt", "Worker agent: <inherit | the profiles the daemon picks from, by label>."}, wantWarned: "<inherit | the profiles"},
 		{name: "instruction tokens only", prompt: []string{"--prompt", filled}, wantWarned: ""},
 	}
 	for _, tc := range cases {

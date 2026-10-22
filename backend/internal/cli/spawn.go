@@ -733,6 +733,9 @@ var coordinatorBriefPlaceholders = []string{
 	"<dev>",
 	"<prefix>",
 	"<acceptance criteria: fill in>",
+	"<N>",
+	"<host list>",
+	"<inherit | the profiles the daemon picks from, by label>",
 }
 
 // coordinatorBriefWarning names the first placeholder left in the prompt, or
