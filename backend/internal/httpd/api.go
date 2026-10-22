@@ -26,6 +26,7 @@ type APIDeps struct {
 	Agents             controllers.AgentCatalog
 	CodexAccounts      controllers.CodexAccountService
 	Projects           projectsvc.Manager
+	Aggregate          controllers.AggregateService
 	Sessions           controllers.SessionService
 	Automations        controllers.AutomationService
 	DesktopWorkspaces  controllers.DesktopWorkspaceService
@@ -44,6 +45,7 @@ type APIDeps struct {
 	RemoteWorkerLinks  controllers.RemoteWorkerLinkService
 	RemoteWorkerSync   controllers.RemoteWorkerSyncService
 	CompletedTasks     controllers.CompletedTaskService
+	Knowledge          controllers.KnowledgeService
 	NotificationStream controllers.NotificationStream
 	Push               controllers.PushRegistry
 	Import             controllers.ImportService
@@ -72,6 +74,9 @@ type APIDeps struct {
 	// Endpoints reports how this daemon can currently be reached, for the
 	// phone's endpoint-refresh route.
 	Endpoints controllers.EndpointSource
+	// Tailnet is the directory of AO hosts discovered on the user's Tailscale
+	// network; nil answers 501.
+	Tailnet   controllers.TailnetDirectory
 	Installer controllers.Installer
 	AgentAuth controllers.AgentAuthService
 	// GitHub is the local GitHub PAT + repos surface.
@@ -139,6 +144,7 @@ type API struct {
 	summaries     *controllers.CoordinatorSummariesController
 	remoteWorkers *controllers.RemoteWorkerLinksController
 	completed     *controllers.CompletedTasksController
+	knowledge     *controllers.KnowledgeController
 	push          *controllers.PushController
 	imports       *controllers.ImportController
 	fs            *controllers.FSController
@@ -151,6 +157,7 @@ type API struct {
 	system        *controllers.SystemController
 	identity      *controllers.IdentityController
 	endpoints     *controllers.EndpointsController
+	tailnet       *controllers.TailnetController
 	systemInstall *controllers.SystemInstallController
 	agentAuth     *controllers.AgentAuthController
 	linkPreview   *controllers.LinkPreviewController
@@ -177,7 +184,8 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		},
 		codexAccounts: &controllers.CodexAccountsController{Svc: deps.CodexAccounts},
 		projects: &controllers.ProjectsController{
-			Mgr: deps.Projects,
+			Mgr:       deps.Projects,
+			Aggregate: deps.Aggregate,
 		},
 		sessions: &controllers.SessionsController{
 			Svc:                      deps.Sessions,
@@ -202,6 +210,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		summaries:     &controllers.CoordinatorSummariesController{Svc: deps.Summaries},
 		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks, Sync: deps.RemoteWorkerSync},
 		completed:     &controllers.CompletedTasksController{Svc: deps.CompletedTasks, HostID: deps.HostID},
+		knowledge:     &controllers.KnowledgeController{Svc: deps.Knowledge},
 		push:          &controllers.PushController{Registry: deps.Push},
 		imports:       &controllers.ImportController{Svc: deps.Import},
 		fs:            &controllers.FSController{Svc: deps.Directories},
@@ -214,6 +223,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		system:        &controllers.SystemController{Checks: deps.SystemChecks},
 		identity:      &controllers.IdentityController{HostID: deps.HostID},
 		endpoints:     &controllers.EndpointsController{Source: deps.Endpoints},
+		tailnet:       &controllers.TailnetController{Dir: deps.Tailnet},
 		systemInstall: &controllers.SystemInstallController{Installer: deps.Installer},
 		agentAuth:     &controllers.AgentAuthController{Svc: deps.AgentAuth},
 		linkPreview:   &controllers.LinkPreviewController{Svc: deps.LinkPreview},
@@ -266,6 +276,7 @@ func (a *API) Register(root chi.Router) {
 			a.summaries.Register(r)
 			a.remoteWorkers.Register(r)
 			a.completed.Register(r)
+			a.knowledge.Register(r)
 			a.push.Register(r)
 			a.imports.Register(r)
 			a.fs.Register(r)
@@ -278,6 +289,7 @@ func (a *API) Register(root chi.Router) {
 			a.system.Register(r)
 			a.identity.Register(r)
 			a.endpoints.Register(r)
+			a.tailnet.Register(r)
 			a.systemInstall.Register(r)
 			a.agentAuth.Register(r)
 			a.linkPreview.Register(r)

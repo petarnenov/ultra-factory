@@ -228,6 +228,7 @@ func capacityResponse(c sessionsvc.CapacityView) CoordinatorCapacity {
 	return CoordinatorCapacity{
 		MaxCoordinators: c.Limits.Coordinators, MaxWorkersPerCoordinator: c.Limits.WorkersPerCoordinator,
 		MaxWorkers: c.Limits.Workers, ActiveCoordinators: c.ActiveCoordinators, ActiveWorkers: c.ActiveWorkers,
+		StaleWorkers: c.StaleWorkers,
 	}
 }
 
@@ -238,20 +239,38 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 		Capacity:             capacityResponse(roster.Capacity),
 		Coordinators:         make([]CoordinatorRosterEntry, 0, len(roster.Coordinators)),
 		RootWorkerSessionIDs: make([]string, 0, len(roster.RootWorkers)),
+		RootWorkers:          make([]CoordinatorRosterWorker, 0, len(roster.RootWorkers)+len(roster.RemoteRootWorkers)),
+	}
+	for _, worker := range roster.RootWorkers {
+		id := string(worker.ID)
+		out.RootWorkerSessionIDs = append(out.RootWorkerSessionIDs, id)
+		out.RootWorkers = append(out.RootWorkers, CoordinatorRosterWorker{SessionID: id})
+	}
+	for _, worker := range roster.RemoteRootWorkers {
+		out.RootWorkers = append(out.RootWorkers, CoordinatorRosterWorker{
+			SessionID: string(worker.RemoteSessionID), Remote: true,
+			HostID: worker.HostID, HostLabel: worker.HostLabel,
+		})
 	}
 	for _, entry := range roster.Coordinators {
 		workers := make([]string, 0, len(entry.Workers))
-		profiles := make([]CoordinatorRosterWorker, 0, len(entry.Workers))
+		profiles := make([]CoordinatorRosterWorker, 0, len(entry.Workers)+len(entry.RemoteWorkers))
 		for _, worker := range entry.Workers {
 			workers = append(workers, string(worker.ID))
 			profiles = append(profiles, CoordinatorRosterWorker{SessionID: string(worker.ID), AgentProfileID: profileIDString(worker.AgentProfileID)})
+		}
+		for _, worker := range entry.RemoteWorkers {
+			profiles = append(profiles, CoordinatorRosterWorker{
+				SessionID: string(worker.RemoteSessionID), Remote: true,
+				HostID: worker.HostID, HostLabel: worker.HostLabel,
+			})
 		}
 		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
 			CoordinatorSessionID:    string(entry.Coordinator.ID),
 			CoordinatorScope:        entry.Coordinator.CoordinatorScope,
 			IsTerminated:            entry.Coordinator.IsTerminated,
 			WorkerSessionIDs:        workers,
-			WorkerCount:             len(workers),
+			WorkerCount:             len(profiles),
 			Workers:                 profiles,
 			AgentProfileID:          profileIDString(entry.Coordinator.AgentProfileID),
 			WorkerAgent:             entry.Coordinator.CoordinatorWorkerAgent,
@@ -262,9 +281,6 @@ func coordinatorRosterResponse(roster sessionsvc.CoordinatorRoster) CoordinatorR
 			HostSlots:               hostSlotUsageResponse(entry.HostSlots),
 			NeedsRecovery:           entry.NeedsRecovery,
 		})
-	}
-	for _, worker := range roster.RootWorkers {
-		out.RootWorkerSessionIDs = append(out.RootWorkerSessionIDs, string(worker.ID))
 	}
 	return out
 }

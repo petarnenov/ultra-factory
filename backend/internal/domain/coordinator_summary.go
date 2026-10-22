@@ -56,6 +56,7 @@ var ErrInvalidCoordinatorSummary = errors.New("invalid coordinator summary")
 // SummaryRemoteWorker names a remote worker link a summary covers.
 type SummaryRemoteWorker struct {
 	HostID          string
+	HostLabel       string
 	RemoteSessionID string
 }
 
@@ -77,7 +78,7 @@ type CoordinatorSummary struct {
 	Scope                string
 	State                CoordinatorSummaryState
 	WorkerSessionIDs     []SessionID
-	// RemoteWorkers is set only by the termination escalation trigger.
+	// RemoteWorkers records linked workers covered by this summary.
 	RemoteWorkers    []SummaryRemoteWorker
 	ReadyPRs         []ReadyPR
 	Result           string

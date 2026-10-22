@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
@@ -143,6 +144,8 @@ type CapacityView struct {
 	Limits             domain.CoordinatorLimits
 	ActiveCoordinators int
 	ActiveWorkers      int
+	// StaleWorkers counts remote links that no longer count as active.
+	StaleWorkers int
 	// WorkerLimit and CoordinatorWorkers are set for a coordinator only.
 	WorkerLimit        int
 	CoordinatorWorkers int
@@ -187,7 +190,10 @@ func (s *Service) capacityView(ctx context.Context, project domain.ProjectID, co
 }
 
 func capacityFrom(counts coordownership.Counts, limits domain.CoordinatorLimits, coordinator *domain.SessionID) CapacityView {
-	view := CapacityView{Limits: limits, ActiveCoordinators: counts.Coordinators, ActiveWorkers: counts.Workers}
+	view := CapacityView{
+		Limits: limits, ActiveCoordinators: counts.Coordinators, ActiveWorkers: counts.Workers,
+		StaleWorkers: counts.StaleWorkers,
+	}
 	if coordinator != nil {
 		view.WorkerLimit = counts.OwnerLimit(*coordinator, limits)
 		view.CoordinatorWorkers = counts.ByOwner[*coordinator]
@@ -199,8 +205,9 @@ func capacityFrom(counts coordownership.Counts, limits domain.CoordinatorLimits,
 
 // CoordinatorRosterEntry is one coordinator and the local workers it owns.
 type CoordinatorRosterEntry struct {
-	Coordinator domain.Session
-	Workers     []domain.Session
+	Coordinator   domain.Session
+	Workers       []domain.Session
+	RemoteWorkers []domain.RemoteWorkerLink
 	// NeedsRecovery is derived: the coordinator is terminated while a live
 	// worker still names it as owner.
 	NeedsRecovery bool
@@ -220,10 +227,11 @@ type CoordinatorRoster struct {
 	ProjectID     domain.ProjectID
 	RootSessionID *domain.SessionID
 	// Limits are the project's effective limits; Capacity is its live census.
-	Limits       domain.CoordinatorLimits
-	Capacity     CapacityView
-	Coordinators []CoordinatorRosterEntry
-	RootWorkers  []domain.Session
+	Limits            domain.CoordinatorLimits
+	Capacity          CapacityView
+	Coordinators      []CoordinatorRosterEntry
+	RootWorkers       []domain.Session
+	RemoteRootWorkers []domain.RemoteWorkerLink
 }
 
 // Ownership reads one session's owner, coordinator scope, and live root.
@@ -274,6 +282,7 @@ func (s *Service) CoordinatorRoster(
 		return CoordinatorRoster{}, err
 	}
 	byOwner := make(map[domain.SessionID][]domain.Session)
+	remoteByOwner := make(map[domain.SessionID][]domain.RemoteWorkerLink)
 	var coordinators []domain.Session
 	for _, sess := range sessions {
 		switch sess.Kind {
@@ -290,6 +299,30 @@ func (s *Service) CoordinatorRoster(
 			byOwner[*sess.OwnerSessionID] = append(byOwner[*sess.OwnerSessionID], sess)
 		}
 	}
+	if targetsStore, ok := s.store.(coordownership.WorkerReferenceStore); ok {
+		targets, err := coordownership.ListWorkerTargets(ctx, targetsStore, project)
+		if err != nil {
+			return CoordinatorRoster{}, fmt.Errorf("list remote worker links for roster: %w", err)
+		}
+		now := time.Now()
+		if s.clock != nil {
+			now = s.clock()
+		}
+		for _, target := range targets {
+			if target.Remote == nil {
+				continue
+			}
+			link := *target.Remote
+			if link.State(now) != domain.RemoteLinkLive {
+				continue
+			}
+			if link.OwnerSessionID == nil {
+				out.RemoteRootWorkers = append(out.RemoteRootWorkers, link)
+				continue
+			}
+			remoteByOwner[*link.OwnerSessionID] = append(remoteByOwner[*link.OwnerSessionID], link)
+		}
+	}
 	var counts coordownership.Counts
 	if s.store != nil {
 		if counts, err = s.countCapacity(ctx, project); err != nil {
@@ -304,12 +337,13 @@ func (s *Service) CoordinatorRoster(
 	out.Capacity = capacityFrom(counts, out.Limits, nil)
 	for _, coordinator := range coordinators {
 		workers := byOwner[coordinator.ID]
-		recovery := coordinator.IsTerminated && hasLiveWorker(workers)
+		remoteWorkers := remoteByOwner[coordinator.ID]
+		recovery := coordinator.IsTerminated && (hasLiveWorker(workers) || len(remoteWorkers) > 0)
 		if coordinator.IsTerminated && !includeTerminated && !recovery {
 			continue
 		}
 		out.Coordinators = append(out.Coordinators, CoordinatorRosterEntry{
-			Coordinator: coordinator, Workers: workers, NeedsRecovery: recovery,
+			Coordinator: coordinator, Workers: workers, RemoteWorkers: remoteWorkers, NeedsRecovery: recovery,
 			WorkerLimit:    counts.OwnerLimit(coordinator.ID, out.Limits),
 			ActiveWorkers:  counts.ByOwner[coordinator.ID],
 			PlacementLimit: counts.EffectivePlacementLimit(coordinator.ID, out.Limits),
@@ -325,6 +359,13 @@ func (s *Service) CoordinatorRoster(
 	for i := range out.Coordinators {
 		workers := out.Coordinators[i].Workers
 		sort.Slice(workers, func(a, b int) bool { return workers[a].ID < workers[b].ID })
+		remoteWorkers := out.Coordinators[i].RemoteWorkers
+		sort.Slice(remoteWorkers, func(a, b int) bool {
+			if remoteWorkers[a].HostLabel == remoteWorkers[b].HostLabel {
+				return remoteWorkers[a].RemoteSessionID < remoteWorkers[b].RemoteSessionID
+			}
+			return remoteWorkers[a].HostLabel < remoteWorkers[b].HostLabel
+		})
 	}
 	return out, nil
 }

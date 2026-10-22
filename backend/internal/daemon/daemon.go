@@ -56,6 +56,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/runfile"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
+	aggregatesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/aggregate"
 	browsersvc "github.com/aoagents/agent-orchestrator/backend/internal/service/browser"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	cuesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/cue"
@@ -79,6 +80,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionhealth"
 	"github.com/aoagents/agent-orchestrator/backend/internal/skillassets"
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite"
+	"github.com/aoagents/agent-orchestrator/backend/internal/tailnet"
 	"github.com/aoagents/agent-orchestrator/backend/internal/terminal"
 )
 
@@ -711,10 +713,22 @@ func Run() error {
 	if !ok {
 		return errors.New("wire report delivery: session manager lacks semantic send support")
 	}
+	completedTasks := taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store})
+	knowledge, knowledgeAPI := startKnowledgeGraph(ctx, knowledgeGraphDeps{
+		Getenv: os.Getenv, DataDir: cfg.DataDir, Sessions: sessionSvc, Tasks: completedTasks,
+		HostID: hostIdentity.HostID, Events: cdcPipe.Broadcaster, Log: log,
+	})
+	if knowledge != nil {
+		sessionSvc.SetKnowledgeGraph(knowledge)
+		defer knowledge.Stop()
+	}
 	var reportCoordinator *reportsvc.Coordinator
-	reportSvc := reportsvc.New(reportsvc.Deps{Store: store, Artifacts: chatSvc, OnCreated: func(domain.ReportRecord) {
+	reportSvc := reportsvc.New(reportsvc.Deps{Store: store, Artifacts: chatSvc, OnCreated: func(rec domain.ReportRecord) {
 		if reportCoordinator != nil {
 			reportCoordinator.Wake()
+		}
+		if knowledge != nil {
+			knowledge.ReportCreated(rec)
 		}
 	}})
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
@@ -913,7 +927,7 @@ func Run() error {
 		}()
 		lcStack.LCM.SetUsageFinalizer(usageCollector)
 	}
-	lcStack.scmDone = startSCMObserver(ctx, store, lcStack.LCM, sessionSvc, cfg.DataDir, cfg.GitLab, log)
+	lcStack.scmDone = startSCMObserver(ctx, store, lcStack.LCM, sessionSvc, reportCoordinator, cfg.DataDir, cfg.GitLab, log)
 	var prActions prsvc.ActionManager
 	prReader := newMultiSCMProvider(cfg.GitLab, cfg.DataDir, log)
 	prMerger := newMultiSCMMerger(cfg.GitLab, cfg.DataDir, log)
@@ -1043,11 +1057,27 @@ func Run() error {
 	if mobilebridge.KeepAwakeSupported() {
 		bs.KeepAwake = mobilebridge.NewKeepAwake(os.Getpid())
 	}
-	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, capacityGuard, sessMgr, log)
+	// Tailnet discovery: every AO daemon on the user's tailnet shows up as a
+	// remote host here, password-free, with no AO Cloud involvement.
+	tailnetDiscovery := tailnet.NewDiscovery(tailnet.DiscoveryDeps{
+		SelfHostID:     hostIdentity.HostID,
+		SiblingHostIDs: func() []string { return tailnet.SiblingHostIDs(cfg.DataDir) },
+		Ports:          append([]int{cfg.TailnetPort}, cfg.TailnetProbePorts...),
+		PrefsPath:      tailnet.PrefsPath(cfg.DataDir),
+		Log:            log,
+	})
+	go tailnetDiscovery.Run(ctx)
+	remoteReports, remoteWorkerSvc := newRemoteReports(store, reportCoordinator, hostIdentity.HostID, capacityGuard, sessMgr, tailnetDiscovery, log)
 	remoteReportsDone := remoteReports.Start(ctx)
 	defer func() {
 		stop()
 		<-remoteReportsDone
+	}()
+	aggregateSvc := aggregatesvc.New(aggregatesvc.Deps{Self: hostIdentity.HostID, Logger: log})
+	aggregateDone := aggregateSvc.Start(ctx)
+	defer func() {
+		stop()
+		<-aggregateDone
 	}()
 	stageHistoryDone := stagehistory.New(stagehistory.Deps{Sessions: sessionSvc, Store: store, Logger: log}).Start(ctx)
 	defer func() {
@@ -1061,6 +1091,7 @@ func Run() error {
 
 	srv, err := httpd.NewWithDeps(cfg, log, termMgr, httpd.APIDeps{
 		Projects:           projectSvc,
+		Aggregate:          aggregateSvc,
 		HostID:             hostIdentity.HostID,
 		Endpoints:          bs,
 		Agents:             agentSvc,
@@ -1078,7 +1109,9 @@ func Run() error {
 		Summaries:          summarySvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
 		RemoteWorkerSync:   remoteReports,
-		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),
+		Tailnet:            tailnetDiscovery,
+		CompletedTasks:     completedTasks,
+		Knowledge:          knowledgeAPI,
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,
@@ -1143,11 +1176,18 @@ func Run() error {
 	}
 	var usageDone <-chan struct{}
 
+	// Tailnet callers are admitted on their Tailscale identity (same user by
+	// default), checked through the local tailscaled on every request.
+	tailnetAuth := tailnet.NewAuthorizer(tailnet.ExecRunner, tailnet.Policy{AllowUsers: cfg.TailnetAllowUsers, AllowTags: cfg.TailnetAllowTags})
 	// Late-bind: the LAN listener shares the exact loopback router instance so
 	// the LAN surface and loopback surface never drift apart.
 	lan := httpd.NewMobileLAN(srv.Handler(), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink,
-		httpd.WithTrustedProxy(cfg.RemoteTrustedProxy))
+		httpd.WithTrustedProxy(cfg.RemoteTrustedProxy), httpd.WithTailnetAuth(tailnetAuth))
 	bs.LAN = lan
+	bs.TailnetPort = cfg.TailnetPort
+	// The opt-in listener has independent identity-only auth state and lifecycle.
+	bs.TailnetLAN = httpd.NewMobileLAN(srv.Handler(), hostIdentity.HostID, mobilebridge.DefaultPort, log, telemetrySink,
+		httpd.WithTailnetAuth(tailnetAuth))
 
 	// Restore Connect Mobile across a daemon restart: if the bridge was left
 	// enabled, re-arm the listener on its last port with the same password
@@ -1159,7 +1199,7 @@ func Run() error {
 	if err := restoreMobileOnBoot(mobilebridge.Path(cfg.DataDir), bs); err != nil {
 		log.Warn("restore mobile bridge on boot failed", "err", err)
 	}
-	go runRemoteHostAddressPublisher(ctx, bs, cfg.CloudControlPlaneURL, log)
+	startRemoteHostAddressPublisher(ctx, cfg, bs, log)
 
 	if usagePipeline != nil {
 		usageDone = usagePipeline.Start(ctx)
@@ -1327,6 +1367,11 @@ func Run() error {
 	defer lanCancel()
 	if err := lan.Stop(lanStopCtx); err != nil {
 		log.Error("mobile LAN listener shutdown", "err", err)
+	}
+	if bs.TailnetLAN != nil {
+		if err := bs.TailnetLAN.Stop(lanStopCtx); err != nil {
+			log.Error("additional Tailscale listener shutdown", "err", err)
+		}
 	}
 	if err := cdcPipe.Stop(); err != nil {
 		log.Error("cdc pipeline shutdown", "err", err)

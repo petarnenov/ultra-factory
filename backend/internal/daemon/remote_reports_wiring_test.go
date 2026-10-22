@@ -82,6 +82,22 @@ func (s *wiringRemoteStore) DeleteRemoteWorkerLink(context.Context, string, doma
 	return nil
 }
 
+func (s *wiringRemoteStore) RemoveRemoteWorkerLink(context.Context, string, domain.SessionID, time.Time) error {
+	return nil
+}
+
+func (s *wiringRemoteStore) UpdateRemoteWorkerLinkLiveness(context.Context, string, domain.SessionID, time.Time, string) error {
+	return nil
+}
+
+func (s *wiringRemoteStore) ListRemoteWorkerLinkRemovals(context.Context) ([]domain.RemoteWorkerLinkRemoval, error) {
+	return nil, nil
+}
+
+func (s *wiringRemoteStore) DeleteRemoteWorkerLinkRemoval(context.Context, string, domain.SessionID) error {
+	return nil
+}
+
 func (s *wiringRemoteStore) ListDeliveredRemoteReports(context.Context, string, domain.SessionID) (map[string]bool, error) {
 	return nil, nil
 }
@@ -135,7 +151,7 @@ func TestRemoteReportsWiringSharesTheHostIdentityAndWakesOnLink(t *testing.T) {
 	t.Setenv("AO_REMOTES_FILE", remotes)
 	store := &wiringRemoteStore{links: []domain.RemoteWorkerLink{{HostID: "host-local", RemoteSessionID: "w-1"}}}
 	var logs syncBuffer
-	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", nil, nil, slog.New(slog.NewTextHandler(&logs, nil)))
+	observer, links := newRemoteReports(store, wiringDeliverer{}, "host-local", nil, nil, nil, slog.New(slog.NewTextHandler(&logs, nil)))
 
 	// The link service refuses this machine.
 	_, err := links.Register(context.Background(), remoteworker.RegisterInput{

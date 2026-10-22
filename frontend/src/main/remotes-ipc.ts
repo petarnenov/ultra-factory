@@ -9,15 +9,22 @@ import {
 } from "./remotes-store";
 
 // What the renderer is allowed to see. The password stays in the main process.
+// tailscale/online come from discovery; absent for hosts paired by address.
 export type RemoteHostView = {
 	hostId: string;
 	label: string;
 	url: string;
 	allowInsecureHTTP: boolean;
+	tailscale?: boolean;
+	online?: boolean;
 };
 
-export function toHostViews(entries: RemoteEntry[]): RemoteHostView[] {
-	return entries.map(({ hostId, label, url, allowInsecureHTTP }) => ({ hostId: hostId ?? "", label, url, allowInsecureHTTP: allowInsecureHTTP === true }));
+export function toHostViews(entries: RemoteEntry[], online?: Map<string, boolean>): RemoteHostView[] {
+	return entries.map(({ hostId, label, url, tailscale, allowInsecureHTTP }) => ({
+		hostId: hostId ?? "", label, url,
+		allowInsecureHTTP: allowInsecureHTTP === true,
+		...(tailscale ? { tailscale: true, online: online?.get(hostId ?? "") ?? false } : {}),
+	}));
 }
 
 export async function findRemote(path: string, url: string, hostId?: string): Promise<RemoteEntry> {

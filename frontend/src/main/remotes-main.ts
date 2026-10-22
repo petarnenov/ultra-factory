@@ -4,7 +4,8 @@ import path from "node:path";
 import { IncompatibleRemoteVersionError, probeRemote, readRemoteIdentity, type RemoteHealth } from "./remote-request";
 import { findRemote, removeSavedRemote, toHostViews, updateSavedRemote } from "./remotes-ipc";
 import type { RemoteRegistry } from "./remote-registry";
-import { addRemote, readRemotes, updateRemote, type RemoteChanges, type RemoteEntry } from "./remotes-store";
+import { addRemote, readRemotes, reconcileTailnetRemotes, removeRemote, updateRemote, type RemoteChanges, type RemoteEntry } from "./remotes-store";
+import { readTailnetDiscovery, updateTailnetHost, type TailnetDiscovery, type TailnetHost, type TailnetHostChanges } from "./tailnet-discovery";
 
 // Machine-level saved-host file, shared with every daemon (mirrors
 // remotehost.FilePath). An isolated AO_DATA_DIR keeps its own file.
@@ -53,14 +54,27 @@ type IpcMainLike = {
 	handle(channel: string, listener: (event: unknown, ...args: any[]) => Promise<unknown>): void;
 };
 
+/** What Settings shows about discovery itself: availability, hidden hosts. */
+export type TailnetStatusView = {
+	available: boolean;
+	error?: string;
+	selfLogin?: string;
+	hidden: Array<Pick<TailnetHost, "hostId" | "label" | "name" | "address" | "url" | "online">>;
+};
+
 export type RemotesIpcDeps = {
 	file: string;
 	registry: RemoteRegistry;
 	requireAccount: () => Promise<void>;
 	getAccountId: () => Promise<string>;
 	localIdentity: () => Promise<string | null>;
+	// daemonBaseUrl is this machine's loopback daemon, which runs tailnet
+	// discovery; null while it is not attached.
+	daemonBaseUrl: () => string | null;
 	probe?: (entry: RemoteEntry) => Promise<RemoteHealth>;
 	identity?: (entry: Pick<RemoteEntry, "url">) => Promise<string>;
+	discover?: (base: string | null) => Promise<TailnetDiscovery | null>;
+	updateTailnet?: (base: string | null, hostId: string, changes: TailnetHostChanges) => Promise<void>;
 };
 
 class LocalIdentityUnavailableError extends Error {
@@ -72,9 +86,12 @@ class LocalIdentityUnavailableError extends Error {
  * renderer receives back is password-free (see remotes-ipc.ts); the plaintext
  * password only travels renderer -> main when adding or editing a credential.
  */
+
+// Hosts this machine's daemon finds on the tailnet are merged in. No AO Cloud
+// account is needed: cloud host sync is a separate, explicit opt-in.
 export function registerRemotesIpc(
 	ipcMain: IpcMainLike,
-	{ file, registry, requireAccount, getAccountId, localIdentity, probe = probeRemote, identity = readRemoteIdentity }: RemotesIpcDeps,
+	{ file, registry, requireAccount, getAccountId, localIdentity, daemonBaseUrl, probe = probeRemote, identity = readRemoteIdentity, discover = readTailnetDiscovery, updateTailnet = updateTailnetHost }: RemotesIpcDeps,
 ): void {
 	const disconnect = (url: string) => registry.disconnect(url);
 	const refuseSelf = (hostId: string | undefined, localHostId: string | null) => {
@@ -112,15 +129,20 @@ export function registerRemotesIpc(
 	// Keep edits and connects ordered so an update cannot leave a stale proxy.
 	// ponytail: one queue includes network probes; split by host if five-host setup is too slow.
 	let pending: Promise<void> = Promise.resolve();
+	let pendingOperations = 0;
 	const ordered = <T>(operation: () => Promise<T>): Promise<T> => {
+		pendingOperations++;
 		const result = pending.then(operation, operation);
-		pending = result.then(() => undefined, () => undefined);
+		pending = result.then(() => { pendingOperations--; }, () => { pendingOperations--; });
 		return result;
 	};
-	const accountID = async () => {
+	// The signed-in AO Cloud account, or "" when there is none. Only the cloud
+	// sync handlers require one.
+	const accountID = async () => (await getAccountId()) || "";
+	const cloudAccountID = async () => {
 		await requireAccount();
 		const id = await getAccountId();
-		if (!id) throw new Error("Sign in to AO Cloud to use remote hosts.");
+		if (!id) throw new Error("Sign in to AO Cloud to sync remote hosts.");
 		return id;
 	};
 	const owned = async () => {
@@ -131,12 +153,66 @@ export function registerRemotesIpc(
 		// signed-in account, while keeping other accounts isolated.
 		return entries.filter((item) => !item.accountUserId || item.accountUserId === account);
 	};
+	// Discovery is best-effort: a daemon that cannot be asked leaves the file as
+	// it is, and the renderer shows the saved hosts it already had.
+	let lastDiscovery: TailnetDiscovery | null = null;
+	let discoveryGeneration = 0;
+	const syncDiscovered = async (): Promise<TailnetDiscovery | null> => {
+		const generation = discoveryGeneration;
+		const discovery = await discover(daemonBaseUrl());
+		if (!discovery) return null;
+		const localHostId = await localIdentity();
+		const busy = pendingOperations > 0;
+		const reconciliation = ordered(async () => {
+			if (generation !== discoveryGeneration) return lastDiscovery;
+			const drop = [...discovery.localHostIds, ...(localHostId ? [localHostId] : [])];
+			const visible = discovery.hosts.filter((host) => !host.hidden && !drop.includes(host.hostId));
+			await reconcileTailnetRemotes(file, visible.map(({ hostId, label, url }) => ({ hostId, label, url })), drop);
+			lastDiscovery = discovery;
+			return discovery;
+		});
+		if (busy) {
+			// A later refresh retries a failed background reconciliation.
+			void reconciliation.catch(() => {});
+		} else {
+			await reconciliation;
+		}
+		return discovery;
+	};
+	const onlineByHost = (discovery: TailnetDiscovery | null) =>
+		new Map((discovery?.hosts ?? []).map((host) => [host.hostId, host.online]));
+	const isLocalHostId = async (hostId: string | undefined) => {
+		if (!hostId) return false;
+		if ((await localIdentity()) === hostId) return true;
+		return lastDiscovery?.localHostIds.includes(hostId) ?? false;
+	};
 
-	ipcMain.handle("remotes:list", () => ordered(async () => {
-		await accountID();
+	ipcMain.handle("remotes:list", async () => {
+		const discovery = await syncDiscovered();
 		const localHostId = await localIdentity();
 		const entries = await owned();
-		return toHostViews(entries.filter((entry) => !localHostId || entry.hostId !== localHostId));
+		return toHostViews(entries.filter((entry) => !localHostId || entry.hostId !== localHostId), onlineByHost(discovery));
+	});
+	ipcMain.handle("remotes:tailnet", async (): Promise<TailnetStatusView> => {
+		const discovery = lastDiscovery ?? await syncDiscovered();
+		if (!discovery) return { available: false, error: "The local AO daemon is not running.", hidden: [] };
+		return {
+			available: discovery.available, error: discovery.error, selfLogin: discovery.selfLogin,
+			hidden: discovery.hosts.filter((host) => host.hidden).map(({ hostId, label, name, address, url, online }) => ({ hostId, label, name, address, url, online })),
+		};
+	});
+	ipcMain.handle("remotes:hide", async (_event, hostId: string) => ordered(async () => {
+		discoveryGeneration++;
+		await updateTailnet(daemonBaseUrl(), hostId, { hidden: true });
+		for (const entry of await readRemotes(file)) {
+			if (entry.hostId === hostId && entry.tailscale) await removeSavedRemote(file, entry.url, disconnect);
+		}
+		lastDiscovery = null;
+	}));
+	ipcMain.handle("remotes:unhide", async (_event, hostId: string) => ordered(async () => {
+		discoveryGeneration++;
+		await updateTailnet(daemonBaseUrl(), hostId, { hidden: false });
+		lastDiscovery = null;
 	}));
 	ipcMain.handle("remotes:add", async (_event, input: RemoteEntry) => ordered(async () => {
 		const account = await accountID();
@@ -152,7 +228,7 @@ export function registerRemotesIpc(
 			return "offline" as RemoteHealth;
 		}
 		refuseSelf(hostId, localHostId);
-		const entry = { label: input.label, url: input.url, password: input.password, hostId, accountUserId: account };
+		const entry = { label: input.label, url: input.url, password: input.password, hostId, ...(account ? { accountUserId: account } : {}) };
 		const health = await checkedProbe(entry, account);
 		if (health === "online") {
 			const previous = (await owned()).find((saved) => saved.hostId === hostId);
@@ -164,8 +240,20 @@ export function registerRemotesIpc(
 	}));
 	ipcMain.handle("remotes:update", async (_event, url: string, changes: RemoteChanges) => ordered(async () => {
 		const account = await accountID();
-		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");
+		const current = (await owned()).find((entry) => entry.url === url);
+		if (!current) throw new Error("Host does not belong to this account.");
 		const { accountUserId: _ignored, ...editable } = changes;
+		if (current.tailscale) {
+			// A tailnet host's address and credential come from discovery; only its
+			// label is the user's, and the daemon keeps it so the CLI agrees.
+			if (editable.url !== undefined && editable.url !== current.url) throw new Error("A Tailscale host keeps its Tailscale address.");
+			if (editable.password) throw new Error("A Tailscale host needs no password.");
+			if (editable.label !== undefined && current.hostId) {
+				await updateTailnet(daemonBaseUrl(), current.hostId, { label: editable.label });
+				await updateRemote(file, url, { label: editable.label });
+			}
+			return "online" as RemoteHealth;
+		}
 		return updateSavedRemote(file, url, editable, disconnect, (entry) => checkedProbe(entry, account));
 	}));
 	// The reports switch is a daemon permission: written with no probe or
@@ -176,7 +264,9 @@ export function registerRemotesIpc(
 		await updateRemote(file, url, { allowInsecureHTTP: allowed });
 	}));
 	ipcMain.handle("remotes:remove", async (_event, url: string) => ordered(async () => {
-		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");
+		const current = (await owned()).find((entry) => entry.url === url);
+		if (!current) throw new Error("Host does not belong to this account.");
+		if (current.tailscale && current.hostId) await updateTailnet(daemonBaseUrl(), current.hostId, { hidden: true });
 		return removeSavedRemote(file, url, disconnect);
 	}));
 	ipcMain.handle("remotes:connect", async (_event, url: string, hostId?: string) => ordered(async () => {
@@ -185,6 +275,9 @@ export function registerRemotesIpc(
 		const entry = await findRemote(file, url, hostId);
 		const localHostId = await localIdentity();
 		refuseSelf(entry.hostId, localHostId);
+		if (entry.tailscale && lastDiscovery && lastDiscovery.hosts.some((host) => host.hostId === entry.hostId && !host.online)) {
+			throw new Error(`host ${url} is offline`);
+		}
 		// A local restart must not retire an already verified, unchanged remote proxy.
 		if (!localHostId) {
 			const connected = registry.connected(entry);
@@ -196,15 +289,26 @@ export function registerRemotesIpc(
 		catch (error) {
 			const connected = registry.connected(entry);
 			if (error instanceof LocalIdentityUnavailableError && connected && await accountID() === account) return connected;
+			// A saved address that now answers as this machine or a sibling install
+			// is stale (an old identity of this computer): forget it.
+			if (!entry.tailscale && error instanceof Error && error.message.includes("already available locally")) {
+				await removeRemote(file, url);
+			}
 			throw error;
 		}
 		if (health !== "online") throw new Error(`host ${url} is ${health}`);
+		if (!entry.tailscale && await isLocalHostId(entry.hostId)) {
+			await removeRemote(file, url);
+			throw new Error("This AO installation is already available locally; a remote connection to itself is not allowed.");
+		}
 		return registry.connect(entry);
 	}));
 	ipcMain.handle("remotes:importAccountHost", async (_event, expectedAccountId: string, input: RemoteEntry) => ordered(async () => {
-		const account = await accountID();
+		const account = await cloudAccountID();
 		if (!account || account !== expectedAccountId || !input.hostId || !/^[0-9a-f]{64}$/.test(input.password)) throw new Error("Invalid account host credential.");
 		const local = (await readRemotes(file)).find((entry) => entry.hostId === input.hostId);
+		// A host already reached over Tailscale needs nothing from the account.
+		if (local?.tailscale) return;
 		// Keep the original password on the machine that performed pairing; a
 		// Cloud refresh must not replace it with the narrower account token.
 		if (local?.password && !/^[0-9a-f]{64}$/.test(local.password)) {
@@ -217,20 +321,21 @@ export function registerRemotesIpc(
 		await addRemote(file, { ...input, accountUserId: account });
 	}));
 	ipcMain.handle("remotes:pruneAccountHosts", async (_event, expectedAccountId: string, currentHostIds: string[]) => ordered(async () => {
-		if (await accountID() !== expectedAccountId) throw new Error("Account changed during host sync.");
+		if (await cloudAccountID() !== expectedAccountId) throw new Error("Account changed during host sync.");
 		const current = new Set(currentHostIds);
 		for (const entry of await owned()) {
 			// Only account-imported credentials are directory-managed. A machine
 			// paired here with its original password remains a local pairing.
-			if (entry.hostId && !current.has(entry.hostId) && /^[0-9a-f]{64}$/.test(entry.password)) {
+			if (entry.hostId && !entry.tailscale && !current.has(entry.hostId) && /^[0-9a-f]{64}$/.test(entry.password)) {
 				await removeSavedRemote(file, entry.url, disconnect);
 			}
 		}
 	}));
 	ipcMain.handle("remotes:issueAccountToken", async (_event, url: string) => ordered(async () => {
-		const account = await accountID();
+		const account = await cloudAccountID();
 		const entry = (await readRemotes(file)).find((saved) => saved.url === url && (!saved.accountUserId || saved.accountUserId === account));
 		if (!entry?.hostId) throw new Error("Pair this host before linking it to your account.");
+		if (entry.tailscale || !entry.password) throw new Error("A Tailscale host needs no account link.");
 		const localHostId = await requireLocalIdentity();
 		refuseSelf(entry.hostId, localHostId);
 		const actual = await identity(entry);

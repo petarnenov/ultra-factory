@@ -2215,6 +2215,124 @@ paths:
       summary: Validate a selected folder for project import onboarding
       tags:
       - import
+  /api/v1/knowledge/lessons:
+    post:
+      operationId: createLesson
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLessonRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateLessonResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Record a worker's lesson in the knowledge graph
+      tags:
+      - knowledge
+  /api/v1/knowledge/search:
+    get:
+      operationId: searchKnowledge
+      parameters:
+      - description: Free-text query.
+        in: query
+        name: q
+        required: true
+        schema:
+          description: Free-text query.
+          type: string
+      - description: Asking worker; implies its project.
+        in: query
+        name: sessionId
+        schema:
+          description: Asking worker; implies its project.
+          type: string
+      - description: Project to search when no session is given.
+        in: query
+        name: projectId
+        schema:
+          description: Project to search when no session is given.
+          type: string
+      - description: Results per section, 1 to 50. Defaults to 5.
+        in: query
+        name: limit
+        schema:
+          description: Results per section, 1 to 50. Defaults to 5.
+          type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeSearchResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Search lessons and past tasks in the knowledge graph
+      tags:
+      - knowledge
   /api/v1/link-preview:
     get:
       operationId: getLinkPreview
@@ -2409,6 +2527,26 @@ paths:
       summary: Enable the Connect Mobile LAN bridge and issue a fresh password
       tags:
       - mobile
+  /api/v1/mobile/enable-also-tailnet:
+    post:
+      operationId: enableMobileAlsoTailnet
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileStatusResponse'
+          description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+      summary: Add the fixed-port Tailscale listener without changing the LAN/mobile
+        listener
+      tags:
+      - mobile
   /api/v1/mobile/enable-lan-only:
     post:
       operationId: enableMobileLANOnly
@@ -2432,6 +2570,36 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Internal Server Error
       summary: Enable the authenticated LAN bridge without a managed public tunnel
+      tags:
+      - mobile
+  /api/v1/mobile/enable-tailnet:
+    post:
+      operationId: enableMobileTailnet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnableTailnetRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileStatusResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+      summary: Enable the authenticated listener on the Tailscale address only
       tags:
       - mobile
   /api/v1/mobile/enable-tunnel-only:
@@ -3167,6 +3335,39 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Internal Server Error
       summary: Atomically replace a project's display name and config
+      tags:
+      - projects
+  /api/v1/projects/{id}/aggregate/refresh:
+    post:
+      operationId: refreshProjectAggregate
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AggregateEffectiveResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Run one aggregate discovery pass and return the effective set
       tags:
       - projects
   /api/v1/projects/{id}/config:
@@ -4010,6 +4211,70 @@ paths:
         (loopback only)
       tags:
       - reports
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}:
+    delete:
+      operationId: removeRemoteWorkerLink
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      - description: The live root removing the link.
+        in: query
+        name: requestedBySessionId
+        schema:
+          description: The live root removing the link.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerLinkResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Remove a linked remote worker (root only; logged)
+      tags:
+      - reports
   /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner:
     put:
       operationId: assignRemoteWorkerOwner
@@ -4086,6 +4351,42 @@ paths:
         - OWNER_NOT_COORDINATOR
         - OWNER_TERMINATED
         - COORDINATOR_WORKER_LIMIT_REACHED
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release:
+    post:
+      operationId: releaseRemoteWorkerLink
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Drop the link of a worker this daemon just killed on its host
+      tags:
+      - reports
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -4350,6 +4651,18 @@ paths:
         schema:
           description: Worker session identifier on this daemon.
           type: string
+      - description: Puller instance ID for per-puller acks.
+        in: query
+        name: pullerId
+        schema:
+          description: Puller instance ID for per-puller acks.
+          type: string
+      - description: Last expiredTotal the puller logged.
+        in: query
+        name: expiredSeen
+        schema:
+          description: Last expiredTotal the puller logged.
+          type: integer
       responses:
         "200":
           content:
@@ -11820,6 +12133,83 @@ paths:
       summary: Check local machine readiness (git, tmux, agent harness, gh)
       tags:
       - system
+  /api/v1/tailnet/hosts:
+    get:
+      operationId: listTailnetHosts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List AO hosts discovered on this machine's Tailscale network
+      tags:
+      - tailnet
+  /api/v1/tailnet/hosts/{hostId}:
+    patch:
+      operationId: updateTailnetHost
+      parameters:
+      - description: Host identifier from the identity probe.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Host identifier from the identity probe.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTailnetHostRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Hide, show, or relabel a discovered host on this machine
+      tags:
+      - tailnet
+  /api/v1/tailnet/hosts/refresh:
+    post:
+      operationId: refreshTailnetHosts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Re-read the tailnet peer list and probe every online peer now
+      tags:
+      - tailnet
   /api/v1/task-preparations/{token}:
     delete:
       operationId: cancelTaskPreparation
@@ -12004,6 +12394,8 @@ components:
       type: object
     AcknowledgeReportsRequest:
       properties:
+        pullerId:
+          type: string
         reportIds:
           items:
             type: string
@@ -12692,6 +13084,42 @@ components:
       - agentId
       - status
       - checkedAt
+      type: object
+    AggregateEffectiveResponse:
+      properties:
+        aggregateEffective:
+          items:
+            $ref: '#/components/schemas/AggregateEntry'
+          type: array
+      required:
+      - aggregateEffective
+      type: object
+    AggregateEntry:
+      properties:
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        matchedBy:
+          enum:
+          - repo
+          - projectId
+          type: string
+        projectId:
+          type: string
+        source:
+          enum:
+          - explicit
+          - discovered
+          type: string
+        stale:
+          type: boolean
+      required:
+      - hostId
+      - hostLabel
+      - projectId
+      - source
+      - stale
       type: object
     AggregateProjectRef:
       properties:
@@ -14173,6 +14601,8 @@ components:
           minLength: 1
           type: string
         workerSessionIds:
+          description: Owned worker session ids; qualify a remote worker as host:id
+            when needed.
           items:
             type: string
           maxItems: 3
@@ -14219,6 +14649,10 @@ components:
           items:
             $ref: '#/components/schemas/ControllersReadyPRResponse'
           type: array
+        remoteWorkers:
+          items:
+            $ref: '#/components/schemas/SummaryRemoteWorkerResponse'
+          type: array
         result:
           type: string
         scope:
@@ -14244,6 +14678,7 @@ components:
       - scope
       - state
       - workerSessionIds
+      - remoteWorkers
       - readyPRs
       - result
       - escalation
@@ -15440,12 +15875,15 @@ components:
           type: integer
         maxWorkersPerCoordinator:
           type: integer
+        staleWorkers:
+          type: integer
       required:
       - maxCoordinators
       - maxWorkersPerCoordinator
       - maxWorkers
       - activeCoordinators
       - activeWorkers
+      - staleWorkers
       type: object
     CoordinatorLimitsRequest:
       properties:
@@ -15553,12 +15991,17 @@ components:
           items:
             type: string
           type: array
+        rootWorkers:
+          items:
+            $ref: '#/components/schemas/CoordinatorRosterWorker'
+          type: array
       required:
       - projectId
       - rootSessionId
       - capacity
       - coordinators
       - rootWorkerSessionIds
+      - rootWorkers
       type: object
     CoordinatorRosterWorker:
       properties:
@@ -15566,11 +16009,19 @@ components:
           type:
           - "null"
           - string
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        remote:
+          description: True for a worker linked from another AO host.
+          type: boolean
         sessionId:
           type: string
       required:
       - sessionId
       - agentProfileId
+      - remote
       type: object
     CoordinatorWorkerAgentRequest:
       properties:
@@ -15642,6 +16093,38 @@ components:
           $ref: '#/components/schemas/SideConversation'
       required:
       - side
+      type: object
+    CreateLessonRequest:
+      properties:
+        kind:
+          description: Defaults to tip.
+          enum:
+          - pitfall
+          - fix
+          - tip
+          - context
+          type: string
+        sessionId:
+          description: Worker session recording the lesson.
+          type: string
+        text:
+          maxLength: 1000
+          type: string
+        topics:
+          description: Up to 5 short topic names.
+          items:
+            type: string
+          type: array
+      required:
+      - sessionId
+      - text
+      type: object
+    CreateLessonResponse:
+      properties:
+        id:
+          type: string
+      required:
+      - id
       type: object
     CreateRemoteWorkerLinkRequest:
       properties:
@@ -16097,6 +16580,13 @@ components:
           type: string
       required:
       - text
+      type: object
+    EnableTailnetRequest:
+      properties:
+        passwordFallback:
+          type: boolean
+      required:
+      - passwordFallback
       type: object
     EndpointsResponse:
       properties:
@@ -16641,6 +17131,50 @@ components:
       - ok
       - sessionId
       type: object
+    KnowledgeItem:
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        lessons:
+          items:
+            type: string
+          type: array
+        outcome:
+          type: string
+        score:
+          format: double
+          type: number
+        section:
+          enum:
+          - attempt
+          - lesson
+          - task
+          type: string
+        text:
+          type: string
+        title:
+          type: string
+      required:
+      - section
+      - id
+      - kind
+      - title
+      - outcome
+      - text
+      - lessons
+      - score
+      type: object
+    KnowledgeSearchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/KnowledgeItem'
+          type: array
+      required:
+      - items
+      type: object
     LinkPreviewResponse:
       properties:
         description:
@@ -16825,7 +17359,15 @@ components:
       type: object
     ListPendingReportsResponse:
       properties:
+        expiredBeforePull:
+          format: int64
+          type: integer
+        expiredTotal:
+          format: int64
+          type: integer
         morePending:
+          type: boolean
+        pullerAcks:
           type: boolean
         reports:
           items:
@@ -17179,10 +17721,18 @@ components:
           type: boolean
         password:
           type: string
+        passwordFallback:
+          type: boolean
         port:
           type: integer
         securePairing:
           $ref: '#/components/schemas/ControllersSecurePairingStatus'
+        tailnetListenerEnabled:
+          type: boolean
+        tailnetListenerPort:
+          type: integer
+        tailnetOnly:
+          type: boolean
         tailscaleHost:
           type: string
         tunnel:
@@ -17192,6 +17742,10 @@ components:
       required:
       - enabled
       - loopbackOnly
+      - tailnetOnly
+      - passwordFallback
+      - tailnetListenerEnabled
+      - tailnetListenerPort
       - noPublicTunnel
       - endpoints
       - hostId
@@ -17501,6 +18055,14 @@ components:
           type: string
         agentRulesFile:
           type: string
+        aggregateDiscovery:
+          type:
+          - "null"
+          - boolean
+        aggregateExcludes:
+          items:
+            $ref: '#/components/schemas/AggregateProjectRef'
+          type: array
         aggregateProjects:
           items:
             $ref: '#/components/schemas/AggregateProjectRef'
@@ -17556,6 +18118,10 @@ components:
       type: object
     ProjectGetResponse:
       properties:
+        aggregateEffective:
+          items:
+            $ref: '#/components/schemas/AggregateEntry'
+          type: array
         project:
           $ref: '#/components/schemas/ProjectOrDegraded'
         status:
@@ -17566,6 +18132,7 @@ components:
       required:
       - status
       - project
+      - aggregateEffective
       type: object
     ProjectOrDegraded:
       oneOf:
@@ -17788,6 +18355,13 @@ components:
           type: string
         hostLabel:
           type: string
+        lastSeenAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        localProjectId:
+          type: string
         ownerSessionId:
           type:
           - "null"
@@ -17802,15 +18376,19 @@ components:
           type: string
         source:
           type: string
+        state:
+          type: string
       required:
       - hostId
       - hostLabel
       - remoteSessionId
       - remoteProjectId
       - projectId
+      - localProjectId
       - ownerSessionId
       - source
       - createdAt
+      - state
       type: object
     RemoteWorkerSyncResponse:
       properties:
@@ -20342,6 +20920,19 @@ components:
       - runId
       - verdict
       type: object
+    SummaryRemoteWorkerResponse:
+      properties:
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        remoteSessionId:
+          type: string
+      required:
+      - hostId
+      - hostLabel
+      - remoteSessionId
+      type: object
     SwitchAgentRequest:
       properties:
         idempotencyKey:
@@ -20459,6 +21050,62 @@ components:
       required:
       - ready
       - requirements
+      type: object
+    TailnetHost:
+      properties:
+        address:
+          type: string
+        dnsName:
+          type: string
+        hidden:
+          type: boolean
+        hostId:
+          type: string
+        label:
+          type: string
+        lastSeen:
+          type: string
+        name:
+          type: string
+        online:
+          type: boolean
+        port:
+          type: integer
+        url:
+          type: string
+      required:
+      - hostId
+      - label
+      - name
+      - dnsName
+      - address
+      - port
+      - url
+      - online
+      - hidden
+      type: object
+    TailnetHostsResponse:
+      properties:
+        available:
+          type: boolean
+        error:
+          type: string
+        hosts:
+          items:
+            $ref: '#/components/schemas/TailnetHost'
+          type: array
+        localHostIds:
+          items:
+            type: string
+          type: array
+        selfLogin:
+          type: string
+        updatedAt:
+          type: string
+      required:
+      - available
+      - localHostIds
+      - hosts
       type: object
     TrackerIntakeConfig:
       properties:
@@ -20679,6 +21326,17 @@ components:
           type: string
       required:
       - title
+      type: object
+    UpdateTailnetHostRequest:
+      properties:
+        hidden:
+          type:
+          - "null"
+          - boolean
+        label:
+          type:
+          - "null"
+          - string
       type: object
     UpdateWorkspaceFileRequest:
       properties:

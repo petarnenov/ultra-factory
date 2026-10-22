@@ -2,6 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { SessionsBoardGridView } from "@aoagents/product-ui";
 import { LayoutDashboard } from "lucide-react";
+import { Badge } from "./ui/badge";
 import { useRemoteWorkspaces, useWorkspaceQuery, useProjectIdentity } from "../hooks/useWorkspaceQuery";
 import { useRemoteHosts } from "../hooks/useRemoteHosts";
 import { useUiStore } from "../stores/ui-store";
@@ -21,13 +22,16 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 	const remoteEnabled = useUiStore((state) => isWebBuild || (state.developerMode && state.remoteHosts));
 	const localProject = localQuery.data?.find((workspace) => workspace.id === projectId);
 	const localIdentity = useProjectIdentity(undefined, projectId);
-	const associations = localIdentity.data?.aggregateProjects ?? [];
+	const effective = localIdentity.data?.aggregateEffective ?? [];
 	// Same queries as the sidebar: one fetch per host.
 	const remote = useRemoteWorkspaces();
-	const associated = associations.map((ref) => {
+	const associated = effective.map((ref) => {
 		return {
 			hostId: ref.hostId,
+			hostLabel: ref.hostLabel,
 			projectId: ref.projectId,
+			source: ref.source,
+			stale: ref.stale,
 			project: remote.data.find((workspace) => workspace.hostId === ref.hostId && workspace.id === ref.projectId),
 			host: hosts.find((host) => host.hostId === ref.hostId),
 			loaded: remote.loadedProjectHostIds.includes(ref.hostId) && remote.loadedSessionHostIds.includes(ref.hostId),
@@ -63,6 +67,14 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 				<span className="text-muted-foreground">· {t("shell.aggregateKanban")}</span>
 			</div>
 			<p className="px-4 py-2 text-xs text-muted-foreground">{t("shell.aggregateKanbanDescription")}</p>
+			{associated.length ? <ul className="flex flex-wrap gap-x-4 gap-y-2 border-b border-border px-4 py-2 text-xs" aria-label={t("shell.aggregateHosts", { defaultValue: "Aggregated hosts" })}>
+				{associated.map((entry) => <li key={`${entry.hostId}:${entry.projectId}`} className="flex min-w-0 items-center gap-1.5" data-testid="aggregate-host-header" data-source={entry.source}>
+					<span className="truncate font-medium">{entry.hostLabel}</span>
+					<span className="truncate text-muted-foreground">{entry.projectId}</span>
+					<Badge variant="outline">{entry.source === "discovered" ? t("shell.aggregateDiscovered", { defaultValue: "Discovered" }) : t("shell.aggregateExplicit", { defaultValue: "Explicit" })}</Badge>
+					{entry.stale ? <Badge variant="warning">{t("shell.aggregateStale", { defaultValue: "Stale" })}</Badge> : null}
+				</li>)}
+			</ul> : null}
 			{partial.length ? <div className="border-y border-warning/40 bg-warning/10 px-4 py-2 text-xs" role="status">
 				<p>{t("shell.aggregatePartialHosts")}</p>
 				{partial.map((entry) => <p key={`${entry.hostId}:${entry.projectId}`}>{t("shell.aggregateUnavailableProject", { host: entry.host?.label || entry.hostId, project: entry.projectId, reason: unavailableReason(entry) })}</p>)}
@@ -70,7 +82,7 @@ export function AggregateProjectBoard({ projectId }: { projectId: string }) {
 			{loading ? <p role="status" className="py-10 text-center text-sm text-muted-foreground">{t("shell.aggregateLoading")}</p>
 				: localQuery.isError || localIdentity.isError || !localProject ? <p role="alert" className="py-10 text-center text-sm text-destructive">{t("shell.couldNotLoadSessions")}</p>
 				: <>
-					{associations.length === 0 ? <p role="status" className="px-4 py-2 text-center text-xs text-muted-foreground">{t("shell.aggregateNoRelatedProjects")}</p> : null}
+					{effective.length === 0 ? <p role="status" className="px-4 py-2 text-center text-xs text-muted-foreground">{t("shell.aggregateNoRelatedProjects")}</p> : null}
 					{sessions.length === 0 ? <p className="py-10 text-center text-sm text-muted-foreground">{partial.length ? t("shell.aggregateNoAvailableSessions") : t("shell.aggregateNoSessions")}</p>
 							: <div className="min-h-0 flex-1">
 								<SessionsBoardGridView columns={columns} labels={labels} sessions={sessions} sessionKey={(session) => refKey({ host: session.hostId ?? LOCAL_HOST, id: session.id })} renderSessionCard={(session) => {

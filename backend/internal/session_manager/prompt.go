@@ -36,6 +36,8 @@ type taskPromptConfig struct {
 	Prompt       string
 	IssueID      string
 	IssueContext string
+	// Knowledge is the rendered knowledge-graph section for a worker.
+	Knowledge string
 }
 
 type systemPromptConfig struct {
@@ -87,6 +89,15 @@ type projectRulesConfig struct {
 }
 
 func buildTaskPrompt(cfg taskPromptConfig) string {
+	prompt := buildBaseTaskPrompt(cfg)
+	knowledge := strings.TrimSpace(cfg.Knowledge)
+	if prompt == "" || knowledge == "" || cfg.Role != sessionPromptRoleWorker {
+		return prompt
+	}
+	return strings.TrimRight(prompt, "\n") + "\n\n" + knowledge
+}
+
+func buildBaseTaskPrompt(cfg taskPromptConfig) string {
 	issueContext := strings.TrimSpace(cfg.IssueContext)
 	if cfg.Prompt != "" {
 		if cfg.Role == sessionPromptRoleWorker && issueContext != "" {

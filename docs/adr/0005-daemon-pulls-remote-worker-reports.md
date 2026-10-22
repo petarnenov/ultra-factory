@@ -82,6 +82,48 @@ outbound HTTP to hosts the user has already paired in the desktop app.
    the link is dropped, in case it reported while its session was being read. Any other 404, such as an older AO without these routes, keeps
    the link.
 
+### Liveness
+
+Retirement in step 5 runs only when a pull reaches the host. A host whose
+pulls are blocked (plain http without the opt-in, or a refused password) would
+keep its killed workers' links forever, and each link counts toward
+`coordinators.maxWorkers`. The observer therefore runs a liveness read every
+tick, before the pulls, for every link:
+
+- It shares the host's one connection with the pulls of that pass, so the
+  credential still travels only over the connection that answered the probe.
+- It reads `GET /api/v1/sessions/{id}` only. A worker that is gone
+  (`SESSION_NOT_FOUND`) loses its link. A terminated worker loses it once its
+  pending reports are empty, and until then its state is `terminated`. A live
+  worker records `last_seen_at` and state `live`.
+- It follows the same transport policy as the pull, including the per-host
+  "Allow report pulls over plain HTTP" opt-in. A plain-http host without that
+  opt-in is not read at all, so its links are not cleared while it stays
+  blocked; they turn stale after the grace period instead, which still frees
+  their capacity. A host that opted in gets the status read on every tick.
+- A refused password (401 or 429) ends the host's reads, and the refusal
+  memory stops every later request, the liveness read included.
+
+A host that cannot be reached keeps its links. Its links are `stale` once
+`last_seen_at` (or the creation time, before the first read) is older than
+10 minutes. Stale links are not counted in `activeWorkers` or the spawn
+pre-check, and the coordinator roster reports them as `staleWorkers`. When the
+host answers again the link counts again. `ao remote-worker ls` shows
+`STATE live|stale|terminated`.
+
+`ao session kill --host` also drops the link at once: after the remote kill
+succeeds, the CLI asks its own daemon to release the link (`POST
+/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release`). A restored
+worker is linked again by the next discovery pass.
+
+An operator can drop a link by hand with `ao remote-worker rm` or `DELETE
+/api/v1/remote-worker-links/{hostId}/{remoteSessionId}?requestedBySessionId=`.
+Only the live root may do it, and the daemon logs every removal. The removal
+is remembered, so the periodic discovery pass does not link that worker again
+while it stays live on the host. `ao remote-worker sync` is the operator's way
+back: it forgets the removal and links the worker again. A kill leaves no
+memory; the worker is terminated and discovery skips it anyway.
+
 ### Discovery
 
 Spawning from an AO session is not the only way a worker reaches a saved
@@ -163,6 +205,54 @@ characters, because all of them reach the orchestrator's prompt.
   a second pulled feed and is out of scope.
 - Any authenticated caller can acknowledge a worker's pending reports. Such a
   caller can already create, kill, and message sessions.
+- The release route drops a link without a root check, because it follows a
+  kill that the caller has just made on the same host.
 - Longer term, a challenge-response (an HMAC of a server nonce) would remove the
   need to send the bearer at all; it would change the pairing contract and is
   out of scope here.
+
+## Amendment: per-puller acknowledgement (2026-10-21, issue #455)
+
+Two daemons on one machine can pull the same worker, for example the
+production daemon and the dev daemon. Under the original rule the first
+acknowledgement settled a report for every puller, so the other daemon's
+orchestrator never received it. This amendment keeps reports pending per puller.
+
+1. **Puller identity.** A daemon's puller ID is its own instance ID from
+   `GET /api/v1/identity` (`hostId`, persisted per data dir). It is sent as
+   `pullerId` on `GET /api/v1/reports/pending` and as `pullerId` in the body of
+   `POST /api/v1/reports/acknowledge`.
+2. **Per-puller acknowledgement.** An acknowledgement with a puller ID records
+   `(report, puller)` in `report_pull_acks`. It does not change the report's
+   `delivery_state`. The report stays due for every other puller. It leaves
+   this daemon's own local schedule and claims, so a backlog of reports that
+   only peers deliver cannot fill the scan window. A pull by puller P omits
+   the reports P acknowledged.
+3. **Legacy semantics.** A pull or acknowledgement without a puller ID keeps the
+   original behaviour: the acknowledgement moves the report to `acknowledged`
+   for everyone.
+4. **Capability.** A host that honours a puller ID answers `pullerAcks: true` on
+   the pending response. A puller that sent a puller ID but got no `pullerAcks`
+   is talking to an older host. It logs one warning per host and acknowledges
+   without a puller ID, which is first-delivery semantics. It never sends
+   `pullerId` to such a host, because those hosts reject unknown body fields.
+5. **Retention.** Pending reports of a worker expire when they are older than 7
+   days or beyond the newest 10 000 reports of that session, whichever comes
+   first. Expiry moves a report to `acknowledged` with claim token `expired`,
+   so the host's own coordinator does not deliver it either. Before the report
+   moves, each known puller that has not acknowledged it gains one in
+   `report_pullers.expired_total`. Expiry runs on pulls for that worker.
+6. **Expired counter.** `expired_total` only grows. A pending response carries
+   `expiredTotal` and `expiredBeforePull`, the total minus the `expiredSeen`
+   the puller sent. The puller logs the unseen count, then sends the total it
+   logged as `expiredSeen` on its next pull. Nothing is subtracted on the host,
+   so a pull repeated with the same `expiredSeen`, after a lost response or a
+   failure later in the pull, returns the same count. A puller reads no count
+   for reports it never pulled before.
+
+Consequences: each puller gets every report once, unless it misses the
+retention window. Once a peer has acknowledged a report, this daemon's own
+orchestrator no longer receives it, so a worker host's local orchestrator only
+sees reports that no peer has pulled yet.
+Mixing legacy pullers with per-puller pullers on one worker gives legacy
+semantics for the reports a legacy puller acknowledges.

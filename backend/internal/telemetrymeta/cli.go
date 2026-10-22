@@ -29,6 +29,7 @@ var routineInternalCLICommands = []string{
 	"ao session handoff",
 	"ao project ls",
 	"ao project get",
+	"ao project aggregate",
 	"ao orchestrator ls",
 	// The orchestrator wake-up loop is unattended automation.
 	"ao orchestrator tick",
@@ -62,7 +63,8 @@ func CLIActorType(actorType, commandPath string) string {
 	case "ao session agent-switch", "ao session agent-switch ls", "ao session switch-agent":
 		return "user"
 	}
-	if normalized == "ao hooks" || normalized == "ao report" {
+	switch normalized {
+	case "ao hooks", "ao report", "ao knowledge", "ao knowledge add", "ao knowledge search":
 		return "agent"
 	}
 	return "system"
@@ -170,6 +172,7 @@ var legacyActorlessUserCLICommands = map[string]struct{}{
 	"ao remote-worker assign":   {},
 	"ao remote-worker ls":       {},
 	"ao remote-worker sync":     {},
+	"ao remote-worker rm":       {},
 	"ao remote-host enable":     {},
 	"ao remote-host disable":    {},
 	"ao render":                 {},

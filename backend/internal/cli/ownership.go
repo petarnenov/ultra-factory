@@ -52,10 +52,11 @@ type coordinatorHostSlot struct {
 
 // coordinatorRosterDTO mirrors GET /api/v1/projects/{id}/coordinators.
 type coordinatorRosterDTO struct {
-	ProjectID     string                  `json:"projectId"`
-	RootSessionID *string                 `json:"rootSessionId"`
-	Coordinators  []coordinatorRosterItem `json:"coordinators"`
-	RootWorkerIDs []string                `json:"rootWorkerSessionIds"`
+	ProjectID     string                    `json:"projectId"`
+	RootSessionID *string                   `json:"rootSessionId"`
+	Coordinators  []coordinatorRosterItem   `json:"coordinators"`
+	RootWorkerIDs []string                  `json:"rootWorkerSessionIds"`
+	RootWorkers   []coordinatorRosterWorker `json:"rootWorkers"`
 }
 
 type coordinatorRosterItem struct {
@@ -84,6 +85,9 @@ type coordinatorRosterItem struct {
 type coordinatorRosterWorker struct {
 	SessionID      string  `json:"sessionId"`
 	AgentProfileID *string `json:"agentProfileId"`
+	Remote         bool    `json:"remote"`
+	HostID         string  `json:"hostId"`
+	HostLabel      string  `json:"hostLabel"`
 }
 
 // sessionTreeOutput is the --json body of `session ls --tree`.
@@ -105,10 +109,13 @@ type remoteWorkerLinkDTO struct {
 	RemoteSessionID string  `json:"remoteSessionId"`
 	RemoteProjectID string  `json:"remoteProjectId"`
 	ProjectID       string  `json:"projectId"`
+	LocalProjectID  string  `json:"localProjectId"`
 	DisplayName     string  `json:"displayName,omitempty"`
 	OwnerSessionID  *string `json:"ownerSessionId"`
 	Source          string  `json:"source"`
 	CreatedAt       string  `json:"createdAt"`
+	State           string  `json:"state"`
+	LastSeenAt      *string `json:"lastSeenAt,omitempty"`
 }
 
 // remoteWorkerSyncResponse mirrors POST /api/v1/remote-worker-links/sync.
@@ -153,6 +160,11 @@ type remoteWorkerSyncOptions struct {
 
 type remoteWorkerAssignOptions struct {
 	owner       string
+	requestedBy string
+	json        bool
+}
+
+type remoteWorkerRemoveOptions struct {
 	requestedBy string
 	json        bool
 }
@@ -249,6 +261,34 @@ func newRemoteWorkerCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newRemoteWorkerListCommand(ctx))
 	cmd.AddCommand(newRemoteWorkerAssignCommand(ctx))
 	cmd.AddCommand(newRemoteWorkerSyncCommand(ctx))
+	cmd.AddCommand(newRemoteWorkerRemoveCommand(ctx))
+	return cmd
+}
+
+func newRemoteWorkerRemoveCommand(ctx *commandContext) *cobra.Command {
+	var opts remoteWorkerRemoveOptions
+	cmd := &cobra.Command{
+		Use:   "rm <host-id> <remote-session-id>",
+		Short: "Drop a linked remote worker by hand",
+		Long: "Remove the link of a remote worker so it no longer counts toward the project's worker cap " +
+			"or gets its reports pulled. Discovery does not link it again while the worker is terminated. " +
+			"Only the project's live root may remove a link; the caller defaults to AO_SESSION_ID.",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.ExactArgs(2)(cmd, args); err != nil {
+				return usageError{err}
+			}
+			if strings.TrimSpace(args[0]) == "" || strings.TrimSpace(args[1]) == "" {
+				return usageError{errors.New("host id and remote session id are required")}
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return ctx.removeRemoteWorker(cmd.Context(), cmd, args[0], args[1], opts)
+		},
+	}
+	flags := cmd.Flags()
+	flags.StringVar(&opts.requestedBy, "requested-by", "", "Session id of the removing live root (defaults to AO_SESSION_ID)")
+	flags.BoolVar(&opts.json, "json", false, "Output as JSON")
 	return cmd
 }
 
@@ -257,7 +297,8 @@ func newRemoteWorkerSyncCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Link live remote workers on saved hosts now",
-		Long: "Run one discovery pass: link every live worker on a saved host that has no link yet. " +
+		Long: "Run one discovery pass: link every live worker on a saved host that has no link yet, " +
+			"including workers removed by hand with rm. " +
 			"Each host prints its linked and skipped counts; a blocked or offline host is reported, not fatal.",
 		Args: noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -410,6 +451,28 @@ func (c *commandContext) assignRemoteWorkerOwner(ctx context.Context, cmd *cobra
 }
 
 // ownerRequest builds the shared ownership write body and the label to print.
+func (c *commandContext) removeRemoteWorker(ctx context.Context, cmd *cobra.Command, hostID, remoteSessionID string, opts remoteWorkerRemoveOptions) error {
+	requestedBy := strings.TrimSpace(opts.requestedBy)
+	if requestedBy == "" {
+		requestedBy = strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+	}
+	if requestedBy == "" {
+		return usageError{errors.New("requested-by session id is required (pass --requested-by or set AO_SESSION_ID)")}
+	}
+	path := "remote-worker-links/" + url.PathEscape(strings.TrimSpace(hostID)) + "/" +
+		url.PathEscape(strings.TrimSpace(remoteSessionID))
+	params := url.Values{"requestedBySessionId": {requestedBy}}
+	var res remoteWorkerLinkDTO
+	if err := c.deleteJSON(ctx, apiPath(path, params), &res); err != nil {
+		return err
+	}
+	if opts.json {
+		return writeJSON(cmd.OutOrStdout(), res)
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "remote worker %s/%s removed\n", res.HostID, res.RemoteSessionID)
+	return err
+}
+
 func (c *commandContext) ownerRequest(rawOwner, rawRequestedBy string) (sessionOwnerRequest, string, error) {
 	owner := strings.TrimSpace(rawOwner)
 	if owner == "" {
@@ -540,8 +603,18 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			return err
 		}
 	}
-	workerLine := func(id, profile string) error {
-		_, err := fmt.Fprintf(out, "    %s%s%s\n", id, workerFacts(known, id), profileFact(profile))
+	workerLine := func(worker coordinatorRosterWorker, profile string) error {
+		label := worker.SessionID
+		facts := workerFacts(known, worker.SessionID)
+		if worker.Remote {
+			host := worker.HostLabel
+			if host == "" {
+				host = worker.HostID
+			}
+			label += " on " + host
+			facts = ""
+		}
+		_, err := fmt.Fprintf(out, "    %s%s%s\n", label, facts, profileFact(profile))
 		return err
 	}
 	for _, coordinator := range res.Coordinators {
@@ -563,21 +636,35 @@ func writeCoordinatorRoster(cmd *cobra.Command, res coordinatorRosterDTO, known 
 			return err
 		}
 		profiles := workerProfiles(coordinator.Workers)
-		for _, worker := range coordinator.WorkerSessionIDs {
-			if err := workerLine(worker, profiles[worker]); err != nil {
+		rows := coordinator.Workers
+		if len(rows) == 0 {
+			rows = make([]coordinatorRosterWorker, len(coordinator.WorkerSessionIDs))
+			for i, id := range coordinator.WorkerSessionIDs {
+				rows[i] = coordinatorRosterWorker{SessionID: id}
+			}
+		}
+		for _, worker := range rows {
+			if err := workerLine(worker, profiles[workerKey(worker)]); err != nil {
 				return err
 			}
 		}
 	}
-	if len(res.RootWorkerIDs) > 0 {
+	rootWorkers := res.RootWorkers
+	if len(rootWorkers) == 0 {
+		rootWorkers = make([]coordinatorRosterWorker, len(res.RootWorkerIDs))
+		for i, id := range res.RootWorkerIDs {
+			rootWorkers[i] = coordinatorRosterWorker{SessionID: id}
+		}
+	}
+	if len(rootWorkers) > 0 {
 		label := "root-owned workers"
 		if res.RootSessionID == nil {
 			label = "unassigned workers (no live root)"
 		}
-		if _, err := fmt.Fprintf(out, "  %s: %d\n", label, len(res.RootWorkerIDs)); err != nil {
+		if _, err := fmt.Fprintf(out, "  %s: %d\n", label, len(rootWorkers)); err != nil {
 			return err
 		}
-		for _, worker := range res.RootWorkerIDs {
+		for _, worker := range rootWorkers {
 			if err := workerLine(worker, ""); err != nil {
 				return err
 			}
@@ -608,10 +695,14 @@ func workerProfiles(workers []coordinatorRosterWorker) map[string]string {
 	profiles := make(map[string]string, len(workers))
 	for _, worker := range workers {
 		if worker.AgentProfileID != nil {
-			profiles[worker.SessionID] = *worker.AgentProfileID
+			profiles[workerKey(worker)] = *worker.AgentProfileID
 		}
 	}
 	return profiles
+}
+
+func workerKey(worker coordinatorRosterWorker) string {
+	return worker.HostID + "\x00" + worker.SessionID
 }
 
 // profileFact names the profile that picked a worker's agent, if one did.
@@ -656,7 +747,7 @@ func writeRemoteWorkerList(cmd *cobra.Command, res listRemoteWorkerLinksResponse
 		return err
 	}
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(table, "HOST\tREMOTE SESSION\tPROJECT\tOWNER\tSOURCE\tNAME"); err != nil {
+	if _, err := fmt.Fprintln(table, "HOST\tREMOTE SESSION\tPROJECT\tOWNER\tSTATE\tSOURCE\tNAME"); err != nil {
 		return err
 	}
 	for _, link := range res.Links {
@@ -664,8 +755,9 @@ func writeRemoteWorkerList(cmd *cobra.Command, res listRemoteWorkerLinksResponse
 		if link.OwnerSessionID != nil {
 			owner = *link.OwnerSessionID
 		}
-		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			link.HostID, link.RemoteSessionID, link.ProjectID, owner, emptyDash(link.Source), emptyDash(link.DisplayName)); err != nil {
+		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			link.HostID, link.RemoteSessionID, link.ProjectID, owner, emptyDash(link.State),
+			emptyDash(link.Source), emptyDash(link.DisplayName)); err != nil {
 			return err
 		}
 	}
@@ -733,9 +825,26 @@ func writeCoordinatorDetails(out io.Writer, entry *coordinatorRosterItem, labels
 		}
 	}
 	profiles := workerProfiles(entry.Workers)
-	workers := make([]string, 0, len(entry.WorkerSessionIDs))
-	for _, id := range entry.WorkerSessionIDs {
-		workers = append(workers, id+profileFact(profiles[id]))
+	workers := make([]string, 0, len(entry.Workers)+len(entry.WorkerSessionIDs))
+	rows := entry.Workers
+	if len(rows) == 0 {
+		rows = make([]coordinatorRosterWorker, len(entry.WorkerSessionIDs))
+		for i, id := range entry.WorkerSessionIDs {
+			rows[i] = coordinatorRosterWorker{SessionID: id}
+		}
+	}
+	for _, worker := range rows {
+		label := worker.SessionID
+		if worker.Remote {
+			host := worker.HostLabel
+			if host == "" {
+				host = worker.HostID
+			}
+			label += " on " + host
+		} else {
+			label += profileFact(profiles[workerKey(worker)])
+		}
+		workers = append(workers, label)
 	}
 	if _, err := fmt.Fprintf(out, "workers: %s\n", joinOrDash(workers)); err != nil {
 		return err

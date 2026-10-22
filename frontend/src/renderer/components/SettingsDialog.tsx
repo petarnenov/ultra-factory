@@ -119,7 +119,7 @@ function useSettingsLayer(settingsModal: SettingsModal | null) {
 	const [projectSaveState, setProjectSaveState] = useState<ProjectSettingsSaveState>(initialProjectSaveState);
 	const [cueBusy, setCueBusy] = useState(false);
 	useEffect(() => {
-		if (pendingProjectSection && projectSaveState.phase === "saved" && !projectSaveState.dirty) {
+		if (pendingProjectSection && (projectSaveState.phase === "saved" || projectSaveState.phase === "idle") && !projectSaveState.dirty) {
 			setActiveProjectSection(pendingProjectSection);
 			setPendingProjectSection(null);
 		}

@@ -66,7 +66,13 @@ func newFakeRemoteHostOn(t *testing.T, hostID, password string, start func(http.
 			writeTestJSON(w, http.StatusOK, map[string]any{"hostId": h.hostID, "apiVersion": 1})
 			return
 		}
-		if r.Header.Get("Authorization") != "Bearer "+h.password {
+		// An empty password models a Tailscale-only host: tailscaled vouches for
+		// the caller, and a bearer must not be sent at all.
+		if h.password == "" && r.Header.Get("Authorization") != "" {
+			writeTestJSON(w, http.StatusForbidden, map[string]string{"message": "unexpected credential", "code": "TAILNET_FORBIDDEN"})
+			return
+		}
+		if h.password != "" && r.Header.Get("Authorization") != "Bearer "+h.password {
 			writeTestJSON(w, http.StatusUnauthorized, map[string]string{"message": "missing or invalid connection password", "code": "BAD_PASSWORD"})
 			return
 		}
@@ -151,6 +157,14 @@ type localDaemon struct {
 	// parentKind, when set, answers GET /api/v1/sessions/<parent> with a
 	// live session of that kind.
 	parentKind string
+	// tailnet answers GET /api/v1/tailnet/hosts; nil keeps the route unknown.
+	tailnet *tailnetHostsResponse
+}
+
+func (d *localDaemon) discover(res tailnetHostsResponse) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.tailnet = &res
 }
 
 func (d *localDaemon) answerLinks(status int) {
@@ -231,8 +245,20 @@ func startLocalDaemon(t *testing.T, cfg testConfig, hostID string, projects map[
 			}})
 		case strings.HasPrefix(r.URL.Path, "/internal/"):
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/remote-worker-links/") &&
+			strings.HasSuffix(r.URL.Path, "/release"):
+			w.WriteHeader(http.StatusNoContent)
 		case r.URL.Path == "/api/v1/identity":
 			writeTestJSON(w, http.StatusOK, map[string]any{"hostId": hostID, "apiVersion": 1})
+		case r.URL.Path == "/api/v1/tailnet/hosts":
+			d.mu.Lock()
+			res := d.tailnet
+			d.mu.Unlock()
+			if res == nil {
+				writeTestJSON(w, http.StatusNotFound, map[string]string{"message": "not found"})
+				return
+			}
+			writeTestJSON(w, http.StatusOK, res)
 		case strings.HasPrefix(r.URL.Path, "/api/v1/projects/"):
 			id := strings.TrimPrefix(r.URL.Path, "/api/v1/projects/")
 			project, ok := projects[id]
@@ -368,7 +394,7 @@ func TestSelectRemoteEntry(t *testing.T) {
 		{selector: "10.0.0.5:3101", wantHost: "host-a"},
 		{selector: "https://gpu.example.ts.net/", wantHost: "host-b"},
 		{selector: "twin", wantErr: "matches 2 saved hosts"},
-		{selector: "nope", wantErr: "matches no saved host"},
+		{selector: "nope", wantErr: "matches no remote host"},
 	} {
 		t.Run(tc.selector, func(t *testing.T) {
 			got, err := selectRemoteEntry(entries, tc.selector)
@@ -383,7 +409,7 @@ func TestSelectRemoteEntry(t *testing.T) {
 			}
 		})
 	}
-	if _, err := selectRemoteEntry(nil, "x"); err == nil || !strings.Contains(err.Error(), "no saved remote hosts") {
+	if _, err := selectRemoteEntry(nil, "x"); err == nil || !strings.Contains(err.Error(), "no remote hosts") {
 		t.Fatalf("empty list err = %v", err)
 	}
 }
@@ -733,7 +759,124 @@ func TestHostListWithoutSavedHosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "No saved remote hosts") {
+	if !strings.Contains(out, "No remote hosts") {
+		t.Fatalf("stdout = %q", out)
+	}
+}
+
+// Tailnet hosts are listed and usable with --host without a password; a saved
+// entry with the same host ID moves to the Tailscale address, self never shows.
+func TestTailnetDiscoveredHostsNeedNoPassword(t *testing.T) {
+	cfg := setConfigEnv(t)
+	z600 := newFakeRemoteHost(t, "host-z600", "")
+	z600.handle(http.MethodGet, "/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	serveRemoteProjects(z600, projectDetails{ID: "widgets", Name: "Widgets"})
+	writeRemotesFile(t,
+		remoteEntry{Label: "Z600 (LAN)", URL: "http://192.0.2.10:3011", Password: "pw-old", HostID: "host-z600"},
+		remoteEntry{Label: "Linux", URL: "http://192.0.2.11:3011", Password: "pw-self", HostID: "host-old-self"},
+		remoteEntry{Label: "tunnel-box", URL: "http://127.0.0.1:1", Password: "pw-tunnel", HostID: "host-tunnel"},
+	)
+	local := startLocalDaemon(t, cfg, "host-local", nil)
+	local.discover(tailnetHostsResponse{
+		Available: true, LocalHostIDs: []string{"host-local", "host-old-self"},
+		Hosts: []tailnetHost{
+			{HostID: "host-z600", Label: "hpz600", Name: "hpz600", Address: "127.0.0.1", URL: z600.srv.URL, Online: true},
+			{HostID: "host-air", Label: "petars-macbook-air", URL: "http://100.126.82.17:3011", Online: false},
+			{HostID: "host-hidden", Label: "hidden", URL: "http://100.1.1.1:3011", Online: true, Hidden: true},
+		},
+	})
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "host", "ls", "--json")
+	if err != nil {
+		t.Fatalf("host ls: %v\nstderr=%s", err, errOut)
+	}
+	var listed hostListOutput
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]hostListItem{}
+	for _, item := range listed.Hosts {
+		got[item.HostID] = item
+	}
+	if len(got) != 3 || !listed.Tailscale.Available {
+		t.Fatalf("hosts = %+v tailscale = %+v", listed.Hosts, listed.Tailscale)
+	}
+	if item := got["host-z600"]; item.Status != hostStatusOnline || item.Source != hostSourceTailscale || item.URL != z600.srv.URL || item.Label != "hpz600" {
+		t.Fatalf("z600 = %+v", item)
+	}
+	if item := got["host-air"]; item.Status != hostStatusOffline || item.Source != hostSourceTailscale {
+		t.Fatalf("air = %+v", item)
+	}
+	if item := got["host-tunnel"]; item.Source != hostSourceSaved {
+		t.Fatalf("tunnel-box = %+v", item)
+	}
+	if strings.Contains(out, "pw-") {
+		t.Fatalf("host ls printed a saved password:\n%s", out)
+	}
+
+	out, errOut, err = executeCLI(t, aliveDeps(), "project", "ls", "--host", "hpz600")
+	if err != nil {
+		t.Fatalf("project ls --host hpz600: %v\nstderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "widgets") {
+		t.Fatalf("project ls output %q does not list the remote project", out)
+	}
+	req, ok := z600.find(http.MethodGet, "/api/v1/projects")
+	if !ok || req.auth != "" || req.expectedHost != "host-z600" {
+		t.Fatalf("project list request = %+v (found %v), want no bearer and the expected host ID", req, ok)
+	}
+
+	_, _, err = executeCLI(t, aliveDeps(), "project", "ls", "--host", "petars-macbook-air")
+	if err == nil || !strings.Contains(err.Error(), "offline on the tailnet") {
+		t.Fatalf("offline tailnet host err = %v", err)
+	}
+	_, _, err = executeCLI(t, aliveDeps(), "project", "ls", "--host", "Linux")
+	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "is this machine") {
+		t.Fatalf("own old host ID err = %v", err)
+	}
+}
+
+// A Tailscale host that refuses this machine's identity says so, and the CLI
+// never falls back to a password it does not have.
+func TestTailnetHostRejectionIsExplained(t *testing.T) {
+	cfg := setConfigEnv(t)
+	host := newFakeRemoteHost(t, "host-other", "")
+	host.handle(http.MethodGet, "/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusForbidden, map[string]string{"code": "TAILSCALE_UNAVAILABLE", "message": "Tailscale is unavailable on this host"})
+	})
+	host.handle(http.MethodGet, "/api/v1/projects", func(w http.ResponseWriter, _ *http.Request) {
+		writeTestJSON(w, http.StatusForbidden, map[string]string{"code": "TAILNET_FORBIDDEN", "message": "other user"})
+	})
+	t.Setenv("AO_REMOTES_FILE", filepath.Join(t.TempDir(), "missing.json"))
+	local := startLocalDaemon(t, cfg, "host-local", nil)
+	local.discover(tailnetHostsResponse{Available: true, Hosts: []tailnetHost{{HostID: "host-other", Label: "other", URL: host.srv.URL, Online: true}}})
+
+	out, _, err := executeCLI(t, aliveDeps(), "host", "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, hostStatusUnauthorized) || !strings.Contains(out, "Tailscale unavailable on that host") {
+		t.Fatalf("host ls = %q", out)
+	}
+	_, _, err = executeCLI(t, aliveDeps(), "project", "ls", "--host", "other")
+	if err == nil || !strings.Contains(err.Error(), "did not admit this machine's Tailscale identity") || !strings.Contains(err.Error(), "allowlist") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// Without tailscaled the list says so instead of hanging or hiding saved hosts.
+func TestHostListReportsTailscaleUnavailable(t *testing.T) {
+	cfg := setConfigEnv(t)
+	t.Setenv("AO_REMOTES_FILE", filepath.Join(t.TempDir(), "missing.json"))
+	local := startLocalDaemon(t, cfg, "host-local", nil)
+	local.discover(tailnetHostsResponse{Available: false, Error: "tailscale is unavailable: exec: not found"})
+	out, _, err := executeCLI(t, aliveDeps(), "host", "ls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Tailscale unavailable: tailscale is unavailable") || !strings.Contains(out, "No remote hosts") {
 		t.Fatalf("stdout = %q", out)
 	}
 }

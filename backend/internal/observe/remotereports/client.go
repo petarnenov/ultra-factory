@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -43,6 +44,13 @@ type hostClient struct {
 	hostID   string
 	password string
 	label    string
+	// pullerID is this daemon's instance ID, sent so the host keeps
+	// acknowledgements per puller. perPuller is set once the host confirms it.
+	pullerID  string
+	perPuller bool
+	// insecureOK records the host's plain-http opt-in, so a read that must
+	// keep the transport policy can check it on the client it already has.
+	insecureOK bool
 }
 
 // The wire shapes below mirror the remote daemon's DTOs
@@ -73,6 +81,10 @@ type wireAPIError struct {
 
 // pendingResult is one worker's due reports as this daemon accepts them.
 type pendingResult struct {
+	// unseen counts reports expired before this puller pulled them, not
+	// yet covered by expiredSeen. total is sent back as expiredSeen.
+	unseen  int
+	total   int
 	reports []domain.ReportRecord
 	// rejected are due reports that break the content contract or the size
 	// limits. They are acknowledged without delivery so they cannot block
@@ -83,17 +95,28 @@ type pendingResult struct {
 	more bool
 }
 
-// pending returns the worker's due, still-pending reports.
-func (h *hostClient) pending(ctx context.Context, sessionID domain.SessionID) (pendingResult, error) {
+// pending returns the worker's due, still-pending reports. expiredSeen is the
+// expired count this daemon already logged for the worker.
+func (h *hostClient) pending(ctx context.Context, sessionID domain.SessionID, expiredSeen int) (pendingResult, error) {
 	var body struct {
-		Reports     []wireReport `json:"reports"`
-		MorePending bool         `json:"morePending"`
+		Reports           []wireReport `json:"reports"`
+		MorePending       bool         `json:"morePending"`
+		PullerAcks        bool         `json:"pullerAcks"`
+		ExpiredBeforePull int          `json:"expiredBeforePull"`
+		ExpiredTotal      int          `json:"expiredTotal"`
 	}
 	path := "/api/v1/reports/pending?sessionId=" + url.QueryEscape(string(sessionID))
+	if h.pullerID != "" {
+		path += "&pullerId=" + url.QueryEscape(h.pullerID)
+		if expiredSeen > 0 {
+			path += "&expiredSeen=" + strconv.Itoa(expiredSeen)
+		}
+	}
 	if err := h.do(ctx, http.MethodGet, path, nil, &body); err != nil {
 		return pendingResult{}, err
 	}
-	result := pendingResult{more: body.MorePending}
+	h.perPuller = h.pullerID != "" && body.PullerAcks
+	result := pendingResult{more: body.MorePending, unseen: body.ExpiredBeforePull, total: body.ExpiredTotal}
 	if len(body.Reports) > maxReportsPerPull {
 		body.Reports = body.Reports[:maxReportsPerPull]
 		result.more = true
@@ -147,7 +170,11 @@ func (h *hostClient) acknowledge(ctx context.Context, sessionID domain.SessionID
 		request := struct {
 			SessionID string   `json:"sessionId"`
 			ReportIDs []string `json:"reportIds"`
+			PullerID  string   `json:"pullerId,omitempty"`
 		}{SessionID: string(sessionID), ReportIDs: ids[start:end]}
+		if h.perPuller {
+			request.PullerID = h.pullerID
+		}
 		if err := h.do(ctx, http.MethodPost, "/api/v1/reports/acknowledge", request, nil); err != nil {
 			return err
 		}
@@ -208,7 +235,11 @@ func (h *hostClient) do(ctx context.Context, method, path string, in, out any) e
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+h.password)
+	// A Tailscale-discovered host has no password: the listener admits this
+	// machine on its tailnet identity, checked through tailscaled.
+	if h.password != "" {
+		req.Header.Set("Authorization", "Bearer "+h.password)
+	}
 	req.Header.Set("X-AO-Expected-Host-ID", h.hostID)
 	resp, err := h.http.Do(req)
 	if err != nil {

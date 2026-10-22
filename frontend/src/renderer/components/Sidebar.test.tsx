@@ -503,6 +503,7 @@ beforeEach(() => {
 	cloudSessionState.signIn.mockReset();
 	cloudSessionState.signOut.mockReset().mockResolvedValue(undefined);
 	useUiStore.setState({
+		developerMode: false,
 		isCommandPaletteOpen: false,
 		newTaskRequest: null,
 		settingsModal: null,

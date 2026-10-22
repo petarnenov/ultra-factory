@@ -366,8 +366,8 @@ func TestProjectWorkerTotalIncludesRootOwnedAndRemoteWorkers(t *testing.T) {
 	f.worker("ao-w3", &c2, false)
 	f.worker("ao-w4", nil, false)
 	f.store.links = []domain.RemoteWorkerLink{
-		{HostID: "h", RemoteSessionID: "r1", ProjectID: "ao", OwnerSessionID: &c2},
-		{HostID: "h", RemoteSessionID: "r2", ProjectID: "other"},
+		{HostID: "h", RemoteSessionID: "r1", ProjectID: "ao", OwnerSessionID: &c2, CreatedAt: time.Now()},
+		{HostID: "h", RemoteSessionID: "r2", ProjectID: "other", CreatedAt: time.Now()},
 	}
 
 	if err := f.spawnWorker("ao-root"); err != nil {
@@ -388,8 +388,8 @@ func TestRemoteLinkCountsTowardTheCoordinatorCap(t *testing.T) {
 	c := f.coordinator("ao-c1", false)
 	f.worker("ao-w1", &c, false)
 	f.store.links = []domain.RemoteWorkerLink{
-		{HostID: "h", RemoteSessionID: "r1", ProjectID: "ao", OwnerSessionID: &c},
-		{HostID: "h", RemoteSessionID: "r2", ProjectID: "ao", OwnerSessionID: &c},
+		{HostID: "h", RemoteSessionID: "r1", ProjectID: "ao", OwnerSessionID: &c, CreatedAt: time.Now()},
+		{HostID: "h", RemoteSessionID: "r2", ProjectID: "ao", OwnerSessionID: &c, CreatedAt: time.Now()},
 	}
 	wantAPIError(t, f.spawnWorker(c), "COORDINATOR_WORKER_LIMIT_REACHED", map[string]any{"current": 3})
 }

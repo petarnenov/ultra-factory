@@ -31,7 +31,7 @@ type CoordinatorSummaryRequest struct {
 	SubmissionKey        string   `json:"submissionKey" minLength:"1" maxLength:"200"`
 	Scope                string   `json:"scope,omitempty" maxLength:"200"`
 	State                string   `json:"state" enum:"planning,working,blocked,done"`
-	WorkerSessionIDs     []string `json:"workerSessionIds,omitempty" maxItems:"3"`
+	WorkerSessionIDs     []string `json:"workerSessionIds,omitempty" maxItems:"3" description:"Owned worker session ids; qualify a remote worker as host:id when needed."`
 	// ReadyPRs hands PRs to the root as ready to merge. The daemon validates
 	// ownership, the current head, and an approved review run per entry.
 	ReadyPRs         []ReadyPRRequest `json:"readyPRs,omitempty" maxItems:"10"`
@@ -55,26 +55,34 @@ type ReadyPRResponse struct {
 	ReviewRunID string `json:"reviewRunId"`
 }
 
+// SummaryRemoteWorkerResponse describes one linked worker in a summary.
+type SummaryRemoteWorkerResponse struct {
+	HostID          string `json:"hostId"`
+	HostLabel       string `json:"hostLabel"`
+	RemoteSessionID string `json:"remoteSessionId"`
+}
+
 // CoordinatorSummaryResponse is one persisted coordinator summary and its
 // delivery state. It is distinct from a worker report.
 type CoordinatorSummaryResponse struct {
-	ID                   string            `json:"id"`
-	CoordinatorSessionID string            `json:"coordinatorSessionId"`
-	ProjectID            string            `json:"projectId"`
-	SubmissionKey        string            `json:"submissionKey"`
-	Scope                string            `json:"scope"`
-	State                string            `json:"state" enum:"planning,working,blocked,done"`
-	WorkerSessionIDs     []string          `json:"workerSessionIds"`
-	ReadyPRs             []ReadyPRResponse `json:"readyPRs"`
-	Result               string            `json:"result"`
-	EscalationReason     string            `json:"escalationReason,omitempty"`
-	EscalationNote       string            `json:"escalationNote,omitempty"`
-	Escalation           bool              `json:"escalation"`
-	CreatedAt            time.Time         `json:"createdAt"`
-	DeliveryState        string            `json:"deliveryState" enum:"pending,claimed,acknowledged"`
-	DeliveryAttempts     int64             `json:"deliveryAttempts"`
-	AcknowledgedAt       *time.Time        `json:"acknowledgedAt,omitempty"`
-	LastError            string            `json:"lastError,omitempty"`
+	ID                   string                        `json:"id"`
+	CoordinatorSessionID string                        `json:"coordinatorSessionId"`
+	ProjectID            string                        `json:"projectId"`
+	SubmissionKey        string                        `json:"submissionKey"`
+	Scope                string                        `json:"scope"`
+	State                string                        `json:"state" enum:"planning,working,blocked,done"`
+	WorkerSessionIDs     []string                      `json:"workerSessionIds"`
+	RemoteWorkers        []SummaryRemoteWorkerResponse `json:"remoteWorkers"`
+	ReadyPRs             []ReadyPRResponse             `json:"readyPRs"`
+	Result               string                        `json:"result"`
+	EscalationReason     string                        `json:"escalationReason,omitempty"`
+	EscalationNote       string                        `json:"escalationNote,omitempty"`
+	Escalation           bool                          `json:"escalation"`
+	CreatedAt            time.Time                     `json:"createdAt"`
+	DeliveryState        string                        `json:"deliveryState" enum:"pending,claimed,acknowledged"`
+	DeliveryAttempts     int64                         `json:"deliveryAttempts"`
+	AcknowledgedAt       *time.Time                    `json:"acknowledgedAt,omitempty"`
+	LastError            string                        `json:"lastError,omitempty"`
 }
 
 // CoordinatorSummaryHistoryResponse lists summaries newest first.
@@ -167,6 +175,12 @@ func coordinatorSummaryResponse(rec domain.CoordinatorSummary) CoordinatorSummar
 	for i, id := range rec.WorkerSessionIDs {
 		workers[i] = string(id)
 	}
+	remoteWorkers := make([]SummaryRemoteWorkerResponse, len(rec.RemoteWorkers))
+	for i, worker := range rec.RemoteWorkers {
+		remoteWorkers[i] = SummaryRemoteWorkerResponse{
+			HostID: worker.HostID, HostLabel: worker.HostLabel, RemoteSessionID: worker.RemoteSessionID,
+		}
+	}
 	readyPRs := make([]ReadyPRResponse, len(rec.ReadyPRs))
 	for i, pr := range rec.ReadyPRs {
 		readyPRs[i] = ReadyPRResponse{Number: pr.Number, HeadSHA: pr.HeadSHA, ReviewRunID: pr.ReviewRunID}
@@ -174,7 +188,8 @@ func coordinatorSummaryResponse(rec domain.CoordinatorSummary) CoordinatorSummar
 	out := CoordinatorSummaryResponse{
 		ID: rec.ID, CoordinatorSessionID: string(rec.CoordinatorSessionID), ProjectID: string(rec.ProjectID),
 		SubmissionKey: rec.SubmissionKey, Scope: rec.Scope, State: string(rec.State), WorkerSessionIDs: workers,
-		Result: rec.Result, EscalationReason: string(rec.EscalationReason), EscalationNote: rec.EscalationNote,
+		RemoteWorkers: remoteWorkers,
+		Result:        rec.Result, EscalationReason: string(rec.EscalationReason), EscalationNote: rec.EscalationNote,
 		Escalation: rec.IsEscalation(), CreatedAt: rec.CreatedAt, DeliveryState: string(rec.DeliveryState),
 		DeliveryAttempts: rec.DeliveryAttempts, LastError: rec.LastError, ReadyPRs: readyPRs,
 	}

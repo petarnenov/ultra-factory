@@ -36,11 +36,11 @@ type CoordinatorsConfig struct {
 	// AgentProfiles is the shared list of agent choices (ADR 0010,
 	// amendment 1, decision 8).
 	AgentProfiles []AgentProfile `json:"agentProfiles,omitempty"`
-	// CoordinatorAgent, WorkerAgent and RootWorkerAgent pick the agent of new
-	// coordinators, of coordinator workers, and of root-owned workers.
-	CoordinatorAgent AgentSelection `json:"coordinatorAgent,omitempty"`
-	WorkerAgent      AgentSelection `json:"workerAgent,omitempty"`
-	RootWorkerAgent  AgentSelection `json:"rootWorkerAgent,omitempty"`
+	// A zero selection is inherit; omitzero keeps it out of the stored config.
+	// They pick coordinators', coordinator workers' and root workers' agents.
+	CoordinatorAgent AgentSelection `json:"coordinatorAgent,omitempty,omitzero"`
+	WorkerAgent      AgentSelection `json:"workerAgent,omitempty,omitzero"`
+	RootWorkerAgent  AgentSelection `json:"rootWorkerAgent,omitempty,omitzero"`
 	// AllowedHosts bounds coordinator workers to these paired host IDs;
 	// empty allows any. The local daemon is AllowLocalWorkers only.
 	AllowedHosts []string `json:"allowedHosts,omitempty"`

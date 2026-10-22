@@ -256,7 +256,114 @@ func newProjectCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newProjectAddCommand(ctx))
 	cmd.AddCommand(newProjectSetConfigCommand(ctx))
 	cmd.AddCommand(newProjectRemoveCommand(ctx))
+	cmd.AddCommand(newProjectAggregateCommand(ctx))
 	return cmd
+}
+
+// projectAggregateEntry mirrors the daemon's aggregate row (service/aggregate).
+type projectAggregateEntry struct {
+	HostID    string `json:"hostId"`
+	HostLabel string `json:"hostLabel"`
+	ProjectID string `json:"projectId"`
+	Source    string `json:"source"`
+	MatchedBy string `json:"matchedBy,omitempty"`
+	Stale     bool   `json:"stale"`
+}
+
+type projectAggregateResult struct {
+	AggregateEffective []projectAggregateEntry `json:"aggregateEffective"`
+}
+
+func newProjectAggregateCommand(ctx *commandContext) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "aggregate",
+		Short: "Show or refresh the hosts on a project's aggregate board",
+	}
+	cmd.AddCommand(newProjectAggregateListCommand(ctx))
+	cmd.AddCommand(newProjectAggregateRefreshCommand(ctx))
+	return cmd
+}
+
+func projectIDArgs(cmd *cobra.Command, args []string) error {
+	if err := cobra.ExactArgs(1)(cmd, args); err != nil {
+		return usageError{err}
+	}
+	if strings.TrimSpace(args[0]) == "" {
+		return usageError{errors.New("usage: project id is required")}
+	}
+	return nil
+}
+
+func newProjectAggregateListCommand(ctx *commandContext) *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "ls <id>",
+		Short: "List the effective aggregate set for a project",
+		Long:  "List the projects on paired hosts shown on the project's aggregate board, with their source (discovered or explicit) and match rule.",
+		Args:  projectIDArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.TrimSpace(args[0])
+			var res projectAggregateResult
+			if err := ctx.getJSON(cmd.Context(), "projects/"+url.PathEscape(id), &res); err != nil {
+				return err
+			}
+			if jsonOut {
+				return writeJSON(cmd.OutOrStdout(), res)
+			}
+			return writeProjectAggregate(cmd, res.AggregateEffective)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output the effective set as JSON")
+	return cmd
+}
+
+func newProjectAggregateRefreshCommand(ctx *commandContext) *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "refresh <id>",
+		Short: "Run one aggregate discovery pass now",
+		Long:  "Probe every paired host now and print the refreshed aggregate set. Each host is bounded by its own time budget.",
+		Args:  projectIDArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id := strings.TrimSpace(args[0])
+			var res projectAggregateResult
+			if err := ctx.postJSON(cmd.Context(), "projects/"+url.PathEscape(id)+"/aggregate/refresh", nil, &res); err != nil {
+				return err
+			}
+			if jsonOut {
+				return writeJSON(cmd.OutOrStdout(), res)
+			}
+			return writeProjectAggregate(cmd, res.AggregateEffective)
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output the refreshed set as JSON")
+	return cmd
+}
+
+func writeProjectAggregate(cmd *cobra.Command, entries []projectAggregateEntry) error {
+	out := cmd.OutOrStdout()
+	if len(entries) == 0 {
+		_, err := fmt.Fprintln(out, "No aggregate projects. Pair a host and register the same project on it.")
+		return err
+	}
+	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "HOST ID\tHOST\tPROJECT\tSOURCE\tMATCHED BY\tSTALE"); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		stale := "no"
+		if e.Stale {
+			stale = "yes"
+		}
+		matched := e.MatchedBy
+		if matched == "" {
+			matched = "-"
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.HostID, e.HostLabel, e.ProjectID, e.Source, matched, stale); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
 }
 
 func newProjectListCommand(ctx *commandContext) *cobra.Command {
@@ -624,6 +731,28 @@ func (c *commandContext) mergeCoordinatorFlags(cmd *cobra.Command, id string, op
 			coordinators[key] = value
 		} else {
 			delete(coordinators, key)
+		}
+	}
+	for _, key := range []string{"coordinatorAgent", "workerAgent", "rootWorkerAgent"} {
+		raw, ok := coordinators[key]
+		if !ok || string(raw) == "null" {
+			continue
+		}
+		var selection agentSelection
+		if err := json.Unmarshal(raw, &selection); err != nil {
+			return nil, fmt.Errorf("stored %s: %w", key, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, err
+		}
+		fields["mode"], err = json.Marshal(selection.Mode)
+		if err != nil {
+			return nil, err
+		}
+		coordinators[key], err = json.Marshal(fields)
+		if err != nil {
+			return nil, err
 		}
 	}
 	coordRaw, err := json.Marshal(coordinators)

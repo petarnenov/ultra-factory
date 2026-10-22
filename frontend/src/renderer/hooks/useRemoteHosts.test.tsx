@@ -8,11 +8,13 @@ const remotes = vi.hoisted(() => ({
 	disconnect: vi.fn(),
 	connected: vi.fn(),
 }));
-const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" | "unauthenticated" }));
+const account = vi.hoisted(() => ({ status: "authenticated" as "loading" | "authenticated" | "unauthenticated" }));
 
 vi.mock("../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, session: account.status === "authenticated" ? { user: { id: "user-a" } } : null }) }));
-vi.mock("./useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
+vi.mock("./useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: cloud.baseUrl } }) }));
+const cloud = vi.hoisted(() => ({ baseUrl: "", list: vi.fn() }));
+vi.mock("../lib/account-remote-hosts", () => ({ listAccountRemoteHosts: (...args: unknown[]) => cloud.list(...args) }));
 const platform = vi.hoisted(() => ({ web: false }));
 vi.mock("../lib/platform", () => ({ get isWebBuild() { return platform.web; } }));
 
@@ -21,6 +23,8 @@ import { useConnectedHosts } from "./useHostConnection";
 import { requestRemoteHostsRefresh, useRemoteHosts } from "./useRemoteHosts";
 
 beforeEach(() => {
+	cloud.baseUrl = "";
+	cloud.list.mockReset();
 	account.status = "authenticated";
 	remotes.list.mockReset().mockResolvedValue([
 		{ hostId: "box-a", label: "Box A", url: "http://box-a:3001" },
@@ -33,7 +37,7 @@ beforeEach(() => {
 		base: "http://127.0.0.1:4000",
 	}));
 	remotes.disconnect.mockReset().mockResolvedValue(undefined);
-	useUiStore.setState({ developerMode: true, remoteHosts: false });
+	useUiStore.setState({ developerMode: true, remoteHosts: false, remoteHostsCloudSync: false });
 });
 
 afterEach(() => {
@@ -49,19 +53,16 @@ it("does not connect to saved boxes until Remote hosts is enabled", async () => 
 	expect(remotes.connect).not.toHaveBeenCalled();
 });
 
-it("requires AO sign-in and disconnects remote hosts on sign-out", async () => {
+it("connects hosts without an AO Cloud account and keeps them across sign-in changes", async () => {
 	useUiStore.setState({ remoteHosts: true });
 	account.status = "unauthenticated";
 	const { result, rerender } = renderHook(() => useRemoteHosts());
-	expect(result.current.hosts).toEqual([]);
-	expect(remotes.list).not.toHaveBeenCalled();
+	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
+	expect(remotes.list).toHaveBeenCalledTimes(1);
 	account.status = "authenticated";
 	rerender();
 	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
-	account.status = "unauthenticated";
-	rerender();
-	await waitFor(() => expect(result.current.hosts).toEqual([]));
-	expect(connectedHosts()).toEqual([]);
+	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
 });
 
 it("keeps remote hosts disconnected until Developer mode is enabled", async () => {
@@ -303,4 +304,58 @@ it("connects the hub's hosts in the web build without AO Cloud sign-in", async (
 	const { result } = renderHook(() => useRemoteHosts());
 	await waitFor(() => expect(result.current.hosts.map((host) => host.status)).toEqual(["connected", "connected"]));
 	expect(baseUrlForHost("box-a")).toBe("/hosts/box-a");
+});
+
+it("publishes saved hosts before a slow cloud directory responds", async () => {
+	cloud.baseUrl = "https://cloud.example";
+	cloud.list.mockReturnValue(new Promise(() => {}));
+	useUiStore.setState({ remoteHosts: true, remoteHostsCloudSync: true });
+	const { result } = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(cloud.list).toHaveBeenCalled());
+	expect(result.current.hosts).toEqual([
+		{ hostId: "box-a", label: "Box A", url: "http://box-a:3001", status: "connecting" },
+		{ hostId: "box-b", label: "Box B", url: "http://box-b:3001", status: "connecting" },
+	]);
+});
+
+it("keeps existing proxies when a newly mounted observer loads its account", async () => {
+	useUiStore.setState({ remoteHosts: true, remoteHostsCloudSync: true });
+	const existing = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(existing.result.current.hosts.every((host) => host.status === "connected")).toBe(true));
+	await waitFor(() => expect(connectedHosts()).toEqual(["box-a", "box-b"]));
+	remotes.disconnect.mockClear();
+	account.status = "loading";
+	const observer = renderHook(() => useRemoteHosts());
+	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
+	expect(remotes.disconnect).not.toHaveBeenCalled();
+	remotes.connect.mockReturnValue(new Promise(() => {}));
+	account.status = "authenticated";
+	observer.rerender();
+	await waitFor(() => expect(observer.result.current.hosts).toHaveLength(2));
+	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
+	expect(remotes.disconnect).not.toHaveBeenCalled();
+});
+
+
+it("keeps rejected credentials offline during a soft refresh with a slow cloud directory", async () => {
+	cloud.baseUrl = "https://cloud.example";
+	cloud.list.mockRejectedValue(new Error("Cloud unavailable"));
+	remotes.list.mockResolvedValue([{ hostId: "box-a", label: "Box A", url: "http://box-a:3001" }]);
+	remotes.connect.mockRejectedValue(new Error("host http://box-a:3001 is unauthorized"));
+	useUiStore.setState({ remoteHosts: true, remoteHostsCloudSync: true });
+	const { result } = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(result.current.hosts[0]).toMatchObject({ status: "offline", failureReason: "unauthorized" }));
+	remotes.connect.mockClear();
+	let finishDirectory!: () => void;
+	cloud.list.mockReturnValueOnce(new Promise((_, reject) => {
+		finishDirectory = () => reject(new Error("Cloud unavailable"));
+	}));
+	let refresh!: Promise<void>;
+	await act(async () => { refresh = result.current.refresh({ soft: true }); });
+	await waitFor(() => expect(cloud.list).toHaveBeenCalledTimes(2));
+	expect(result.current.hosts[0]).toMatchObject({ status: "offline", failureReason: "unauthorized" });
+	expect(remotes.connect).not.toHaveBeenCalled();
+	await act(async () => { finishDirectory(); await refresh; });
+	expect(result.current.hosts[0]).toMatchObject({ status: "offline", failureReason: "unauthorized" });
+	expect(remotes.connect).not.toHaveBeenCalled();
 });

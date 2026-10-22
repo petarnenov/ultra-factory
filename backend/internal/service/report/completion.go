@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
@@ -72,12 +73,28 @@ func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput)
 		recipient.ProjectID != project || recipient.Activity.State == domain.ActivityExited {
 		return nil
 	}
-	var prs []string
+	// Validate every PR before claiming any, so a bad entry leaves no claim.
 	for _, pr := range in.PRs {
 		if pr.Number <= 0 || strings.TrimSpace(pr.MergeCommitSHA) == "" {
 			return apierr.Invalid("INVALID_COMPLETION_REPORT", "PR number and merge commit are required", nil)
 		}
+	}
+	var prs []string
+	var claimed []string
+	// A merge the observer already announced is not repeated here.
+	for _, pr := range in.PRs {
+		won, err := c.store.ClaimPRMergeAnnouncement(ctx, pr.MergeCommitSHA, "", domain.SessionID(in.SessionID), c.now().UTC())
+		if err != nil {
+			return errors.Join(err, c.releaseMergeClaims(ctx, claimed))
+		}
+		if !won {
+			continue
+		}
+		claimed = append(claimed, pr.MergeCommitSHA)
 		prs = append(prs, fmt.Sprintf("PR #%d merge commit %s", pr.Number, pr.MergeCommitSHA))
+	}
+	if len(prs) == 0 {
+		return nil
 	}
 	message := fmt.Sprintf("TICK completion: worker %s/%s; %s; action %s completed.",
 		in.HostID, in.SessionID, strings.Join(prs, "; "), in.Kind)
@@ -88,7 +105,25 @@ func (c *Coordinator) DeliverCompletion(ctx context.Context, in CompletionInput)
 	if errors.Is(err, domain.ErrSemanticAcceptanceTimeout) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return errors.Join(err, c.releaseMergeClaims(ctx, claimed))
+	}
+	return nil
+}
+
+// releaseMergeClaims drops claims whose message was not delivered so the
+// next observation or tick announces those merges.
+func (c *Coordinator) releaseMergeClaims(ctx context.Context, shas []string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
+	var errs []error
+	for _, sha := range shas {
+		if err := c.store.ReleasePRMergeAnnouncement(cleanupCtx, sha); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // CompletionRecipient is a hub-owned snapshot taken before a completion action.

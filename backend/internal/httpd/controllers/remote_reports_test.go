@@ -199,3 +199,50 @@ func TestCreateReportRefusesAnOversizedBody(t *testing.T) {
 		t.Fatalf("status=%d body=%.200s", status, response)
 	}
 }
+
+func TestReportPullRoutesKeepAcknowledgementsPerPuller(t *testing.T) {
+	store, worker, _ := openReportStore(t)
+	reports := reportsvc.New(reportsvc.Deps{Store: store})
+	urgent, err := reports.Create(context.Background(), reportsvc.CreateInput{SessionID: worker.ID, State: domain.ReportStuck, Note: "CI is red"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newRouterServer(t, httpd.APIDeps{Reports: reports})
+	pendingFor := func(puller string) string {
+		t.Helper()
+		body, status, _ := doRequest(t, srv, "GET", "/api/v1/reports/pending?sessionId="+string(worker.ID)+"&pullerId="+puller, "")
+		if status != http.StatusOK {
+			t.Fatalf("pending for %s: status=%d body=%s", puller, status, body)
+		}
+		return string(body)
+	}
+
+	if body := pendingFor("daemon-a"); !strings.Contains(body, urgent.ID) || !strings.Contains(body, `"pullerAcks":true`) {
+		t.Fatalf("pending for daemon-a = %s, want the report and pullerAcks", body)
+	}
+	ack := `{"sessionId":"` + string(worker.ID) + `","reportIds":["` + urgent.ID + `"],"pullerId":"daemon-a"}`
+	if body, status, _ := doRequest(t, srv, "POST", "/api/v1/reports/acknowledge", ack); status != http.StatusOK || !strings.Contains(string(body), urgent.ID) {
+		t.Fatalf("per-puller ack status=%d body=%s", status, body)
+	}
+	if body := pendingFor("daemon-a"); strings.Contains(body, urgent.ID) {
+		t.Fatalf("daemon-a receives its acknowledged report again: %s", body)
+	}
+	if body := pendingFor("daemon-b"); !strings.Contains(body, urgent.ID) {
+		t.Fatalf("daemon-b lost the report daemon-a acknowledged: %s", body)
+	}
+	if body, _, _ := doRequest(t, srv, "GET", "/api/v1/reports/pending?sessionId="+string(worker.ID), ""); strings.Contains(string(body), "pullerAcks") {
+		t.Fatalf("a legacy pull must not advertise per-puller acks: %s", body)
+	}
+
+	for _, tc := range []struct {
+		path, code string
+	}{
+		{"/api/v1/reports/pending?sessionId=" + string(worker.ID) + "&pullerId=has%20space", "INVALID_PULLER_ID"},
+		{"/api/v1/reports/pending?sessionId=" + string(worker.ID) + "&pullerId=d&expiredSeen=-1", "INVALID_EXPIRED_SEEN"},
+	} {
+		body, status, _ := doRequest(t, srv, "GET", tc.path, "")
+		if status != http.StatusBadRequest || !reportContainsAll(string(body), tc.code) {
+			t.Fatalf("%s: status=%d body=%s, want 400 %s", tc.path, status, body, tc.code)
+		}
+	}
+}

@@ -84,10 +84,21 @@ export function CoordinatorRoster({ projectId, hostId, config }: { projectId: st
 								workers: `${roster.capacity.activeWorkers}/${roster.capacity.maxWorkers}`,
 							})}
 						</p>
-						{roster.rootWorkerSessionIds.length > 0 ? (
-							<p className="text-settings-muted">
-								{t("coordinators.roster.rootWorkers", { count: roster.rootWorkerSessionIds.length })}
-							</p>
+						{roster.rootWorkers.length > 0 || roster.rootWorkerSessionIds.length > 0 ? (
+							<div className="text-settings-muted">
+								<p>{t("coordinators.roster.rootWorkers", { count: roster.rootWorkers.length || roster.rootWorkerSessionIds.length })}</p>
+								<ul className="pl-4" data-testid="root-worker-list">
+									{(roster.rootWorkers.length > 0 ? roster.rootWorkers : roster.rootWorkerSessionIds.map((sessionId) => ({
+										sessionId, agentProfileId: null, remote: false, hostId: "", hostLabel: "",
+									}))).map((worker) => (
+										<li key={`${worker.remote ? worker.hostId : "local"}:${worker.sessionId}`}>
+											{worker.remote && (worker.hostLabel || worker.hostId)
+								? t("coordinators.roster.remoteWorker", { worker: worker.sessionId, host: worker.hostLabel || hostLabel(worker.hostId ?? "") })
+												: worker.sessionId}
+										</li>
+									))}
+								</ul>
+							</div>
 						) : null}
 					</div>
 					{roster.coordinators.length === 0 ? (
@@ -191,7 +202,11 @@ function CoordinatorItem({
 			{entry.workers.length === 0 ? (
 				<p className="text-xs text-settings-muted">{t("coordinators.roster.noWorkers")}</p>
 			) : (
-				entry.workers.map((worker) => (
+				entry.workers.map((worker) => worker.remote ? (
+					<p className="text-xs text-settings-muted" data-testid="coordinator-remote-worker-row" key={`${worker.hostId}:${worker.sessionId}`}>
+						{t("coordinators.roster.remoteWorker", { worker: worker.sessionId, host: worker.hostLabel || worker.hostId })}
+					</p>
+				) : (
 					<WorkerRow
 						hostId={hostId}
 						key={worker.sessionId}
@@ -369,7 +384,7 @@ function StopDialog({
 	const fail = useErrorMessage();
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const owned = entry.workerSessionIds.length;
+	const owned = entry.workerCount;
 	const stop = async () => {
 		setBusy(true);
 		setError(null);

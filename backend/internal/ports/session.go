@@ -70,8 +70,11 @@ type SpawnConfig struct {
 	// IssueContext is optional pre-fetched tracker context for the task prompt.
 	// Standing rules stay in SystemPrompt; issue facts belong to the user task.
 	IssueContext string
-	Kind         domain.SessionKind
-	Harness      domain.AgentHarness
+	// KnowledgeContext is optional prior context from the knowledge graph
+	// (ADR 0012), appended to a worker's task prompt.
+	KnowledgeContext string
+	Kind             domain.SessionKind
+	Harness          domain.AgentHarness
 	// HarnessExplicit records that the caller named Harness instead of leaving
 	// it to the role or machine default; HarnessExplicitSet marks the flag set.
 	HarnessExplicit    bool

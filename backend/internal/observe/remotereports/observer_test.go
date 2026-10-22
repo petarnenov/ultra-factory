@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ type memStore struct {
 	history       map[string]map[string]domain.ReportRecord
 	historyWrites []historyWrite
 	listCalls     int
+	removals      []domain.RemoteWorkerLinkRemoval
 }
 
 type historyWrite struct {
@@ -768,18 +770,17 @@ func TestAcknowledgeSplitsIntoChunksTheRemoteAccepts(t *testing.T) {
 	}
 }
 
-func TestPollSkipsPlainHTTPHostsUnlessOptedIn(t *testing.T) {
+func TestPlainHTTPHostIsNotReadWithoutThePerHostOptIn(t *testing.T) {
 	t.Setenv(remotehost.AllowHTTPEnv, "")
 	var logs strings.Builder
 	store := newMemStore(link("host-lan", "w-1"))
-	deliverer := &fakeDeliverer{}
 	observer := New(Deps{
-		Store: store, Deliverer: deliverer,
+		Store: store, Deliverer: &fakeDeliverer{},
 		Lookup: func(string) (remotehost.Entry, bool, error) {
 			return remotehost.Entry{Label: "linux", URL: "http://192.168.1.223:1", Password: "pw", HostID: "host-lan"}, true, nil
 		},
-		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-			t.Error("a request left for a plain-http host without the opt-in")
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			t.Errorf("request %s %s left a plain-http host without the opt-in", r.Method, r.URL.Path)
 			return nil, errors.New("blocked")
 		})},
 		Logger: slog.New(slog.NewTextHandler(&logs, nil)),
@@ -789,6 +790,47 @@ func TestPollSkipsPlainHTTPHostsUnlessOptedIn(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "Allow report pulls over plain HTTP") || store.linkCount() != 1 {
 		t.Fatalf("logs = %s", logs.String())
+	}
+}
+
+// With the per-host opt-in, the liveness read runs over plain http and
+// records the link as live; pulls and acknowledgements still need the same.
+func TestPlainHTTPHostWithTheOptInGetsTheStatusRead(t *testing.T) {
+	store := newMemStore(link("host-lan", "w-1"))
+	var reads []string
+	observer := New(Deps{
+		Store: store, Deliverer: &fakeDeliverer{},
+		Lookup: func(string) (remotehost.Entry, bool, error) {
+			return remotehost.Entry{Label: "linux", URL: "http://192.168.1.223:1", Password: "pw", HostID: "host-lan", AllowInsecureHTTP: true}, true, nil
+		},
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.URL.Path == "/api/v1/identity":
+				return jsonResponse(http.StatusOK, `{"hostId":"host-lan","apiVersion":`+strconv.Itoa(remotehost.APIVersion)+`}`), nil
+			case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sessions/w-1" &&
+				r.Header.Get("Authorization") == "Bearer pw":
+				reads = append(reads, r.URL.Path)
+				return jsonResponse(http.StatusOK, `{"session":{"isTerminated":false}}`), nil
+			case r.Method == http.MethodGet && r.URL.Path == "/api/v1/reports/pending":
+				return jsonResponse(http.StatusOK, `{"reports":[],"morePending":false}`), nil
+			}
+			t.Errorf("request %s %s is not part of the status read or pull", r.Method, r.URL.Path)
+			return nil, errors.New("blocked")
+		})},
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(reads) == 0 || store.linkCount() != 1 || store.links[0].LastState != domain.RemoteLinkLive {
+		t.Fatalf("reads = %v, links = %+v", reads, store.links)
+	}
+}
+
+func jsonResponse(status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
+		Body: io.NopCloser(strings.NewReader(body)),
 	}
 }
 
@@ -1042,13 +1084,16 @@ func TestATooManyRequestsAnswerAlsoStopsThePassword(t *testing.T) {
 	host.pendingStatus = http.StatusTooManyRequests
 	store := newMemStore(link("host-build", "w-1"), link("host-build", "w-2"))
 	observer := newTestObserver(store, &fakeDeliverer{}, host)
-	for i := 0; i < 2; i++ {
-		if err := observer.Poll(context.Background()); err != nil {
-			t.Fatal(err)
-		}
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
 	}
-	if got := host.authenticated(); got != 1 {
-		t.Fatalf("authenticated requests after a lockout = %d, want 1", got)
+	// The status reads of the pass came before the lockout; none may follow it.
+	locked := host.authenticated()
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := host.authenticated(); got != locked {
+		t.Fatalf("authenticated requests after a lockout = %d more, want none", got-locked)
 	}
 }
 
@@ -1444,4 +1489,36 @@ func TestPollDeliversToTheOwnerReassignedAfterTheSnapshot(t *testing.T) {
 	if owners.clears != 0 || got.OwnerSessionID == nil || *got.OwnerSessionID != next {
 		t.Fatalf("reassignment lost: clears=%d owner=%v", owners.clears, got.OwnerSessionID)
 	}
+}
+
+func (m *memStore) UpdateRemoteWorkerLinkLiveness(_ context.Context, host string, session domain.SessionID, at time.Time, state string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.links {
+		if m.links[i].HostID == host && m.links[i].RemoteSessionID == session {
+			seen := at
+			m.links[i].LastSeenAt = &seen
+			m.links[i].LastState = state
+		}
+	}
+	return nil
+}
+
+func (m *memStore) ListRemoteWorkerLinkRemovals(context.Context) ([]domain.RemoteWorkerLinkRemoval, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]domain.RemoteWorkerLinkRemoval(nil), m.removals...), nil
+}
+
+func (m *memStore) DeleteRemoteWorkerLinkRemoval(_ context.Context, host string, session domain.SessionID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.removals[:0]
+	for _, removal := range m.removals {
+		if removal.HostID != host || removal.RemoteSessionID != session {
+			kept = append(kept, removal)
+		}
+	}
+	m.removals = kept
+	return nil
 }

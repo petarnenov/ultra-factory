@@ -323,6 +323,11 @@ type coordinatorStore struct {
 	acked       int
 	ownerEvents []coordinatorOwnerEvent
 	links       map[string]domain.RemoteWorkerLink
+	// merges holds merge commit SHAs already claimed for announcement.
+	merges map[string]bool
+	// claimErrSHA makes the claim for that merge commit fail with claimErr.
+	claimErrSHA string
+	claimErr    error
 	// beforeRemoteClear runs before a remote compare-and-clear reads the link.
 	beforeRemoteClear func()
 	// claims counts batch claims so a regression can bound a spin instead of
@@ -523,6 +528,29 @@ func (s *coordinatorStore) GetRemoteWorkerLink(_ context.Context, hostID string,
 	return link, ok, nil
 }
 
+func (s *coordinatorStore) ClaimPRMergeAnnouncement(_ context.Context, sha, _ string, _ domain.SessionID, _ time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.merges == nil {
+		s.merges = map[string]bool{}
+	}
+	if s.claimErr != nil && sha == s.claimErrSHA {
+		return false, s.claimErr
+	}
+	if s.merges[sha] {
+		return false, nil
+	}
+	s.merges[sha] = true
+	return true, nil
+}
+
+func (s *coordinatorStore) ReleasePRMergeAnnouncement(_ context.Context, sha string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.merges, sha)
+	return nil
+}
+
 func (s *coordinatorStore) ClearRemoteWorkerOwnerIf(_ context.Context, hostID string, remote, expected domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
 	if s.beforeRemoteClear != nil {
 		s.beforeRemoteClear()
@@ -564,11 +592,17 @@ type coordinatorDelivery struct {
 	interrupts   []domain.SessionID
 	submitErr    error
 	interruptErr error
+	submitHook   func(context.Context) error
 	attempts     int
 }
 
-func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
+func (d *coordinatorDelivery) Submit(ctx context.Context, target domain.SessionID, message, key string) error {
 	d.attempts++
+	if d.submitHook != nil {
+		if err := d.submitHook(ctx); err != nil {
+			return err
+		}
+	}
 	if d.submitErr != nil {
 		return d.submitErr
 	}
