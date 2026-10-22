@@ -63,6 +63,7 @@ Defaults are conservative and configurable in the daemon environment:
 | `AO_STALL_TERMINAL_AFTER_SECONDS` | `1200` (20m) | A PTY can be quiet during a build; tool boundaries are the primary signal. |
 | `AO_STALL_GIT_AFTER_SECONDS` | `1200` (20m) | Git progress is corroborating evidence, not the primary work signal. |
 | `AO_STALL_BLOCKED_AFTER_SECONDS` | `1200` (20m) | Gives an agent time to report `needs_input` on its own. |
+| `AO_STALL_OPERATION_AFTER_SECONDS` | `300` (5m) | A wake, exit or switch should finish well inside this; longer means it hangs. |
 | `AO_STALL_LONG_TOOLS` | `bash,shell,run_shell_command,run_command,execute,exec_command,terminal,task,agent,subagent,wait` | Tool names normalized to lower case. |
 | `AO_STALL_TICK_SECONDS` | `30` | Observation cadence. |
 | `AO_STALL_CHECKPOINT_REQUEST` | unset | Set to `1` to send the stalled session a checkpoint request. It is off by default. |
@@ -87,6 +88,11 @@ The orchestrator must distinguish the three stall classes before acting:
    `provider_auth_required` means the machine cannot authenticate; repair the
    credential on that machine before re-driving the session. A worker's local
    commits stay on that machine, so killing it loses work.
+   `agent_operation_stuck` means a wake, exit or switch has held the session
+   past `AO_STALL_OPERATION_AFTER_SECONDS`; the class names the operation. The
+   monitor cancels a stuck wake automatically. A stuck switch or exit is only
+   reported, so check `ao session get` for the `operation:` line and kill the
+   session if it does not clear.
 
 The counters in `health` are for tuning: a high `stallCount` with short
 `lastStallForSeconds` values is evidence of false positives; a long
