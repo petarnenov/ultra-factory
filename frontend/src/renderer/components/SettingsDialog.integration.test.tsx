@@ -33,6 +33,7 @@ const roster = {
 	capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 0, activeWorkers: 0 },
 	coordinators: [],
 	rootWorkerSessionIds: [],
+	rootWorkers: [],
 };
 let catalog = { agents: [agentReadiness("claude-code", "Claude Code"), agentReadiness("codex", "Codex")] };
 

@@ -838,6 +838,8 @@ type CoordinatorRosterResponse struct {
 	Coordinators []CoordinatorRosterEntry `json:"coordinators"`
 	// RootWorkerSessionIDs are the project's live root-owned workers.
 	RootWorkerSessionIDs []string `json:"rootWorkerSessionIds"`
+	// RootWorkers lists root-owned local and remote workers with host metadata.
+	RootWorkers []CoordinatorRosterWorker `json:"rootWorkers"`
 }
 
 // CoordinatorRosterEntry is one coordinator and its live local workers.
@@ -874,6 +876,9 @@ type CoordinatorRosterEntry struct {
 type CoordinatorRosterWorker struct {
 	SessionID      string  `json:"sessionId"`
 	AgentProfileID *string `json:"agentProfileId"`
+	Remote         bool    `json:"remote" description:"True for a worker linked from another AO host."`
+	HostID         string  `json:"hostId,omitempty"`
+	HostLabel      string  `json:"hostLabel,omitempty"`
 }
 
 // ListCoordinatorsQuery scopes the coordinator roster read.

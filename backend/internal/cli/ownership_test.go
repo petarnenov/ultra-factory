@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 type ownerCapture struct {
@@ -16,6 +18,32 @@ type ownerCapture struct {
 	query  string
 	body   string
 }
+
+func TestCoordinatorRosterPrintsRemoteWorkerHost(t *testing.T) {
+	cmd := &cobra.Command{}
+	var out strings.Builder
+	cmd.SetOut(&out)
+	entry := coordinatorRosterItem{
+		CoordinatorSessionID: "ao-c1", CoordinatorScope: "auth", WorkerCount: 1,
+		Workers: []coordinatorRosterWorker{{
+			SessionID: "shared-worker", Remote: true, HostID: "host-build", HostLabel: "Air builder",
+		}},
+	}
+	if err := writeCoordinatorRoster(cmd, coordinatorRosterDTO{
+		ProjectID: "ao", RootSessionID: stringPointer("ao-root"), Coordinators: []coordinatorRosterItem{entry},
+		RootWorkers: []coordinatorRosterWorker{{
+			SessionID: "root-remote", Remote: true, HostID: "host-root", HostLabel: "Air root",
+		}},
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "workers: 1") || !strings.Contains(out.String(), "shared-worker on Air builder") ||
+		!strings.Contains(out.String(), "root-owned workers: 1") || !strings.Contains(out.String(), "root-remote on Air root") {
+		t.Fatalf("coordinator roster output = %q", out.String())
+	}
+}
+
+func stringPointer(value string) *string { return &value }
 
 func ownershipServer(t *testing.T, status int, response string) (*httptest.Server, *ownerCapture) {
 	t.Helper()

@@ -4852,6 +4852,7 @@ export interface components {
             /** @enum {string} */
             state: "planning" | "working" | "blocked" | "done";
             submissionKey: string;
+            /** @description Owned worker session ids; qualify a remote worker as host:id when needed. */
             workerSessionIds?: string[];
         };
         ControllersCoordinatorSummaryResponse: {
@@ -4871,6 +4872,7 @@ export interface components {
             lastError?: string;
             projectId: string;
             readyPRs: components["schemas"]["ControllersReadyPRResponse"][];
+            remoteWorkers: components["schemas"]["SummaryRemoteWorkerResponse"][];
             result: string;
             scope: string;
             /** @enum {string} */
@@ -5350,9 +5352,14 @@ export interface components {
             projectId: string;
             rootSessionId: null | string;
             rootWorkerSessionIds: string[];
+            rootWorkers: components["schemas"]["CoordinatorRosterWorker"][];
         };
         CoordinatorRosterWorker: {
             agentProfileId: null | string;
+            hostId?: string;
+            hostLabel?: string;
+            /** @description True for a worker linked from another AO host. */
+            remote: boolean;
             sessionId: string;
         };
         CoordinatorWorkerAgentRequest: {
@@ -7214,6 +7221,11 @@ export interface components {
             runId: string;
             /** @description Review verdict: approved or changes_requested. */
             verdict: string;
+        };
+        SummaryRemoteWorkerResponse: {
+            hostId: string;
+            hostLabel: string;
+            remoteSessionId: string;
         };
         SwitchAgentRequest: {
             /** @description Optional retry key. Reusing it with a different request is rejected. */

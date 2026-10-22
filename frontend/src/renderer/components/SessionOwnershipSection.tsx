@@ -80,23 +80,27 @@ function CoordinatorFacts({ entry, projectId }: { entry: CoordinatorRosterEntry;
 				{entry.coordinatorScope}
 			</p>
 			{entry.needsRecovery ? <RecoveryNotice message={t("ownership.needsRecovery")} /> : null}
-			{entry.workerSessionIds.length === 0 ? (
+			{entry.workers.length === 0 ? (
 				<p className={inspectorEmptyClass}>{t("ownership.noWorkers")}</p>
 			) : (
-				entry.workerSessionIds.map((workerId) => (
+				entry.workers.map((worker) => worker.remote ? (
+					<p className="w-full truncate rounded-lg bg-settings-row px-3 py-1.5 text-sm" data-testid="coordinator-remote-worker-row" key={`${worker.hostId}:${worker.sessionId}`}>
+						{t("coordinators.roster.remoteWorker", { worker: worker.sessionId, host: worker.hostLabel || worker.hostId })}
+					</p>
+				) : (
 					<button
 						className="w-full cursor-pointer truncate rounded-lg bg-settings-row px-3 py-1.5 text-left text-sm"
 						data-testid="coordinator-worker-row"
-						key={workerId}
+						key={worker.sessionId}
 						onClick={() =>
 							void navigate({
 								to: "/projects/$projectId/sessions/$sessionId",
-								params: { projectId, sessionId: workerId },
+								params: { projectId, sessionId: worker.sessionId },
 							})
 						}
 						type="button"
 					>
-						{workerId}
+						{worker.sessionId}
 					</button>
 				))
 			)}

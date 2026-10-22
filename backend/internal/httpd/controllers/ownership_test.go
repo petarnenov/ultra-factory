@@ -152,6 +152,18 @@ func TestCoordinatorRosterListsOwnedAndRootOwnedWorkers(t *testing.T) {
 	if _, _, err := f.store.SetSessionOwner(context.Background(), f.worker.ID, &f.coordinator.ID, domain.OwnershipExplicitAssignment, f.now, false); err != nil {
 		t.Fatal(err)
 	}
+	if err := f.store.UpsertRemoteWorkerLink(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host-build", HostLabel: "Air builder", RemoteSessionID: "remote-1",
+		RemoteProjectID: "remote-project", ProjectID: "ao", OwnerSessionID: &f.coordinator.ID, CreatedAt: f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.UpsertRemoteWorkerLink(context.Background(), domain.RemoteWorkerLink{
+		HostID: "host-root", HostLabel: "Air root", RemoteSessionID: "remote-root",
+		RemoteProjectID: "remote-root-project", ProjectID: "ao", CreatedAt: f.now,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/ao/coordinators", "")
 	var got struct {
@@ -163,8 +175,20 @@ func TestCoordinatorRosterListsOwnedAndRootOwnedWorkers(t *testing.T) {
 			IsTerminated         bool     `json:"isTerminated"`
 			WorkerSessionIDs     []string `json:"workerSessionIds"`
 			WorkerCount          int      `json:"workerCount"`
+			Workers              []struct {
+				SessionID string `json:"sessionId"`
+				Remote    bool   `json:"remote"`
+				HostID    string `json:"hostId"`
+				HostLabel string `json:"hostLabel"`
+			} `json:"workers"`
+			ActiveWorkerCount int `json:"activeWorkerCount"`
 		} `json:"coordinators"`
 		RootWorkerSessionIDs []string `json:"rootWorkerSessionIds"`
+		RootWorkers          []struct {
+			SessionID string `json:"sessionId"`
+			Remote    bool   `json:"remote"`
+			HostLabel string `json:"hostLabel"`
+		} `json:"rootWorkers"`
 	}
 	if err := json.Unmarshal(body, &got); err != nil || status != http.StatusOK {
 		t.Fatalf("status=%d body=%s err=%v", status, body, err)
@@ -176,12 +200,21 @@ func TestCoordinatorRosterListsOwnedAndRootOwnedWorkers(t *testing.T) {
 		t.Fatalf("coordinators = %+v, want 2 live", got.Coordinators)
 	}
 	if got.Coordinators[0].CoordinatorSessionID != string(f.coordinator.ID) ||
-		got.Coordinators[0].CoordinatorScope != "auth" || got.Coordinators[0].WorkerCount != 1 ||
+		got.Coordinators[0].CoordinatorScope != "auth" || got.Coordinators[0].WorkerCount != 2 ||
 		len(got.Coordinators[0].WorkerSessionIDs) != 1 || got.Coordinators[0].WorkerSessionIDs[0] != string(f.worker.ID) {
 		t.Fatalf("coordinator entry = %+v", got.Coordinators[0])
 	}
+	if len(got.Coordinators[0].Workers) != 2 || got.Coordinators[0].Workers[1].SessionID != "remote-1" ||
+		!got.Coordinators[0].Workers[1].Remote || got.Coordinators[0].Workers[1].HostID != "host-build" ||
+		got.Coordinators[0].Workers[1].HostLabel != "Air builder" || got.Coordinators[0].ActiveWorkerCount != 2 {
+		t.Fatalf("coordinator worker rows = %+v", got.Coordinators[0])
+	}
 	if len(got.RootWorkerSessionIDs) != 1 || got.RootWorkerSessionIDs[0] != string(f.rootWorker.ID) {
 		t.Fatalf("root workers = %+v", got.RootWorkerSessionIDs)
+	}
+	if len(got.RootWorkers) != 2 || got.RootWorkers[1].SessionID != "remote-root" ||
+		!got.RootWorkers[1].Remote || got.RootWorkers[1].HostLabel != "Air root" {
+		t.Fatalf("root worker rows = %+v", got.RootWorkers)
 	}
 
 	body, status, _ = doRequest(t, srv, http.MethodGet, "/api/v1/projects/ghost/coordinators", "")

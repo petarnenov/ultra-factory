@@ -3334,6 +3334,7 @@
   "coordinators.roster.noRoot": "실행 중인 루트 없음",
   "coordinators.roster.capacity": "코디네이터 {{coordinators}} · 워커 {{workers}}",
   "coordinators.roster.rootWorkers": "루트 워커: {{count}}",
+  "coordinators.roster.remoteWorker": "{{host}}의 {{worker}}",
   "coordinators.roster.none": "아직 코디네이터가 없습니다.",
   "coordinators.roster.workers": "워커",
   "coordinators.roster.used": "{{used}}/{{allowed}}",
