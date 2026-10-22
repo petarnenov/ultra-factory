@@ -46,7 +46,8 @@ func (o *Observer) endedWithNothingPending(ctx context.Context, client *hostClie
 	if remotehost.UnattendedTransportAllowed(client.base, client.insecureOK) != nil {
 		return false
 	}
-	result, err := client.pending(ctx, link.RemoteSessionID)
+	// The expired count is not logged here, so no seen count is sent.
+	result, err := client.pending(ctx, link.RemoteSessionID, 0)
 	if errors.Is(err, errSessionGone) {
 		return o.drop(ctx, client, link, "remote session no longer exists") == nil
 	}
