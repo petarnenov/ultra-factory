@@ -5959,15 +5959,15 @@ func TestSpawnWorker_AppendsActiveOrchestratorContact(t *testing.T) {
 	// Coordination instructions must be in the system prompt, not the user prompt.
 	systemPrompt := agent.lastLaunch.SystemPrompt
 	for _, want := range []string{
-		"## Orchestrator Coordination",
-		`ao send --session mer-1 --message "<your message>"`,
-		"Message it only for true blockers, cross-session coordination",
+		"## Escalation Target",
+		"ao session owner $AO_SESSION_ID --json",
+		"Message the owner only for true blockers, cross-session coordination",
 	} {
 		if !strings.Contains(systemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)
 		}
 	}
-	if strings.Contains(agent.lastLaunch.Prompt, "## Orchestrator Coordination") {
+	if strings.Contains(agent.lastLaunch.Prompt, "## Escalation Target") {
 		t.Fatalf("orchestrator coordination must not be in the user prompt:\n%s", agent.lastLaunch.Prompt)
 	}
 }
@@ -7244,8 +7244,11 @@ func TestRestore_WorkerPointsAtCurrentOrchestrator(t *testing.T) {
 	if _, err := m.RestoreWithMode(ctx, "mer-1"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(agent.lastRestore.SystemPrompt, `ao send --session mer-9`) {
-		t.Fatalf("restore system prompt missing current orchestrator contact:\n%s", agent.lastRestore.SystemPrompt)
+	// The contact is resolved at send time, so the restored prompt names the
+	// resolver and never the orchestrator ID.
+	if !strings.Contains(agent.lastRestore.SystemPrompt, "ao session owner $AO_SESSION_ID --json") ||
+		strings.Contains(agent.lastRestore.SystemPrompt, "mer-9") {
+		t.Fatalf("restore system prompt must resolve the owner at send time:\n%s", agent.lastRestore.SystemPrompt)
 	}
 }
 
