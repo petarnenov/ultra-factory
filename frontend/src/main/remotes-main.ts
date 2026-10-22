@@ -168,6 +168,13 @@ export function registerRemotesIpc(
 		const { accountUserId: _ignored, ...editable } = changes;
 		return updateSavedRemote(file, url, editable, disconnect, (entry) => checkedProbe(entry, account));
 	}));
+	// The reports switch is a daemon permission: written with no probe or
+	// reconnect, so revoking it never depends on the remote answering.
+	ipcMain.handle("remotes:setAllowInsecureHTTP", async (_event, url: string, allowed: boolean) => ordered(async () => {
+		await accountID();
+		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");
+		await updateRemote(file, url, { allowInsecureHTTP: allowed });
+	}));
 	ipcMain.handle("remotes:remove", async (_event, url: string) => ordered(async () => {
 		if (!(await owned()).some((entry) => entry.url === url)) throw new Error("Host does not belong to this account.");
 		return removeSavedRemote(file, url, disconnect);

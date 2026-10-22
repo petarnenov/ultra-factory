@@ -36,6 +36,9 @@ type Entry struct {
 	Password      string `json:"password"`
 	HostID        string `json:"hostId,omitempty"`
 	AccountUserID string `json:"accountUserId,omitempty"`
+	// AllowInsecureHTTP is the per-host "Allow report pulls over plain HTTP"
+	// setting: it lets the daemon send this host's password over plain http.
+	AllowInsecureHTTP bool `json:"allowInsecureHTTP,omitempty"`
 }
 
 type identity struct {
@@ -173,36 +176,52 @@ func isDefaultTransport(rt http.RoundTripper) bool {
 	return rt == http.DefaultTransport
 }
 
-// AllowHTTPEnv opts plain-http hosts into unattended report pulling on a
-// trusted network. The daemon reads it from the user's shell environment.
+// AllowHTTPEnv is the deprecated daemon-wide override for plain-http hosts.
+// The per-host Entry.AllowInsecureHTTP setting replaces it.
 const AllowHTTPEnv = "AO_REMOTE_REPORTS_ALLOW_HTTP"
 
-// tailscaleNet is Tailscale's CGNAT range; traffic to it is WireGuard-encrypted.
+// AllowHTTPEnvDeprecation is logged once per daemon start while AllowHTTPEnv
+// is set to 1.
+const AllowHTTPEnvDeprecation = AllowHTTPEnv + " is deprecated; use the per-host setting"
+
+// tailscaleNet is Tailscale's CGNAT range (WireGuard-encrypted traffic).
 var tailscaleNet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 
+// AllowHTTPEnvSet reports whether the deprecated environment override is on.
+func AllowHTTPEnvSet() bool {
+	return strings.TrimSpace(os.Getenv(AllowHTTPEnv)) == "1"
+}
+
 // UnattendedTransportAllowed reports whether the daemon may send a saved
-// credential to base with no human acting: over https, to loopback (an SSH
-// tunnel), or over Tailscale. Plain http elsewhere would put the password on
-// whatever network the machine is on every poll, so it needs AllowHTTPEnv=1.
-func UnattendedTransportAllowed(base string) error {
+// credential to base unattended: https, loopback, Tailscale, or opted in.
+func UnattendedTransportAllowed(base string, allowInsecureHTTP bool) error {
 	u, err := url.Parse(base)
 	if err != nil {
 		return err
 	}
-	if u.Scheme == "https" {
+	if trustedWithoutOptIn(u) || allowInsecureHTTP || AllowHTTPEnvSet() {
 		return nil
+	}
+	return fmt.Errorf("plain http to %s would send the saved password with no one acting; enable 'Allow report pulls over plain HTTP' for this host in Settings → Remote hosts, or use https or a Tailscale address", strings.ToLower(u.Hostname()))
+}
+
+// NeedsInsecureOptIn reports whether base is plain http to an address that
+// is neither loopback nor Tailscale: the only case the setting changes.
+func NeedsInsecureOptIn(base string) bool {
+	u, err := url.Parse(base)
+	return err == nil && !trustedWithoutOptIn(u)
+}
+
+// trustedWithoutOptIn is the transport that needs no per-host opt-in.
+func trustedWithoutOptIn(u *url.URL) bool {
+	if u.Scheme == "https" {
+		return true
 	}
 	host := strings.ToLower(u.Hostname())
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return nil
+		return true
 	}
-	if host == "localhost" || IsTailnetHost(host) {
-		return nil
-	}
-	if strings.TrimSpace(os.Getenv(AllowHTTPEnv)) == "1" {
-		return nil
-	}
-	return fmt.Errorf("plain http to %s would send the saved password with no one acting; use https or a Tailscale address, or set %s=1 for the AO daemon on a trusted network", host, AllowHTTPEnv)
+	return host == "localhost" || IsTailnetHost(host)
 }
 
 // ReadIdentity is the only unauthenticated request made to a remote host. It

@@ -343,6 +343,7 @@ export async function installFakeBridge(page: Page, opts: FakeBridgeOptions = {}
 					issueAccountToken: async () => ({ token: "", url: "" }),
 					add: async () => "offline" as const,
 					update: async () => "offline" as const,
+					setAllowInsecureHTTP: async () => undefined,
 					remove: async () => undefined,
 					connect: async (url: string) => {
 						throw new Error(`No fake remote for ${url}`);
@@ -1201,6 +1202,7 @@ export async function installFakeAgent(page: Page, opts: FakeAgentOptions = {}):
 					issueAccountToken: async () => ({ token: "", url: "" }),
 					add: async () => "offline" as const,
 					update: async () => "offline" as const,
+					setAllowInsecureHTTP: async () => undefined,
 					remove: async () => undefined,
 					connect: async (url: string) => {
 						throw new Error(`No fake remote for ${url}`);

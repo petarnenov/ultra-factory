@@ -401,6 +401,7 @@ if (typeof window !== "undefined") {
 			issueAccountToken: async () => ({ token: "", url: "" }),
 			add: async () => "offline" as const,
 			update: async () => "offline" as const,
+			setAllowInsecureHTTP: async () => undefined,
 			remove: async () => undefined,
 			connect: async () => { throw new Error("no remote hosts in test bridge"); },
 			disconnect: async () => undefined,
