@@ -45,6 +45,7 @@ type APIDeps struct {
 	RemoteWorkerLinks  controllers.RemoteWorkerLinkService
 	RemoteWorkerSync   controllers.RemoteWorkerSyncService
 	CompletedTasks     controllers.CompletedTaskService
+	Knowledge          controllers.KnowledgeService
 	NotificationStream controllers.NotificationStream
 	Push               controllers.PushRegistry
 	Import             controllers.ImportService
@@ -143,6 +144,7 @@ type API struct {
 	summaries     *controllers.CoordinatorSummariesController
 	remoteWorkers *controllers.RemoteWorkerLinksController
 	completed     *controllers.CompletedTasksController
+	knowledge     *controllers.KnowledgeController
 	push          *controllers.PushController
 	imports       *controllers.ImportController
 	fs            *controllers.FSController
@@ -208,6 +210,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		summaries:     &controllers.CoordinatorSummariesController{Svc: deps.Summaries},
 		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks, Sync: deps.RemoteWorkerSync},
 		completed:     &controllers.CompletedTasksController{Svc: deps.CompletedTasks, HostID: deps.HostID},
+		knowledge:     &controllers.KnowledgeController{Svc: deps.Knowledge},
 		push:          &controllers.PushController{Registry: deps.Push},
 		imports:       &controllers.ImportController{Svc: deps.Import},
 		fs:            &controllers.FSController{Svc: deps.Directories},
@@ -273,6 +276,7 @@ func (a *API) Register(root chi.Router) {
 			a.summaries.Register(r)
 			a.remoteWorkers.Register(r)
 			a.completed.Register(r)
+			a.knowledge.Register(r)
 			a.push.Register(r)
 			a.imports.Register(r)
 			a.fs.Register(r)

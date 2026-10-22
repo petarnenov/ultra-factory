@@ -5359,6 +5359,7 @@ func buildPrompt(cfg ports.SpawnConfig) string {
 		Prompt:       cfg.Prompt,
 		IssueID:      string(cfg.IssueID),
 		IssueContext: cfg.IssueContext,
+		Knowledge:    cfg.KnowledgeContext,
 	})
 }
 

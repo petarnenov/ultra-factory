@@ -1,0 +1,327 @@
+package knowledgegraph
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apierr"
+	"github.com/aoagents/agent-orchestrator/backend/internal/service/taskreport"
+)
+
+type fakeSessions struct {
+	mu       sync.Mutex
+	sessions map[domain.SessionID]domain.Session
+	err      error
+}
+
+func (f *fakeSessions) Get(_ context.Context, id domain.SessionID) (domain.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return domain.Session{}, f.err
+	}
+	s, ok := f.sessions[id]
+	if !ok {
+		return domain.Session{}, apierr.NotFound("SESSION_NOT_FOUND", "no session")
+	}
+	return s, nil
+}
+
+type fakeTasks struct {
+	reports map[domain.SessionID]taskreport.Report
+}
+
+func (f *fakeTasks) Get(_ context.Context, _ domain.ProjectID, id domain.SessionID) (taskreport.Report, error) {
+	r, ok := f.reports[id]
+	if !ok {
+		return taskreport.Report{}, apierr.NotFound("TASK_NOT_FOUND", "not completed")
+	}
+	return r, nil
+}
+
+func worker(id domain.SessionID, project domain.ProjectID) domain.Session {
+	var s domain.Session
+	s.ID = id
+	s.ProjectID = project
+	s.Kind = domain.KindWorker
+	return s
+}
+
+func newTestService(r Runner, sessions *fakeSessions, tasks TaskReports) *Service {
+	return New(Deps{
+		Graph: NewGraph(r), Sessions: sessions, Tasks: tasks, HostID: "host1",
+		Now: func() time.Time { return testAt }, NewID: func() string { return "lesson-1" },
+	})
+}
+
+func apiCode(t *testing.T, err error) (apierr.Kind, string) {
+	t.Helper()
+	var ae *apierr.Error
+	if !errors.As(err, &ae) {
+		t.Fatalf("error %v is not an apierr.Error", err)
+	}
+	return ae.Kind, ae.Code
+}
+
+func TestAddLessonValidation(t *testing.T) {
+	sixTopics := []string{"a1", "a2", "a3", "a4", "a5", "a6"}
+	tests := []struct {
+		name string
+		in   LessonInput
+		code string
+	}{
+		{name: "session required", in: LessonInput{Text: "x"}, code: "SESSION_ID_REQUIRED"},
+		{name: "text required", in: LessonInput{SessionID: "s1", Text: " \x01 "}, code: "LESSON_TEXT_REQUIRED"},
+		{name: "text too long", in: LessonInput{SessionID: "s1", Text: strings.Repeat("ж", 1001)}, code: "LESSON_TEXT_TOO_LONG"},
+		{name: "bad kind", in: LessonInput{SessionID: "s1", Text: "x", Kind: "rumor"}, code: "INVALID_LESSON_KIND"},
+		{name: "topic too long", in: LessonInput{SessionID: "s1", Text: "x", Topics: []string{strings.Repeat("t", 41)}}, code: "INVALID_TOPIC"},
+		{name: "too many topics", in: LessonInput{SessionID: "s1", Text: "x", Topics: sixTopics}, code: "TOO_MANY_TOPICS"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRunner{}
+			svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, nil)
+
+			_, err := svc.AddLesson(context.Background(), tt.in)
+
+			kind, code := apiCode(t, err)
+			if kind != apierr.KindInvalid || code != tt.code {
+				t.Fatalf("error kind=%v code=%q, want invalid %q", kind, code, tt.code)
+			}
+			if len(r.snapshot()) != 0 {
+				t.Fatalf("graph must not be called on invalid input")
+			}
+		})
+	}
+}
+
+func TestAddLessonStoresLesson(t *testing.T) {
+	r := &fakeRunner{}
+	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, nil)
+
+	id, err := svc.AddLesson(context.Background(), LessonInput{
+		SessionID: "s1", Kind: " FIX ", Text: "  Run make sqlc\x00 ",
+		Topics: []string{"SQLite", "sqlite", " ", "ci"},
+	})
+
+	if err != nil {
+		t.Fatalf("AddLesson() error = %v", err)
+	}
+	if id != "lesson-1" {
+		t.Fatalf("id = %q, want NewID value", id)
+	}
+	p := r.snapshot()[0].params
+	want := map[string]any{
+		"taskKey": "host1/s1", "sessionId": "s1", "host": "host1", "project": "ao",
+		"id": "lesson-1", "kind": "fix", "text": "Run make sqlc",
+		"topics": []string{"sqlite", "ci"}, "at": "2026-10-23T11:00:00Z",
+	}
+	if !reflect.DeepEqual(p, want) {
+		t.Fatalf("params = %#v, want %#v", p, want)
+	}
+}
+
+func TestAddLessonDefaultsKindToTip(t *testing.T) {
+	r := &fakeRunner{}
+	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, nil)
+
+	if _, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "x"}); err != nil {
+		t.Fatalf("AddLesson() error = %v", err)
+	}
+
+	if got := r.snapshot()[0].params["kind"]; got != "tip" {
+		t.Fatalf("kind = %v, want tip", got)
+	}
+}
+
+func TestAddLessonErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		sessions *fakeSessions
+		runErr   error
+		wantKind apierr.Kind
+		wantCode string
+	}{
+		{name: "unknown session passes through", sessions: &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}, wantKind: apierr.KindNotFound, wantCode: "SESSION_NOT_FOUND"},
+		{name: "graph failure is unavailable", sessions: &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, runErr: errors.New("refused"), wantKind: apierr.KindUnavailable, wantCode: "KNOWLEDGE_GRAPH_UNAVAILABLE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(&fakeRunner{err: tt.runErr}, tt.sessions, nil)
+
+			_, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "x"})
+
+			kind, code := apiCode(t, err)
+			if kind != tt.wantKind || code != tt.wantCode {
+				t.Fatalf("error kind=%v code=%q, want %v %q", kind, code, tt.wantKind, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestSearchValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		in   SearchInput
+		code string
+	}{
+		{name: "query required", in: SearchInput{ProjectID: "ao", Text: "  "}, code: "QUERY_REQUIRED"},
+		{name: "negative limit", in: SearchInput{ProjectID: "ao", Text: "flaky", Limit: -1}, code: "INVALID_LIMIT"},
+		{name: "limit above 50", in: SearchInput{ProjectID: "ao", Text: "flaky", Limit: 51}, code: "INVALID_LIMIT"},
+		{name: "project required", in: SearchInput{Text: "flaky"}, code: "PROJECT_REQUIRED"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(&fakeRunner{}, &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}, nil)
+
+			_, err := svc.Search(context.Background(), tt.in)
+
+			kind, code := apiCode(t, err)
+			if kind != apierr.KindInvalid || code != tt.code {
+				t.Fatalf("error kind=%v code=%q, want invalid %q", kind, code, tt.code)
+			}
+		})
+	}
+}
+
+func TestSearch(t *testing.T) {
+	rows := []Row{{"section": "lesson", "id": "l1", "kind": "fix", "text": "t"}}
+	tests := []struct {
+		name        string
+		in          SearchInput
+		wantProject string
+		wantExclude string
+	}{
+		{name: "explicit project", in: SearchInput{ProjectID: "ao", Text: "flaky sqlite", Limit: 7}, wantProject: "ao"},
+		{name: "session derives project and exclude", in: SearchInput{SessionID: "s1", ProjectID: "ignored", Text: "flaky sqlite", Limit: 7}, wantProject: "proj", wantExclude: "host1/s1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRunner{rows: rows}
+			svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "proj")}}, nil)
+
+			items, err := svc.Search(context.Background(), tt.in)
+
+			if err != nil {
+				t.Fatalf("Search() error = %v", err)
+			}
+			if len(items) != 1 || items[0].ID != "l1" {
+				t.Fatalf("items = %#v", items)
+			}
+			p := r.snapshot()[0].params
+			if p["project"] != tt.wantProject || p["exclude"] != tt.wantExclude || p["limit"] != 7 {
+				t.Fatalf("params = %#v", p)
+			}
+		})
+	}
+}
+
+func TestSearchWithoutTermsReturnsEmpty(t *testing.T) {
+	r := &fakeRunner{}
+	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}, nil)
+
+	items, err := svc.Search(context.Background(), SearchInput{ProjectID: "ao", Text: "the a ok"})
+
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if items == nil || len(items) != 0 {
+		t.Fatalf("items = %#v, want empty non-nil", items)
+	}
+	if len(r.snapshot()) != 0 {
+		t.Fatalf("graph must not be queried without terms")
+	}
+}
+
+func TestSearchErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		sessions *fakeSessions
+		runErr   error
+		in       SearchInput
+		wantKind apierr.Kind
+		wantCode string
+	}{
+		{name: "unknown session", sessions: &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}, in: SearchInput{SessionID: "nope", Text: "flaky"}, wantKind: apierr.KindNotFound, wantCode: "SESSION_NOT_FOUND"},
+		{name: "graph down", sessions: &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}, runErr: errors.New("down"), in: SearchInput{ProjectID: "ao", Text: "flaky"}, wantKind: apierr.KindUnavailable, wantCode: "KNOWLEDGE_GRAPH_UNAVAILABLE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(&fakeRunner{err: tt.runErr}, tt.sessions, nil)
+
+			_, err := svc.Search(context.Background(), tt.in)
+
+			kind, code := apiCode(t, err)
+			if kind != tt.wantKind || code != tt.wantCode {
+				t.Fatalf("error kind=%v code=%q, want %v %q", kind, code, tt.wantKind, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestPriorContextReturnsLessonIDsOnly(t *testing.T) {
+	r := &fakeRunner{rows: []Row{
+		{"section": "attempt", "id": "host1/s0", "title": "old"},
+		{"section": "lesson", "id": "l1", "text": "one"},
+		{"section": "lesson", "id": "", "text": "no id"},
+		{"section": "task", "id": "host1/s9", "title": "similar"},
+		{"section": "lesson", "id": "l2", "text": "two"},
+	}}
+	svc := newTestService(r, &fakeSessions{}, nil)
+
+	section, ids, err := svc.PriorContext(context.Background(), "ao", "7", "flaky sqlite")
+
+	if err != nil {
+		t.Fatalf("PriorContext() error = %v", err)
+	}
+	if !reflect.DeepEqual(ids, []string{"l1", "l2"}) {
+		t.Fatalf("ids = %#v", ids)
+	}
+	if !strings.HasPrefix(section, "## Knowledge Graph") || !strings.Contains(section, "- [tip] one") {
+		t.Fatalf("section = %q", section)
+	}
+}
+
+func TestPriorContextReturnsGraphError(t *testing.T) {
+	svc := newTestService(&fakeRunner{err: errors.New("down")}, &fakeSessions{}, nil)
+
+	section, ids, err := svc.PriorContext(context.Background(), "ao", "7", "")
+
+	if err == nil || section != "" || ids != nil {
+		t.Fatalf("PriorContext() = %q, %v, %v; want error only", section, ids, err)
+	}
+}
+
+func TestServiceMarkServedUsesTaskKey(t *testing.T) {
+	r := &fakeRunner{}
+	svc := newTestService(r, &fakeSessions{}, nil)
+
+	if err := svc.MarkServed(context.Background(), "s1", []string{"l1"}); err != nil {
+		t.Fatalf("MarkServed() error = %v", err)
+	}
+
+	p := r.snapshot()[0].params
+	if p["taskKey"] != "host1/s1" || p["at"] != "2026-10-23T11:00:00Z" {
+		t.Fatalf("params = %#v", p)
+	}
+}
+
+func TestNewAppliesDefaults(t *testing.T) {
+	svc := New(Deps{})
+
+	if svc.log == nil || svc.now == nil || svc.newID == nil {
+		t.Fatalf("New() left defaults unset")
+	}
+	if a, b := svc.newID(), svc.newID(); a == b {
+		t.Fatalf("default NewID must be unique")
+	}
+	if cap(svc.queue) != queueSize {
+		t.Fatalf("queue cap = %d, want %d", cap(svc.queue), queueSize)
+	}
+}
