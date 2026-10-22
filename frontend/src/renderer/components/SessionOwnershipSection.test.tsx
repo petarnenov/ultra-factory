@@ -126,7 +126,7 @@ describe("SessionOwnershipSection", () => {
 		expect(screen.getByRole("alert")).toHaveTextContent("terminated but still owns live workers");
 	});
 
-	test("shows remote workers with their host label", () => {
+	test("shows a coordinator's remote-only workers instead of the empty state", () => {
 		rosterQuery.data = roster({
 			coordinators: [entry({
 				workerCount: 1,
@@ -135,6 +135,7 @@ describe("SessionOwnershipSection", () => {
 			})],
 		});
 		render(<SessionOwnershipSection session={coordinator} />);
+		expect(screen.queryByText("No workers owned.")).not.toBeInTheDocument();
 		expect(screen.getByTestId("coordinator-remote-worker-row")).toHaveTextContent("shared-worker on Air builder");
 	});
 

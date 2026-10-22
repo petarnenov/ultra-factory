@@ -80,7 +80,7 @@ function CoordinatorFacts({ entry, projectId }: { entry: CoordinatorRosterEntry;
 				{entry.coordinatorScope}
 			</p>
 			{entry.needsRecovery ? <RecoveryNotice message={t("ownership.needsRecovery")} /> : null}
-			{entry.workerSessionIds.length === 0 ? (
+			{entry.workers.length === 0 ? (
 				<p className={inspectorEmptyClass}>{t("ownership.noWorkers")}</p>
 			) : (
 				entry.workers.map((worker) => worker.remote ? (
