@@ -101,3 +101,16 @@ Charts (all `ChartContainer` from WM-4.1.1):
 
 WM-4.1.1, WM-3.1.1 (types), WM-3.1.2 (data; a fixture may be used until it
 lands).
+
+## Audit constraints — 2026-10-21
+
+Dev has no benchmarks route/data loader yet. Use the corrected WM-3.1.1 schema:
+show null/no-success latency as unavailable, never zero; validate the summary
+against raw records, not just raw record shape. A missing-data state must work
+without an unresolved static JSON import breaking compilation (use committed
+empty fixtures or a supported optional loader). Weight pass rate by attempts,
+not an average of scenario percentages. Label component medians as separate
+statistics; their sum is not the median total. The overhead reference applies
+to measured browser calls, not an assumed Playwright tool-step count of zero.
+Align the summary table and tests on one row/column layout so driver toggles
+and row-count assertions describe the same UI.

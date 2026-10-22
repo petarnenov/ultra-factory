@@ -16,7 +16,8 @@ fair and repeatable.
 
 - [ ] All drivers run inside `frontend/e2e/webmcp-bench.spec.ts` and use the
   shared assertion layer.
-- [ ] Each driver returns per-step timings and pass/fail that the bench spec
+- [ ] Tool drivers return per-step timings; Playwright returns aggregate timing
+  with an empty tool-step list. All drivers return pass/fail that the bench spec
   records in the WM-3.1.1 format.
 - [ ] The JEV driver uses `@typesafe-ai/sdk` with retries disabled, reads the
   key from `TYPESAFE_API_KEY` or `JEV_MAF_LAB`, and skips with a clear reason

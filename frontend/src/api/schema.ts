@@ -914,6 +914,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mobile/enable-also-tailnet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add the fixed-port Tailscale listener without changing the LAN/mobile listener */
+        post: operations["enableMobileAlsoTailnet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mobile/enable-lan-only": {
         parameters: {
             query?: never;
@@ -925,6 +942,23 @@ export interface paths {
         put?: never;
         /** Enable the authenticated LAN bridge without a managed public tunnel */
         post: operations["enableMobileLANOnly"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mobile/enable-tailnet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable the authenticated listener on the Tailscale address only */
+        post: operations["enableMobileTailnet"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1517,6 +1551,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a linked remote worker (root only; logged) */
+        delete: operations["removeRemoteWorkerLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner": {
         parameters: {
             query?: never;
@@ -1534,6 +1585,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop the link of a worker this daemon just killed on its host */
+        post: operations["releaseRemoteWorkerLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/remote-worker-links/check": {
         parameters: {
             query?: never;
@@ -1545,6 +1613,23 @@ export interface paths {
         put?: never;
         /** Check link capacity before a remote spawn (loopback only) */
         post: operations["checkRemoteWorkerCapacity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/remote-worker-links/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Link live remote workers on saved hosts (loopback only) */
+        post: operations["syncRemoteWorkerLinks"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3833,6 +3918,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tailnet/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List AO hosts discovered on this machine's Tailscale network */
+        get: operations["listTailnetHosts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tailnet/hosts/{hostId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Hide, show, or relabel a discovered host on this machine */
+        patch: operations["updateTailnetHost"];
+        trace?: never;
+    };
+    "/api/v1/tailnet/hosts/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-read the tailnet peer list and probe every online peer now */
+        post: operations["refreshTailnetHosts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/task-preparations/{token}": {
         parameters: {
             query?: never;
@@ -3934,6 +4070,7 @@ export interface components {
             requestId?: string;
         };
         AcknowledgeReportsRequest: {
+            pullerId?: string;
             reportIds: string[];
             sessionId: string;
         };
@@ -4836,6 +4973,7 @@ export interface components {
             activeAgentSwitch?: components["schemas"]["AgentSwitch"];
             activity: components["schemas"]["DomainActivity"];
             agentConfigMachine?: string;
+            agentOperation?: components["schemas"]["SessionAgentOperation"];
             agentProfileId: null | string;
             artifactFiles?: components["schemas"]["SessionArtifact"][];
             autoInjectCI: boolean;
@@ -5206,6 +5344,7 @@ export interface components {
             maxCoordinators: number;
             maxWorkers: number;
             maxWorkersPerCoordinator: number;
+            staleWorkers: number;
         };
         CoordinatorLimitsRequest: {
             /** @description Omitted keeps stored slots; [] clears. */
@@ -5437,6 +5576,9 @@ export interface components {
             expectedRevision?: null | number;
             retainedContent?: null | number[];
             text: string;
+        };
+        EnableTailnetRequest: {
+            passwordFallback: boolean;
         };
         EndpointsResponse: {
             endpoints: components["schemas"]["MobileEndpoint"][];
@@ -5711,7 +5853,12 @@ export interface components {
             truncated: boolean;
         };
         ListPendingReportsResponse: {
+            /** Format: int64 */
+            expiredBeforePull?: number;
+            /** Format: int64 */
+            expiredTotal?: number;
             morePending: boolean;
+            pullerAcks?: boolean;
             reports: components["schemas"]["ReportResponse"][];
         };
         ListProjectsResponse: {
@@ -5845,8 +5992,12 @@ export interface components {
             loopbackOnly: boolean;
             noPublicTunnel: boolean;
             password: string;
+            passwordFallback: boolean;
             port: number;
             securePairing: components["schemas"]["ControllersSecurePairingStatus"];
+            tailnetListenerEnabled: boolean;
+            tailnetListenerPort: number;
+            tailnetOnly: boolean;
             tailscaleHost: string;
             tunnel: components["schemas"]["MobileTunnelStatus"];
             warning: string;
@@ -6082,17 +6233,33 @@ export interface components {
             model: string;
             profileId?: string;
         };
+        RemoteWorkerHostSync: {
+            blocked?: string;
+            error?: string;
+            hostId: string;
+            hostLabel: string;
+            linked: number;
+            skipped: number;
+        };
         RemoteWorkerLinkResponse: {
             /** Format: date-time */
             createdAt: string;
             displayName?: string;
             hostId: string;
             hostLabel: string;
+            /** Format: date-time */
+            lastSeenAt?: null | string;
+            localProjectId: string;
             ownerSessionId: null | string;
             projectId: string;
             pullBlocked?: string;
             remoteProjectId: string;
             remoteSessionId: string;
+            source: string;
+            state: string;
+        };
+        RemoteWorkerSyncResponse: {
+            hosts: components["schemas"]["RemoteWorkerHostSync"][];
         };
         RemoveProjectResult: {
             projectId: string;
@@ -6313,6 +6480,11 @@ export interface components {
         SessionActivityResponse: {
             current?: components["schemas"]["SessionStepResponse"];
             recent: components["schemas"]["SessionStepResponse"][];
+        };
+        SessionAgentOperation: {
+            kind: string;
+            /** Format: date-time */
+            startedAt: string;
         };
         SessionArtifact: {
             inlineUrl?: string;
@@ -7124,6 +7296,26 @@ export interface components {
             /** @description Individual checks in stable order for the selected probe. */
             requirements: components["schemas"]["SystemRequirement"][];
         };
+        TailnetHost: {
+            address: string;
+            dnsName: string;
+            hidden: boolean;
+            hostId: string;
+            label: string;
+            lastSeen?: string;
+            name: string;
+            online: boolean;
+            port: number;
+            url: string;
+        };
+        TailnetHostsResponse: {
+            available: boolean;
+            error?: string;
+            hosts: components["schemas"]["TailnetHost"][];
+            localHostIds: string[];
+            selfLogin?: string;
+            updatedAt?: string;
+        };
         TrackerIntakeConfig: {
             assignee?: string;
             enabled?: boolean;
@@ -7201,6 +7393,10 @@ export interface components {
         UpdateShellTerminalRequest: {
             /** @description New tab title for the shell terminal. Trimmed; must be non-empty. */
             title: string;
+        };
+        UpdateTailnetHostRequest: {
+            hidden?: null | boolean;
+            label?: null | string;
         };
         UpdateWorkspaceFileRequest: {
             content: string;
@@ -10588,6 +10784,35 @@ export interface operations {
             };
         };
     };
+    enableMobileAlsoTailnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobileStatusResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     enableMobileLANOnly: {
         parameters: {
             query?: never;
@@ -10617,6 +10842,48 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    enableMobileTailnet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EnableTailnetRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobileStatusResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -12723,6 +12990,79 @@ export interface operations {
             };
         };
     };
+    removeRemoteWorkerLink: {
+        parameters: {
+            query?: {
+                /** @description The live root removing the link. */
+                requestedBySessionId?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Linked remote host identifier. */
+                hostId: string;
+                /** @description Session identifier on the remote host. */
+                remoteSessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteWorkerLinkResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Forbidden: OWNERSHIP_ROOT_ONLY */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     assignRemoteWorkerOwner: {
         parameters: {
             query?: never;
@@ -12806,6 +13146,47 @@ export interface operations {
             };
         };
     };
+    releaseRemoteWorkerLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Linked remote host identifier. */
+                hostId: string;
+                /** @description Session identifier on the remote host. */
+                remoteSessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     checkRemoteWorkerCapacity: {
         parameters: {
             query?: never;
@@ -12853,6 +13234,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    syncRemoteWorkerLinks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RemoteWorkerSyncResponse"];
                 };
             };
             /** @description Internal Server Error */
@@ -13114,6 +13533,10 @@ export interface operations {
             query: {
                 /** @description Worker session identifier on this daemon. */
                 sessionId: string;
+                /** @description Puller instance ID for per-puller acks. */
+                pullerId?: string;
+                /** @description Last expiredTotal the puller logged. */
+                expiredSeen?: number;
             };
             header?: never;
             path?: never;
@@ -21980,6 +22403,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listTailnetHosts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TailnetHostsResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    updateTailnetHost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Host identifier from the identity probe. */
+                hostId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTailnetHostRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TailnetHostsResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    refreshTailnetHosts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TailnetHostsResponse"];
                 };
             };
             /** @description Not Implemented */

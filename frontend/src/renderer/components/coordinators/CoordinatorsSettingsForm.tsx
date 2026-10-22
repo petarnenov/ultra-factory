@@ -17,6 +17,7 @@ import type { ProjectSettingsSaveState } from "../ProjectSettingsForm";
 import { AgentProfilesEditor } from "./AgentProfilesEditor";
 import { AgentSelectionField } from "./AgentSelectionField";
 import { CoordinatorRoster } from "./CoordinatorRoster";
+import { CoordinatorsErrorBoundary } from "./CoordinatorsErrorBoundary";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Input } from "../ui/input";
@@ -217,7 +218,9 @@ export function CoordinatorsSettingsForm({
 
 		</form>
 
-			<CoordinatorRoster config={config} hostId={hostId} projectId={projectId} />
+			<CoordinatorsErrorBoundary>
+				<CoordinatorRoster config={config} hostId={hostId} projectId={projectId} />
+			</CoordinatorsErrorBoundary>
 		</div>
 	);
 }

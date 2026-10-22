@@ -294,6 +294,7 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"DomainSessionProvisionStep":      "SessionProvisionStep",
 	"DomainSessionBranchState":        "SessionBranchState",
 	"DomainSessionHealth":             "SessionHealth",
+	"DomainSessionAgentOperation":     "SessionAgentOperation",
 	"DomainSessionHealthState":        "SessionHealthState",
 	"DomainProjectConfig":             "ProjectConfig",
 	"DomainCIGateConfig":              "CIGateConfig",
@@ -507,6 +508,8 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersRemoteWorkerLinkResponse":          "RemoteWorkerLinkResponse",
 	"ControllersCheckRemoteWorkerCapacityRequest":  "CheckRemoteWorkerCapacityRequest",
 	"ControllersCheckRemoteWorkerCapacityResponse": "CheckRemoteWorkerCapacityResponse",
+	"ControllersRemoteWorkerSyncResponse":          "RemoteWorkerSyncResponse",
+	"ControllersRemoteWorkerHostSync":              "RemoteWorkerHostSync",
 	"ControllersCompletedTaskProjectParam":         "CompletedTaskProjectParam",
 	"ControllersCompletedTaskParams":               "CompletedTaskParams",
 	"ControllersListCompletedTasksQuery":           "ListCompletedTasksQuery",
@@ -592,18 +595,22 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersDevImportProjectsRequest":  "DevImportProjectsRequest",
 	"ControllersDevImportProjectsResponse": "DevImportProjectsResponse",
 	// httpd/controllers: mobile wire envelopes
-	"ControllersMobileStatusResponse":  "MobileStatusResponse",
-	"MobilebridgeEndpoint":             "MobileEndpoint",
-	"MobilebridgeTunnelStatus":         "MobileTunnelStatus",
-	"ControllersIdentityResponse":      "IdentityResponse",
-	"ControllersEndpointsResponse":     "EndpointsResponse",
-	"ControllersLinkPreviewQuery":      "LinkPreviewQuery",
-	"ControllersLinkPreviewResponse":   "LinkPreviewResponse",
-	"ControllersMobileDeviceResponse":  "MobileDeviceResponse",
-	"ControllersMobileDevicesResponse": "MobileDevicesResponse",
-	"ControllersMuteDeviceRequest":     "MuteDeviceRequest",
-	"ControllersInstallIDParam":        "InstallIDParam",
-	"ControllersPushPairingIDParam":    "PushPairingIDParam",
+	"ControllersMobileStatusResponse":     "MobileStatusResponse",
+	"MobilebridgeEndpoint":                "MobileEndpoint",
+	"MobilebridgeTunnelStatus":            "MobileTunnelStatus",
+	"ControllersIdentityResponse":         "IdentityResponse",
+	"ControllersEnableTailnetRequest":     "EnableTailnetRequest",
+	"ControllersTailnetHost":              "TailnetHost",
+	"ControllersTailnetHostsResponse":     "TailnetHostsResponse",
+	"ControllersUpdateTailnetHostRequest": "UpdateTailnetHostRequest",
+	"ControllersEndpointsResponse":        "EndpointsResponse",
+	"ControllersLinkPreviewQuery":         "LinkPreviewQuery",
+	"ControllersLinkPreviewResponse":      "LinkPreviewResponse",
+	"ControllersMobileDeviceResponse":     "MobileDeviceResponse",
+	"ControllersMobileDevicesResponse":    "MobileDevicesResponse",
+	"ControllersMuteDeviceRequest":        "MuteDeviceRequest",
+	"ControllersInstallIDParam":           "InstallIDParam",
+	"ControllersPushPairingIDParam":       "PushPairingIDParam",
 	// devimport report
 	"DevimportReport":   "DevImportProjectsReport",
 	"DevimportConflict": "DevImportProjectsConflict",
@@ -756,8 +763,44 @@ func operations() []operation {
 	ops = append(ops, systemOperations()...)
 	ops = append(ops, identityOperations()...)
 	ops = append(ops, endpointsOperations()...)
+	ops = append(ops, tailnetOperations()...)
 	ops = append(ops, linkPreviewOperations()...)
 	return ops
+}
+
+// tailnetOperations declares the loopback-only directory of AO hosts found on
+// the tailnet; lanControlBlock 404s /api/v1/tailnet on the remote listener.
+func tailnetOperations() []operation {
+	hostID := []any{controllers.TailnetHostIDParam{}}
+	return []operation{
+		{
+			method: http.MethodGet, path: "/api/v1/tailnet/hosts", id: "listTailnetHosts", tag: "tailnet",
+			summary: "List AO hosts discovered on this machine's Tailscale network",
+			resps: []respUnit{
+				{http.StatusOK, controllers.TailnetHostsResponse{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/tailnet/hosts/refresh", id: "refreshTailnetHosts", tag: "tailnet",
+			summary: "Re-read the tailnet peer list and probe every online peer now",
+			resps: []respUnit{
+				{http.StatusOK, controllers.TailnetHostsResponse{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPatch, path: "/api/v1/tailnet/hosts/{hostId}", id: "updateTailnetHost", tag: "tailnet",
+			summary:    "Hide, show, or relabel a discovered host on this machine",
+			pathParams: hostID,
+			reqBody:    controllers.UpdateTailnetHostRequest{},
+			resps: []respUnit{
+				{http.StatusOK, controllers.TailnetHostsResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+	}
 }
 
 func automationOperations() []operation {
@@ -899,6 +942,14 @@ func reportOperations() []operation {
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},
 	}, {
+		method: http.MethodPost, path: "/api/v1/remote-worker-links/sync", id: "syncRemoteWorkerLinks", tag: "reports",
+		summary: "Link live remote workers on saved hosts (loopback only)",
+		resps: []respUnit{
+			{http.StatusOK, controllers.RemoteWorkerSyncResponse{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
 		method: http.MethodGet, path: "/api/v1/remote-worker-links", id: "listRemoteWorkerLinks", tag: "reports",
 		summary:    "List linked remote workers with their local owner",
 		pathParams: []any{controllers.ListRemoteWorkerLinksQuery{}},
@@ -929,6 +980,30 @@ func reportOperations() []operation {
 			{http.StatusForbidden, envelope.APIError{}},
 			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusConflict, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodDelete, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}", id: "removeRemoteWorkerLink", tag: "reports",
+		summary: "Remove a linked remote worker (root only; logged)",
+		respNotes: map[int]string{
+			http.StatusForbidden: "Forbidden: OWNERSHIP_ROOT_ONLY",
+		},
+		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}, controllers.RemoveRemoteWorkerLinkQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.RemoteWorkerLinkResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusForbidden, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodPost, path: "/api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release", id: "releaseRemoteWorkerLink", tag: "reports",
+		summary:    "Drop the link of a worker this daemon just killed on its host",
+		pathParams: []any{controllers.RemoteWorkerLinkOwnerParam{}},
+		resps: []respUnit{
+			{http.StatusNoContent, nil},
 			{http.StatusInternalServerError, envelope.APIError{}},
 			{http.StatusNotImplemented, envelope.APIError{}},
 		},
@@ -2181,6 +2256,24 @@ func mobileOperations() []operation {
 				{http.StatusOK, controllers.MobileStatusResponse{}},
 				{http.StatusForbidden, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/mobile/enable-tailnet", id: "enableMobileTailnet", tag: "mobile",
+			summary: "Enable the authenticated listener on the Tailscale address only",
+			reqBody: controllers.EnableTailnetRequest{}, optionalReqBody: true,
+			resps: []respUnit{
+				{http.StatusOK, controllers.MobileStatusResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/mobile/enable-also-tailnet", id: "enableMobileAlsoTailnet", tag: "mobile",
+			summary: "Add the fixed-port Tailscale listener without changing the LAN/mobile listener",
+			resps: []respUnit{
+				{http.StatusOK, controllers.MobileStatusResponse{}},
+				{http.StatusConflict, envelope.APIError{}},
 			},
 		},
 		{

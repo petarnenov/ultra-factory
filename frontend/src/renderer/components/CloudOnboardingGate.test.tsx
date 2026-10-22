@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import { useLocalSignInDialogStore } from "../stores/local-signin-dialog-store";
@@ -31,11 +31,12 @@ afterEach(() => {
 	act(() => useLocalSignInDialogStore.getState().closeDialog());
 });
 
-it("opens the local sign-in dialog from Remote hosts in developer mode with the cloud offering off", () => {
+it("does not require AO Cloud sign-in from Remote hosts", () => {
 	useUiStore.setState({ developerMode: true });
 	renderApp();
-	fireEvent.click(screen.getByRole("button", { name: "Sign in to AO Cloud" }));
-	expect(screen.getByRole("dialog")).toBeVisible();
+	expect(screen.queryByRole("button", { name: "Sign in to AO Cloud" })).toBeNull();
+	expect(screen.queryByRole("dialog")).toBeNull();
+	expect(screen.getByText("Tailscale hosts")).toBeVisible();
 });
 
 it("does not mount the local sign-in dialog when neither the cloud offering nor developer mode is on", () => {

@@ -56,6 +56,12 @@ func (m *manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	return true, m.p.store.UpdateSession(ctx, rec)
 }
 
+// Send accepts ownership notices; the pilot checks report delivery through
+// its own delivery fake, so the notices need no recipient here.
+func (m *manager) Send(context.Context, domain.SessionID, string, *ports.SpawnAttachment) error {
+	return nil
+}
+
 // The service probes these optional capabilities on its manager; the embedded
 // nil Manager would panic on them.
 func (m *manager) StatusRecoveryRevision() uint64 { return 0 }
@@ -320,7 +326,7 @@ func TestCoordinatorHierarchyEndToEnd(t *testing.T) {
 		// Coordinator B: two local workers plus one remote link fill its three
 		// slots, so a remote link is counted exactly like a local worker.
 		workersB = append(workersB, p.mustSpawn(domain.KindWorker, coordB, ""), p.mustSpawn(domain.KindWorker, coordB, ""))
-		link := domain.RemoteWorkerLink{HostID: hostID, HostLabel: "build", RemoteSessionID: remoteID, RemoteProjectID: "widgets", ProjectID: project, DisplayName: "remote seven", CreatedAt: p.now()}
+		link := domain.RemoteWorkerLink{HostID: hostID, HostLabel: "build", RemoteSessionID: remoteID, RemoteProjectID: "widgets", ProjectID: project, DisplayName: "remote seven", CreatedAt: time.Now()}
 		if err := p.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
 			t.Fatalf("seed remote link: %v", err)
 		}

@@ -433,11 +433,15 @@ export const aoBridge: AoBridge =
 		// no BFF and no ~/.ao/remotes.json, so it reports none and shows local.
 		remotes: isWebBuild ? createWebRemotesBridge(webDaemonBaseUrl) : {
 			list: async () => [],
+			tailnet: async () => ({ available: false, hidden: [] }),
+			hide: async () => undefined,
+			unhide: async () => undefined,
 			importAccountHost: async () => undefined,
 			pruneAccountHosts: async () => undefined,
 			issueAccountToken: async () => { throw new Error("remote hosts need the desktop app"); },
 			add: async () => "offline" as const,
 			update: async () => "offline" as const,
+			setAllowInsecureHTTP: async () => undefined,
 			remove: async () => undefined,
 			connect: async () => { throw new Error("remote hosts need the desktop app"); },
 			disconnect: async () => undefined,

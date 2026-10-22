@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { python3MissingMessage, mapDeletedCommentRanges, parseDiff, scanTS, scanPython, scanShell, scanDockerfile, summary } from './check.mjs';
+import { python3MissingMessage, excludedPath, generatedFiles, mapDeletedCommentRanges, parseDiff, scanTS, scanPython, scanShell, scanDockerfile, summary } from './check.mjs';
 
 function stats(source, file = 'fixture.ts') {
   return summary(scanTS(source, file));
@@ -175,4 +175,17 @@ test('scanning hash languages without python3 fails naming the prerequisite', ()
 
 test('scanning hash languages still works when python3 is present', () => {
   assert.deepEqual(summary(scanShell('# one\n# two\n# three\n')), { blocks: 1, longLines: 0 });
+});
+
+test('skips the listed generated schema and keeps hand-written sources in scope', () => {
+  assert.equal(excludedPath('frontend/src/api/schema.ts'), true);
+  assert.equal(excludedPath('frontend/src/api/client.ts'), false);
+  assert.equal(excludedPath('frontend/src/renderer/App.tsx'), false);
+});
+
+test('every generated-file entry still exists, so the exclusion list cannot go stale', () => {
+  const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..');
+  for (const file of generatedFiles) {
+    assert.ok(fs.existsSync(path.join(root, file)), `${file} is listed as generated but does not exist`);
+  }
 });

@@ -21,14 +21,97 @@ const remoteIdentityTimeout = remotehost.IdentityTimeout
 // remoteEntry is one saved connection in the desktop's remotes.json.
 type remoteEntry = remotehost.Entry
 
-// remoteTarget is a saved host whose identity has been verified for this
-// invocation. Requests to it carry the saved credential and expected host ID.
+// remoteTarget is a host whose identity has been verified for this invocation.
+// Requests carry the expected host ID and, outside Tailscale, the credential.
 type remoteTarget struct {
 	label    string
 	baseURL  string
 	hostID   string
 	password string
+	// tailscale marks a discovered host admitted on this machine's tailnet
+	// identity: no bearer is sent, and a rejection is an identity problem.
+	tailscale bool
 }
+
+// tailnetHostsResponse mirrors the daemon's GET /api/v1/tailnet/hosts.
+type tailnetHostsResponse struct {
+	Available    bool          `json:"available"`
+	Error        string        `json:"error"`
+	LocalHostIDs []string      `json:"localHostIds"`
+	Hosts        []tailnetHost `json:"hosts"`
+}
+
+type tailnetHost struct {
+	HostID  string `json:"hostId"`
+	Label   string `json:"label"`
+	Name    string `json:"name"`
+	Address string `json:"address"`
+	URL     string `json:"url"`
+	Online  bool   `json:"online"`
+	Hidden  bool   `json:"hidden"`
+}
+
+// hostDirectory merges the hosts this machine's daemon found on the tailnet
+// with the desktop's saved hosts; a discovered host wins on the same host ID.
+type hostDirectory struct {
+	entries []remoteEntry
+	// local are saved entries that point at this machine or a sibling install;
+	// they are never listed, but --host names one with a clear error.
+	local []remoteEntry
+	// online is the discovery state of each Tailscale entry.
+	online map[string]bool
+	// tailscale is the raw discovery answer; discoveryErr is set when this
+	// machine's daemon could not be asked at all.
+	tailscale    tailnetHostsResponse
+	discoveryErr error
+}
+
+func (c *commandContext) loadHostDirectory(ctx context.Context) (hostDirectory, error) {
+	path, err := remotesFilePath()
+	if err != nil {
+		return hostDirectory{}, err
+	}
+	saved, err := readRemoteEntries(path)
+	if err != nil {
+		return hostDirectory{}, err
+	}
+	dir := hostDirectory{online: map[string]bool{}}
+	reqCtx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	dir.discoveryErr = c.localContext().doJSONPathWithHeadersAndTimeout(reqCtx, http.MethodGet, "/api/v1/tailnet/hosts", nil, &dir.tailscale, nil, probeTimeout)
+	local := map[string]bool{}
+	for _, id := range dir.tailscale.LocalHostIDs {
+		local[id] = true
+	}
+	if localID, err := c.localContext().readLocalIdentity(ctx); err == nil && localID != "" {
+		local[localID] = true
+	}
+	seen := map[string]bool{}
+	discovered := map[string]bool{}
+	for _, host := range dir.tailscale.Hosts {
+		if host.Hidden || host.HostID == "" || local[host.HostID] || seen[host.HostID] {
+			continue
+		}
+		seen[host.HostID] = true
+		discovered[host.HostID] = true
+		dir.online[host.HostID] = host.Online
+		dir.entries = append(dir.entries, remoteEntry{Label: host.Label, URL: host.URL, HostID: host.HostID, Tailscale: true})
+	}
+	for _, entry := range saved {
+		if entry.HostID != "" && local[entry.HostID] {
+			dir.local = append(dir.local, entry)
+			continue
+		}
+		if entry.HostID != "" && discovered[entry.HostID] {
+			continue
+		}
+		dir.entries = append(dir.entries, entry)
+	}
+	return dir, nil
+}
+
+// noHostsHint tells the user how a host appears in `ao host ls`.
+const noHostsHint = "turn on remote access on another machine on your tailnet (`ao remote-host enable`), or pair a host outside Tailscale in the desktop app under Settings → Remote hosts"
 
 type remoteIdentity struct {
 	HostID     string `json:"hostId"`
@@ -46,9 +129,8 @@ func (c *commandContext) targetsRemote() bool {
 	return strings.TrimSpace(c.hostSelector) != ""
 }
 
-// localContext returns a view of c that always talks to this machine's
-// daemon, for reading local context (such as the orchestrator's own project)
-// while the command itself targets a remote host.
+// localContext returns a view of c that always talks to this machine's daemon,
+// for reading local context while the command itself targets a remote host.
 func (c *commandContext) localContext() *commandContext {
 	return &commandContext{deps: c.deps}
 }
@@ -83,9 +165,9 @@ func selectRemoteEntry(entries []remoteEntry, selector string) (remoteEntry, err
 		}
 	}
 	if len(entries) == 0 {
-		return remoteEntry{}, usageError{fmt.Errorf("--host %q: no saved remote hosts; add one in the desktop app under Settings → Remote hosts", selector)}
+		return remoteEntry{}, usageError{fmt.Errorf("--host %q: no remote hosts; %s", selector, noHostsHint)}
 	}
-	return remoteEntry{}, usageError{fmt.Errorf("--host %q matches no saved host (saved: %s)", selector, remoteLabels(entries))}
+	return remoteEntry{}, usageError{fmt.Errorf("--host %q matches no remote host (saved or discovered; known: %s)", selector, remoteLabels(entries))}
 }
 
 func remoteLabels(entries []remoteEntry) string {
@@ -109,26 +191,27 @@ func (c *commandContext) remoteHTTPClient(timeout time.Duration) http.Client {
 }
 
 // resolveRemoteTarget loads, selects, and identity-checks the --host target
-// once per invocation. The saved password is sent only after the host proves
-// it is the paired machine and not this machine's own daemon.
+// once per invocation; a password goes only to a verified non-Tailscale host.
 func (c *commandContext) resolveRemoteTarget(ctx context.Context) (*remoteTarget, error) {
 	if c.remote != nil {
 		return c.remote, nil
 	}
-	path, err := remotesFilePath()
+	dir, err := c.loadHostDirectory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := readRemoteEntries(path)
-	if err != nil {
-		return nil, err
+	if _, err := selectRemoteEntry(dir.local, c.hostSelector); err == nil {
+		return nil, usageError{fmt.Errorf("--host %q is this machine; omit --host to use the local daemon", c.hostSelector)}
 	}
-	entry, err := selectRemoteEntry(entries, c.hostSelector)
+	entry, err := selectRemoteEntry(dir.entries, c.hostSelector)
 	if err != nil {
 		return nil, err
 	}
 	if entry.HostID == "" {
 		return nil, fmt.Errorf("remote host %q must be paired again in the desktop app to record its identity", entry.Label)
+	}
+	if entry.Tailscale && !dir.online[entry.HostID] {
+		return nil, fmt.Errorf("remote host %q is offline on the tailnet; check that AO is running there with remote access on", entry.Label)
 	}
 	base, err := remoteBaseURL(entry.URL)
 	if err != nil {
@@ -144,7 +227,10 @@ func (c *commandContext) resolveRemoteTarget(ctx context.Context) (*remoteTarget
 	if local, err := c.localContext().readLocalIdentity(ctx); err == nil && local == actual {
 		return nil, usageError{fmt.Errorf("--host %q is this machine; omit --host to use the local daemon", c.hostSelector)}
 	}
-	c.remote = &remoteTarget{label: entry.Label, baseURL: base, hostID: entry.HostID, password: entry.Password}
+	c.remote = &remoteTarget{label: entry.Label, baseURL: base, hostID: entry.HostID, password: entry.Password, tailscale: entry.Tailscale}
+	if entry.Tailscale {
+		c.remote.password = ""
+	}
 	return c.remote, nil
 }
 

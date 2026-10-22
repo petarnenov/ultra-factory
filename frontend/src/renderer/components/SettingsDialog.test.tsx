@@ -68,6 +68,12 @@ vi.mock("./ProjectSettingsForm", () => ({
 			<button type="button" onClick={() => onSaveState?.({ phase: "saved" })}>
 				Complete save
 			</button>
+			<button type="button" onClick={() => onSaveState?.({ phase: "idle", dirty: true })}>
+				Report dirty draft
+			</button>
+			<button type="button" onClick={() => onSaveState?.({ phase: "idle", dirty: false })}>
+				Report recovered draft
+			</button>
 		</>
 	),
 }));
@@ -157,12 +163,31 @@ describe("SettingsDialog", () => {
 		expect(useUiStore.getState().settingsModal).toBeNull();
 	});
 
+	it("completes a pending section switch after a dirty draft is reset", async () => {
+		useUiStore.getState().openProjectSettings("proj-1");
+		renderSettingsDialog();
+
+		await userEvent.click(await screen.findByRole("button", { name: "Report dirty draft" }));
+		await userEvent.click(screen.getByRole("button", { name: "Scripts" }));
+		expect(screen.queryByTestId("project-scripts-settings")).not.toBeInTheDocument();
+		await userEvent.click(screen.getByRole("button", { name: "Report recovered draft" }));
+		expect(await screen.findByTestId("project-scripts-settings")).toHaveTextContent("proj-1");
+	});
+
 	it("renders visible error message when project settings save fails", async () => {
 		useUiStore.getState().openProjectSettings("proj-1");
 		renderSettingsDialog();
 
 		await userEvent.click(await screen.findByRole("button", { name: "Trigger failed save" }));
 		expect(await screen.findByRole("alert")).toHaveTextContent("Display name must be 100 characters or fewer");
+	});
+
+	it("names the section whose save failed", async () => {
+		useUiStore.getState().openProjectSettings("proj-1");
+		renderSettingsDialog();
+
+		await userEvent.click(await screen.findByRole("button", { name: "Trigger failed save" }));
+		expect(await screen.findByRole("alert")).toHaveTextContent("General: Display name must be 100 characters or fewer");
 	});
 
 	it("keeps cue management in project settings without the project save action", async () => {

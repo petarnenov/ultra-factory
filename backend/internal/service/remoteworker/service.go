@@ -5,6 +5,7 @@ package remoteworker
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
@@ -25,12 +26,22 @@ type Store interface {
 	ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error)
 	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
+	InsertDiscoveredRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) (bool, error)
 	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
+	RemoveRemoteWorkerLink(context.Context, string, domain.SessionID, time.Time) error
+	DeleteRemoteWorkerLink(context.Context, string, domain.SessionID) error
 }
 
 // MaxLinks bounds how many remote workers this daemon polls; every link costs
 // authenticated requests to its host on each pass.
 const MaxLinks = 200
+
+// ErrLinkLimit reports that MaxLinks links already exist.
+var ErrLinkLimit = errors.New("remote worker link limit reached")
+
+// ErrProjectNotRegistered reports a remote worker whose project this daemon
+// does not have, so its reports have nowhere to go.
+var ErrProjectNotRegistered = errors.New("remote worker project is not registered on this daemon")
 
 // remoteIDPattern is the shape of AO session and project IDs. Remote IDs are
 // rendered into the orchestrator's prompt, so nothing else is accepted.
@@ -41,6 +52,18 @@ var remoteIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 type Registration struct {
 	Link        domain.RemoteWorkerLink
 	PullBlocked string
+}
+
+// HostSync is the outcome of one discovery pass over one saved host.
+type HostSync struct {
+	HostID  string
+	Label   string
+	Linked  int
+	Skipped int
+	// Blocked says why the host was not contacted unattended, if it was not.
+	Blocked string
+	// Error is any other reason the host could not be scanned.
+	Error string
 }
 
 // RegisterInput is what `ao spawn --host` reports after a remote spawn.
@@ -65,6 +88,10 @@ type Deps struct {
 	// Capacity is shared with the session service so link writes and local
 	// spawns serialise per project. Nil gives this service its own guard.
 	Capacity *coordownership.Guard
+	// Notifier tells a coordinator when it gains or loses a remote worker.
+	// Nil sends no notices.
+	Notifier coordownership.Notifier
+	Logger   *slog.Logger
 }
 
 // Service validates and stores remote worker links.
@@ -75,6 +102,8 @@ type Service struct {
 	now        func() time.Time
 	onLinked   func()
 	capacity   *coordownership.Guard
+	notifier   coordownership.Notifier
+	logger     *slog.Logger
 	// mu makes the link-limit check and the insert one step.
 	mu sync.Mutex
 }
@@ -90,7 +119,7 @@ func New(d Deps) *Service {
 	if d.Capacity == nil {
 		d.Capacity = &coordownership.Guard{}
 	}
-	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked, capacity: d.Capacity}
+	return &Service{store: d.Store, selfHostID: d.SelfHostID, lookup: d.Lookup, now: d.Now, onLinked: d.OnLinked, capacity: d.Capacity, notifier: d.Notifier, logger: d.Logger}
 }
 
 // MaxDisplayNameLength matches the spawn display-name limit.
@@ -177,12 +206,64 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	registration := Registration{Link: stored}
 	base, err := remotehost.BaseURL(entry.URL)
 	if err == nil {
-		err = remotehost.UnattendedTransportAllowed(base)
+		err = remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP)
 	}
 	if err != nil {
 		registration.PullBlocked = err.Error()
 	}
 	return registration, nil
+}
+
+// LinkDiscovered stores a worker that discovery found as a root-owned link.
+// It reports false, and changes nothing, when the worker is already linked.
+func (s *Service) LinkDiscovered(ctx context.Context, link domain.RemoteWorkerLink) (bool, error) {
+	if s == nil || s.store == nil {
+		return false, errors.New("remoteworker: store is required")
+	}
+	link.HostID = strings.TrimSpace(link.HostID)
+	if link.HostID == "" || !remoteIDPattern.MatchString(string(link.RemoteSessionID)) ||
+		!remoteIDPattern.MatchString(string(link.RemoteProjectID)) {
+		return false, domain.ErrInvalidRemoteWorkerLink
+	}
+	if s.selfHostID != "" && link.HostID == s.selfHostID {
+		return false, errors.New("the host is this machine; local workers need no link")
+	}
+	if _, found, err := s.store.GetProject(ctx, string(link.ProjectID)); err != nil {
+		return false, err
+	} else if !found {
+		return false, ErrProjectNotRegistered
+	}
+	entry, found, err := s.lookup(link.HostID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, errors.New("no saved remote host has this host id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, err := s.store.ListRemoteWorkerLinks(ctx)
+	if err != nil {
+		return false, err
+	}
+	if hasLink(existing, link) {
+		return false, nil
+	}
+	if len(existing) >= MaxLinks {
+		return false, ErrLinkLimit
+	}
+	link.HostLabel = strings.TrimSpace(entry.Label)
+	link.OwnerSessionID = nil
+	link.Source = domain.LinkSourceDiscovered
+	link.CreatedAt = s.now().UTC()
+	created, err := s.store.InsertDiscoveredRemoteWorkerLink(ctx, link)
+	if err != nil {
+		return false, err
+	}
+	if created && s.onLinked != nil {
+		s.onLinked()
+	}
+	return created, nil
 }
 
 // linkParent loads the live, project-bound session that spawns a remote worker.

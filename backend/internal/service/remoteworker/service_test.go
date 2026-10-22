@@ -19,7 +19,37 @@ type fakeStore struct {
 	sessions    map[domain.SessionID]domain.SessionRecord
 	stored      []domain.RemoteWorkerLink
 	ownerEvents []domain.RemoteWorkerOwnerEvent
+	removals    []domain.RemoteWorkerLinkRemoval
 	project     domain.ProjectRecord
+}
+
+// RemoveRemoteWorkerLink drops the link and remembers the removal.
+func (f *fakeStore) RemoveRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID, at time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.stored[:0]
+	for _, link := range f.stored {
+		if link.HostID != hostID || link.RemoteSessionID != remoteSessionID {
+			kept = append(kept, link)
+		}
+	}
+	f.stored = kept
+	f.removals = append(f.removals, domain.RemoteWorkerLinkRemoval{HostID: hostID, RemoteSessionID: remoteSessionID, RemovedAt: at})
+	return nil
+}
+
+// DeleteRemoteWorkerLink drops the link without remembering a removal.
+func (f *fakeStore) DeleteRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	kept := f.stored[:0]
+	for _, link := range f.stored {
+		if link.HostID != hostID || link.RemoteSessionID != remoteSessionID {
+			kept = append(kept, link)
+		}
+	}
+	f.stored = kept
+	return nil
 }
 
 func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
@@ -56,6 +86,18 @@ func (f *fakeStore) UpsertRemoteWorkerLink(_ context.Context, link domain.Remote
 	defer f.mu.Unlock()
 	f.stored = append(f.stored, link)
 	return nil
+}
+
+func (f *fakeStore) InsertDiscoveredRemoteWorkerLink(_ context.Context, link domain.RemoteWorkerLink) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, existing := range f.stored {
+		if existing.HostID == link.HostID && existing.RemoteSessionID == link.RemoteSessionID {
+			return false, nil
+		}
+	}
+	f.stored = append(f.stored, link)
+	return true, nil
 }
 
 func (f *fakeStore) GetRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) (domain.RemoteWorkerLink, bool, error) {
@@ -215,12 +257,16 @@ func TestRegisterExplainsWhyAPlainHTTPHostIsNotPolled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(registration.PullBlocked, remotehost.AllowHTTPEnv) || len(store.stored) != 1 {
+	if !strings.Contains(registration.PullBlocked, "Allow report pulls over plain HTTP") || len(store.stored) != 1 {
 		t.Fatalf("registration = %+v stored = %d", registration, len(store.stored))
+	}
+	optedIn := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "linux", URL: "http://192.168.1.223:3001", HostID: "host-build", AllowInsecureHTTP: true})})
+	if registration, _ := optedIn.Register(context.Background(), validInput()); registration.PullBlocked != "" {
+		t.Fatalf("per-host opt-in still blocked: %s", registration.PullBlocked)
 	}
 	t.Setenv(remotehost.AllowHTTPEnv, "1")
 	if registration, _ := svc.Register(context.Background(), validInput()); registration.PullBlocked != "" {
-		t.Fatalf("opted-in plain http still blocked: %s", registration.PullBlocked)
+		t.Fatalf("deprecated env override still blocked: %s", registration.PullBlocked)
 	}
 }
 

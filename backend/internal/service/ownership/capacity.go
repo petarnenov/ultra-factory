@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -128,6 +129,9 @@ type LinkLister interface {
 type Counts struct {
 	Coordinators int
 	Workers      int
+	// StaleWorkers counts remote links whose host has not answered within the
+	// grace period. They are not in Workers, so they do not use capacity.
+	StaleWorkers int
 	ByOwner      map[domain.SessionID]int
 	// OwnerLimits holds the stored worker limit of every coordinator that has
 	// one, terminated or not, so a restore keeps it.
@@ -175,8 +179,17 @@ func Count(ctx context.Context, sessions SessionLister, links LinkLister, projec
 	if err != nil {
 		return counts, fmt.Errorf("count remote links for %s: %w", project, err)
 	}
+	now := time.Now()
 	for _, link := range all {
 		if link.ProjectID != project {
+			continue
+		}
+		switch link.State(now) {
+		case domain.RemoteLinkStale:
+			counts.StaleWorkers++
+			continue
+		case domain.RemoteLinkLive:
+		default:
 			continue
 		}
 		counts.Workers++

@@ -56,7 +56,7 @@ func (c *ProjectsController) prepareClone(w http.ResponseWriter, r *http.Request
 	}
 	var in projectsvc.CloneInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	result, err := c.Mgr.PrepareClone(r.Context(), in)
@@ -74,7 +74,7 @@ func (c *ProjectsController) cleanupPreparedClone(w http.ResponseWriter, r *http
 	}
 	var in projectsvc.ClonePreparationCleanupInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	if err := c.Mgr.CleanupPreparedClone(r.Context(), in); err != nil {
@@ -91,7 +91,7 @@ func (c *ProjectsController) clone(w http.ResponseWriter, r *http.Request) {
 	}
 	var in projectsvc.CloneInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	p, err := c.Mgr.Clone(r.Context(), in)
@@ -125,7 +125,7 @@ func (c *ProjectsController) add(w http.ResponseWriter, r *http.Request) {
 	}
 	var in projectsvc.AddInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	p, err := c.Mgr.Add(r.Context(), in)
@@ -143,7 +143,7 @@ func (c *ProjectsController) initialize(w http.ResponseWriter, r *http.Request) 
 	}
 	var in projectsvc.InitializeRepositoryInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	result, err := c.Mgr.InitializeRepository(r.Context(), in)
@@ -211,7 +211,7 @@ func (c *ProjectsController) updateSettings(w http.ResponseWriter, r *http.Reque
 	}
 	var in projectsvc.UpdateSettingsInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	p, err := c.Mgr.UpdateSettings(r.Context(), projectID(r), in)
@@ -229,7 +229,7 @@ func (c *ProjectsController) setConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	var in projectsvc.SetConfigInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	p, err := c.Mgr.SetConfig(r.Context(), projectID(r), in)
@@ -261,15 +261,6 @@ func decodeJSON(r *http.Request, out any) error {
 	return json.NewDecoder(r.Body).Decode(out)
 }
 
-// decodeJSONStrict rejects request bodies that include keys outside the target
-// type. It is used where misspelled or retired fields must surface as a 400
-// instead of being silently dropped.
-func decodeJSONStrict(r *http.Request, out any) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	return dec.Decode(out)
-}
-
 func (c *ProjectsController) setPermissions(w http.ResponseWriter, r *http.Request) {
 	if c.Mgr == nil {
 		apispec.NotImplemented(w, r, "PATCH", "/api/v1/projects/{id}/permissions")
@@ -277,7 +268,7 @@ func (c *ProjectsController) setPermissions(w http.ResponseWriter, r *http.Reque
 	}
 	var in projectsvc.SetPermissionsInput
 	if err := decodeJSONStrict(r, &in); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		writeInvalidJSON(w, r, err)
 		return
 	}
 	p, err := c.Mgr.SetPermissions(r.Context(), projectID(r), in)

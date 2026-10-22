@@ -26,6 +26,7 @@ import {
 } from "./shared/tray";
 import type { DaemonStatus } from "./shared/daemon-status";
 import type { RemoteHostView } from "./main/remotes-ipc";
+import type { TailnetStatusView } from "./main/remotes-main";
 import type { ConnectedHostView } from "./main/remote-registry";
 import type { RemoteHealth } from "./main/remote-request";
 import type {
@@ -716,6 +717,10 @@ const api = {
 	// plaintext password only travels renderer -> main on add or credential edit.
 	remotes: {
 		list: () => ipcRenderer.invoke("remotes:list") as Promise<RemoteHostView[]>,
+		// Tailnet discovery state: whether tailscaled answered, and hidden hosts.
+		tailnet: () => ipcRenderer.invoke("remotes:tailnet") as Promise<TailnetStatusView>,
+		hide: (hostId: string) => ipcRenderer.invoke("remotes:hide", hostId) as Promise<void>,
+		unhide: (hostId: string) => ipcRenderer.invoke("remotes:unhide", hostId) as Promise<void>,
 		importAccountHost: (accountId: string, input: { hostId: string; label: string; url: string; password: string }) =>
 			ipcRenderer.invoke("remotes:importAccountHost", accountId, input) as Promise<void>,
 		pruneAccountHosts: (accountId: string, hostIds: string[]) => ipcRenderer.invoke("remotes:pruneAccountHosts", accountId, hostIds) as Promise<void>,
@@ -725,8 +730,10 @@ const api = {
 		// An edit carries only what changed: an omitted password keeps the saved
 		// one, so a rotated credential is fixed without the renderer ever holding
 		// the old one.
-		update: (url: string, changes: { label?: string; url?: string; password?: string }) =>
+		update: (url: string, changes: { label?: string; url?: string; password?: string; allowInsecureHTTP?: boolean }) =>
 			ipcRenderer.invoke("remotes:update", url, changes) as Promise<RemoteHealth>,
+		setAllowInsecureHTTP: (url: string, allowed: boolean) =>
+			ipcRenderer.invoke("remotes:setAllowInsecureHTTP", url, allowed) as Promise<void>,
 		remove: (url: string) => ipcRenderer.invoke("remotes:remove", url) as Promise<void>,
 		connect: (url: string, hostId?: string) => ipcRenderer.invoke("remotes:connect", url, hostId) as Promise<ConnectedHostView>,
 		disconnect: (url: string) => ipcRenderer.invoke("remotes:disconnect", url) as Promise<void>,

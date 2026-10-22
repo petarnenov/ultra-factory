@@ -9,7 +9,8 @@ import { useUiStore } from "../stores/ui-store";
 
 const HOSTS_CHANGED_EVENT = "ao:remote-hosts-changed";
 const OFFLINE_RETRY_MS = 15_000;
-const ACCOUNT_SYNC_MS = 30_000;
+// Re-read tailnet discovery and enabled account sync on this cadence.
+const DISCOVERY_REFRESH_MS = 30_000;
 const NO_HOSTS: RemoteHost[] = [];
 
 function isOfflineError(error: unknown): boolean {
@@ -26,17 +27,26 @@ export type RemoteHost = {
 	url: string;
 	status: "connecting" | "connected" | "offline";
 	failureReason?: "unauthorized" | "incompatible";
+	allowInsecureHTTP?: boolean;
+	// Tailscale hosts are discovered peers; online mirrors peer state.
+	tailscale?: boolean;
+	online?: boolean;
 };
 
-export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: () => Promise<void> } {
+// Soft refresh rereads discovery but skips saved hosts with rejected passwords.
+// This avoids stale credentials repeatedly hitting host lockouts.
+type RefreshOptions = { soft?: boolean };
+
+export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: RefreshOptions) => Promise<void> } {
 	const remoteHostsEnabled = useUiStore((state) => isWebBuild || (state.developerMode && state.remoteHosts));
+	const cloudSync = useUiStore((state) => state.remoteHostsCloudSync);
 	const { status, session } = useCloudSession();
-	const accountId = session?.user.id ?? "";
+	// Tailscale discovery needs no account; the AO Cloud account matters only
+	// with cloud sync on. The web build's hosts come from the hub BFF instead.
+	const accountId = cloudSync && status === "authenticated" ? session?.user.id ?? "" : "";
 	const { settings } = useSettings();
-	// The web build's hosts come from the hub BFF behind its own sign-in, not from
-	// an AO Cloud account (see RemoteHostsSettings).
-	const cloudBaseUrl = isWebBuild ? "" : settings?.cloudControlPlaneUrl ?? "";
-	const enabled = remoteHostsEnabled && (isWebBuild || (status === "authenticated" && Boolean(accountId)));
+	const cloudBaseUrl = isWebBuild || !cloudSync || !accountId ? "" : settings?.cloudControlPlaneUrl ?? "";
+	const enabled = remoteHostsEnabled;
 	const enabledRef = useRef(enabled);
 	enabledRef.current = enabled;
 	const accountRef = useRef(accountId);
@@ -49,7 +59,7 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: () => Promise<
 	const retryingHosts = useRef(new Set<string>());
 	const savedHostUrls = useRef(new Map<string, string>());
 	const refreshGeneration = useRef(0);
-	const refresh = useCallback(async () => {
+	const refresh = useCallback(async ({ soft = false }: RefreshOptions = {}) => {
 		if (!enabledRef.current) return;
 		const generation = ++refreshGeneration.current;
 		const current = () => enabledRef.current && accountRef.current === accountId && refreshGeneration.current === generation;
@@ -67,11 +77,16 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: () => Promise<
 		await Promise.all(connectedHosts().filter((hostId) => !saved.some((host) => host.hostId === hostId)).map(disconnectHost));
 		if (!current()) return;
 		savedHostUrls.current = new Map(saved.map((host) => [host.hostId, host.url]));
-		setHosts((previous) => saved.map((host) => ({
-			...host,
-			status: previous.some((entry) => entry.hostId === host.hostId && entry.url === host.url && entry.status === "connected") ? "connected" : "connecting",
-		})));
-		await Promise.all(saved.map(async (savedHost) => {
+		const rejected = (host: RemoteHost) => host.status === "offline" && host.failureReason === "unauthorized";
+		const skipped = new Set(saved
+			.filter((host) => soft && !host.tailscale && hostsRef.current.some((entry) => entry.hostId === host.hostId && entry.url === host.url && rejected(entry)))
+			.map((host) => host.hostId));
+		setHosts((previous) => saved.map((host) => {
+			const known = previous.find((entry) => entry.hostId === host.hostId && entry.url === host.url);
+			if (known && skipped.has(host.hostId)) return { ...known, ...host, status: "offline", failureReason: "unauthorized" };
+			return { ...host, status: known?.status === "connected" ? "connected" : "connecting" };
+		}));
+		await Promise.all(saved.filter((savedHost) => !skipped.has(savedHost.hostId)).map(async (savedHost) => {
 			let status: RemoteHost["status"] = "connected";
 			let failureReason: RemoteHost["failureReason"];
 			let connectedHostId = savedHost.hostId;
@@ -148,10 +163,10 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: () => Promise<
 		return () => window.removeEventListener(HOSTS_CHANGED_EVENT, onChanged);
 	}, [enabled, refresh]);
 	useEffect(() => {
-		if (!enabled || !cloudBaseUrl) return;
-		const timer = setInterval(() => { if (!document.hidden) void refresh(); }, ACCOUNT_SYNC_MS);
+		if (!enabled || isWebBuild) return;
+		const timer = setInterval(() => { if (!document.hidden) void refresh({ soft: true }); }, DISCOVERY_REFRESH_MS);
 		return () => clearInterval(timer);
-	}, [enabled, cloudBaseUrl, refresh]);
+	}, [enabled, refresh]);
 
 	return { hosts: enabled ? hosts : NO_HOSTS, refresh };
 }

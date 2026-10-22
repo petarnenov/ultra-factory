@@ -49,19 +49,16 @@ it("does not connect to saved boxes until Remote hosts is enabled", async () => 
 	expect(remotes.connect).not.toHaveBeenCalled();
 });
 
-it("requires AO sign-in and disconnects remote hosts on sign-out", async () => {
+it("connects hosts without an AO Cloud account and keeps them across sign-in changes", async () => {
 	useUiStore.setState({ remoteHosts: true });
 	account.status = "unauthenticated";
 	const { result, rerender } = renderHook(() => useRemoteHosts());
-	expect(result.current.hosts).toEqual([]);
-	expect(remotes.list).not.toHaveBeenCalled();
+	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
+	expect(remotes.list).toHaveBeenCalledTimes(1);
 	account.status = "authenticated";
 	rerender();
 	await waitFor(() => expect(result.current.hosts).toHaveLength(2));
-	account.status = "unauthenticated";
-	rerender();
-	await waitFor(() => expect(result.current.hosts).toEqual([]));
-	expect(connectedHosts()).toEqual([]);
+	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
 });
 
 it("keeps remote hosts disconnected until Developer mode is enabled", async () => {

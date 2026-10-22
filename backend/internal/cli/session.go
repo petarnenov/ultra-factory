@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -67,13 +68,21 @@ type sessionDTO struct {
 	CoordinatorScope string `json:"coordinatorScope,omitempty"`
 	// Model, Effort, and their sources record the resolved launch
 	// configuration and the layer and machine that supplied it.
-	Model              string           `json:"model,omitempty"`
-	Effort             string           `json:"effort,omitempty"`
-	HarnessSource      string           `json:"harnessSource,omitempty"`
-	ModelSource        string           `json:"modelSource,omitempty"`
-	EffortSource       string           `json:"effortSource,omitempty"`
-	AgentConfigMachine string           `json:"agentConfigMachine,omitempty"`
-	Health             sessionHealthDTO `json:"health"`
+	Model              string                    `json:"model,omitempty"`
+	Effort             string                    `json:"effort,omitempty"`
+	HarnessSource      string                    `json:"harnessSource,omitempty"`
+	ModelSource        string                    `json:"modelSource,omitempty"`
+	EffortSource       string                    `json:"effortSource,omitempty"`
+	AgentConfigMachine string                    `json:"agentConfigMachine,omitempty"`
+	Health             sessionHealthDTO          `json:"health"`
+	AgentOperation     *sessionAgentOperationDTO `json:"agentOperation,omitempty"`
+}
+
+// sessionAgentOperationDTO mirrors the in-flight agent operation holding a
+// session's gate (a wake, exit, switch, or kill).
+type sessionAgentOperationDTO struct {
+	Kind      string    `json:"kind"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 // sessionHealthDTO mirrors the daemon's derived health view. It is deliberately
@@ -693,6 +702,15 @@ func (c *commandContext) killSession(ctx context.Context, cmd *cobra.Command, id
 	if err := c.postJSON(ctx, "sessions/"+url.PathEscape(id)+"/kill", struct{}{}, &res); err != nil {
 		return err
 	}
+	if c.targetsRemote() && c.remote != nil {
+		// The kill went to the host, but the slot is counted here: drop the
+		// link now rather than waiting for the liveness pass.
+		releasePath := "/api/v1/remote-worker-links/" + url.PathEscape(c.remote.hostID) + "/" +
+			url.PathEscape(res.SessionID) + "/release"
+		if err := c.localContext().doJSONPath(ctx, http.MethodPost, releasePath, struct{}{}, nil); err != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: session %s killed, but its remote worker link was not released: %v\n", res.SessionID, err)
+		}
+	}
 	if res.CleanupPending {
 		_, err := fmt.Fprintf(cmd.OutOrStdout(), "session %s killed (workspace cleanup pending)\n", res.SessionID)
 		return err
@@ -1072,6 +1090,16 @@ func emptyDash(value string) string {
 	return value
 }
 
+// sessionAgentOperationDetails names the operation holding the session and how
+// long it has run, so a stuck session is not shown as merely idle.
+func sessionAgentOperationDetails(op *sessionAgentOperationDTO) string {
+	if op == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s in progress for %s (since %s)", op.Kind,
+		formatSessionAge(time.Since(op.StartedAt)), op.StartedAt.Format(time.RFC3339))
+}
+
 func sessionHealthDetails(health sessionHealthDTO) string {
 	if health.State == "" {
 		return "-"
@@ -1126,6 +1154,7 @@ func writeSessionDetails(cmd *cobra.Command, sess sessionDTO) error {
 		{"status", sess.Status},
 		{"activity", sess.Activity.State},
 		{"health", sessionHealthDetails(sess.Health)},
+		{"operation", sessionAgentOperationDetails(sess.AgentOperation)},
 		{"harness", formatResolvedValue(sess.Harness, sess.HarnessSource)},
 		{"model", formatResolvedValue(sess.Model, sess.ModelSource)},
 		{"effort", formatResolvedValue(sess.Effort, sess.EffortSource)},

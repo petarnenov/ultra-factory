@@ -338,11 +338,15 @@ export async function installFakeBridge(page: Page, opts: FakeBridgeOptions = {}
 				},
 				remotes: {
 					list: async () => [],
+					tailnet: async () => ({ available: true, hidden: [] }),
+					hide: async () => undefined,
+					unhide: async () => undefined,
 					importAccountHost: async () => undefined,
 					pruneAccountHosts: async () => undefined,
 					issueAccountToken: async () => ({ token: "", url: "" }),
 					add: async () => "offline" as const,
 					update: async () => "offline" as const,
+					setAllowInsecureHTTP: async () => undefined,
 					remove: async () => undefined,
 					connect: async (url: string) => {
 						throw new Error(`No fake remote for ${url}`);
@@ -1196,11 +1200,15 @@ export async function installFakeAgent(page: Page, opts: FakeAgentOptions = {}):
 				},
 				remotes: {
 					list: async () => [],
+					tailnet: async () => ({ available: true, hidden: [] }),
+					hide: async () => undefined,
+					unhide: async () => undefined,
 					importAccountHost: async () => undefined,
 					pruneAccountHosts: async () => undefined,
 					issueAccountToken: async () => ({ token: "", url: "" }),
 					add: async () => "offline" as const,
 					update: async () => "offline" as const,
+					setAllowInsecureHTTP: async () => undefined,
 					remove: async () => undefined,
 					connect: async (url: string) => {
 						throw new Error(`No fake remote for ${url}`);

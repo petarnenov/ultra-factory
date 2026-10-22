@@ -4,12 +4,18 @@ import { dirname } from "node:path";
 
 // Saved desktop connections. Older records have no hostId and must be paired
 // again before a saved password can be sent to their address.
+
+// A tailscale entry was found on the tailnet and uses its address. A password
+// from an earlier pairing is retained for hosts that still require it.
 export type RemoteEntry = {
 	label: string;
 	url: string;
 	password: string;
 	hostId?: string;
 	accountUserId?: string;
+	tailscale?: boolean;
+	/** The per-host "Allow report pulls over plain HTTP" setting. */
+	allowInsecureHTTP?: boolean;
 };
 
 export class RemotesFilePermissionError extends Error {
@@ -64,7 +70,39 @@ async function writeRemotes(path: string, remotes: RemoteEntry[]): Promise<void>
 	}
 }
 
-// A concurrent add/update/remove must not overwrite another call's read-modify-write.
+// Cross-process lock, also used by the daemon (remotehost/registry.go):
+// a `remotes.json.lock` created exclusively; stale locks are broken.
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
+const LOCK_POLL_MS = 10;
+
+async function withFileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
+	const lock = `${path}.lock`;
+	await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+	const deadline = Date.now() + LOCK_WAIT_MS;
+	for (;;) {
+		try {
+			await writeFile(lock, "", { flag: "wx", mode: 0o600 });
+			break;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException | undefined)?.code !== "EEXIST") throw error;
+			const age = await stat(lock).then((info) => Date.now() - info.mtimeMs, () => 0);
+			if (age > LOCK_STALE_MS) {
+				await rm(lock, { force: true });
+				continue;
+			}
+			if (Date.now() > deadline) throw new Error(`timed out waiting for ${lock}`);
+			await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
+		}
+	}
+	try {
+		return await operation();
+	} finally {
+		await rm(lock, { force: true });
+	}
+}
+
+// Serialize add/update/remove so one call never overwrites another's write.
 let mutationQueue: Promise<void> = Promise.resolve();
 
 function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
@@ -74,13 +112,13 @@ function serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 export async function addRemote(path: string, entry: RemoteEntry): Promise<void> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		await writeRemotes(path, [
 			...existing.filter((candidate) => candidate.url !== entry.url && (!entry.hostId || candidate.hostId !== entry.hostId)),
 			entry,
 		]);
-	});
+	}));
 }
 
 /** An edit: only the fields it carries change. */
@@ -99,11 +137,58 @@ export function applyRemoteChanges(entry: RemoteEntry, changes: RemoteChanges): 
 		password: changes.password ?? entry.password,
 		hostId: entry.hostId,
 		accountUserId: changes.accountUserId ?? entry.accountUserId,
+		allowInsecureHTTP: changes.allowInsecureHTTP ?? entry.allowInsecureHTTP,
+		...(entry.tailscale ? { tailscale: true } : {}),
 	};
 }
 
+/** A host the daemon found on the tailnet, as the file records it. */
+export type DiscoveredRemote = { hostId: string; label: string; url: string };
+
+// Keep the file in step with tailnet discovery; returns whether it changed.
+// Entries for this machine or a sibling install (dropHostIds) are removed.
+
+// A discovered host ID moves to its Tailscale address without losing an
+// existing pairing password; a new one uses the machine name as its label.
+
+// Labels of existing entries are kept: they are the user's.
+export async function reconcileTailnetRemotes(path: string, discovered: DiscoveredRemote[], dropHostIds: string[]): Promise<boolean> {
+	return serializeMutation(() => withFileLock(path, async () => {
+		const existing = await readRemotes(path);
+		const drop = new Set(dropHostIds);
+		let changed = false;
+		const remotes = existing.filter((entry) => {
+			const keep = !entry.hostId || !drop.has(entry.hostId);
+			if (!keep) changed = true;
+			return keep;
+		});
+		for (const host of discovered) {
+			if (drop.has(host.hostId)) continue;
+			const index = remotes.findIndex((entry) => entry.hostId === host.hostId);
+			if (index < 0) {
+				remotes.push({ label: host.label, url: host.url, password: "", hostId: host.hostId, tailscale: true });
+				changed = true;
+				continue;
+			}
+			const current = remotes[index];
+			if (current.url === host.url && current.tailscale) continue;
+			remotes[index] = { ...current, url: host.url, tailscale: true };
+			changed = true;
+		}
+		// Two rows cannot share a url: the Tailscale address wins over a stale one.
+		const seen = new Set<string>();
+		const deduped = remotes.filter((entry) => {
+			if (seen.has(entry.url)) { changed = true; return false; }
+			seen.add(entry.url);
+			return true;
+		});
+		if (changed) await writeRemotes(path, deduped);
+		return changed;
+	}));
+}
+
 export async function updateRemote(path: string, url: string, changes: RemoteChanges): Promise<RemoteEntry> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		const current = existing.find((candidate) => candidate.url === url);
 		if (!current) throw new Error(`no saved host for ${url}`);
@@ -116,15 +201,15 @@ export async function updateRemote(path: string, url: string, changes: RemoteCha
 				|| (candidate.url !== updated.url && (!updated.hostId || candidate.hostId !== updated.hostId)));
 		await writeRemotes(path, remotes);
 		return updated;
-	});
+	}));
 }
 
 export async function removeRemote(path: string, url: string): Promise<void> {
-	return serializeMutation(async () => {
+	return serializeMutation(() => withFileLock(path, async () => {
 		const existing = await readRemotes(path);
 		const remaining = existing.filter((candidate) => candidate.url !== url);
 		// Removing what is not there is not an error, but it is not a write either.
 		if (remaining.length === existing.length) return;
 		await writeRemotes(path, remaining);
-	});
+	}));
 }

@@ -44,13 +44,101 @@ func (s *Store) GetRemoteWorkerLink(ctx context.Context, hostID string, remoteSe
 	return remoteLinkFromRow(row), true, nil
 }
 
+// InsertDiscoveredRemoteWorkerLink stores a discovered link if none exists;
+// an existing link keeps its owner and source.
+func (s *Store) InsertDiscoveredRemoteWorkerLink(ctx context.Context, link domain.RemoteWorkerLink) (bool, error) {
+	if err := link.Validate(); err != nil {
+		return false, err
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	affected, err := s.qw.InsertDiscoveredRemoteWorkerLink(ctx, gen.InsertDiscoveredRemoteWorkerLinkParams{
+		HostID: link.HostID, RemoteSessionID: string(link.RemoteSessionID),
+		RemoteProjectID: string(link.RemoteProjectID), ProjectID: string(link.ProjectID),
+		HostLabel: link.HostLabel, DisplayName: link.DisplayName, CreatedAt: link.CreatedAt,
+	})
+	if err != nil {
+		return false, fmt.Errorf("insert discovered remote worker link %s/%s: %w", link.HostID, link.RemoteSessionID, err)
+	}
+	return affected > 0, nil
+}
+
 func remoteLinkFromRow(row gen.RemoteWorkerLink) domain.RemoteWorkerLink {
-	return domain.RemoteWorkerLink{
+	link := domain.RemoteWorkerLink{
 		HostID: row.HostID, HostLabel: row.HostLabel,
 		RemoteSessionID: domain.SessionID(row.RemoteSessionID), RemoteProjectID: domain.ProjectID(row.RemoteProjectID),
 		ProjectID: domain.ProjectID(row.ProjectID), DisplayName: row.DisplayName,
-		OwnerSessionID: row.OwnerSessionID, CreatedAt: row.CreatedAt,
+		OwnerSessionID: row.OwnerSessionID, Source: domain.LinkSource(row.Source), CreatedAt: row.CreatedAt,
+		LastState: row.LastState,
 	}
+	if row.LastSeenAt.Valid {
+		seen := row.LastSeenAt.Time
+		link.LastSeenAt = &seen
+	}
+	return link
+}
+
+// UpdateRemoteWorkerLinkLiveness records the outcome of a read of a link's
+// worker: when the host last answered, and whether the worker was live.
+func (s *Store) UpdateRemoteWorkerLinkLiveness(ctx context.Context, hostID string, remoteSessionID domain.SessionID, at time.Time, state string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.qw.UpdateRemoteWorkerLinkLiveness(ctx, gen.UpdateRemoteWorkerLinkLivenessParams{
+		LastSeenAt: sql.NullTime{Time: at, Valid: true}, LastState: state,
+		HostID: hostID, RemoteSessionID: string(remoteSessionID),
+	}); err != nil {
+		return fmt.Errorf("update remote worker link liveness %s/%s: %w", hostID, remoteSessionID, err)
+	}
+	return nil
+}
+
+// RemoveRemoteWorkerLink drops a link by hand and remembers the removal in
+// the same transaction, so periodic discovery does not link the worker again.
+func (s *Store) RemoveRemoteWorkerLink(ctx context.Context, hostID string, remoteSessionID domain.SessionID, at time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	err := s.inTx(ctx, "remove remote worker link", func(q *gen.Queries) error {
+		if err := q.DeleteRemoteWorkerLink(ctx, gen.DeleteRemoteWorkerLinkParams{
+			HostID: hostID, RemoteSessionID: string(remoteSessionID),
+		}); err != nil {
+			return err
+		}
+		return q.InsertRemoteWorkerLinkRemoval(ctx, gen.InsertRemoteWorkerLinkRemovalParams{
+			HostID: hostID, RemoteSessionID: string(remoteSessionID), RemovedAt: at,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("remove remote worker link %s/%s: %w", hostID, remoteSessionID, err)
+	}
+	return nil
+}
+
+// ListRemoteWorkerLinkRemovals returns every removal a link was dropped by.
+func (s *Store) ListRemoteWorkerLinkRemovals(ctx context.Context) ([]domain.RemoteWorkerLinkRemoval, error) {
+	rows, err := s.qr.ListRemoteWorkerLinkRemovals(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list remote worker link removals: %w", err)
+	}
+	removals := make([]domain.RemoteWorkerLinkRemoval, len(rows))
+	for i, row := range rows {
+		removals[i] = domain.RemoteWorkerLinkRemoval{
+			HostID: row.HostID, RemoteSessionID: domain.SessionID(row.RemoteSessionID), RemovedAt: row.RemovedAt,
+		}
+	}
+	return removals, nil
+}
+
+// DeleteRemoteWorkerLinkRemoval forgets a removal, once an operator asks for
+// the worker to be linked again.
+func (s *Store) DeleteRemoteWorkerLinkRemoval(ctx context.Context, hostID string, remoteSessionID domain.SessionID) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.qw.DeleteRemoteWorkerLinkRemoval(ctx, gen.DeleteRemoteWorkerLinkRemovalParams{
+		HostID: hostID, RemoteSessionID: string(remoteSessionID),
+	}); err != nil {
+		return fmt.Errorf("delete remote worker link removal %s/%s: %w", hostID, remoteSessionID, err)
+	}
+	return nil
 }
 
 // ListRemoteWorkerLinks returns every link, grouped by host.

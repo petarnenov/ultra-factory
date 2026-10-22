@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
+	"github.com/aoagents/agent-orchestrator/backend/internal/tailnet"
 )
 
 func newAuthUnderTest(pw string, now func() time.Time) (http.Handler, *lockout) {
@@ -20,7 +21,7 @@ func newAuthUnderTest(pw string, now func() time.Time) (http.Handler, *lockout) 
 	st.setHash(h)
 	lock := newLockout(now)
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	return authMiddleware(st, lock, nil, false, nil)(ok), lock
+	return authMiddleware(st, lock, nil, false, nil, nil)(ok), lock
 }
 
 func req(auth string) *http.Request {
@@ -45,7 +46,7 @@ func TestAccountTokenAuthenticatesWithoutReplacingPairingPassword(t *testing.T) 
 	state := &authState{}
 	state.setHash(mobilebridge.HashPassword("password"))
 	state.setAccountHash(mobilebridge.HashPassword("scoped-token"))
-	h := authMiddleware(state, newLockout(time.Now), nil, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	h := authMiddleware(state, newLockout(time.Now), nil, false, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	for _, token := range []string{"password", "scoped-token"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req("Bearer "+token))
@@ -190,7 +191,7 @@ func TestRotatedPasswordCanRecoverFromStaleClientLockout(t *testing.T) {
 	state := &authState{}
 	state.setHash(mobilebridge.HashPassword("oldpass1"))
 	lock := newLockout(time.Now)
-	h := authMiddleware(state, lock, nil, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(state, lock, nil, false, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -219,7 +220,7 @@ func TestRetiredPasswordDoesNotResetLockout(t *testing.T) {
 	state.setHash(mobilebridge.HashPassword("oldpass1"))
 	state.setHash(mobilebridge.HashPassword("newpass1"))
 	lock := newLockout(time.Now)
-	h := authMiddleware(state, lock, nil, false, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(state, lock, nil, false, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	for range 5 {
@@ -542,7 +543,7 @@ func TestAuthTrustedProxyLockoutIsPerForwardedClient(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			st := &authState{}
 			st.setHash(mobilebridge.HashPassword("secret12"))
-			h := authMiddleware(st, newLockout(time.Now), nil, tc.trustedProxy, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			h := authMiddleware(st, newLockout(time.Now), nil, tc.trustedProxy, nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
 			}))
 			for i := range 5 {
@@ -581,7 +582,7 @@ func TestAuthLockoutLogsTransitionOnce(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&buf, nil))
 	st := &authState{}
 	st.setHash(mobilebridge.HashPassword("secret12"))
-	h := authMiddleware(st, newLockout(time.Now), nil, true, log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := authMiddleware(st, newLockout(time.Now), nil, true, nil, log)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	for range 4 {
@@ -642,6 +643,123 @@ func TestAuthTrustedProxyThroughLANManager(t *testing.T) {
 			}
 			if w.Code != want {
 				t.Fatalf("second client behind the proxy: got %d want %d", w.Code, want)
+			}
+		})
+	}
+}
+
+type fakeTailnetAuth struct {
+	allow map[string]bool
+	err   error
+}
+
+func (f fakeTailnetAuth) Authorize(_ context.Context, src string) (tailnet.Identity, error) {
+	if f.err != nil {
+		return tailnet.Identity{}, f.err
+	}
+	if f.allow[src] {
+		return tailnet.Identity{NodeName: "peer", LoginName: "user@example"}, nil
+	}
+	return tailnet.Identity{NodeName: "peer"}, fmt.Errorf("%w: other user", tailnet.ErrForbidden)
+}
+
+func newTailnetAuthUnderTest(auth TailnetAuthorizer, tailnetOnly, fallback bool) http.Handler {
+	st := &authState{}
+	st.setHash(mobilebridge.HashPassword("secret12"))
+	st.tailnetOnly.Store(tailnetOnly)
+	st.passwordFallback.Store(fallback)
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	return authMiddleware(st, newLockout(time.Now), nil, false, auth, nil)(ok)
+}
+
+func TestTailnetIdentityAdmitsSameUserWithoutPassword(t *testing.T) {
+	h := newTailnetAuthUnderTest(fakeTailnetAuth{allow: map[string]bool{"100.106.144.10": true}}, true, false)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, reqFrom("100.106.144.10:4444", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("same-user tailnet caller rejected: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTailnetOnlyListenerRejectsOtherUsersAndPasswords(t *testing.T) {
+	h := newTailnetAuthUnderTest(fakeTailnetAuth{allow: map[string]bool{}}, true, false)
+	for _, auth := range []string{"", "Bearer secret12"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, reqFrom("100.116.159.91:4444", auth))
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "TAILNET_FORBIDDEN") {
+			t.Fatalf("auth %q: %d %s", auth, w.Code, w.Body.String())
+		}
+	}
+	// A LAN source never reaches a tailnet-only bind; if one does, it is refused.
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, reqFrom("192.168.1.50:4444", "Bearer secret12"))
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "TAILNET_REQUIRED") {
+		t.Fatalf("lan source: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTailnetAuthFailsClosedWhenTailscaledIsUnavailable(t *testing.T) {
+	h := newTailnetAuthUnderTest(fakeTailnetAuth{err: tailnet.ErrUnavailable}, true, false)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, reqFrom("100.106.144.10:4444", ""))
+	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "TAILSCALE_UNAVAILABLE") {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	// The identity probe stays exempt so a client can still see who answered.
+	w = httptest.NewRecorder()
+	probe := httptest.NewRequest(http.MethodGet, identityProbePath, nil)
+	probe.RemoteAddr = "100.106.144.10:4444"
+	h.ServeHTTP(w, probe)
+	if w.Code != http.StatusOK {
+		t.Fatalf("identity probe blocked: %d", w.Code)
+	}
+}
+
+func TestTailnetPasswordFallbackIsExplicitOptIn(t *testing.T) {
+	denied := fakeTailnetAuth{allow: map[string]bool{}}
+	w := httptest.NewRecorder()
+	newTailnetAuthUnderTest(denied, true, true).ServeHTTP(w, reqFrom("100.99.0.2:4444", "Bearer secret12"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("fallback password rejected: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	newTailnetAuthUnderTest(denied, true, true).ServeHTTP(w, reqFrom("100.99.0.2:4444", "Bearer wrong"))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong fallback password: %d", w.Code)
+	}
+}
+
+func TestLANListenerKeepsPasswordPathForRejectedTailnetCallers(t *testing.T) {
+	// Connect Mobile's 0.0.0.0 bind is unchanged: a phone on the tailnet that
+	// tailscaled does not vouch for still pairs with the password.
+	h := newTailnetAuthUnderTest(fakeTailnetAuth{allow: map[string]bool{}}, false, false)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, reqFrom("100.99.0.2:4444", "Bearer secret12"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestAlsoTailnetKeepsLANPasswordAndRequiresTailnetIdentity(t *testing.T) {
+	state := &authState{}
+	state.setHash(mobilebridge.HashPassword("secret12"))
+	state.identityOnlyTailnet.Store(true)
+	deny := fakeTailnetAuth{allow: map[string]bool{}}
+	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	h := authMiddleware(state, newLockout(time.Now), nil, false, deny, nil)(ok)
+
+	for _, tc := range []struct {
+		name, remote, authorization string
+		want                        int
+	}{
+		{name: "tailnet password cannot bypass WhoIs", remote: "100.99.0.2:4444", authorization: "Bearer secret12", want: http.StatusForbidden},
+		{name: "LAN mobile password remains available", remote: "192.168.1.50:4444", authorization: "Bearer secret12", want: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, reqFrom(tc.remote, tc.authorization))
+			if w.Code != tc.want {
+				t.Fatalf("got %d %s, want %d", w.Code, w.Body.String(), tc.want)
 			}
 		})
 	}

@@ -38,7 +38,7 @@ const entry = (overrides: Partial<CoordinatorRosterEntry> = {}): CoordinatorRost
 const roster = (overrides: Partial<RosterData> = {}): RosterData => ({
 	projectId: "ao",
 	rootSessionId: "ao-root",
-	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 0 },
+	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 0, staleWorkers: 0 },
 	coordinators: [entry()],
 	rootWorkerSessionIds: [],
 	...overrides,
@@ -99,7 +99,7 @@ describe("CoordinatorRoster", () => {
 
 	test("disables start when the coordinator cap is reached", () => {
 		rosterQuery.data = roster({
-			capacity: { maxCoordinators: 1, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 0 },
+			capacity: { maxCoordinators: 1, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 0, staleWorkers: 0 },
 		});
 		renderRoster();
 		expect(screen.getByRole("button", { name: "Start coordinator" })).toBeDisabled();

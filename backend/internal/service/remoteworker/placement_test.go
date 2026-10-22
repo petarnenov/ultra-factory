@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
@@ -32,7 +33,7 @@ func hostLinks(owner domain.SessionID, host string, n int) []domain.RemoteWorker
 		id := owner
 		out = append(out, domain.RemoteWorkerLink{
 			HostID: host, RemoteSessionID: domain.SessionID(fmt.Sprintf("%s-%d", host, i)),
-			RemoteProjectID: "widgets", ProjectID: capProject, OwnerSessionID: &id,
+			RemoteProjectID: "widgets", ProjectID: capProject, OwnerSessionID: &id, CreatedAt: time.Now(),
 		})
 	}
 	return out
@@ -119,8 +120,8 @@ func TestAllowedHostsStayAHardBoundOverSlots(t *testing.T) {
 }
 
 func TestAssignOwnerChecksTheTargetCoordinatorsHostRules(t *testing.T) {
-	onImac := domain.RemoteWorkerLink{HostID: "host-imac", RemoteSessionID: "imac-1", RemoteProjectID: "widgets", ProjectID: capProject}
-	onLinux := domain.RemoteWorkerLink{HostID: "host-linux", RemoteSessionID: "linux-1", RemoteProjectID: "widgets", ProjectID: capProject}
+	onImac := domain.RemoteWorkerLink{HostID: "host-imac", RemoteSessionID: "imac-1", RemoteProjectID: "widgets", ProjectID: capProject, CreatedAt: time.Now()}
+	onLinux := domain.RemoteWorkerLink{HostID: "host-linux", RemoteSessionID: "linux-1", RemoteProjectID: "widgets", ProjectID: capProject, CreatedAt: time.Now()}
 	store := &fakeStore{sessions: slottedSessions(), stored: []domain.RemoteWorkerLink{onImac, onLinux}}
 	svc := placementService(store)
 	ctx := context.Background()

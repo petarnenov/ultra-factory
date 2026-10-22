@@ -594,3 +594,33 @@ func TestLoadHarnessUpdateInterval(t *testing.T) {
 		}
 	}
 }
+
+// Tailnet discovery and cloud sync: cloud sync is off unless set, the
+// well-known port defaults, and port lists reject garbage.
+func TestLoadTailnetSettings(t *testing.T) {
+	for _, name := range []string{"AO_CLOUD_REMOTE_HOST_SYNC", "AO_TAILNET_PORT", "AO_TAILNET_PROBE_PORTS", "AO_TAILNET_ALLOW_USERS", "AO_TAILNET_ALLOW_TAGS"} {
+		t.Setenv(name, "")
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CloudRemoteHostSync || cfg.TailnetPort != 3011 || cfg.TailnetProbePorts != nil || cfg.TailnetAllowUsers != nil || cfg.TailnetAllowTags != nil {
+		t.Fatalf("defaults = sync %t port %d probe %v users %v tags %v", cfg.CloudRemoteHostSync, cfg.TailnetPort, cfg.TailnetProbePorts, cfg.TailnetAllowUsers, cfg.TailnetAllowTags)
+	}
+	t.Setenv("AO_CLOUD_REMOTE_HOST_SYNC", "1")
+	t.Setenv("AO_TAILNET_PORT", "4011")
+	t.Setenv("AO_TAILNET_PROBE_PORTS", "57451, 3011")
+	t.Setenv("AO_TAILNET_ALLOW_USERS", "alice@example, bob@example")
+	t.Setenv("AO_TAILNET_ALLOW_TAGS", "tag:ci")
+	if cfg, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.CloudRemoteHostSync || cfg.TailnetPort != 4011 || fmt.Sprint(cfg.TailnetProbePorts) != "[57451 3011]" || fmt.Sprint(cfg.TailnetAllowUsers) != "[alice@example bob@example]" || fmt.Sprint(cfg.TailnetAllowTags) != "[tag:ci]" {
+		t.Fatalf("parsed = sync %t port %d probe %v users %v tags %v", cfg.CloudRemoteHostSync, cfg.TailnetPort, cfg.TailnetProbePorts, cfg.TailnetAllowUsers, cfg.TailnetAllowTags)
+	}
+	t.Setenv("AO_TAILNET_PROBE_PORTS", "3011,http")
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() = nil error, want error for malformed AO_TAILNET_PROBE_PORTS")
+	}
+}

@@ -588,6 +588,13 @@ type PRComment struct {
 	ReviewID         string
 }
 
+type PRMergeAnnouncement struct {
+	MergeCommitSha string
+	PRURL          string
+	SessionID      string
+	AnnouncedAt    string
+}
+
 type PRReview struct {
 	PRURL            string
 	ReviewID         string
@@ -642,6 +649,15 @@ type RemoteWorkerLink struct {
 	DisplayName     string
 	CreatedAt       time.Time
 	OwnerSessionID  *domain.SessionID
+	Source          string
+	LastSeenAt      sql.NullTime
+	LastState       string
+}
+
+type RemoteWorkerLinkRemoval struct {
+	HostID          string
+	RemoteSessionID string
+	RemovedAt       time.Time
 }
 
 type RemoteWorkerOwnerEvent struct {
@@ -714,6 +730,19 @@ type ReportOutput struct {
 	Kind      string
 	Reference string
 	Label     string
+}
+
+type ReportPullAck struct {
+	ReportID       string
+	PullerID       string
+	AcknowledgedAt time.Time
+}
+
+type ReportPuller struct {
+	SessionID    string
+	PullerID     string
+	ExpiredTotal int64
+	LastPulledAt time.Time
 }
 
 type ReportWorkerInterrupt struct {

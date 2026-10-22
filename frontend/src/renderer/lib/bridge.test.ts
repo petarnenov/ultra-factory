@@ -353,7 +353,7 @@ describe("web remotes bridge selection", () => {
 		fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ hosts: [{ id: "h_worker", label: "Worker", url: "http://worker:3011", source: "manual", status: "online" }] }), { status: 200 }));
 		const aoBridge = await loadBridge();
 
-		await expect(aoBridge.remotes.list()).resolves.toEqual([{ hostId: "h_worker", label: "Worker", url: "http://worker:3011" }]);
+		await expect(aoBridge.remotes.list()).resolves.toEqual([{ hostId: "h_worker", label: "Worker", url: "http://worker:3011", allowInsecureHTTP: false }]);
 		expect(fetchMock).toHaveBeenCalledWith("/hub/hosts", expect.anything());
 	});
 

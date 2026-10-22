@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	coordinatorErrorKey,
+	type CoordinatorsConfig,
 	coordinatorsConfigFrom,
 	coordinatorsFormFrom,
 	validateCoordinatorsForm,
@@ -25,7 +26,14 @@ const baseForm = (overrides: Partial<CoordinatorsForm> = {}): CoordinatorsForm =
 });
 
 const spawnForm = (overrides: Partial<SpawnCoordinatorForm> = {}): SpawnCoordinatorForm => ({
+	name: "Ada",
 	scope: "docs",
+	outOfScope: "billing",
+	integrationBranch: "dev",
+	branchPrefix: "co-docs",
+	tasks: [{ taskId: "#1", title: "Docs", acceptance: "builds", files: "" }],
+	briefEdited: true,
+	briefPlaceholders: [],
 	workerLimit: "",
 	hostSlots: [],
 	coordinatorAgent: "inherit",
@@ -143,6 +151,23 @@ describe("validateCoordinatorsForm selections", () => {
 describe("validateSpawnCoordinator", () => {
 	const limits = { workersPerCoordinator: 3, allowedHosts: [] as string[], profileIds: [] as string[] };
 
+	test("refuses a brief that still has a template placeholder and names the first one", () => {
+		const errors = validateSpawnCoordinator(spawnForm({ brief: "Assignment for <coordinator name>.\nScope: docs" }), limits);
+		expect(errors.brief).toBe("coordinators.start.errors.briefPlaceholder");
+		expect(errors.placeholder).toBe("<coordinator name>");
+	});
+
+	test("accepts a brief whose only angle brackets are coordinator instructions", () => {
+		const brief = "Worker branch name: co-docs/<task-id>\nao coordinator report --ready-pr <number>@<head-sha>";
+		expect(validateSpawnCoordinator(spawnForm({ brief }), limits).brief).toBeUndefined();
+	});
+
+	test("blocks a brief whose template placeholders are still unfilled", () => {
+		const errors = validateSpawnCoordinator(spawnForm({ briefEdited: false, briefPlaceholders: ["<dev>"] }), limits);
+		expect(errors.brief).toBe("coordinators.start.errors.briefPlaceholder");
+		expect(errors.placeholder).toBe("<dev>");
+	});
+
 	test("requires a scope and a brief", () => {
 		expect(validateSpawnCoordinator(spawnForm({ scope: "  " }), limits).scope).toBe("coordinators.start.errors.scopeRequired");
 		expect(validateSpawnCoordinator(spawnForm({ brief: "" }), limits).brief).toBe("coordinators.start.errors.briefRequired");
@@ -244,5 +269,36 @@ describe("coordinatorErrorKey", () => {
 	test("returns null for an unknown code so the daemon text shows", () => {
 		expect(coordinatorErrorKey({ code: "SOMETHING_ELSE" })).toBeNull();
 		expect(coordinatorErrorKey(new Error("boom"))).toBeNull();
+	});
+});
+
+describe("coordinators block round trip", () => {
+	// Every field the form edits, in the shape the daemon returns it.
+	const loaded: CoordinatorsConfig = {
+		enabled: true,
+		maxCoordinators: 3,
+		maxWorkersPerCoordinator: 3,
+		maxWorkers: 9,
+		allowedHosts: ["IMac", "Linux", "Z600"],
+		allowLocalWorkers: true,
+		agentProfiles: [
+			{ id: "fast", label: "Fast", harness: "claude-code", model: "sonnet", effort: "low", weight: 2 },
+			{ id: "deep", harness: "codex", model: "gpt-5", effort: "high" },
+		],
+		coordinatorAgent: { mode: "fixed", profileId: "deep" },
+		workerAgent: { mode: "random", profileIds: ["fast", "deep"] },
+		rootWorkerAgent: {},
+	};
+
+	test("a loaded block survives form and back unchanged", () => {
+		const rebuilt = coordinatorsConfigFrom(coordinatorsFormFrom(loaded));
+		expect(rebuilt).toEqual({ ...loaded, rootWorkerAgent: undefined });
+		expect(JSON.parse(JSON.stringify(rebuilt))).toEqual(JSON.parse(JSON.stringify({ ...loaded, rootWorkerAgent: undefined })));
+	});
+
+	test("the body keeps only keys the daemon accepts", () => {
+		const body = withCoordinatorsConfig({ defaultBranch: "dev", coordinators: loaded }, coordinatorsConfigFrom(coordinatorsFormFrom(loaded)));
+		const allowed = new Set(["enabled", "maxCoordinators", "maxWorkersPerCoordinator", "maxWorkers", "agentProfiles", "coordinatorAgent", "workerAgent", "rootWorkerAgent", "allowedHosts", "allowLocalWorkers"]);
+		for (const key of Object.keys(JSON.parse(JSON.stringify(body.coordinators)))) expect(allowed.has(key)).toBe(true);
 	});
 });

@@ -39,10 +39,13 @@ func seedPilotWorld(t *testing.T, e env, repo string) pilotWorld {
 	}
 	create := func(kind domain.SessionKind, scope string) domain.SessionRecord {
 		t.Helper()
+		// Without a workspace and branch, startup treats a session as an
+		// interrupted spawn and deletes it, reports included.
 		rec, err := store.CreateSession(ctx, domain.SessionRecord{
 			ProjectID: "ao", Kind: kind, CoordinatorScope: scope, Harness: domain.HarnessClaudeCode,
 			Activity:  domain.Activity{State: domain.ActivityActive, LastActivityAt: now},
 			CreatedAt: now, UpdatedAt: now,
+			Metadata: domain.SessionMetadata{Branch: "ao/seeded", WorkspacePath: repo},
 		})
 		if err != nil {
 			t.Fatalf("seed %s: %v", kind, err)

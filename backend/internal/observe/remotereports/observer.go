@@ -42,6 +42,9 @@ type Store interface {
 	ListDeliveredRemoteReports(context.Context, string, domain.SessionID) (map[string]bool, error)
 	RecordDeliveredRemoteReports(context.Context, string, domain.SessionID, []string, time.Time) error
 	RecordRemoteReportHistory(context.Context, string, domain.SessionID, []domain.ReportRecord) error
+	UpdateRemoteWorkerLinkLiveness(context.Context, string, domain.SessionID, time.Time, string) error
+	ListRemoteWorkerLinkRemovals(context.Context) ([]domain.RemoteWorkerLinkRemoval, error)
+	DeleteRemoteWorkerLinkRemoval(context.Context, string, domain.SessionID) error
 }
 
 // Deliverer resolves a link's durable owner and submits one owner group.
@@ -66,25 +69,45 @@ type Deps struct {
 	RequestTimeout time.Duration
 	Now            func() time.Time
 	Logger         *slog.Logger
+	// Linker stores workers that discovery finds; nil disables discovery.
+	Linker Linker
+	// Entries reads the saved hosts; it defaults to the remotes.json file.
+	Entries func() ([]remotehost.Entry, error)
+	// DiscoveryInterval is how often saved hosts are scanned for live
+	// workers; it defaults to DefaultDiscoveryInterval.
+	DiscoveryInterval time.Duration
 }
 
 // Observer polls linked remote workers for reports.
 type Observer struct {
-	store      Store
-	deliverer  Deliverer
-	selfHostID string
-	lookup     func(string) (remotehost.Entry, bool, error)
-	httpClient *http.Client
-	interval   time.Duration
-	hostBudget time.Duration
-	reqTimeout time.Duration
-	now        func() time.Time
-	log        *slog.Logger
-	wake       chan struct{}
+	store             Store
+	deliverer         Deliverer
+	selfHostID        string
+	lookup            func(string) (remotehost.Entry, bool, error)
+	httpClient        *http.Client
+	interval          time.Duration
+	hostBudget        time.Duration
+	reqTimeout        time.Duration
+	now               func() time.Time
+	log               *slog.Logger
+	wake              chan struct{}
+	linker            Linker
+	entries           func() ([]remotehost.Entry, error)
+	discoveryInterval time.Duration
+
+	// discoverMu serialises discovery passes and guards their state.
+	discoverMu    sync.Mutex
+	lastDiscovery time.Time
+	savedHosts    string
 
 	mu       sync.Mutex
 	failures map[string]string
 	refused  map[string]string
+	// legacyWarned: hosts already warned as predating per-puller acks.
+	legacyWarned map[string]bool
+	// expiredSeen: the expired total last logged per link, sent back as
+	// expiredSeen so the host reports only what came after it.
+	expiredSeen map[linkRef]int
 	// unrecorded: delivered IDs per link whose record write failed;
 	// every pass retries the write until it succeeds.
 	unrecorded map[linkRef]map[string]bool
@@ -110,10 +133,18 @@ func New(d Deps) *Observer {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
+	if d.Entries == nil {
+		d.Entries = readSavedHosts
+	}
+	if d.DiscoveryInterval <= 0 {
+		d.DiscoveryInterval = DefaultDiscoveryInterval
+	}
 	return &Observer{
 		store: d.Store, deliverer: d.Deliverer, selfHostID: d.SelfHostID, lookup: d.Lookup,
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
+		linker: d.Linker, entries: d.Entries, discoveryInterval: d.DiscoveryInterval,
 		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[linkRef]map[string]bool{},
+		legacyWarned: map[string]bool{}, expiredSeen: map[linkRef]int{},
 	}
 }
 
@@ -131,11 +162,15 @@ func (o *Observer) Wake() {
 // Start polls until ctx is cancelled and returns its completion signal.
 func (o *Observer) Start(ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
+	if remotehost.AllowHTTPEnvSet() {
+		o.log.Warn(remotehost.AllowHTTPEnvDeprecation)
+	}
 	go func() {
 		defer close(done)
 		ticker := time.NewTicker(o.interval)
 		defer ticker.Stop()
 		for {
+			o.discoverIfDue(ctx)
 			if err := o.Poll(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				o.log.Warn("remote reports: poll failed", "err", err)
 			}
@@ -215,9 +250,15 @@ func (o *Observer) Poll(ctx context.Context) error {
 		}
 	}()
 	for _, hostID := range hosts {
-		client, items, err := o.pollHost(ctx, hostID, byHost[hostID])
+		// One connection per host serves the liveness read and the pulls, so
+		// the credential only ever goes over the connection that answered.
+		client, links, err := o.liveHost(ctx, hostID, byHost[hostID])
+		var items []*pulled
 		if client != nil {
 			clients = append(clients, client)
+		}
+		if err == nil {
+			items, err = o.pollHost(ctx, client, links)
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -250,25 +291,36 @@ func (o *Observer) Poll(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// pollHost pulls every link of one host within hostBudget, so a slow host
-// cannot hold up the others for long. A refused credential stops the host.
-// The caller closes the returned client after settling.
-func (o *Observer) pollHost(ctx context.Context, hostID string, links []domain.RemoteWorkerLink) (*hostClient, []*pulled, error) {
+// liveHost dials one host for the pass and reads its links' liveness. The
+// returned links are the ones still in use. A dial error keeps every link.
+func (o *Observer) liveHost(ctx context.Context, hostID string, links []domain.RemoteWorkerLink) (*hostClient, []domain.RemoteWorkerLink, error) {
 	hostCtx, cancel := context.WithTimeout(ctx, o.hostBudget)
 	defer cancel()
 	client, err := o.connect(hostCtx, hostID)
 	if err != nil {
-		return nil, nil, err
+		return nil, links, err
 	}
+	return client, o.checkHostLiveness(hostCtx, client, links), nil
+}
+
+// pollHost pulls every link of one host within hostBudget; a refused
+// credential stops the host. The caller closes the client after settling.
+func (o *Observer) pollHost(ctx context.Context, client *hostClient, links []domain.RemoteWorkerLink) ([]*pulled, error) {
+	hostID := client.hostID
+	if o.refusedPassword(hostID, client.password) {
+		return nil, errCredentialRefused
+	}
+	hostCtx, cancel := context.WithTimeout(ctx, o.hostBudget)
+	defer cancel()
 	var items []*pulled
 	for _, link := range links {
 		item, err := o.pull(hostCtx, client, link)
 		if errors.Is(err, errCredentialRefused) {
 			o.refuse(hostID, client.password)
-			return client, nil, err
+			return nil, err
 		}
 		if hostCtx.Err() != nil && ctx.Err() == nil {
-			return client, items, fmt.Errorf("%w: over %s; the rest of its links wait for the next pass", errHostBudget, o.hostBudget)
+			return items, fmt.Errorf("%w: over %s; the rest of its links wait for the next pass", errHostBudget, o.hostBudget)
 		}
 		o.note("link "+hostID+"/"+string(link.RemoteSessionID), client.label, err)
 		if err != nil || item == nil {
@@ -276,20 +328,23 @@ func (o *Observer) pollHost(ctx context.Context, hostID string, links []domain.R
 		}
 		items = append(items, item)
 	}
-	return client, items, nil
+	return items, nil
 }
 
 // pull reads one link's due reports. It returns nil when there is nothing to
 // deliver or acknowledge, and drops the link only once the remote worker is
 // gone and has nothing pending at all, due or not.
 func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.RemoteWorkerLink) (*pulled, error) {
-	result, err := client.pending(ctx, link.RemoteSessionID)
+	ref := linkRef{hostID: client.hostID, session: link.RemoteSessionID}
+	result, err := client.pending(ctx, link.RemoteSessionID, o.expiredSeenFor(ref))
 	if errors.Is(err, errSessionGone) {
 		return nil, o.drop(ctx, client, link, "remote session no longer exists")
 	}
 	if err != nil {
 		return nil, err
 	}
+	o.noteExpired(ref, client.label, result.unseen, result.total)
+	o.noteLegacyHost(client)
 	if len(result.reports) == 0 && len(result.rejected) == 0 {
 		if result.more {
 			return nil, nil
@@ -301,9 +356,9 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 		if err != nil || !terminated {
 			return nil, err
 		}
-		// The worker may have reported between the two reads; drop the link
-		// only if it still has nothing pending now that it has ended.
-		again, err := client.pending(ctx, link.RemoteSessionID)
+		// The worker may have reported since the first read: drop the link
+		// only if nothing is pending now. The seen count was already sent.
+		again, err := client.pending(ctx, link.RemoteSessionID, 0)
 		if err != nil && !errors.Is(err, errSessionGone) {
 			return nil, err
 		}
@@ -530,7 +585,7 @@ func (o *Observer) connect(ctx context.Context, hostID string) (*hostClient, err
 	if err != nil {
 		return nil, err
 	}
-	if err := remotehost.UnattendedTransportAllowed(base); err != nil {
+	if err := remotehost.UnattendedTransportAllowed(base, entry.AllowInsecureHTTP); err != nil {
 		return nil, err
 	}
 	if o.refusedPassword(hostID, entry.Password) {
@@ -552,7 +607,10 @@ func (o *Observer) connect(ctx context.Context, hostID string) (*hostClient, err
 	if label == "" {
 		label = hostID
 	}
-	return &hostClient{http: client, base: base, hostID: hostID, password: entry.Password, label: label}, nil
+	return &hostClient{
+		http: client, base: base, hostID: hostID, password: entry.Password, label: label,
+		pullerID: o.selfHostID, insecureOK: entry.AllowInsecureHTTP,
+	}, nil
 }
 
 func (h *hostClient) close() { closeIdle(h.http) }
@@ -593,5 +651,37 @@ func (o *Observer) flushUnrecorded(ctx context.Context) {
 			delete(o.unrecorded, ref)
 		}
 		o.mu.Unlock()
+	}
+}
+
+func (o *Observer) expiredSeenFor(ref linkRef) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.expiredSeen[ref]
+}
+
+// noteExpired logs the unseen expired reports, then records the total for the
+// next pull. It runs only after a response, so a lost one is retried.
+func (o *Observer) noteExpired(ref linkRef, label string, unseen, total int) {
+	o.mu.Lock()
+	o.expiredSeen[ref] = total
+	o.mu.Unlock()
+	if unseen > 0 {
+		o.log.Warn("remote reports: reports expired before this daemon pulled them", "host", label, "session", ref.session, "expired", unseen)
+	}
+}
+
+// noteLegacyHost warns once per host that predates per-puller acknowledgements.
+// Such a host settles a report for every puller on the first acknowledgement.
+func (o *Observer) noteLegacyHost(client *hostClient) {
+	if client.pullerID == "" || client.perPuller {
+		return
+	}
+	o.mu.Lock()
+	first := !o.legacyWarned[client.hostID]
+	o.legacyWarned[client.hostID] = true
+	o.mu.Unlock()
+	if first {
+		o.log.Warn("remote reports: host predates per-puller acknowledgements; using first-delivery semantics", "host", client.label)
 	}
 }

@@ -21,8 +21,9 @@ to the existing `--chart-1..5` tokens, so WM-4.1.2 builds its charts from
   (lines 43-47) and light (lines 677-681), greyscale oklch. No new tokens.
 - Theme selectors: dark is `:root` (default) and `:root.dark`; light is
   `:root[data-theme="light"]` (tokens.css:10-18, 652).
-- React `^19.2.7`; recharts 2.x supports React 19 (pin the latest 2.x at
-  implementation time and record it in the PR).
+- Read React from `frontend/package.json` and select/pin a compatible
+  recharts release using its published peer dependencies at implementation
+  time; record the exact installed versions in the PR.
 - `DESIGN.md` §2: no gradients, glow, or decorative color; color is semantic.
   Series colors map driver → token: `playwright` → `--chart-1`,
   `webmcp-scripted` → `--chart-2`, `webmcp-jev` → `--chart-3`; failed repeats
@@ -75,3 +76,10 @@ export function ChartLegendContent(props: ...) { ... }
 ## Dependencies
 
 None (parallel with WM-2).
+
+## Audit constraints — 2026-10-21
+
+The token variables exist on dev, but `ui/chart.tsx` and recharts are not yet
+present. Use the actual CSP generated for each build; do not infer runtime
+compatibility from token existence or a bundler pass. The chart primitive has
+no dependency on benchmark record types; a fixture is enough for its preview.

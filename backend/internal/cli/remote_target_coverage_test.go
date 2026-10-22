@@ -106,9 +106,10 @@ func TestCLI_RemoteTargetCoverageResolveReadEntriesError(t *testing.T) {
 }
 
 func TestCLI_RemoteTargetCoverageResolveInvalidBaseURL(t *testing.T) {
+	setConfigEnv(t)
 	path := writeRemotesFile(t, remoteEntry{Label: "build", URL: "https://", HostID: "host-build", Password: "pw"})
 	_ = path
-	c := &commandContext{hostSelector: "build"}
+	c := &commandContext{hostSelector: "build", deps: aliveDeps()}
 	if _, err := c.resolveRemoteTarget(context.Background()); err == nil || !strings.Contains(err.Error(), "remote host must use") {
 		t.Fatalf("resolveRemoteTarget() err = %v, want base URL error", err)
 	}
@@ -118,8 +119,9 @@ func TestCLI_RemoteTargetCoverageResolveIdentityError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	urlStr := srv.URL
 	srv.Close()
+	setConfigEnv(t)
 	writeRemotesFile(t, remoteEntry{Label: "build", URL: urlStr, HostID: "host-build", Password: "pw"})
-	c := &commandContext{hostSelector: "build", deps: Deps{HTTPClient: &http.Client{}}}
+	c := &commandContext{hostSelector: "build", deps: Deps{HTTPClient: &http.Client{}, ProcessAlive: func(int) bool { return true }}}
 	if _, err := c.resolveRemoteTarget(context.Background()); err == nil || !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("resolveRemoteTarget() err = %v, want identity probe error", err)
 	}
@@ -145,11 +147,12 @@ func TestCLI_RemoteTargetCoverageAddHostFlag(t *testing.T) {
 }
 
 func TestCLI_RemoteTargetCoverageResolveSelectError(t *testing.T) {
+	setConfigEnv(t)
 	writeRemotesFile(t,
 		remoteEntry{Label: "Twin", URL: "http://10.0.0.7:3001", HostID: "host-a", Password: "pw"},
 		remoteEntry{Label: "twin", URL: "http://10.0.0.8:3001", HostID: "host-b", Password: "pw"},
 	)
-	c := &commandContext{hostSelector: "twin"}
+	c := &commandContext{hostSelector: "twin", deps: aliveDeps()}
 	if _, err := c.resolveRemoteTarget(context.Background()); err == nil || !strings.Contains(err.Error(), "matches 2 saved hosts") || ExitCode(err) != 2 {
 		t.Fatalf("err = %v, want ambiguous match usage error", err)
 	}

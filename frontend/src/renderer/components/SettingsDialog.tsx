@@ -119,7 +119,7 @@ function useSettingsLayer(settingsModal: SettingsModal | null) {
 	const [projectSaveState, setProjectSaveState] = useState<ProjectSettingsSaveState>(initialProjectSaveState);
 	const [cueBusy, setCueBusy] = useState(false);
 	useEffect(() => {
-		if (pendingProjectSection && projectSaveState.phase === "saved" && !projectSaveState.dirty) {
+		if (pendingProjectSection && (projectSaveState.phase === "saved" || projectSaveState.phase === "idle") && !projectSaveState.dirty) {
 			setActiveProjectSection(pendingProjectSection);
 			setPendingProjectSection(null);
 		}
@@ -243,6 +243,7 @@ function useSettingsLayer(settingsModal: SettingsModal | null) {
 		modal: settingsModal,
 		navItems,
 		showSaveStatus,
+		activeSectionLabel: activeLabel,
 		projectSaveState,
 		activeProjectSection,
 		remoteHostId,
@@ -430,7 +431,7 @@ export function SettingsSaveStatus({ layer: layerProp }: { layer?: SettingsLayer
 		<div className="mt-2 border-t border-(--color-border-settings-dialog-header) px-2 py-3 text-xs" role="status" aria-live="polite">
 			{projectSaveState.phase === "failed" || (remoteHostId && projectSaveState.replacementError) ? (
 				<div className="space-y-2 text-error">
-					<p className="flex items-start gap-2" role="alert"><TriangleAlert className="size-4 shrink-0" aria-hidden="true" />{projectSaveState.error ?? projectSaveState.replacementError ?? t("settings.project.saveFailed")}</p>
+					<p className="flex items-start gap-2" role="alert"><TriangleAlert className="size-4 shrink-0" aria-hidden="true" />{`${layer.activeSectionLabel}: ${projectSaveState.error ?? projectSaveState.replacementError ?? t("settings.project.saveFailed")}`}</p>
 					<button className="text-settings-label underline underline-offset-2" onClick={() => {
 						if (projectSaveState.retry) projectSaveState.retry();
 						else (document.getElementById("project-settings-form") as HTMLFormElement | null)?.requestSubmit();

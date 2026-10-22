@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { chmod, mkdtemp, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { addRemote, readRemotes, removeRemote, RemotesFilePermissionError, updateRemote } from "./remotes-store";
+import { addRemote, applyRemoteChanges, readRemotes, reconcileTailnetRemotes, removeRemote, RemotesFilePermissionError, updateRemote } from "./remotes-store";
 
 async function tempFile(contents?: string, mode = 0o600): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), "ao-remotes-"));
@@ -169,6 +169,31 @@ describe("updateRemote", () => {
 	});
 });
 
+describe("reconcileTailnetRemotes", () => {
+	it("moves a password-paired host to its tailnet address and retains the fallback", async () => {
+		const path = await tempFile('{"remotes":[{"hostId":"h_workbox","label":"Workbox","url":"http://192.0.2.1:1","password":"pairing-secret"}]}');
+		await reconcileTailnetRemotes(path, [{ hostId: "h_workbox", label: "workbox", url: "http://100.64.0.1:3011" }], []);
+		expect(await readRemotes(path)).toEqual([{
+			hostId: "h_workbox", label: "Workbox", url: "http://100.64.0.1:3011",
+			password: "pairing-secret", tailscale: true,
+		}]);
+	});
+
+	it("waits for the daemon file lock and includes its concurrent registry update", async () => {
+		const path = await tempFile('{"remotes":[]}');
+		const lock = `${path}.lock`;
+		await writeFile(lock, "", { flag: "wx", mode: 0o600 });
+		let finished = false;
+		const reconciliation = reconcileTailnetRemotes(path, [{ hostId: "h_tail", label: "tail", url: "http://100.64.0.2:3011" }], []).then(() => { finished = true; });
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(finished).toBe(false);
+		await writeFile(path, JSON.stringify({ remotes: [{ hostId: "h_lan", label: "lan", url: "http://192.0.2.2:3011", password: "pw" }] }));
+		await rm(lock);
+		await reconciliation;
+		expect((await readRemotes(path)).map(({ hostId }) => hostId)).toEqual(["h_lan", "h_tail"]);
+	});
+});
+
 describe("removeRemote", () => {
 	it("drops only the named host", async () => {
 		const path = await tempFile(TWO_HOSTS);
@@ -192,5 +217,14 @@ describe("removeRemote", () => {
 		const path = await tempFile(TWO_HOSTS, 0o644);
 		await expect(removeRemote(path, "http://192.0.2.1:1")).rejects.toBeInstanceOf(RemotesFilePermissionError);
 		expect(await readFile(path, "utf8")).toBe(TWO_HOSTS);
+	});
+});
+
+describe("per-host plain-http setting", () => {
+	it("is toggled without touching the other saved fields and stays absent when never edited", () => {
+		const entry = { label: "office", url: "http://192.168.0.164:3011", password: "pw", hostId: "h1" };
+		expect(applyRemoteChanges(entry, { allowInsecureHTTP: true })).toMatchObject({ allowInsecureHTTP: true, password: "pw", hostId: "h1" });
+		expect(applyRemoteChanges({ ...entry, allowInsecureHTTP: true }, { label: "renamed" })).toMatchObject({ allowInsecureHTTP: true, label: "renamed" });
+		expect(JSON.stringify(applyRemoteChanges(entry, { label: "renamed" }))).not.toContain("allowInsecureHTTP");
 	});
 });

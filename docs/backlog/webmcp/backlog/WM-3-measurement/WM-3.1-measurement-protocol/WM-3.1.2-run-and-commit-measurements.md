@@ -31,7 +31,7 @@ and commit the raw records and summary as the dashboard's data source.
 ```js
 // frontend/scripts/benchmarks-summarize.mjs
 // usage: node frontend/scripts/benchmarks-summarize.mjs <dir-or-measurements.json> [--out frontend/src/renderer/benchmarks/data]
-// 1. read all *.json (or the array file); 2. validateRecord each; 3. write measurements.json (sorted by scenario, driver, repeat);
+// 1. read all *.json (or the array file); 2. validateRecord each; 3. write measurements.json (sorted by scenario, driver, runId, repeat);
 // 4. write summary.json = summarize(records); 5. print a Markdown table (scenario × driver → median (min–max), pass rate) for the report.
 ```
 
@@ -39,8 +39,10 @@ Run sequence:
 
 ```bash
 export AO_WEBMCP_BENCH=1 AO_WEBMCP_REPEATS=6 AO_PERF_LABEL=wm-2026-10 AO_PERF_DIR=/tmp/wm AO_E2E_PORT=5292 CI=true
-export TYPESAFE_API_KEY="$JEV_MAF_LAB"
-npm --prefix frontend run test:e2e -- e2e/webmcp-bench.spec.ts --workers=1
+: "${TYPESAFE_API_KEY:=${JEV_MAF_LAB:-}}"
+: "${TYPESAFE_API_KEY:?Set a benchmark API key on the measurement host}"
+export TYPESAFE_API_KEY
+npm --prefix frontend run test:e2e -- e2e/webmcp-bench.spec.ts --workers=1 --retries=0
 node frontend/scripts/benchmarks-summarize.mjs /tmp/wm --out frontend/src/renderer/benchmarks/data
 cp frontend/src/renderer/benchmarks/data/measurements.json docs/performance/webmcp/measurements.json
 ```
@@ -61,7 +63,7 @@ cp frontend/src/renderer/benchmarks/data/measurements.json docs/performance/webm
 - [ ] ≥ 5 measured repeats per (scenario, driver) for `playwright` and
   `webmcp-scripted`; ≥ 5 attempts for `webmcp-jev` with failures kept.
 - [ ] `summary.json` reproduces byte for byte from `measurements.json`.
-- [ ] `git grep -I "$JEV_MAF_LAB"` finds nothing; records contain no key.
+- [ ] An in-memory secret scan finds no configured key in tracked files or records.
 
 ## Verification
 
@@ -70,3 +72,17 @@ cp frontend/src/renderer/benchmarks/data/measurements.json docs/performance/webm
 ## Dependencies
 
 WM-3.1.1, WM-2.2.2.
+
+## Audit constraints — 2026-10-21
+
+Use a new empty output directory and unique run/attempt IDs for every batch,
+including a manually requested extra attempt. Never overwrite a failed record
+with a rerun that reuses `(scenario, driver, repeat)`. Persist the run identity
+in the record schema and deterministic sort key. Keep the first attempt's
+failure in aggregate counts; automatic test retries remain disabled.
+
+Implement `--check` explicitly: read-only validation of raw records, duplicate
+identities, required coverage, reproducible summary bytes and both raw copies.
+It must not repair files before comparing them. Scan secret values in memory
+without printing them or putting them in process arguments, and refuse a scan
+with no configured key. An empty grep pattern is not a secret-leak check.

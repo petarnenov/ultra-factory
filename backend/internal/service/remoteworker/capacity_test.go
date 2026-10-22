@@ -36,7 +36,7 @@ func ownedLinks(owner domain.SessionID, n int, offset int) []domain.RemoteWorker
 		id := owner
 		out = append(out, domain.RemoteWorkerLink{
 			HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("w-%d", offset+i)),
-			RemoteProjectID: "widgets", ProjectID: capProject, OwnerSessionID: &id,
+			RemoteProjectID: "widgets", ProjectID: capProject, OwnerSessionID: &id, CreatedAt: time.Now(),
 		})
 	}
 	return out
@@ -102,7 +102,7 @@ func TestReRegisteringAnExistingLinkNeedsNoSlot(t *testing.T) {
 func ownerPtr(id domain.SessionID) *domain.SessionID { return &id }
 
 func TestAssignOwnerEnforcesTheCoordinatorCapOnRemoteLinks(t *testing.T) {
-	free := domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: "free", RemoteProjectID: "widgets", ProjectID: capProject}
+	free := domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: "free", RemoteProjectID: "widgets", ProjectID: capProject, CreatedAt: time.Now()}
 	store := &fakeStore{sessions: capSessions(domain.SessionRecord{ID: "w1", ProjectID: capProject, Kind: domain.KindWorker, OwnerSessionID: ownerPtr("c1")}),
 		stored: append(ownedLinks("c1", 2, 0), free)}
 	svc := capService(store, nil)
@@ -215,7 +215,7 @@ func TestRegisterEnforcesTheCoordinatorsOwnWorkerLimit(t *testing.T) {
 }
 
 func TestAssignOwnerEnforcesTheCoordinatorsOwnLimitOnRemoteLinks(t *testing.T) {
-	free := domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: "free", RemoteProjectID: "widgets", ProjectID: capProject}
+	free := domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: "free", RemoteProjectID: "widgets", ProjectID: capProject, CreatedAt: time.Now()}
 	store := &fakeStore{sessions: limitedSessions(), stored: append(ownedLinks("c1", 2, 0), free)}
 	_, err := capService(store, nil).AssignOwner(context.Background(), "host-build", "free", ownerPtr("c1"), "ao-1")
 	if codeOf(err) != "COORDINATOR_WORKER_LIMIT_REACHED" {

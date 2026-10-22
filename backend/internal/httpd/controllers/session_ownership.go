@@ -228,6 +228,7 @@ func capacityResponse(c sessionsvc.CapacityView) CoordinatorCapacity {
 	return CoordinatorCapacity{
 		MaxCoordinators: c.Limits.Coordinators, MaxWorkersPerCoordinator: c.Limits.WorkersPerCoordinator,
 		MaxWorkers: c.Limits.Workers, ActiveCoordinators: c.ActiveCoordinators, ActiveWorkers: c.ActiveWorkers,
+		StaleWorkers: c.StaleWorkers,
 	}
 }
 

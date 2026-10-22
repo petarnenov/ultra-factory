@@ -170,6 +170,8 @@ var legacyActorlessUserCLICommands = map[string]struct{}{
 	"ao remote-worker":          {},
 	"ao remote-worker assign":   {},
 	"ao remote-worker ls":       {},
+	"ao remote-worker sync":     {},
+	"ao remote-worker rm":       {},
 	"ao remote-host enable":     {},
 	"ao remote-host disable":    {},
 	"ao render":                 {},

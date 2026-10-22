@@ -492,7 +492,30 @@ func (f *fakeMessenger) Send(_ context.Context, id domain.SessionID, msg string)
 func newManager(opts ...Option) (*Manager, *fakeStore, *fakeMessenger) {
 	st := newFakeStore()
 	msg := &fakeMessenger{}
-	return New(st, msg, opts...), st, msg
+	m := New(st, msg, opts...)
+	m.SetReviewThreadFetcher(storedReviewThreads{st: st})
+	return m, st, msg
+}
+
+// storedReviewThreads answers freshness reads from the stored comment rows. A
+// thread counts as resolved only when every row in it is resolved.
+type storedReviewThreads struct{ st *fakeStore }
+
+func (f storedReviewThreads) FetchPRReviewThreads(_ context.Context, pr domain.PullRequest) (ports.SCMReviewObservation, error) {
+	resolved := map[string]bool{}
+	order := []string{}
+	for _, c := range f.st.comments[pr.URL] {
+		if _, seen := resolved[c.ThreadID]; !seen {
+			order = append(order, c.ThreadID)
+			resolved[c.ThreadID] = true
+		}
+		resolved[c.ThreadID] = resolved[c.ThreadID] && c.Resolved
+	}
+	var threads []ports.SCMReviewThreadObservation
+	for _, id := range order {
+		threads = append(threads, ports.SCMReviewThreadObservation{ID: id, Resolved: resolved[id]})
+	}
+	return ports.SCMReviewObservation{Threads: threads}, nil
 }
 
 func working(id domain.SessionID) domain.SessionRecord {
@@ -502,6 +525,14 @@ func working(id domain.SessionID) domain.SessionRecord {
 		AutoInjectReview: true,
 		FirstSignalAt:    time.Now(),
 	}
+}
+
+// idle seeds a session waiting at its prompt. Review-comment nudges are held
+// while a worker is active, so their delivery tests start here.
+func idle(id domain.SessionID) domain.SessionRecord {
+	rec := working(id)
+	rec.Activity = domain.Activity{State: domain.ActivityIdle, LastActivityAt: time.Now()}
+	return rec
 }
 
 // exited seeds a session whose agent has genuinely QUIESCED (ActivityExited) —
@@ -2761,7 +2792,7 @@ func TestFormatCIFailureMessageUsesNonMutatingFence(t *testing.T) {
 
 func TestPRObservation_ReviewCommentsNudgeAgent(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{
 		{ID: "1", ThreadID: "T1", Author: "alice", File: "foo.go", Line: 12, Body: "fix this", URL: "https://github.com/o/r/pull/1#discussion_r1", AutoInjectReview: true},
 		{ID: "2", Author: "bob", Body: "already handled", Resolved: true, AutoInjectReview: true},
@@ -2792,7 +2823,7 @@ func TestPRObservation_ReviewCommentsNudgeAgent(t *testing.T) {
 
 func TestPRObservation_AnchoredBotReviewNudgesAgent(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{
 		{ID: "bot-1", ThreadID: "thread-1", Author: "react-doctor[bot]", IsBot: true, File: "src/App.tsx", Line: 42, Body: "avoid this pattern", AutoInjectReview: true},
 		{ID: "bot-2", ThreadID: "thread-2", Author: "react-doctor[bot]", IsBot: true, Body: "summary chatter", AutoInjectReview: true},
@@ -2814,7 +2845,7 @@ func TestPRObservation_AnchoredBotReviewNudgesAgent(t *testing.T) {
 
 func TestPRObservation_HumanReplyInBotThreadStillNudgesAgent(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{
 		{ID: "bot-1", ThreadID: "thread-1", Author: "review-bot[bot]", IsBot: true, Body: "automated summary", AutoInjectReview: true},
 		{ID: "human-1", ThreadID: "thread-1", Author: "alice", Body: "i agree, please fix this", AutoInjectReview: true},
@@ -2854,7 +2885,7 @@ func TestPRObservation_ReviewFeedbackNotInjectedWhenDisabled(t *testing.T) {
 
 func TestPRObservation_MixedPersistedCommentDecisions(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{
 		{ID: "1", Author: "alice", Body: "captured while disabled", AutoInjectReview: false},
 		{ID: "2", Author: "alice", Body: "captured while enabled", AutoInjectReview: true},
@@ -2872,7 +2903,7 @@ func TestPRObservation_MixedPersistedCommentDecisions(t *testing.T) {
 
 func TestPRObservation_CIFailingAndReviewBothNudge(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{{ID: "1", Author: "alice", Body: "fix this", AutoInjectReview: true}}
 	o := ports.PRObservation{
 		Fetched: true,
@@ -2911,7 +2942,7 @@ func TestPRObservation_CIFailingAndReviewBothNudge(t *testing.T) {
 // merge-conflict nudge fires once the read recovers.
 func TestPRObservation_MergeConflictReadErrorStillSendsCIAndReview(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{{ID: "1", Author: "alice", Body: "fix this", AutoInjectReview: true}}
 	st.listPRsErr = errors.New("transient store read failure")
 	o := ports.PRObservation{
@@ -2979,7 +3010,7 @@ func TestPRObservation_CINudgeSanitizesLogTailControlChars(t *testing.T) {
 
 func TestPRObservation_ReviewNudgeSanitizesCommentControlChars(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{{ID: "1", Body: "please\x1b]0;pwned\afix this", AutoInjectReview: true}}
 	o := ports.PRObservation{Fetched: true, URL: "pr1", Review: domain.ReviewChangesRequest}
 	if err := m.ApplyPRObservation(ctx, "mer-1", o); err != nil {
@@ -4634,7 +4665,7 @@ func TestSCMObservation_AnchoredBotReviewResolvesExistingReadyNotification(t *te
 
 func TestSCMObservation_AnchoredBotReviewNudgesAgent(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	st.comments["pr1"] = []domain.PullRequestComment{{
 		ID: "bot-1", ThreadID: "thread-1", Author: "react-doctor[bot]", IsBot: true,
 		File: "src/App.tsx", Line: 42, Body: "avoid this pattern", AutoInjectReview: true,
@@ -5404,7 +5435,7 @@ func TestEmitTelemetryStampsRequestID(t *testing.T) {
 // comments than that could never deliver the last of them.
 func TestPRObservation_ReviewCommentNudgesDedupPerComment(t *testing.T) {
 	m, st, msg := newManager()
-	st.sessions["mer-1"] = working("mer-1")
+	st.sessions["mer-1"] = idle("mer-1")
 	comments := make([]domain.PullRequestComment, 0, reviewMaxNudge+2)
 	for i := range reviewMaxNudge + 2 {
 		id := fmt.Sprintf("%d", i+1)

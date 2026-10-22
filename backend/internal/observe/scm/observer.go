@@ -90,6 +90,12 @@ type Lifecycle interface {
 	RetryCompletedSessionTermination(ctx context.Context, sessionID domain.SessionID) error
 }
 
+// MergeAnnouncer tells the owning coordinator that a worker's PR merged. The
+// observer calls it once per merge transition it persists.
+type MergeAnnouncer interface {
+	AnnounceMerged(ctx context.Context, worker domain.SessionID, prURL string, number int, sha string) error
+}
+
 type credentialChecker interface {
 	SCMCredentialsAvailable(ctx context.Context) (bool, error)
 }
@@ -153,6 +159,9 @@ func defaultRateLimitCooldown(now time.Time) time.Duration {
 
 // Config holds optional observer knobs. Zero values use production defaults.
 type Config struct {
+	// MergeAnnouncer receives a notice for each newly merged worker PR. Nil
+	// disables merge notices.
+	MergeAnnouncer MergeAnnouncer
 	// Tick is the fast PR/CI polling interval. Zero uses DefaultTickInterval.
 	Tick time.Duration
 	// ReviewInterval is the slower review-thread refresh interval.
@@ -257,12 +266,19 @@ type Observer struct {
 	Cache ObserverCache
 	// branchStates refreshes local branch facts on each tick.
 	branchStates BranchStateReconciler
+	// reviewRepos maps a tracked PR URL to its observed repo, keeping the
+	// account-scoped token. Guarded by reviewReposMu.
+	reviewReposMu sync.Mutex
+	reviewRepos   map[string]ports.SCMRepo
+
+	// mergeAnnouncer notifies owners of newly merged worker PRs. Optional.
+	mergeAnnouncer MergeAnnouncer
 }
 
 // New constructs an Observer with default cadence/cache settings for zero
 // values in cfg.
 func New(provider Provider, store Store, lifecycle Lifecycle, cfg Config) *Observer {
-	o := &Observer{provider: provider, store: store, lifecycle: lifecycle, tick: cfg.Tick, reviewInterval: cfg.ReviewInterval, clock: cfg.Clock, logger: cfg.Logger, scopedIdentityResolver: cfg.ScopedIdentityResolver, Cache: newCache(cfg.CacheMax), rateLimitUntil: map[string]time.Time{}, branchStates: cfg.BranchStates}
+	o := &Observer{provider: provider, store: store, lifecycle: lifecycle, tick: cfg.Tick, reviewInterval: cfg.ReviewInterval, clock: cfg.Clock, logger: cfg.Logger, scopedIdentityResolver: cfg.ScopedIdentityResolver, Cache: newCache(cfg.CacheMax), rateLimitUntil: map[string]time.Time{}, branchStates: cfg.BranchStates, mergeAnnouncer: cfg.MergeAnnouncer}
 	if o.tick <= 0 {
 		o.tick = DefaultTickInterval
 	}
@@ -611,6 +627,16 @@ func (o *Observer) Poll(ctx context.Context) error {
 				pendingOpts.preserveLocalReviewHash = true
 			}
 			pr, checks, reviews, threads, comments = domainFromObservation(subj.session.ID, subj.session, prepared, local, pendingOpts, now)
+		}
+		// Announce before persistence so failures retry on the next poll; the claim
+		// dedupes successful sends if persistence fails.
+		if o.mergeAnnouncer != nil && !local.Merged && prepared.PR.Merged {
+			prURL := firstNonEmpty(prepared.PR.URL, prepared.PR.HTMLURL, local.URL)
+			if err := o.mergeAnnouncer.AnnounceMerged(ctx, subj.session.ID, prURL, prepared.PR.Number, prepared.PR.MergeCommitSHA); err != nil {
+				o.logger.Error("scm observer: merge announcement failed", "session", subj.session.ID, "pr", prURL, "err", err)
+				markRepoRefreshFailed(subj.repo)
+				continue
+			}
 		}
 		if err := o.store.WriteSCMObservation(ctx, pr, checks, reviews, threads, comments, reviewMode); err != nil {
 			o.logger.Error("scm observer: DB write failed", "session", subj.session.ID, "pr", pr.URL, "err", err)
@@ -1682,6 +1708,7 @@ func (o *Observer) refreshReviews(ctx context.Context, subjects map[string]*subj
 			continue
 		}
 		pkey := keyForTrackedPR(s.known, s.repo)
+		o.rememberReviewRepo(s.known.URL, s.repo)
 		obs, hasObs := observations[pkey]
 		decision := string(s.known.Review)
 		if hasObs && obs.Review.Decision != "" {
@@ -1752,6 +1779,36 @@ func reviewDecisionPriority(d domain.ReviewDecision) int {
 	default:
 		return 0
 	}
+}
+
+// rememberReviewRepo records the repo a tracked PR was observed under.
+func (o *Observer) rememberReviewRepo(prURL string, repo ports.SCMRepo) {
+	if prURL == "" {
+		return
+	}
+	o.reviewReposMu.Lock()
+	defer o.reviewReposMu.Unlock()
+	if o.reviewRepos == nil {
+		o.reviewRepos = map[string]ports.SCMRepo{}
+	}
+	o.reviewRepos[prURL] = repo
+}
+
+// FetchPRReviewThreads re-reads one tracked PR's review threads for the
+// lifecycle's delivery-time check, using the repo last observed for the PR.
+func (o *Observer) FetchPRReviewThreads(ctx context.Context, pr domain.PullRequest) (ports.SCMReviewObservation, error) {
+	o.reviewReposMu.Lock()
+	repo, ok := o.reviewRepos[pr.URL]
+	o.reviewReposMu.Unlock()
+	// repoForTrackedPR panics on an empty repo list with no PR repo name, so
+	// the fallback only runs when the PR row names its repo.
+	if !ok && pr.Repo != "" {
+		repo, ok = repoForTrackedPR(pr, nil)
+	}
+	if !ok {
+		return ports.SCMReviewObservation{}, fmt.Errorf("resolve repository for %s", pr.URL)
+	}
+	return o.provider.FetchReviewThreads(ctx, ports.SCMPRRef{Repo: repo, Number: pr.Number, URL: pr.URL})
 }
 
 func (o *Observer) needsReviewRefresh(key string, local domain.PullRequest, decision string, hasObs bool, updatedAtProvider, now time.Time) bool {

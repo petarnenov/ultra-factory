@@ -86,6 +86,22 @@ func remoteDaemonHandler(store *sqlite.Store, reports *reportsvc.Service, hostID
 				})
 			})
 			(&controllers.ReportsController{Svc: reports}).Register(authed)
+			authed.Get("/sessions", func(w http.ResponseWriter, req *http.Request) {
+				rows, err := store.ListAllSessions(req.Context())
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				sessions := []map[string]any{}
+				for _, rec := range rows {
+					if rec.IsTerminated {
+						continue
+					}
+					sessions = append(sessions, map[string]any{"id": rec.ID, "projectId": rec.ProjectID, "kind": rec.Kind, "displayName": rec.DisplayName, "isTerminated": false})
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
+			})
 			authed.Get("/sessions/{id}", func(w http.ResponseWriter, req *http.Request) {
 				rec, ok, err := store.GetSession(req.Context(), domain.SessionID(chi.URLParam(req, "id")))
 				w.Header().Set("Content-Type", "application/json")
@@ -162,9 +178,8 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 		!strings.Contains(msg, "Postgres or SQLite?") || strings.Contains(msg, "tests green") {
 		t.Fatalf("delivered = %q", msg)
 	}
-	settled, _, _ := remoteStore.GetReport(ctx, created.ID)
-	if settled.DeliveryState != domain.ReportAcknowledged {
-		t.Fatalf("remote report state = %s, want acknowledged", settled.DeliveryState)
+	if dueForLocalPuller(ctx, t, remoteStore, worker.ID, created.ID) {
+		t.Fatalf("remote report still due for the local puller after its acknowledgement")
 	}
 
 	// A second pass finds nothing new and delivers nothing.
@@ -342,8 +357,8 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("redelivered after a local restart: %v", delivery.submissions)
 	}
-	if state := remoteState(remoteStore); state != domain.ReportAcknowledged {
-		t.Fatalf("remote report state = %s, want acknowledged", state)
+	if dueForLocalPuller(ctx, t, remoteStore, worker.ID, created.ID) {
+		t.Fatalf("remote report still due for the local puller after its acknowledgement")
 	}
 
 	// The remote daemon restarts on a new address: the acknowledgement is
@@ -362,7 +377,24 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if len(delivery.submissions) != 1 {
 		t.Fatalf("redelivered after a remote restart: %v", delivery.submissions)
 	}
-	if state := remoteState(remoteStore); state != domain.ReportAcknowledged {
-		t.Fatalf("remote report state = %s after restart, want acknowledged", state)
+	if dueForLocalPuller(ctx, t, remoteStore, worker.ID, created.ID) {
+		t.Fatalf("remote report due again after the remote restart")
 	}
+}
+
+// dueForLocalPuller reports whether the remote daemon still lists reportID as
+// due for the local puller's pull of sessionID.
+func dueForLocalPuller(ctx context.Context, t *testing.T, store *sqlite.Store, sessionID domain.SessionID, reportID string) bool {
+	t.Helper()
+	svc := reportsvc.New(reportsvc.Deps{Store: store, Now: time.Now})
+	result, err := svc.PullFor(ctx, sessionID, reportsvc.PullOptions{PullerID: "host-local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rec := range result.Due {
+		if rec.ID == reportID {
+			return true
+		}
+	}
+	return false
 }

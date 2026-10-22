@@ -323,6 +323,11 @@ type coordinatorStore struct {
 	acked       int
 	ownerEvents []coordinatorOwnerEvent
 	links       map[string]domain.RemoteWorkerLink
+	// merges holds merge commit SHAs already claimed for announcement.
+	merges map[string]bool
+	// claimErrSHA makes the claim for that merge commit fail with claimErr.
+	claimErrSHA string
+	claimErr    error
 	// beforeRemoteClear runs before a remote compare-and-clear reads the link.
 	beforeRemoteClear func()
 	// claims counts batch claims so a regression can bound a spin instead of
@@ -472,6 +477,15 @@ func (s *coordinatorStore) DeferReportBatch(ctx context.Context, project domain.
 	}
 	return count, nil
 }
+func (s *coordinatorStore) ReleaseReportInterrupt(_ context.Context, worker domain.SessionID, at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last, ok := s.interrupts[worker]; ok && last.Equal(at) {
+		delete(s.interrupts, worker)
+	}
+	return nil
+}
+
 func (s *coordinatorStore) AcquireReportInterrupt(_ context.Context, worker domain.SessionID, at time.Time, window time.Duration) (bool, time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -514,6 +528,29 @@ func (s *coordinatorStore) GetRemoteWorkerLink(_ context.Context, hostID string,
 	return link, ok, nil
 }
 
+func (s *coordinatorStore) ClaimPRMergeAnnouncement(_ context.Context, sha, _ string, _ domain.SessionID, _ time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.merges == nil {
+		s.merges = map[string]bool{}
+	}
+	if s.claimErr != nil && sha == s.claimErrSHA {
+		return false, s.claimErr
+	}
+	if s.merges[sha] {
+		return false, nil
+	}
+	s.merges[sha] = true
+	return true, nil
+}
+
+func (s *coordinatorStore) ReleasePRMergeAnnouncement(_ context.Context, sha string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.merges, sha)
+	return nil
+}
+
 func (s *coordinatorStore) ClearRemoteWorkerOwnerIf(_ context.Context, hostID string, remote, expected domain.SessionID, reason domain.OwnershipEventReason, _ time.Time) (domain.RemoteWorkerLink, bool, error) {
 	if s.beforeRemoteClear != nil {
 		s.beforeRemoteClear()
@@ -551,14 +588,21 @@ type coordinatorSubmission struct {
 	message, key string
 }
 type coordinatorDelivery struct {
-	submissions []coordinatorSubmission
-	interrupts  []domain.SessionID
-	submitErr   error
-	attempts    int
+	submissions  []coordinatorSubmission
+	interrupts   []domain.SessionID
+	submitErr    error
+	interruptErr error
+	submitHook   func(context.Context) error
+	attempts     int
 }
 
-func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
+func (d *coordinatorDelivery) Submit(ctx context.Context, target domain.SessionID, message, key string) error {
 	d.attempts++
+	if d.submitHook != nil {
+		if err := d.submitHook(ctx); err != nil {
+			return err
+		}
+	}
 	if d.submitErr != nil {
 		return d.submitErr
 	}
@@ -567,7 +611,7 @@ func (d *coordinatorDelivery) Submit(_ context.Context, target domain.SessionID,
 }
 func (d *coordinatorDelivery) Interrupt(_ context.Context, target domain.SessionID) error {
 	d.interrupts = append(d.interrupts, target)
-	return nil
+	return d.interruptErr
 }
 
 func TestCoordinatorAcceptanceTimeoutConsumesTheBatchOnce(t *testing.T) {
@@ -609,8 +653,7 @@ func TestCoordinatorTerminatedStuckFlushDoesNotSpin(t *testing.T) {
 	}
 	stuck := reportAt("stuck", "ended", now.Add(-time.Minute), now, "blocked")
 	stuck.State = domain.ReportStuck
-	checkpoint := reportAt("later", "ended", now, now.Add(30*time.Minute), "older head")
-	store.add(stuck, checkpoint)
+	store.add(stuck)
 	// The interrupt window from an earlier interruption is still open.
 	store.interrupts["ended"] = now
 	store.claimLimit = 3

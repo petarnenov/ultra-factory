@@ -25,6 +25,7 @@ import { useTelemetryPolicyStore } from "./stores/telemetry-policy-store";
 import { useKeybindingsStore } from "./stores/keybindings-store";
 import { isMacPlatform, isWebBuild } from "./lib/platform";
 import { installWebShortcuts } from "./lib/web-shortcuts";
+import { installModelContext } from "./webmcp/model-context";
 
 const router = createAppRouter(queryClient);
 
@@ -130,4 +131,6 @@ async function renderApp(): Promise<void> {
 	);
 }
 
+// Before the first render so every route mounts after the tool registry exists.
+installModelContext();
 void renderApp();

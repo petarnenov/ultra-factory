@@ -2409,6 +2409,26 @@ paths:
       summary: Enable the Connect Mobile LAN bridge and issue a fresh password
       tags:
       - mobile
+  /api/v1/mobile/enable-also-tailnet:
+    post:
+      operationId: enableMobileAlsoTailnet
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileStatusResponse'
+          description: OK
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+      summary: Add the fixed-port Tailscale listener without changing the LAN/mobile
+        listener
+      tags:
+      - mobile
   /api/v1/mobile/enable-lan-only:
     post:
       operationId: enableMobileLANOnly
@@ -2432,6 +2452,36 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Internal Server Error
       summary: Enable the authenticated LAN bridge without a managed public tunnel
+      tags:
+      - mobile
+  /api/v1/mobile/enable-tailnet:
+    post:
+      operationId: enableMobileTailnet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnableTailnetRequest'
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileStatusResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+      summary: Enable the authenticated listener on the Tailscale address only
       tags:
       - mobile
   /api/v1/mobile/enable-tunnel-only:
@@ -4043,6 +4093,70 @@ paths:
         (loopback only)
       tags:
       - reports
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}:
+    delete:
+      operationId: removeRemoteWorkerLink
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      - description: The live root removing the link.
+        in: query
+        name: requestedBySessionId
+        schema:
+          description: The live root removing the link.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerLinkResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: 'Forbidden: OWNERSHIP_ROOT_ONLY'
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Remove a linked remote worker (root only; logged)
+      tags:
+      - reports
   /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/owner:
     put:
       operationId: assignRemoteWorkerOwner
@@ -4119,6 +4233,42 @@ paths:
         - OWNER_NOT_COORDINATOR
         - OWNER_TERMINATED
         - COORDINATOR_WORKER_LIMIT_REACHED
+  /api/v1/remote-worker-links/{hostId}/{remoteSessionId}/release:
+    post:
+      operationId: releaseRemoteWorkerLink
+      parameters:
+      - description: Linked remote host identifier.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Linked remote host identifier.
+          type: string
+      - description: Session identifier on the remote host.
+        in: path
+        name: remoteSessionId
+        required: true
+        schema:
+          description: Session identifier on the remote host.
+          type: string
+      responses:
+        "204":
+          description: No Content
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Drop the link of a worker this daemon just killed on its host
+      tags:
+      - reports
   /api/v1/remote-worker-links/check:
     post:
       operationId: checkRemoteWorkerCapacity
@@ -4166,6 +4316,31 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Not Implemented
       summary: Check link capacity before a remote spawn (loopback only)
+      tags:
+      - reports
+  /api/v1/remote-worker-links/sync:
+    post:
+      operationId: syncRemoteWorkerLinks
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoteWorkerSyncResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Link live remote workers on saved hosts (loopback only)
       tags:
       - reports
   /api/v1/reports:
@@ -4358,6 +4533,18 @@ paths:
         schema:
           description: Worker session identifier on this daemon.
           type: string
+      - description: Puller instance ID for per-puller acks.
+        in: query
+        name: pullerId
+        schema:
+          description: Puller instance ID for per-puller acks.
+          type: string
+      - description: Last expiredTotal the puller logged.
+        in: query
+        name: expiredSeen
+        schema:
+          description: Last expiredTotal the puller logged.
+          type: integer
       responses:
         "200":
           content:
@@ -11828,6 +12015,83 @@ paths:
       summary: Check local machine readiness (git, tmux, agent harness, gh)
       tags:
       - system
+  /api/v1/tailnet/hosts:
+    get:
+      operationId: listTailnetHosts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List AO hosts discovered on this machine's Tailscale network
+      tags:
+      - tailnet
+  /api/v1/tailnet/hosts/{hostId}:
+    patch:
+      operationId: updateTailnetHost
+      parameters:
+      - description: Host identifier from the identity probe.
+        in: path
+        name: hostId
+        required: true
+        schema:
+          description: Host identifier from the identity probe.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTailnetHostRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Hide, show, or relabel a discovered host on this machine
+      tags:
+      - tailnet
+  /api/v1/tailnet/hosts/refresh:
+    post:
+      operationId: refreshTailnetHosts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TailnetHostsResponse'
+          description: OK
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Re-read the tailnet peer list and probe every online peer now
+      tags:
+      - tailnet
   /api/v1/task-preparations/{token}:
     delete:
       operationId: cancelTaskPreparation
@@ -12012,6 +12276,8 @@ components:
       type: object
     AcknowledgeReportsRequest:
       properties:
+        pullerId:
+          type: string
         reportIds:
           items:
             type: string
@@ -14454,6 +14720,8 @@ components:
           $ref: '#/components/schemas/DomainActivity'
         agentConfigMachine:
           type: string
+        agentOperation:
+          $ref: '#/components/schemas/SessionAgentOperation'
         agentProfileId:
           type:
           - "null"
@@ -15482,12 +15750,15 @@ components:
           type: integer
         maxWorkersPerCoordinator:
           type: integer
+        staleWorkers:
+          type: integer
       required:
       - maxCoordinators
       - maxWorkersPerCoordinator
       - maxWorkers
       - activeCoordinators
       - activeWorkers
+      - staleWorkers
       type: object
     CoordinatorLimitsRequest:
       properties:
@@ -16139,6 +16410,13 @@ components:
           type: string
       required:
       - text
+      type: object
+    EnableTailnetRequest:
+      properties:
+        passwordFallback:
+          type: boolean
+      required:
+      - passwordFallback
       type: object
     EndpointsResponse:
       properties:
@@ -16867,7 +17145,15 @@ components:
       type: object
     ListPendingReportsResponse:
       properties:
+        expiredBeforePull:
+          format: int64
+          type: integer
+        expiredTotal:
+          format: int64
+          type: integer
         morePending:
+          type: boolean
+        pullerAcks:
           type: boolean
         reports:
           items:
@@ -17221,10 +17507,18 @@ components:
           type: boolean
         password:
           type: string
+        passwordFallback:
+          type: boolean
         port:
           type: integer
         securePairing:
           $ref: '#/components/schemas/ControllersSecurePairingStatus'
+        tailnetListenerEnabled:
+          type: boolean
+        tailnetListenerPort:
+          type: integer
+        tailnetOnly:
+          type: boolean
         tailscaleHost:
           type: string
         tunnel:
@@ -17234,6 +17528,10 @@ components:
       required:
       - enabled
       - loopbackOnly
+      - tailnetOnly
+      - passwordFallback
+      - tailnetListenerEnabled
+      - tailnetListenerPort
       - noPublicTunnel
       - endpoints
       - hostId
@@ -17812,6 +18110,26 @@ components:
       - model
       - effort
       type: object
+    RemoteWorkerHostSync:
+      properties:
+        blocked:
+          type: string
+        error:
+          type: string
+        hostId:
+          type: string
+        hostLabel:
+          type: string
+        linked:
+          type: integer
+        skipped:
+          type: integer
+      required:
+      - hostId
+      - hostLabel
+      - linked
+      - skipped
+      type: object
     RemoteWorkerLinkResponse:
       properties:
         createdAt:
@@ -17822,6 +18140,13 @@ components:
         hostId:
           type: string
         hostLabel:
+          type: string
+        lastSeenAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        localProjectId:
           type: string
         ownerSessionId:
           type:
@@ -17835,14 +18160,30 @@ components:
           type: string
         remoteSessionId:
           type: string
+        source:
+          type: string
+        state:
+          type: string
       required:
       - hostId
       - hostLabel
       - remoteSessionId
       - remoteProjectId
       - projectId
+      - localProjectId
       - ownerSessionId
+      - source
       - createdAt
+      - state
+      type: object
+    RemoteWorkerSyncResponse:
+      properties:
+        hosts:
+          items:
+            $ref: '#/components/schemas/RemoteWorkerHostSync'
+          type: array
+      required:
+      - hosts
       type: object
     RemoveProjectResult:
       properties:
@@ -18409,6 +18750,17 @@ components:
           type: array
       required:
       - recent
+      type: object
+    SessionAgentOperation:
+      properties:
+        kind:
+          type: string
+        startedAt:
+          format: date-time
+          type: string
+      required:
+      - kind
+      - startedAt
       type: object
     SessionArtifact:
       properties:
@@ -20472,6 +20824,62 @@ components:
       - ready
       - requirements
       type: object
+    TailnetHost:
+      properties:
+        address:
+          type: string
+        dnsName:
+          type: string
+        hidden:
+          type: boolean
+        hostId:
+          type: string
+        label:
+          type: string
+        lastSeen:
+          type: string
+        name:
+          type: string
+        online:
+          type: boolean
+        port:
+          type: integer
+        url:
+          type: string
+      required:
+      - hostId
+      - label
+      - name
+      - dnsName
+      - address
+      - port
+      - url
+      - online
+      - hidden
+      type: object
+    TailnetHostsResponse:
+      properties:
+        available:
+          type: boolean
+        error:
+          type: string
+        hosts:
+          items:
+            $ref: '#/components/schemas/TailnetHost'
+          type: array
+        localHostIds:
+          items:
+            type: string
+          type: array
+        selfLogin:
+          type: string
+        updatedAt:
+          type: string
+      required:
+      - available
+      - localHostIds
+      - hosts
+      type: object
     TrackerIntakeConfig:
       properties:
         assignee:
@@ -20691,6 +21099,17 @@ components:
           type: string
       required:
       - title
+      type: object
+    UpdateTailnetHostRequest:
+      properties:
+        hidden:
+          type:
+          - "null"
+          - boolean
+        label:
+          type:
+          - "null"
+          - string
       type: object
     UpdateWorkspaceFileRequest:
       properties:

@@ -113,7 +113,9 @@ type ListReportsQuery struct {
 
 // ListPendingReportsQuery selects one worker's due, still-pending reports.
 type ListPendingReportsQuery struct {
-	SessionID string `query:"sessionId" required:"true" description:"Worker session identifier on this daemon."`
+	SessionID   string `query:"sessionId" required:"true" description:"Worker session identifier on this daemon."`
+	PullerID    string `query:"pullerId" description:"Puller instance ID for per-puller acks."`
+	ExpiredSeen int    `query:"expiredSeen" description:"Last expiredTotal the puller logged."`
 }
 
 // ListPendingReportsResponse is one worker's due, still-pending reports.
@@ -123,12 +125,23 @@ type ListPendingReportsQuery struct {
 type ListPendingReportsResponse struct {
 	Reports     []ReportResponse `json:"reports"`
 	MorePending bool             `json:"morePending"`
+	// PullerAcks is true when the host recorded acknowledgements for the
+	// pullerId it was sent. Older hosts omit it.
+	PullerAcks bool `json:"pullerAcks,omitempty"`
+	// ExpiredBeforePull counts reports that expired before the puller
+	// acknowledged them and that expiredSeen does not cover.
+	ExpiredBeforePull int64 `json:"expiredBeforePull,omitempty"`
+	// ExpiredTotal is the monotonic count the puller sends back as expiredSeen.
+	ExpiredTotal int64 `json:"expiredTotal,omitempty"`
 }
 
 // AcknowledgeReportsRequest settles reports a peer daemon pulled and delivered.
 type AcknowledgeReportsRequest struct {
 	SessionID string   `json:"sessionId"`
 	ReportIDs []string `json:"reportIds" minItems:"1" maxItems:"200"`
+	// PullerID records the acknowledgement for one puller. Omit it for
+	// first-delivery semantics, which settle the report for every puller.
+	PullerID string `json:"pullerId,omitempty"`
 }
 
 // AcknowledgeReportsResponse lists the report IDs that changed from pending to
@@ -193,13 +206,41 @@ type RemoteWorkerLinkResponse struct {
 	RemoteSessionID string `json:"remoteSessionId"`
 	RemoteProjectID string `json:"remoteProjectId"`
 	ProjectID       string `json:"projectId"`
-	DisplayName     string `json:"displayName,omitempty"`
+	// LocalProjectID is the local project the link belongs to. It repeats
+	// projectId under the name the link identity uses.
+	LocalProjectID string `json:"localProjectId"`
+	DisplayName    string `json:"displayName,omitempty"`
 	// OwnerSessionID is the local coordinator owner. Null means root-owned.
-	OwnerSessionID *string   `json:"ownerSessionId"`
-	CreatedAt      time.Time `json:"createdAt"`
+	OwnerSessionID *string `json:"ownerSessionId"`
+	// Source is "spawn" for a link written by `ao spawn --host` and
+	// "discovered" for a link the daemon's discovery pass created.
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"createdAt"`
 	// PullBlocked explains why this daemon will not poll the host with no one
 	// acting (plain http without the opt-in). The link is stored either way.
 	PullBlocked string `json:"pullBlocked,omitempty"`
+	// State is "live", "stale" (the host has not answered within the grace
+	// period, so the link no longer counts toward capacity), or "terminated".
+	State string `json:"state"`
+	// LastSeenAt is the last time the host answered a read of this worker.
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+}
+
+// RemoteWorkerSyncResponse is the outcome of one discovery pass, one entry
+// per saved host.
+type RemoteWorkerSyncResponse struct {
+	Hosts []RemoteWorkerHostSync `json:"hosts"`
+}
+
+// RemoteWorkerHostSync is one saved host's discovery outcome. Blocked explains
+// why the host was not contacted; Error is any other failure.
+type RemoteWorkerHostSync struct {
+	HostID    string `json:"hostId"`
+	HostLabel string `json:"hostLabel"`
+	Linked    int    `json:"linked"`
+	Skipped   int    `json:"skipped"`
+	Blocked   string `json:"blocked,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // ListRemoteWorkerLinksQuery scopes the remote worker link list.
@@ -210,6 +251,11 @@ type ListRemoteWorkerLinksQuery struct {
 // ListRemoteWorkerLinksResponse is the body of GET /api/v1/remote-worker-links.
 type ListRemoteWorkerLinksResponse struct {
 	Links []RemoteWorkerLinkResponse `json:"links"`
+}
+
+// RemoveRemoteWorkerLinkQuery names the live root removing a link.
+type RemoveRemoteWorkerLinkQuery struct {
+	RequestedBySessionID string `query:"requestedBySessionId" description:"The live root removing the link." validate:"required"`
 }
 
 // RemoteWorkerLinkOwnerParam identifies one link on its ownership route.
@@ -759,6 +805,9 @@ type CoordinatorCapacity struct {
 	MaxWorkers               int `json:"maxWorkers"`
 	ActiveCoordinators       int `json:"activeCoordinators"`
 	ActiveWorkers            int `json:"activeWorkers"`
+	// StaleWorkers counts remote links whose host stopped answering; they
+	// are not in ActiveWorkers.
+	StaleWorkers int `json:"staleWorkers"`
 }
 
 // SessionOwnershipResponse is one session's durable ownership relation with
@@ -2764,6 +2813,15 @@ type MobileStatusResponse struct {
 	Enabled bool `json:"enabled"`
 	// LoopbackOnly means direct LAN/Tailscale addresses are not listening.
 	LoopbackOnly bool `json:"loopbackOnly"`
+	// TailnetOnly means the listener is bound to the Tailscale address and
+	// admits callers on their tailnet identity.
+	TailnetOnly bool `json:"tailnetOnly"`
+	// PasswordFallback means a tailnet-only listener also accepts the password.
+	PasswordFallback bool `json:"passwordFallback"`
+	// TailnetListenerEnabled reports the explicit additional listener state.
+	TailnetListenerEnabled bool `json:"tailnetListenerEnabled"`
+	// TailnetListenerPort is the configured discovery port, defaulting to 3011.
+	TailnetListenerPort int `json:"tailnetListenerPort"`
 	// NoPublicTunnel means the user disabled the managed public connector.
 	NoPublicTunnel bool `json:"noPublicTunnel"`
 	// Endpoints is every way the phone can reach this daemon, in the client's
@@ -2800,6 +2858,61 @@ type KeepAwakeStatus struct {
 // SetKeepAwakeRequest is the body of POST /api/v1/mobile/keep-awake.
 type SetKeepAwakeRequest struct {
 	Enabled bool `json:"enabled"`
+}
+
+// EnableTailnetRequest is the optional body of
+// POST /api/v1/mobile/enable-tailnet.
+type EnableTailnetRequest struct {
+	// PasswordFallback also accepts the connection password on the Tailscale
+	// listener, for clients tailscaled cannot identify.
+	PasswordFallback bool `json:"passwordFallback"`
+}
+
+// TailnetHost is one AO daemon discovered on the user's Tailscale network.
+type TailnetHost struct {
+	HostID string `json:"hostId"`
+	// Label is the local display name: the machine name unless overridden.
+	Label string `json:"label"`
+	// Name is the Tailscale machine name.
+	Name    string `json:"name"`
+	DNSName string `json:"dnsName"`
+	// Address is the node's Tailscale IPv4 address; URL is always built from it.
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+	URL     string `json:"url"`
+	// Online is false when the node or its daemon stopped answering the
+	// identity probe; the host stays listed until the node leaves.
+	Online bool `json:"online"`
+	Hidden bool `json:"hidden"`
+	// LastSeen is the RFC 3339 time the identity probe last answered.
+	LastSeen string `json:"lastSeen,omitempty"`
+}
+
+// TailnetHostsResponse is the body of GET /api/v1/tailnet/hosts.
+type TailnetHostsResponse struct {
+	// Available is false when tailscaled could not be read; Error says why.
+	Available bool   `json:"available"`
+	Error     string `json:"error,omitempty"`
+	// SelfLogin is this machine's Tailscale login: the identity other hosts
+	// admit by default.
+	SelfLogin string `json:"selfLogin,omitempty"`
+	// LocalHostIDs are this install and its sibling installs on this machine.
+	// Clients drop saved entries carrying any of them.
+	LocalHostIDs []string      `json:"localHostIds"`
+	UpdatedAt    string        `json:"updatedAt,omitempty"`
+	Hosts        []TailnetHost `json:"hosts"`
+}
+
+// UpdateTailnetHostRequest is the PATCH /api/v1/tailnet/hosts/{hostId} body.
+// Absent fields keep their value; an empty label restores the machine name.
+type UpdateTailnetHostRequest struct {
+	Hidden *bool   `json:"hidden,omitempty"`
+	Label  *string `json:"label,omitempty"`
+}
+
+// TailnetHostIDParam is the {hostId} path parameter of the tailnet routes.
+type TailnetHostIDParam struct {
+	HostID string `path:"hostId" description:"Host identifier from the identity probe."`
 }
 
 // SecurePairingStatus describes the optional TLS-over-Tailscale pairing mode,
