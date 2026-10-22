@@ -456,6 +456,7 @@ type CoordinatorSummaryRemoteWorker struct {
 	HostID          string
 	RemoteSessionID string
 	Position        int64
+	HostLabel       string
 }
 
 type CoordinatorSummaryWorker struct {

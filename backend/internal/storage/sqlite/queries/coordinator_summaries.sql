@@ -94,9 +94,13 @@ SET delivery_state = 'pending', claim_token = '', claimed_at = NULL,
 WHERE delivery_state = 'claimed';
 
 -- name: ListCoordinatorSummaryRemoteWorkers :many
-SELECT host_id, remote_session_id FROM coordinator_summary_remote_workers
+SELECT host_id, host_label, remote_session_id FROM coordinator_summary_remote_workers
 WHERE summary_id = ?
 ORDER BY position;
+
+-- name: InsertCoordinatorSummaryRemoteWorker :exec
+INSERT INTO coordinator_summary_remote_workers (summary_id, host_id, host_label, remote_session_id, position)
+VALUES (?, ?, ?, ?, ?);
 
 -- name: InsertCoordinatorSummaryReadyPR :exec
 INSERT INTO coordinator_summary_ready_prs (summary_id, pr_number, head_sha, review_run_id, position)

@@ -110,6 +110,35 @@ func TestCoordinatorSummaryRouteRejectsClientTerminatedEscalation(t *testing.T) 
 	}
 }
 
+func TestCoordinatorSummaryRouteAcceptsHostQualifiedRemoteWorker(t *testing.T) {
+	store, coordinator, _, _, deps := summaryRouteFixture(t)
+	ctx := context.Background()
+	if err := store.UpsertRemoteWorkerLink(ctx, domain.RemoteWorkerLink{
+		HostID: "host-build", HostLabel: "Air builder", RemoteSessionID: "shared-worker",
+		RemoteProjectID: "remote-project", ProjectID: "ao", OwnerSessionID: &coordinator.ID, CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv := newRouterServer(t, *deps)
+	body := `{"coordinatorSessionId":"` + string(coordinator.ID) + `","submissionKey":"remote-worker","state":"working","workerSessionIds":["host-build:shared-worker"]}`
+	resp, status, _ := doRequest(t, srv, http.MethodPost, "/api/v1/coordinator-summaries", body)
+	var created struct {
+		WorkerSessionIDs []string `json:"workerSessionIds"`
+		RemoteWorkers    []struct {
+			HostID          string `json:"hostId"`
+			HostLabel       string `json:"hostLabel"`
+			RemoteSessionID string `json:"remoteSessionId"`
+		} `json:"remoteWorkers"`
+	}
+	if err := json.Unmarshal(resp, &created); err != nil || status != http.StatusCreated || len(created.WorkerSessionIDs) != 0 || len(created.RemoteWorkers) != 1 {
+		t.Fatalf("status=%d body=%s err=%v", status, resp, err)
+	}
+	if created.RemoteWorkers[0].HostID != "host-build" || created.RemoteWorkers[0].HostLabel != "Air builder" ||
+		created.RemoteWorkers[0].RemoteSessionID != "shared-worker" {
+		t.Fatalf("remote workers = %+v", created.RemoteWorkers)
+	}
+}
+
 func TestCoordinatorSummaryRouteRejectsReservedSubmissionKey(t *testing.T) {
 	_, coordinator, _, _, deps := summaryRouteFixture(t)
 	srv := newRouterServer(t, *deps)

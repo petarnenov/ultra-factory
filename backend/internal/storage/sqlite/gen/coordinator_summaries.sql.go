@@ -396,6 +396,30 @@ func (q *Queries) InsertCoordinatorSummaryReadyPR(ctx context.Context, arg Inser
 	return err
 }
 
+const insertCoordinatorSummaryRemoteWorker = `-- name: InsertCoordinatorSummaryRemoteWorker :exec
+INSERT INTO coordinator_summary_remote_workers (summary_id, host_id, host_label, remote_session_id, position)
+VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertCoordinatorSummaryRemoteWorkerParams struct {
+	SummaryID       string
+	HostID          string
+	HostLabel       string
+	RemoteSessionID string
+	Position        int64
+}
+
+func (q *Queries) InsertCoordinatorSummaryRemoteWorker(ctx context.Context, arg InsertCoordinatorSummaryRemoteWorkerParams) error {
+	_, err := q.db.ExecContext(ctx, insertCoordinatorSummaryRemoteWorker,
+		arg.SummaryID,
+		arg.HostID,
+		arg.HostLabel,
+		arg.RemoteSessionID,
+		arg.Position,
+	)
+	return err
+}
+
 const insertCoordinatorSummaryWorker = `-- name: InsertCoordinatorSummaryWorker :exec
 INSERT INTO coordinator_summary_workers (summary_id, worker_session_id, position)
 VALUES (?, ?, ?)
@@ -503,13 +527,14 @@ func (q *Queries) ListCoordinatorSummaryReadyPRs(ctx context.Context, summaryID 
 }
 
 const listCoordinatorSummaryRemoteWorkers = `-- name: ListCoordinatorSummaryRemoteWorkers :many
-SELECT host_id, remote_session_id FROM coordinator_summary_remote_workers
+SELECT host_id, host_label, remote_session_id FROM coordinator_summary_remote_workers
 WHERE summary_id = ?
 ORDER BY position
 `
 
 type ListCoordinatorSummaryRemoteWorkersRow struct {
 	HostID          string
+	HostLabel       string
 	RemoteSessionID string
 }
 
@@ -522,7 +547,7 @@ func (q *Queries) ListCoordinatorSummaryRemoteWorkers(ctx context.Context, summa
 	items := []ListCoordinatorSummaryRemoteWorkersRow{}
 	for rows.Next() {
 		var i ListCoordinatorSummaryRemoteWorkersRow
-		if err := rows.Scan(&i.HostID, &i.RemoteSessionID); err != nil {
+		if err := rows.Scan(&i.HostID, &i.HostLabel, &i.RemoteSessionID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

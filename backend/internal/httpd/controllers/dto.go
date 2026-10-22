@@ -12,6 +12,7 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
 	agentsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/agent"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/agentauth"
+	aggregatesvc "github.com/aoagents/agent-orchestrator/backend/internal/service/aggregate"
 	chatsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/chat"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
@@ -343,6 +344,15 @@ type ProjectResponse struct {
 type GetProjectResponse struct {
 	Status  string            `json:"status" enum:"ok,degraded"`
 	Project ProjectOrDegraded `json:"project"`
+	// AggregateEffective is the aggregate board set: discovered and explicit
+	// remote projects minus exclusions. Empty when the project is degraded.
+	AggregateEffective []aggregatesvc.Entry `json:"aggregateEffective"`
+}
+
+// AggregateEffectiveResponse is the { aggregateEffective } body returned by
+// POST /projects/{id}/aggregate/refresh after one discovery pass.
+type AggregateEffectiveResponse struct {
+	AggregateEffective []aggregatesvc.Entry `json:"aggregateEffective"`
 }
 
 // ProjectOrDegraded is the discriminated `project` field: exactly one of
@@ -838,6 +848,8 @@ type CoordinatorRosterResponse struct {
 	Coordinators []CoordinatorRosterEntry `json:"coordinators"`
 	// RootWorkerSessionIDs are the project's live root-owned workers.
 	RootWorkerSessionIDs []string `json:"rootWorkerSessionIds"`
+	// RootWorkers lists root-owned local and remote workers with host metadata.
+	RootWorkers []CoordinatorRosterWorker `json:"rootWorkers"`
 }
 
 // CoordinatorRosterEntry is one coordinator and its live local workers.
@@ -874,6 +886,9 @@ type CoordinatorRosterEntry struct {
 type CoordinatorRosterWorker struct {
 	SessionID      string  `json:"sessionId"`
 	AgentProfileID *string `json:"agentProfileId"`
+	Remote         bool    `json:"remote" description:"True for a worker linked from another AO host."`
+	HostID         string  `json:"hostId,omitempty"`
+	HostLabel      string  `json:"hostLabel,omitempty"`
 }
 
 // ListCoordinatorsQuery scopes the coordinator roster read.

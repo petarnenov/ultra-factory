@@ -66,7 +66,8 @@ const emptyRoster: RosterData = {
 	rootSessionId: rootId,
 	capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 0, activeWorkers: 5, staleWorkers: 0 },
 	coordinators: [],
-	rootWorkerSessionIds: ["remote-w1", "remote-w2", "remote-w3", "remote-w4", "remote-w5"],
+	rootWorkerSessionIds: [],
+	rootWorkers: Array.from({ length: 5 }, (_, index) => ({ sessionId: `remote-w${index + 1}`, agentProfileId: null, remote: true, hostId: hostIds[index % hostIds.length], hostLabel: hostIds[index % hostIds.length] })),
 };
 
 const renderSection = (config: ProjectConfig = storedConfig) =>

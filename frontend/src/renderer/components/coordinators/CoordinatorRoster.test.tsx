@@ -45,6 +45,7 @@ const roster = (overrides: Partial<RosterData> = {}): RosterData => ({
 	capacity: { maxCoordinators: 2, maxWorkersPerCoordinator: 3, maxWorkers: 6, activeCoordinators: 1, activeWorkers: 0, staleWorkers: 0 },
 	coordinators: [entry()],
 	rootWorkerSessionIds: [],
+	rootWorkers: [],
 	...overrides,
 });
 
@@ -78,13 +79,33 @@ describe("CoordinatorRoster", () => {
 				entry({
 					activeWorkerCount: 1,
 					workerSessionIds: ["ao-w1"],
-					workers: [{ sessionId: "ao-w1", agentProfileId: "fast" }],
+					workers: [{ sessionId: "ao-w1", agentProfileId: "fast", remote: false }],
 				}),
 			],
 		});
 		renderRoster();
 		expect(screen.getByText("ao-w1")).toBeInTheDocument();
 		expect(screen.getByText("fast")).toBeInTheDocument();
+	});
+
+	test("shows remote owned workers beside their host label", () => {
+		rosterQuery.data = roster({
+			coordinators: [entry({
+				workerCount: 1,
+				activeWorkerCount: 1,
+				workers: [{ sessionId: "shared-worker", agentProfileId: null, remote: true, hostId: "host-build", hostLabel: "Air builder" }],
+			})],
+		});
+		renderRoster();
+		expect(screen.getByTestId("coordinator-remote-worker-row")).toHaveTextContent("shared-worker on Air builder");
+	});
+
+	test("lists root-owned remote workers with their host label", () => {
+		rosterQuery.data = roster({
+			rootWorkers: [{ sessionId: "root-worker", agentProfileId: null, remote: true, hostId: "host-root", hostLabel: "Air root" }],
+		});
+		renderRoster();
+		expect(screen.getByTestId("root-worker-list")).toHaveTextContent("root-worker on Air root");
 	});
 
 	test("disables start with the reason when coordinators are off", () => {
@@ -116,8 +137,6 @@ describe("CoordinatorRoster", () => {
 			{ id: "ao-c1", kind: "coordinator", ownerSessionId: "ao-root", provider: "claude-code", model: "opus", status: "working" },
 			{ id: "ao-w1", kind: "worker", ownerSessionId: "ao-c1", provider: "claude-code", model: "sonnet", status: "working" },
 			{ id: "ao-w2", kind: "worker", ownerSessionId: "ao-c1", provider: "codex", model: "gpt-5", status: "working" },
-			{ id: "remote-w1", kind: "worker", ownerSessionId: "ao-root", provider: "claude-code", model: "opus", status: "working" },
-			{ id: "remote-w2", kind: "worker", ownerSessionId: "ao-root", provider: "claude-code", model: "opus", status: "working" },
 		);
 		rosterQuery.data = roster({
 			capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 1, activeWorkers: 4, staleWorkers: 0 },
@@ -126,12 +145,16 @@ describe("CoordinatorRoster", () => {
 					activeWorkerCount: 2,
 					workerSessionIds: ["ao-w1", "ao-w2"],
 					workers: [
-						{ sessionId: "ao-w1", agentProfileId: "fast" },
-						{ sessionId: "ao-w2", agentProfileId: null },
+						{ sessionId: "ao-w1", agentProfileId: "fast", remote: false },
+						{ sessionId: "ao-w2", agentProfileId: null, remote: false },
 					],
 				}),
 			],
-			rootWorkerSessionIds: ["remote-w1", "remote-w2"],
+			rootWorkerSessionIds: [],
+			rootWorkers: [
+				{ sessionId: "remote-w1", agentProfileId: null, remote: true, hostId: "h_linux", hostLabel: "Linux" },
+				{ sessionId: "remote-w2", agentProfileId: null, remote: true, hostId: "h_z600", hostLabel: "Z600" },
+			],
 		});
 		renderRoster();
 		expect(await screen.findByText("ao-w1")).toBeInTheDocument();
@@ -139,7 +162,8 @@ describe("CoordinatorRoster", () => {
 		expect(await screen.findByText(/claude-code · sonnet/)).toBeInTheDocument();
 		expect(screen.getByTestId("roster-capacity")).toHaveTextContent("Workers 4/9");
 		expect(screen.getByText("Root workers: 2")).toBeInTheDocument();
-		expect(await screen.findByText("claude-code · opus")).toBeInTheDocument();
+		expect(screen.getByTestId("root-worker-list")).toHaveTextContent("remote-w1 on Linux");
+		expect(screen.getByTestId("root-worker-list")).toHaveTextContent("remote-w2 on Z600");
 		expect(screen.getByRole("button", { name: "Start coordinator" })).toBeEnabled();
 	});
 });

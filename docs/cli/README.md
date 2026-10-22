@@ -102,6 +102,8 @@ commit and records which tree the verdict read. See
 | `ao project ls`                     | `GET /api/v1/projects`                         |
 | `ao project get <id>`               | `GET /api/v1/projects/{id}`                    |
 | `ao project set-config <id>`        | `PUT /api/v1/projects/{id}/config`; with `--merge`, `GET` then `PUT` |
+| `ao project aggregate ls <id>`      | `GET /api/v1/projects/{id}` (`aggregateEffective`) |
+| `ao project aggregate refresh <id>` | `POST /api/v1/projects/{id}/aggregate/refresh` |
 | `ao project rm <id>`                | `DELETE /api/v1/projects/{id}`                 |
 | `ao secret set github <login> [--github-host <host>]` | `PUT /api/v1/secrets/github/{login}?host=` (token from stdin) |
 | `ao secret ls`                      | `GET /api/v1/secrets/github`                   |

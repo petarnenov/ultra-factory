@@ -710,7 +710,13 @@ export function useProjectIdentity(hostId: string | undefined, projectId: string
 				throw error;
 			}
 			if (data?.status !== "ok" || !data.project || "resolveError" in data.project) throw new Error("Project identity is unavailable");
-			return { repo: data.project.repo, workspaceRepos: data.project.workspaceRepos, aggregateProjects: data.project.config?.aggregateProjects ?? [] };
+			return {
+				repo: data.project.repo,
+				workspaceRepos: data.project.workspaceRepos,
+				aggregateProjects: data.project.config?.aggregateProjects ?? [],
+				// Absent when the daemon predates aggregateEffective.
+				aggregateEffective: "aggregateEffective" in data ? data.aggregateEffective : undefined,
+			};
 		},
 		enabled: Boolean(projectId),
 		retry: 1,

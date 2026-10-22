@@ -42,6 +42,44 @@ type summaryDelivery struct {
 	submitErr   error
 }
 
+type remoteReadyPRStore struct {
+	*sqlite.Store
+	links []domain.RemoteWorkerLink
+	prs   map[domain.SessionID][]domain.PullRequest
+	runs  map[string]domain.ReviewRun
+}
+
+func (s *remoteReadyPRStore) ListRemoteWorkerLinks(context.Context) ([]domain.RemoteWorkerLink, error) {
+	return append([]domain.RemoteWorkerLink(nil), s.links...), nil
+}
+
+func (s *remoteReadyPRStore) ListPRsBySession(ctx context.Context, id domain.SessionID) ([]domain.PullRequest, error) {
+	if prs, ok := s.prs[id]; ok {
+		return append([]domain.PullRequest(nil), prs...), nil
+	}
+	return s.Store.ListPRsBySession(ctx, id)
+}
+
+func (s *remoteReadyPRStore) GetReviewRun(ctx context.Context, id string) (domain.ReviewRun, bool, error) {
+	if run, ok := s.runs[id]; ok {
+		return run, true, nil
+	}
+	return s.Store.GetReviewRun(ctx, id)
+}
+
+func (s *remoteReadyPRStore) ListReviewRunsBySession(ctx context.Context, id domain.SessionID) ([]domain.ReviewRun, error) {
+	var out []domain.ReviewRun
+	for _, run := range s.runs {
+		if run.SessionID == id {
+			out = append(out, run)
+		}
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+	return s.Store.ListReviewRunsBySession(ctx, id)
+}
+
 func (d *summaryDelivery) Submit(_ context.Context, target domain.SessionID, message, key string) error {
 	if d.submitErr != nil {
 		return d.submitErr
@@ -233,6 +271,111 @@ func TestSummarySubmissionRules(t *testing.T) {
 	rec := f.submit(f.coordA.ID, "defaults", domain.SummaryPlanning)
 	if rec.Scope != "auth area" {
 		t.Fatalf("scope = %q, want the coordinator's scope", rec.Scope)
+	}
+}
+
+func TestSummaryRemoteWorkerReferencesAreQualifiedOwnedAndDeliveredWithHostLabel(t *testing.T) {
+	f := newSummaryFixture(t)
+	ctx := context.Background()
+	createdAt := f.clock
+	link := domain.RemoteWorkerLink{
+		HostID: "host-build", HostLabel: "Linux builder", RemoteSessionID: "shared-worker",
+		RemoteProjectID: "remote-project", ProjectID: "p", OwnerSessionID: &f.coordA.ID, CreatedAt: createdAt,
+	}
+	if err := f.store.UpsertRemoteWorkerLink(ctx, link); err != nil {
+		t.Fatal(err)
+	}
+	other := link
+	other.HostID, other.HostLabel = "host-second", "Second builder"
+	other.OwnerSessionID = &f.coordB.ID
+	if err := f.store.UpsertRemoteWorkerLink(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := f.svc.Submit(ctx, reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordA.ID, SubmissionKey: "ambiguous", State: domain.SummaryWorking,
+		WorkerSessionIDs: []domain.SessionID{"shared-worker"},
+	})
+	if apiCode(err) != "SUMMARY_WORKER_AMBIGUOUS" {
+		t.Fatalf("ambiguous reference error = %v, want SUMMARY_WORKER_AMBIGUOUS", err)
+	}
+	_, _, err = f.svc.Submit(ctx, reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordA.ID, SubmissionKey: "foreign", State: domain.SummaryWorking,
+		WorkerSessionIDs: []domain.SessionID{"host-second:shared-worker"},
+	})
+	if apiCode(err) != "SUMMARY_WORKER_NOT_OWNED" {
+		t.Fatalf("foreign reference error = %v, want SUMMARY_WORKER_NOT_OWNED", err)
+	}
+
+	rec, _, err := f.svc.Submit(ctx, reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordA.ID, SubmissionKey: "remote", State: domain.SummaryWorking,
+		WorkerSessionIDs: []domain.SessionID{"Linux builder:shared-worker"}, Result: "remote progress",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.WorkerSessionIDs) != 0 || len(rec.RemoteWorkers) != 1 || rec.RemoteWorkers[0] != (domain.SummaryRemoteWorker{
+		HostID: "host-build", HostLabel: "Linux builder", RemoteSessionID: "shared-worker",
+	}) {
+		t.Fatalf("summary workers = local %v remote %+v", rec.WorkerSessionIDs, rec.RemoteWorkers)
+	}
+	f.clock = f.clock.Add(domain.CoordinatorSummaryBatchWindow)
+	f.run()
+	if len(f.delivery.submissions) != 1 || !strings.Contains(f.delivery.submissions[0].message, "shared-worker on Linux builder") {
+		t.Fatalf("delivered summary = %#v, want the remote worker's host label", f.delivery.submissions)
+	}
+
+	if _, _, err := f.store.SetRemoteWorkerOwner(ctx, link.HostID, link.RemoteSessionID, &f.coordB.ID, domain.OwnershipExplicitAssignment, f.clock); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = f.svc.Submit(ctx, reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordA.ID, SubmissionKey: "after-reassign-old", State: domain.SummaryWorking,
+		WorkerSessionIDs: []domain.SessionID{"host-build:shared-worker"},
+	})
+	if apiCode(err) != "SUMMARY_WORKER_NOT_OWNED" {
+		t.Fatalf("old owner after reassignment error = %v, want SUMMARY_WORKER_NOT_OWNED", err)
+	}
+	if _, _, err = f.svc.Submit(ctx, reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordB.ID, SubmissionKey: "after-reassign-new", State: domain.SummaryWorking,
+		WorkerSessionIDs: []domain.SessionID{"host-build:shared-worker"},
+	}); err != nil {
+		t.Fatalf("new owner after reassignment: %v", err)
+	}
+}
+
+func TestReadyPRAcceptsOnlyUnambiguousCurrentlyOwnedRemoteWorkers(t *testing.T) {
+	f := newSummaryFixture(t)
+	remoteID := domain.SessionID("remote-pr-worker")
+	link := domain.RemoteWorkerLink{
+		HostID: "host-build", HostLabel: "Air builder", RemoteSessionID: remoteID,
+		RemoteProjectID: "remote-project", ProjectID: "p", OwnerSessionID: &f.coordA.ID, CreatedAt: f.clock,
+	}
+	pr := domain.PullRequest{URL: "https://github.com/o/r/pull/77", SessionID: remoteID, Number: 77, HeadSHA: "head-77"}
+	run := domain.ReviewRun{
+		ID: "remote-run", SessionID: remoteID, PRURL: pr.URL, TargetSHA: pr.HeadSHA,
+		Status: domain.ReviewRunComplete, Verdict: domain.VerdictApproved,
+	}
+	store := &remoteReadyPRStore{
+		Store: f.store, links: []domain.RemoteWorkerLink{link},
+		prs:  map[domain.SessionID][]domain.PullRequest{remoteID: {pr}},
+		runs: map[string]domain.ReviewRun{run.ID: run},
+	}
+	svc := reportsvc.NewSummaryService(reportsvc.SummaryDeps{Store: store, Now: func() time.Time { return f.clock }})
+	if _, _, err := svc.Submit(context.Background(), reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordA.ID, SubmissionKey: "remote-pr", State: domain.SummaryDone,
+		ReadyPRs: []domain.ReadyPR{{Number: 77, HeadSHA: "head-77"}},
+	}); err != nil {
+		t.Fatalf("coordinator-owned remote PR: %v", err)
+	}
+
+	foreign := link
+	foreign.HostID, foreign.OwnerSessionID = "host-other", &f.coordB.ID
+	store.links = append(store.links, foreign)
+	if _, _, err := svc.Submit(context.Background(), reportsvc.SummaryInput{
+		CoordinatorSessionID: f.coordA.ID, SubmissionKey: "ambiguous-remote-pr", State: domain.SummaryDone,
+		ReadyPRs: []domain.ReadyPR{{Number: 77, HeadSHA: "head-77"}},
+	}); apiCode(err) != "READY_PR_INVALID" {
+		t.Fatalf("ambiguous remote PR error = %v, want READY_PR_INVALID", err)
 	}
 }
 

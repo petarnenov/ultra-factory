@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	navigate: vi.fn(),
 	local: [] as Array<Record<string, unknown>>,
 	remote: [] as Array<Record<string, unknown>>,
-	associations: [] as Array<{ hostId: string; projectId: string }>,
+	associations: [] as Array<Record<string, unknown>>,
 	hosts: [] as Array<{ hostId: string; label: string; status: "connected" | "offline" | "connecting" }>,
 	failed: [] as string[],
 	loaded: [] as string[],
@@ -19,7 +19,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 }));
 vi.mock("../hooks/useWorkspaceQuery", () => ({
 	useWorkspaceQuery: () => ({ data: mocks.local, isPending: false, isError: false }),
-	useProjectIdentity: () => ({ data: { aggregateProjects: mocks.associations }, isPending: false, isError: false }),
+	useProjectIdentity: () => ({ data: { aggregateEffective: mocks.associations }, isPending: false, isError: false }),
 	useRemoteWorkspaces: () => ({
 		data: mocks.remote,
 		loadedProjectHostIds: mocks.loaded,
@@ -43,7 +43,7 @@ beforeEach(() => {
 	mocks.navigate.mockReset();
 	mocks.local = [{ id: "local-project", name: "Project", sessions: [session("same-id", "Local worker", "local-project")] }];
 	mocks.remote = [{ hostId: "host-a", id: "remote-project", name: "Different display name", sessions: [session("same-id", "Remote worker", "remote-project")] }];
-	mocks.associations = [{ hostId: "host-a", projectId: "remote-project" }];
+	mocks.associations = [{ hostId: "host-a", hostLabel: "Linux", projectId: "remote-project", source: "discovered", matchedBy: "repo", stale: false }];
 	mocks.hosts = [{ hostId: "host-a", label: "Linux", status: "connected" }];
 	mocks.failed = [];
 	mocks.loaded = ["host-a"];
@@ -65,7 +65,7 @@ it("marks a configured offline project partial and keeps local workers visible",
 	mocks.remote = [];
 	render(<AggregateProjectBoard projectId="local-project" />);
 	expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
-	expect(screen.getByText(/remote-project/)).toBeInTheDocument();
+	expect(screen.getAllByText(/remote-project/).length).toBeGreaterThan(0);
 	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
 });
 
@@ -113,7 +113,23 @@ it("renders partial, not loading, when the remote layer is gated off but links e
 	render(<AggregateProjectBoard projectId="local-project" />);
 	expect(screen.queryByText("Loading project boards…")).not.toBeInTheDocument();
 	expect(screen.getByRole("status")).toHaveTextContent("Some hosts could not be reached");
-	expect(screen.getByText(/remote-project/)).toBeInTheDocument();
+	expect(screen.getAllByText(/remote-project/).length).toBeGreaterThan(0);
 	expect(screen.getByRole("status")).toHaveTextContent("remote hosts are turned off in this app");
 	expect(screen.getByRole("button", { name: "Local worker" })).toBeInTheDocument();
+});
+
+it("badges each aggregated host as discovered or explicit and marks stale hosts", () => {
+	mocks.associations = [
+		{ hostId: "host-a", hostLabel: "Linux", projectId: "remote-project", source: "discovered", matchedBy: "repo", stale: true },
+		{ hostId: "host-b", hostLabel: "Z600", projectId: "manual-project", source: "explicit", stale: false },
+	];
+	render(<AggregateProjectBoard projectId="local-project" />);
+	const headers = screen.getAllByTestId("aggregate-host-header");
+	expect(headers).toHaveLength(2);
+	expect(headers[0]).toHaveTextContent("Linux");
+	expect(headers[0]).toHaveTextContent("Discovered");
+	expect(headers[0]).toHaveTextContent("Stale");
+	expect(headers[1]).toHaveTextContent("Z600");
+	expect(headers[1]).toHaveTextContent("Explicit");
+	expect(headers[1]).not.toHaveTextContent("Stale");
 });

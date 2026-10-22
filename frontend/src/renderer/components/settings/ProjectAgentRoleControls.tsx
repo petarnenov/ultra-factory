@@ -220,7 +220,7 @@ function ProjectRowLabel({ label, description }: { label: string; description: s
 	);
 }
 
-function ProjectToggleRow({ id, label, description, checked, onCheckedChange }: { id: string; label: string; description: string; checked: boolean; onCheckedChange: (checked: boolean) => void }) {
+export function ProjectToggleRow({ id, label, description, checked, onCheckedChange }: { id: string; label: string; description: string; checked: boolean; onCheckedChange: (checked: boolean) => void }) {
 	return (
 		<div className="settings-row-bar">
 			<ProjectRowLabel label={label} description={description} />

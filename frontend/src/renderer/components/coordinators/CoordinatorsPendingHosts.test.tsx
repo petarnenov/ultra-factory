@@ -68,6 +68,7 @@ const emptyRoster: RosterData = {
 	capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 0, activeWorkers: 5, staleWorkers: 0 },
 	coordinators: [],
 	rootWorkerSessionIds: [],
+	rootWorkers: [],
 };
 
 const renderSection = (config: ProjectConfig = storedConfig) =>
