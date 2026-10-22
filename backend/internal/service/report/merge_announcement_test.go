@@ -120,7 +120,7 @@ func TestAnnounceMergedWithoutAMergeCommitIsNotDropped(t *testing.T) {
 	c, _, delivery := mergeAnnouncementFixture(t, true)
 	ctx := context.Background()
 
-	// A fast-forward or null mergeCommit reports no SHA; the notice must still go out.
+	// A fast-forward or null mergeCommit reports no SHA; still notify.
 	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/203", 203, ""); err != nil {
 		t.Fatal(err)
 	}
