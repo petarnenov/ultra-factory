@@ -8,7 +8,7 @@ const remotes = vi.hoisted(() => ({
 	disconnect: vi.fn(),
 	connected: vi.fn(),
 }));
-const account = vi.hoisted(() => ({ status: "authenticated" as "authenticated" | "unauthenticated" }));
+const account = vi.hoisted(() => ({ status: "authenticated" as "loading" | "authenticated" | "unauthenticated" }));
 
 vi.mock("../lib/bridge", () => ({ aoBridge: { remotes } }));
 vi.mock("../lib/cloud-session", () => ({ useCloudSession: () => ({ status: account.status, session: account.status === "authenticated" ? { user: { id: "user-a" } } : null }) }));
@@ -316,4 +316,22 @@ it("publishes saved hosts before a slow cloud directory responds", async () => {
 		{ hostId: "box-a", label: "Box A", url: "http://box-a:3001", status: "connecting" },
 		{ hostId: "box-b", label: "Box B", url: "http://box-b:3001", status: "connecting" },
 	]);
+});
+
+it("keeps existing proxies when a newly mounted observer loads its account", async () => {
+	useUiStore.setState({ remoteHosts: true });
+	const existing = renderHook(() => useRemoteHosts());
+	await waitFor(() => expect(existing.result.current.hosts.every((host) => host.status === "connected")).toBe(true));
+	await waitFor(() => expect(connectedHosts()).toEqual(["box-a", "box-b"]));
+	remotes.disconnect.mockClear();
+	account.status = "loading";
+	const observer = renderHook(() => useRemoteHosts());
+	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
+	expect(remotes.disconnect).not.toHaveBeenCalled();
+	remotes.connect.mockReturnValue(new Promise(() => {}));
+	account.status = "authenticated";
+	observer.rerender();
+	await waitFor(() => expect(observer.result.current.hosts).toHaveLength(2));
+	expect(connectedHosts()).toEqual(["box-a", "box-b"]);
+	expect(remotes.disconnect).not.toHaveBeenCalled();
 });
