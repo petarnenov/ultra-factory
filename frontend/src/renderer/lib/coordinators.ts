@@ -1,10 +1,7 @@
 import type { components } from "../../api/schema";
 import { apiErrorMessage } from "./api-client";
 import { clientForSessionHost } from "./host-clients";
-import {
-	type BriefTask,
-	firstUnfilledPlaceholder,
-} from "../components/coordinators/brief-template";
+import { type BriefTask, placeholdersIn } from "../components/coordinators/brief-template";
 
 export type CoordinatorRoster = components["schemas"]["CoordinatorRosterResponse"];
 export type CoordinatorRosterEntry = components["schemas"]["CoordinatorRosterEntry"];
@@ -218,6 +215,8 @@ export type SpawnCoordinatorForm = {
 	tasks: BriefTask[];
 	/** Set once the operator edits the brief by hand; fields stop rewriting it. */
 	briefEdited: boolean;
+	/** Placeholders the brief still shows, in brief order. */
+	briefPlaceholders: string[];
 	workerLimit: string;
 	hostSlots: { hostId: string; slots: string }[];
 	coordinatorAgent: "inherit" | "profile" | "custom";
@@ -292,7 +291,9 @@ export function validateSpawnCoordinator(
 		total += slots;
 	}
 	if (!errors.workerLimit && total > workerLimit) errors.hostSlots = "coordinators.start.errors.hostSlotsTotal";
-	const placeholder = firstUnfilledPlaceholder(form.brief);
+	// A rendered brief gates on the placeholders its fields left unfilled; a
+	// hand-edited brief is scanned in full.
+	const placeholder = (form.briefEdited ? placeholdersIn(form.brief) : form.briefPlaceholders)[0];
 	if (form.brief.trim() === "") errors.brief = "coordinators.start.errors.briefRequired";
 	else if (placeholder) {
 		errors.brief = "coordinators.start.errors.briefPlaceholder";

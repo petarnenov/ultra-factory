@@ -86,6 +86,18 @@ describe("StartCoordinatorDialog", () => {
 		expect(screen.getByText("Fill in <acceptance criteria: fill in> before starting. The brief still has a template placeholder.")).toBeInTheDocument();
 	});
 
+	test("a task title containing a placeholder still enables start", async () => {
+		renderDialog();
+		await userEvent.type(screen.getByLabelText("Coordinator name"), "Ada");
+		await userEvent.type(screen.getByLabelText("Scope"), "auth module");
+		await userEvent.type(screen.getByLabelText("Out of scope"), "billing");
+		await userEvent.type(screen.getByLabelText("Issue or task id"), "#503");
+		await userEvent.type(screen.getByLabelText("Title"), "Fix <title> handling");
+		await userEvent.type(screen.getByLabelText("Acceptance criteria"), "no placeholder in the brief");
+		expect(startButton()).toBeEnabled();
+		expect(screen.queryByText(/^Fill in /)).not.toBeInTheDocument();
+	});
+
 	test("restores the raw template with Reset to template and blocks start", async () => {
 		renderDialog();
 		await fillBrief();

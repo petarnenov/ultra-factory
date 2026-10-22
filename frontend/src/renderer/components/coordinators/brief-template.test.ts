@@ -7,6 +7,8 @@ import {
 	renderBrief,
 } from "./brief-template";
 
+const briefOf = (fields: Parameters<typeof renderBrief>[0]) => renderBrief(fields).brief;
+
 const filled = {
 	name: "Ada",
 	scope: "auth module",
@@ -33,14 +35,32 @@ describe("brief placeholders", () => {
 		);
 	});
 
+	test("reports the template placeholders a render left unfilled", () => {
+		expect(renderBrief({ ...filled, name: " ", integrationBranch: "" }).unfilled).toEqual(["<coordinator name>", "<dev>"]);
+		expect(renderBrief(filled).unfilled).toEqual([]);
+	});
+
+	test("does not count placeholder-like text in task fields as unfilled", () => {
+		const { unfilled } = renderBrief({
+			...filled,
+			tasks: [{ taskId: "#9", title: "Fix <title> and <prefix>", acceptance: "<testable criteria>", files: "<paths>" }],
+		});
+		expect(unfilled).toEqual([]);
+	});
+
+	test("reports blank task fields in brief order", () => {
+		const { unfilled } = renderBrief({ ...filled, tasks: [{ taskId: "", title: "", acceptance: "", files: "" }] });
+		expect(unfilled).toEqual(["<issue or task id>", "<title>", "<acceptance criteria: fill in>"]);
+	});
+
 	test("reports nothing once every placeholder is filled", () => {
-		expect(firstUnfilledPlaceholder(renderBrief({ ...filled, branchPrefix: "co-x" }))).toBeNull();
+		expect(firstUnfilledPlaceholder(briefOf({ ...filled, branchPrefix: "co-x" }))).toBeNull();
 	});
 });
 
 describe("renderBrief", () => {
 	test("substitutes name, scope, out of scope, integration branch and prefix", () => {
-		const brief = renderBrief(filled);
+		const brief = briefOf(filled);
 		expect(brief).toContain("Assignment for Ada.");
 		expect(brief).toContain("Scope: auth module\n");
 		expect(brief).toContain("Out of scope: billing\n");
@@ -49,11 +69,11 @@ describe("renderBrief", () => {
 	});
 
 	test("uses the explicit branch prefix when one is given", () => {
-		expect(renderBrief({ ...filled, branchPrefix: "feat/auth" })).toContain("Worker branch name: feat/auth/<task-id>");
+		expect(briefOf({ ...filled, branchPrefix: "feat/auth" })).toContain("Worker branch name: feat/auth/<task-id>");
 	});
 
 	test("renders each task with its acceptance criteria", () => {
-		const brief = renderBrief({
+		const brief = briefOf({
 			...filled,
 			tasks: [
 				{ taskId: "#1", title: "First", acceptance: "a", files: "src/a.ts" },
@@ -66,17 +86,17 @@ describe("renderBrief", () => {
 	});
 
 	test("leaves the placeholder when a field is blank", () => {
-		const brief = renderBrief({ ...filled, name: "  ", integrationBranch: "" });
+		const brief = briefOf({ ...filled, name: "  ", integrationBranch: "" });
 		expect(firstUnfilledPlaceholder(brief)).toBe("<coordinator name>");
 		expect(brief).toContain("Integration branch / PR base: <dev>");
 	});
 
 	test("keeps dollar signs in user text literal", () => {
-		expect(renderBrief({ ...filled, name: "$& $1" })).toContain("Assignment for $& $1.");
+		expect(briefOf({ ...filled, name: "$& $1" })).toContain("Assignment for $& $1.");
 	});
 
 	test("keeps placeholder-like text in task fields literal", () => {
-		const brief = renderBrief({
+		const brief = briefOf({
 			...filled,
 			tasks: [{ taskId: "#7", title: "Rename <prefix> and <dev> handling", acceptance: "tokens stay", files: "src/<dev>.ts" }],
 		});
@@ -86,7 +106,7 @@ describe("renderBrief", () => {
 	});
 
 	test("keeps a task row when the list is empty", () => {
-		const brief = renderBrief({ ...filled, tasks: [] });
+		const brief = briefOf({ ...filled, tasks: [] });
 		expect(firstUnfilledPlaceholder(brief)).toBe("<issue or task id>");
 	});
 });

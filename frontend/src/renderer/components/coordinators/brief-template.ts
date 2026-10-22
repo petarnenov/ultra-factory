@@ -71,37 +71,35 @@ export function defaultBranchPrefix(scope: string): string {
 	return slug === "" ? "" : `co-${slug}`;
 }
 
+/** Placeholders present in a brief text, in the order they appear. */
+export function placeholdersIn(text: string): string[] {
+	return BRIEF_PLACEHOLDERS.map((token) => ({ token, index: text.indexOf(token) }))
+		.filter((found) => found.index !== -1)
+		.sort((a, b) => a.index - b.index)
+		.map((found) => found.token);
+}
+
 /** The first placeholder still present in a brief, or null when none is. */
 export function firstUnfilledPlaceholder(brief: string): string | null {
-	let first: { token: string; index: number } | null = null;
-	for (const token of BRIEF_PLACEHOLDERS) {
-		const index = brief.indexOf(token);
-		if (index !== -1 && (first === null || index < first.index)) first = { token, index };
-	}
-	return first?.token ?? null;
+	return placeholdersIn(brief)[0] ?? null;
 }
 
 const TASK_LIST_START = "Task list (work these, nothing else):\n";
 const TASK_LIST_END = "\n\nWorker cap:";
 
-/** Fills the template from the dialog fields. Blank fields keep their
- * placeholder, so the brief stays blocked until they are filled. */
-export function renderBrief(fields: BriefFields): string {
-	const value = (text: string, placeholder: string) => (text.trim() === "" ? placeholder : text.trim());
+// Fills the template from the fields; `unfilled` lists the placeholders left in
+// the template or the generated task rows. Task text is user input.
+export function renderBrief(fields: BriefFields): { brief: string; unfilled: string[] } {
+	const unfilled: string[] = [];
+	const value = (text: string, placeholder: string) => {
+		const trimmed = text.trim();
+		if (trimmed !== "") return trimmed;
+		unfilled.push(placeholder);
+		return placeholder;
+	};
 	const prefix = fields.branchPrefix.trim() || defaultBranchPrefix(fields.scope);
-	const rows = fields.tasks.length > 0 ? fields.tasks : [{ taskId: "", title: "", acceptance: "", files: "" }];
-	const taskLines = rows
-		.map((task, index) =>
-			[
-				`${index + 1}. ${value(task.taskId, "<issue or task id>")} - ${value(task.title, "<title>")}`,
-				`   Acceptance criteria: ${value(task.acceptance, ACCEPTANCE_MARKER)}`,
-				`   Files likely touched: ${value(task.files, "none listed")}`,
-			].join("\n"),
-		)
-		.join("\n");
 	const from = COORDINATOR_BRIEF_TEMPLATE.indexOf(TASK_LIST_START) + TASK_LIST_START.length;
 	const to = COORDINATOR_BRIEF_TEMPLATE.indexOf(TASK_LIST_END);
-	// Fill the template parts only, so task text is never rewritten.
 	// Function replacers keep "$" in user text out of the pattern syntax.
 	const fill = (text: string) =>
 		text
@@ -114,5 +112,17 @@ export function renderBrief(fields: BriefFields): string {
 			)
 			.replace("<dev>", () => value(fields.integrationBranch, "<dev>"))
 			.replace("<prefix>", () => value(prefix, "<prefix>"));
-	return fill(COORDINATOR_BRIEF_TEMPLATE.slice(0, from)) + taskLines + fill(COORDINATOR_BRIEF_TEMPLATE.slice(to));
+	const headFilled = fill(COORDINATOR_BRIEF_TEMPLATE.slice(0, from));
+	const rows = fields.tasks.length > 0 ? fields.tasks : [{ taskId: "", title: "", acceptance: "", files: "" }];
+	const taskLines = rows
+		.map((task, index) =>
+			[
+				`${index + 1}. ${value(task.taskId, "<issue or task id>")} - ${value(task.title, "<title>")}`,
+				`   Acceptance criteria: ${value(task.acceptance, ACCEPTANCE_MARKER)}`,
+				`   Files likely touched: ${task.files.trim() || "none listed"}`,
+			].join("\n"),
+		)
+		.join("\n");
+	const tailFilled = fill(COORDINATOR_BRIEF_TEMPLATE.slice(to));
+	return { brief: headFilled + taskLines + tailFilled, unfilled };
 }

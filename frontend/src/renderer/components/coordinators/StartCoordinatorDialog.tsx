@@ -50,8 +50,11 @@ const emptySelection = (): SelectionForm => ({ mode: "inherit", profileId: "", p
 const emptyTask = (): BriefTask => ({ taskId: "", title: "", acceptance: "", files: "" });
 
 /** Regenerates the brief from the fields unless edited by hand. */
-const withRenderedBrief = (form: SpawnCoordinatorForm): SpawnCoordinatorForm =>
-	form.briefEdited ? form : { ...form, brief: renderBrief(form) };
+const withRenderedBrief = (form: SpawnCoordinatorForm): SpawnCoordinatorForm => {
+	if (form.briefEdited) return form;
+	const { brief, unfilled } = renderBrief(form);
+	return { ...form, brief, briefPlaceholders: unfilled };
+};
 
 const initialForm = (integrationBranch: string): SpawnCoordinatorForm =>
 	withRenderedBrief({
@@ -62,6 +65,7 @@ const initialForm = (integrationBranch: string): SpawnCoordinatorForm =>
 		branchPrefix: "",
 		tasks: [emptyTask()],
 		briefEdited: false,
+		briefPlaceholders: [],
 		workerLimit: "",
 		hostSlots: [{ hostId: "", slots: "1" }],
 		coordinatorAgent: "inherit",

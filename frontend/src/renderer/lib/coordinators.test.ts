@@ -33,6 +33,7 @@ const spawnForm = (overrides: Partial<SpawnCoordinatorForm> = {}): SpawnCoordina
 	branchPrefix: "co-docs",
 	tasks: [{ taskId: "#1", title: "Docs", acceptance: "builds", files: "" }],
 	briefEdited: true,
+	briefPlaceholders: [],
 	workerLimit: "",
 	hostSlots: [],
 	coordinatorAgent: "inherit",
@@ -159,6 +160,12 @@ describe("validateSpawnCoordinator", () => {
 	test("accepts a brief whose only angle brackets are coordinator instructions", () => {
 		const brief = "Worker branch name: co-docs/<task-id>\nao coordinator report --ready-pr <number>@<head-sha>";
 		expect(validateSpawnCoordinator(spawnForm({ brief }), limits).brief).toBeUndefined();
+	});
+
+	test("blocks a brief whose template placeholders are still unfilled", () => {
+		const errors = validateSpawnCoordinator(spawnForm({ briefEdited: false, briefPlaceholders: ["<dev>"] }), limits);
+		expect(errors.brief).toBe("coordinators.start.errors.briefPlaceholder");
+		expect(errors.placeholder).toBe("<dev>");
 	});
 
 	test("requires a scope and a brief", () => {
