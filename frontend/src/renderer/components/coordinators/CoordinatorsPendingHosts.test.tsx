@@ -17,13 +17,17 @@ const { remotes } = vi.hoisted(() => ({ remotes: {
 	disconnect: vi.fn(async () => {}),
 } }));
 vi.mock("../../lib/bridge", () => ({ aoBridge: { remotes } }));
-vi.mock("../../lib/cloud-session", () => ({
-	useCloudSession: () => ({ status: "authenticated", session: { user: { id: "test-account" } } }),
-}));
+vi.mock("../../lib/cloud-session", async () => {
+	const { useEffect, useState } = await import("react");
+	return { useCloudSession: () => {
+		const [ready, setReady] = useState(false);
+		useEffect(() => setReady(true), []);
+		return { status: ready ? "authenticated" : "loading", session: ready ? { user: { id: "test-account" } } : null };
+	} };
+});
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ settings: { cloudControlPlaneUrl: "" } }) }));
 vi.mock("../../lib/telemetry", () => ({ captureRendererException: vi.fn(async () => {}) }));
-// The reported crash came with remote orchestrators of two projects on the
-// paired host, so the local session list carries both kinds of session.
+// Local session metadata does not depend on remote host probes.
 vi.mock("../../hooks/useWorkspaceQuery", () => ({
 	workspaceQueryOptions: {
 		queryKey: ["workspaces"],
@@ -31,14 +35,7 @@ vi.mock("../../hooks/useWorkspaceQuery", () => ({
 			{
 				id: "ultra-factory",
 				name: "ultra-factory",
-				sessions: ["w1", "w2", "w3", "w4", "w5"].map((id) => ({
-					id: `remote-${id}`,
-					kind: "worker",
-					ownerSessionId: rootId,
-					provider: "claude-code",
-					model: "opus",
-					status: "working",
-				})),
+				sessions: [],
 			},
 		],
 	},
@@ -47,7 +44,7 @@ vi.mock("../../hooks/useWorkspaceQuery", () => ({
 
 import { CoordinatorsSettingsForm } from "./CoordinatorsSettingsForm";
 import { useUiStore } from "../../stores/ui-store";
-
+import { connectHost, connectedHosts, disconnectHost } from "../../lib/host-clients";
 
 // The daemon's stored block from the report: three empty modes, three allowed
 // hosts, limits 3/3/9 (#502).
@@ -69,7 +66,7 @@ const emptyRoster: RosterData = {
 	rootSessionId: rootId,
 	capacity: { maxCoordinators: 3, maxWorkersPerCoordinator: 3, maxWorkers: 9, activeCoordinators: 0, activeWorkers: 5, staleWorkers: 0 },
 	coordinators: [],
-	rootWorkerSessionIds: ["remote-w1", "remote-w2", "remote-w3", "remote-w4", "remote-w5"],
+	rootWorkerSessionIds: [],
 };
 
 const renderSection = (config: ProjectConfig = storedConfig) =>
@@ -80,24 +77,31 @@ const renderSection = (config: ProjectConfig = storedConfig) =>
 	);
 
 describe("Local Coordinators while remote probes are pending", () => {
-	beforeEach(() => {
+	beforeEach(async () => {
+		remotes.connect.mockResolvedValueOnce({ hostId: "h_imac", label: "IMac", url: "http://h_imac:3011", base: "http://127.0.0.1:4000" });
+		await connectHost("http://h_imac:3011", "h_imac");
 		useUiStore.setState({ developerMode: true, remoteHosts: true });
 		remotes.connect.mockClear();
 		rosterQuery.data = emptyRoster;
 		rosterQuery.isLoading = false;
 	});
-	afterEach(() => act(() => useUiStore.setState({ developerMode: false, remoteHosts: false })));
+	afterEach(async () => act(async () => {
+		useUiStore.setState({ developerMode: false, remoteHosts: false });
+		await Promise.all(connectedHosts().map(disconnectHost));
+	}));
 
 	test("renders local capacity and opens an editable Start dialog before probes finish", async () => {
 		renderSection();
 		await waitFor(() => expect(remotes.connect).toHaveBeenCalled());
 		expect(screen.getByTestId("roster-capacity")).toHaveTextContent("Coordinators 0/3");
 		expect(screen.getByTestId("roster-capacity")).toHaveTextContent("Workers 5/9");
+		expect(connectedHosts()).toEqual(["h_imac"]);
 		await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start coordinator" })); });
 		expect(screen.getByRole("dialog")).toBeInTheDocument();
 		const name = screen.getByLabelText("Coordinator name");
 		fireEvent.change(name, { target: { value: "Local work" } });
 		expect(name).toHaveValue("Local work");
+		expect(connectedHosts()).toEqual(["h_imac"]);
 		expect(screen.queryByText("Could not render Coordinators")).not.toBeInTheDocument();
 	});
 });
