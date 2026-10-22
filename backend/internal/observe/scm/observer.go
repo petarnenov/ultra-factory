@@ -628,11 +628,8 @@ func (o *Observer) Poll(ctx context.Context) error {
 			}
 			pr, checks, reviews, threads, comments = domainFromObservation(subj.session.ID, subj.session, prepared, local, pendingOpts, now)
 		}
-		// Announce before the merged flag becomes durable: once local.Merged is
-		// persisted this transition never recurs, and a root-driven merge has no
-		// tick to fall back on. A failed announce leaves local state unchanged so
-		// the next poll retries; the pr_merge_announcements claim dedupes the
-		// case where the announce succeeds and a later write fails.
+		// Announce before persistence so failures retry on the next poll; the claim
+		// dedupes successful sends if persistence fails.
 		if o.mergeAnnouncer != nil && !local.Merged && prepared.PR.Merged {
 			prURL := firstNonEmpty(prepared.PR.URL, prepared.PR.HTMLURL, local.URL)
 			if err := o.mergeAnnouncer.AnnounceMerged(ctx, subj.session.ID, prURL, prepared.PR.Number, prepared.PR.MergeCommitSHA); err != nil {
