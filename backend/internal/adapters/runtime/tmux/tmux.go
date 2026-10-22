@@ -27,7 +27,9 @@ import (
 
 const (
 	defaultTimeout    = 5 * time.Second
-	defaultChunkBytes = 16 * 1024
+	// defaultChunkBytes keeps each send-keys argument well under tmux's
+	// MAX_IMSGSIZE (16 KiB), so a large message never hits "command too long".
+	defaultChunkBytes = 8 * 1024
 	// defaultEnterDelay mirrors conpty's ptyInputEnterDelay: a pause after pasting
 	// a non-empty message, before the trailing Enter, so a large multiline paste
 	// does not absorb the Enter and leave the prompt unsubmitted (issue #2342).

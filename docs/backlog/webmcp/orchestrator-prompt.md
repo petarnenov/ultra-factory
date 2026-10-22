@@ -7,7 +7,7 @@
 > ao orchestrator ls --project ultra-factory
 > ```
 > - **A root is already live:** give it this assignment instead of spawning
->   (`ao send` is limited to 4 KiB, so the prompt is passed by reference):
+>   (`ao send` is limited to 16 KiB, so the prompt is passed by reference):
 >   ```bash
 >   ao send --session <root-session-id> --message 'New assignment: read docs/backlog/webmcp/orchestrator-prompt.md (everything after the line `---8<---`) and execute it from Phase 0. If the file is missing from your worktree, run `git fetch origin` and read it with `git show origin/dev:docs/backlog/webmcp/orchestrator-prompt.md`. Keep any work you already own; this assignment adds to it.'
 >   ```
