@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ToolDescriptor } from "./model-context";
 
@@ -252,5 +253,48 @@ describe("installModelContext surface gating", () => {
 		model.installModelContext();
 
 		expect(window.__aoWebMcp?.callTool).toBeTypeOf("function");
+	});
+
+	it("keeps the shim and registrations working after repeated installation", async () => {
+		const model = await load({ dev: true });
+		model.installModelContext();
+		model.registerTool(tool());
+		model.installModelContext();
+
+		document.modelContext!.registerTool(tool({ name: "lane.move" }));
+
+		expect(model.listTools().map((t) => t.name)).toEqual(["board.read", "lane.move"]);
+		expect(window.__aoWebMcp!.listTools().map((t) => t.name)).toEqual(["board.read", "lane.move"]);
+	});
+});
+
+describe("useModelContextTool", () => {
+	it("unregisters on unmount under StrictMode and lets an in-flight call resolve", async () => {
+		const model = await load({ dev: true });
+		// Re-import after resetModules so the hook shares one React copy.
+		const { createElement, StrictMode } = await import("react");
+		const { renderHook, act } = await import("@testing-library/react");
+		const { useModelContextTool } = await import("./useModelContextTool");
+
+		let release!: (value: unknown) => void;
+		const execute = vi.fn(() => new Promise<unknown>((resolve) => (release = resolve)));
+		const descriptor = tool({ execute });
+		const wrapper = (props: { children?: ReactNode }) => createElement(StrictMode, null, props.children);
+		const { unmount } = renderHook(() => useModelContextTool(descriptor, [descriptor]), { wrapper });
+
+		expect(model.listTools().map((t) => t.name)).toEqual(["board.read"]);
+
+		let pending!: Promise<unknown>;
+		act(() => {
+			pending = model.callTool("board.read");
+		});
+		expect(execute).toHaveBeenCalledTimes(1);
+
+		unmount();
+		expect(model.listTools()).toHaveLength(0);
+		await expect(model.callTool("board.read")).rejects.toMatchObject({ code: "unknown_tool" });
+
+		release({ ok: true });
+		await expect(pending).resolves.toEqual({ ok: true });
 	});
 });
