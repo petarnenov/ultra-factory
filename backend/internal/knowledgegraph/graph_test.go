@@ -67,13 +67,13 @@ func TestRecordTask(t *testing.T) {
 			fact: TaskFact{
 				Key: "h/s1", SessionID: "s1", Host: "h", Project: "ao", Title: "Fix", Issue: "#42",
 				Outcome: "merged", Harness: "claude-code", Model: "m", Effort: "high", Branch: "ao/s1-fix",
-				PRs: []string{"https://x/pr/1"}, Failures: []string{"CI build: test failed"}, ElapsedSeconds: 60, InputTokens: 10, OutputTokens: 5,
+				PRs: []string{"https://x/pr/1"}, Files: []string{"backend/a.go", "backend/b.go"}, Failures: []string{"CI build: test failed"}, ElapsedSeconds: 60, InputTokens: 10, OutputTokens: 5,
 				Stages: "building 60s x1", Report: "done: ok", At: testAt,
 			},
 			wantProps: map[string]any{
 				"title": "Fix", "issue": "#42", "outcome": "merged", "harness": "claude-code",
 				"model": "m", "effort": "high", "branch": "ao/s1-fix", "stages": "building 60s x1",
-				"prs": []string{"https://x/pr/1"}, "failures": []string{"CI build: test failed"}, "elapsedSeconds": int64(60),
+				"prs": []string{"https://x/pr/1"}, "files": []string{"backend/a.go", "backend/b.go"}, "failures": []string{"CI build: test failed"}, "elapsedSeconds": int64(60),
 				"inputTokens": int64(10), "outputTokens": int64(5),
 			},
 			wantIssue: "ao/42",
@@ -98,6 +98,9 @@ func TestRecordTask(t *testing.T) {
 			}
 			if p["issueKey"] != tt.wantIssue || p["report"] != tt.fact.Report || p["key"] != "h/s1" {
 				t.Fatalf("params = %#v", p)
+			}
+			if got, ok := p["files"].([]string); !ok || got == nil {
+				t.Fatalf("files parameter = %#v, want non-nil slice", p["files"])
 			}
 			if p["at"] != "2026-10-23T11:00:00Z" {
 				t.Fatalf("at = %v, want UTC RFC3339", p["at"])
@@ -252,6 +255,7 @@ func TestPriorMapsRows(t *testing.T) {
 		"section": "attempt", "id": "h/s0", "kind": "", "title": "Old try", "outcome": "closed",
 		"text": "done: gave up", "lessons": []any{"use -race"}, "score": float64(1),
 		"prs": []any{"https://x/pr/1", "https://x/pr/2"}, "failures": []any{"CI build: test failed"}, "branch": "ao/s0-fix",
+		"files": []any{"backend/a.go", "backend/b.go"},
 	}}}
 
 	items, err := NewGraph(r).Prior(context.Background(), Query{Project: "ao", Issue: "7", ExcludeTask: "h/s1"})
@@ -260,7 +264,7 @@ func TestPriorMapsRows(t *testing.T) {
 		t.Fatalf("Prior() error = %v", err)
 	}
 	want := []Item{{Section: "attempt", ID: "h/s0", Title: "Old try", Outcome: "closed", Text: "done: gave up", Lessons: []string{"use -race"},
-		PRs: []string{"https://x/pr/1", "https://x/pr/2"}, Failures: []string{"CI build: test failed"}, Branch: "ao/s0-fix", Score: 1}}
+		PRs: []string{"https://x/pr/1", "https://x/pr/2"}, Files: []string{"backend/a.go", "backend/b.go"}, Failures: []string{"CI build: test failed"}, Branch: "ao/s0-fix", Score: 1}}
 	if !reflect.DeepEqual(items, want) {
 		t.Fatalf("items = %#v, want %#v", items, want)
 	}
@@ -485,6 +489,9 @@ func TestMissingEmbeddings(t *testing.T) {
 	if !strings.Contains(call.statement, "size(l.embedding) <> $dims") ||
 		!strings.Contains(call.statement, "size(t.embedding) <> $dims") {
 		t.Fatalf("statement does not re-embed wrong-sized vectors:\n%s", call.statement)
+	}
+	if !strings.Contains(call.statement, "coalesce(t.files, [])") {
+		t.Fatalf("task embedding text omits changed paths:\n%s", call.statement)
 	}
 }
 

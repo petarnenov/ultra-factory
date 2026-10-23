@@ -199,18 +199,20 @@ func TestStartEnrichesFromTaskReport(t *testing.T) {
 		{Stage: "validating", Seconds: 30, Visits: 2},
 	}
 	r := &fakeRunner{ran: make(chan runCall, 8)}
+	sess.PRs = append(sess.PRs, domain.PRFacts{TargetBranch: "dev"})
 	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": sess}},
 		&fakeTasks{reports: map[domain.SessionID]taskreport.Report{"s1": rep}})
+	svc.paths = fixedChangedPaths{paths: []string{"backend/a.go", "backend/b.go"}}
 	startRecorder(t, svc)
 
-	svc.enqueue(job{session: "s1"})
+	svc.enqueue(job{session: "s1", report: "done: complete"})
 
 	p := waitRun(t, r).params
 	want := map[string]any{
 		"failures": []string{},
 		"title":    "Report title", "issue": "#42", "outcome": "merged", "harness": "claude-code",
 		"model": "opus", "effort": "high", "branch": "ao/s1-fix", "stages": "building 60s x1, validating 30s x2",
-		"prs": []string{"https://gh/pr/1"}, "elapsedSeconds": int64(90),
+		"prs": []string{"https://gh/pr/1"}, "files": []string{"backend/a.go", "backend/b.go"}, "elapsedSeconds": int64(90),
 		"inputTokens": int64(1000), "outputTokens": int64(200),
 	}
 	if !reflect.DeepEqual(p["props"], want) {
@@ -219,6 +221,81 @@ func TestStartEnrichesFromTaskReport(t *testing.T) {
 	if p["key"] != "host1/s1" || p["host"] != "host1" || p["issueKey"] != "ao/42" {
 		t.Fatalf("params = %#v", p)
 	}
+}
+
+func TestReportCaptureCapsPathsAndPreservesWhenWorkspaceMissing(t *testing.T) {
+	sess := worker("s1", "ao")
+	sess.PRs = []domain.PRFacts{{TargetBranch: "dev"}}
+	paths := make([]string, maxChangedPaths+5)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("file-%02d.go", i)
+	}
+	runner := &fakeRunner{ran: make(chan runCall, 4)}
+	svc := newTestService(runner, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": sess}}, nil)
+	svc.paths = fixedChangedPaths{paths: paths}
+	if err := svc.record(context.Background(), job{session: "s1", report: "done: first"}); err != nil {
+		t.Fatal(err)
+	}
+	p := runner.snapshot()[0].params
+	props := p["props"].(map[string]any)
+	if got := props["files"].([]string); len(got) != maxChangedPaths || got[0] != "file-00.go" {
+		t.Fatalf("captured files = %v (%d), want first %d paths", got, len(got), maxChangedPaths)
+	}
+	if !strings.Contains(runner.snapshot()[0].statement, "size($files) = 0") {
+		t.Fatal("record query does not preserve stored paths when capture is empty")
+	}
+}
+
+func TestChangedPathCaptureFailureDoesNotReplaceStoredPaths(t *testing.T) {
+	sess := worker("s1", "ao")
+	sess.PRs = []domain.PRFacts{{TargetBranch: "dev"}}
+	runner := &fakeRunner{}
+	svc := newTestService(runner, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": sess}}, nil)
+	svc.paths = fixedChangedPaths{err: errors.New("missing worktree")}
+	if err := svc.record(context.Background(), job{session: "s1", report: "done: first"}); err != nil {
+		t.Fatal(err)
+	}
+	params := runner.snapshot()[0].params
+	if got := params["files"]; got == nil || len(got.([]string)) != 0 {
+		t.Fatalf("files parameter = %#v, want empty to preserve previous value", got)
+	}
+}
+
+func TestChangedPathsAreCapturedOnlyForReportJobs(t *testing.T) {
+	sess := worker("s1", "ao")
+	sess.PRs = []domain.PRFacts{{TargetBranch: "dev"}}
+	paths := &pathCallSpy{}
+	runner := &fakeRunner{}
+	svc := newTestService(runner, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": sess}}, nil)
+	svc.paths = paths
+	if err := svc.record(context.Background(), job{session: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if paths.calls != 0 {
+		t.Fatalf("changed paths calls after non-report job = %d, want 0", paths.calls)
+	}
+	if err := svc.record(context.Background(), job{session: "s1", report: "done: ok"}); err != nil {
+		t.Fatal(err)
+	}
+	if paths.calls != 1 {
+		t.Fatalf("changed paths calls after report = %d, want 1", paths.calls)
+	}
+}
+
+type pathCallSpy struct{ calls int }
+
+func (s *pathCallSpy) ChangedPaths(context.Context, domain.Session, string) ([]string, error) {
+	s.calls++
+	return nil, nil
+}
+
+type fixedChangedPaths struct {
+	paths []string
+	err   error
+}
+
+func (f fixedChangedPaths) ChangedPaths(context.Context, domain.Session, string) ([]string, error) {
+	return f.paths, f.err
 }
 
 type fakePRFailureReader struct {

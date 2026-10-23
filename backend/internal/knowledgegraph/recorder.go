@@ -20,6 +20,7 @@ import (
 const (
 	outcomeInProgress = "in_progress"
 	outcomeTerminated = "terminated"
+	maxChangedPaths   = 50
 )
 
 // ReportCreated queues a worker's done, stuck or needs-input report. It
@@ -165,6 +166,11 @@ func (s *Service) record(ctx context.Context, j job) error {
 	}
 	fact := s.factFor(ctx, sess)
 	fact.Report = j.report
+	if fact.Report != "" {
+		if paths := s.changedPaths(ctx, sess); len(paths) > 0 {
+			fact.Files = paths
+		}
+	}
 	if j.report == "" && s.alreadyRecorded(sess.ID, fact.Outcome) {
 		return nil
 	}
@@ -176,6 +182,31 @@ func (s *Service) record(ctx context.Context, j job) error {
 	s.mu.Unlock()
 	s.kickEmbed()
 	return nil
+}
+
+func (s *Service) changedPaths(ctx context.Context, sess domain.Session) []string {
+	if s.paths == nil {
+		return nil
+	}
+	target := ""
+	for _, pr := range sess.PRs {
+		if pr.TargetBranch != "" {
+			target = pr.TargetBranch
+			break
+		}
+	}
+	if target == "" {
+		return nil
+	}
+	paths, err := s.paths.ChangedPaths(ctx, sess, target)
+	if err != nil {
+		s.log.Warn("knowledge graph: changed paths unavailable", "session", sess.ID, "err", err)
+		return nil
+	}
+	if len(paths) > maxChangedPaths {
+		paths = paths[:maxChangedPaths]
+	}
+	return paths
 }
 
 func (s *Service) alreadyRecorded(id domain.SessionID, outcome string) bool {

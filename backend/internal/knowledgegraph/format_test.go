@@ -34,6 +34,11 @@ func TestFormatSection(t *testing.T) {
 			notWant: []string{"No earlier task"},
 		},
 		{
+			name:  "similar task shows PR and significant paths",
+			items: []Item{{Section: "task", Title: "Similar", Outcome: "merged", PRs: []string{"https://x/pr/9"}, Files: []string{"pkg/a.go", "pkg/b.go", "pkg/c.go", "other/x.go", "other/y.go", "root.go"}}},
+			want:  []string{"PR: https://x/pr/9 · files: pkg/a.go, pkg/b.go, pkg/c.go, other/x.go, other/y.go"},
+		},
+		{
 			name:  "attempt failures follow refs and are clipped",
 			items: []Item{{Section: "attempt", Title: "Blocked", Failures: []string{strings.Repeat("failure ", 40)}}},
 			want:  []string{"- blocked by: " + clip(strings.Repeat("failure ", 40), 200)},
@@ -88,6 +93,15 @@ func TestFormatSection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSelectSignificantPaths(t *testing.T) {
+	paths := []string{"pkg/a.go", "pkg/b.go", "pkg/c.go", "internal/x.go", "internal/y.go", "root.go", "pkg/a.go"}
+	got := SelectSignificantPaths(paths, 5)
+	want := []string{"pkg/a.go", "pkg/b.go", "pkg/c.go", "internal/x.go", "internal/y.go"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("SelectSignificantPaths() = %v, want %v", got, want)
 	}
 }
 
