@@ -133,6 +133,7 @@ needs populated lesson embeddings:
 MATCH (a:Lesson), (b:Lesson)
 WHERE a.project = b.project AND a.id < b.id
   AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL
+  AND a.retiredAt IS NULL AND b.retiredAt IS NULL
 WITH a, b, vector.similarity.cosine(a.embedding, b.embedding) AS similarity
 WHERE similarity >= 0.94
 RETURN a.project, similarity, a.id AS firstId, a.text AS firstText,
@@ -145,6 +146,7 @@ Find lessons created more than 60 days ago that have never been served:
 ```cypher
 MATCH (l:Lesson)
 WHERE l.createdAt < datetime() - duration('P60D')
+  AND l.retiredAt IS NULL
   AND NOT EXISTS { MATCH (:Task)-[:RECEIVED]->(l) }
 RETURN l.project, l.id, l.kind, l.text, l.createdAt
 ORDER BY l.createdAt ASC LIMIT 50;
