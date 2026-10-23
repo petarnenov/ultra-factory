@@ -39,6 +39,9 @@ import {
 } from "../../hooks/useConversation";
 import { useAgentSwitchProviderCatalogs } from "../../hooks/useAgentSwitchProviderCatalogs";
 import { useConversationPromptSuggestion } from "../../hooks/useConversationPromptSuggestion";
+import { useLatestCallback } from "../../hooks/useStable";
+import { chatTools } from "../../webmcp/tools/chat";
+import { useModelContextTools } from "../../webmcp/useModelContextTool";
 import { useRememberProjectPermissions } from "../../hooks/useRememberProjectPermissions";
 import { useSessionBrowserLink } from "../../hooks/useSessionBrowserLink";
 import { claudeChoiceModel } from "../../lib/agent-model-choices";
@@ -60,6 +63,7 @@ import { isOrchestratorSession, type AgentSwitchSummary, type WorkspaceSession }
 import { AgentSwitchProgressTrack } from "../AgentSwitchProgressTrack";
 import { useUiStore } from "../../stores/ui-store";
 import { ChatWorkspace } from "./ChatWorkspace";
+import type { ChatComposerHandle } from "./ChatComposer";
 import { OrchestratorChatKill } from "./OrchestratorChatKill";
 import { WorkerReportsPanel } from "./WorkerReportsPanel";
 import { startingConversationSnapshot } from "./OrchestratorStartingChat";
@@ -222,6 +226,22 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 	// boundary that decides whether switching to Terminal needs user consent.
 	const snapshot = queriedSnapshot?.sessionId === session.id ? queriedSnapshot : undefined;
 	const commands = useConversationCommands(session.id, hostId);
+	// WebMCP chat tools for this mounted session. The getters read the latest
+	// render's state, so the registration only changes with the session or host.
+	const composerRef = useRef<ChatComposerHandle>(null);
+	const readSnapshot = useLatestCallback(() => snapshot);
+	const readRetryControl = useLatestCallback(() => commands.retryControl);
+	const readNewWorkDisabled = useLatestCallback(() => Boolean(newWorkDisabled));
+	useModelContextTools(
+		chatTools({
+			sessionId: session.id,
+			snapshot: readSnapshot,
+			composer: () => composerRef.current,
+			retryControl: readRetryControl,
+			newWorkDisabled: readNewWorkDisabled,
+		}),
+		[uiSessionId],
+	);
 	const projectPermissions = useRememberProjectPermissions(session.workspaceId, snapshot?.harness, hostId);
 	const {
 		acknowledgeAcceptedTurn,
@@ -658,6 +678,7 @@ export const SessionChatSurface = memo(function SessionChatSurface({
 				promptSuggestion={promptSuggestion}
 				agentInputDisabled={switchLocksChat || handoffDialogOpen}
 				newWorkDisabled={newWorkDisabled}
+				composerHandleRef={composerRef}
 				onLinkOpen={openLinkInBrowser}
 				onSessionLinkOpen={openSessionLink}
 				sessionTitle={session.title}

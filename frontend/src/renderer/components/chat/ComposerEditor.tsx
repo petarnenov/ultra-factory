@@ -91,6 +91,14 @@ export type ComposerEditorHandle = {
 	 */
 	pruneImages(attached: string[]): void;
 	getSnapshot(): ComposerEditorSnapshot;
+	/** Whether the editor holds keyboard focus. */
+	hasFocus(): boolean;
+	/** Text of the prompt suggestion the composer is showing, if any. */
+	getSuggestion(): string | null;
+	/** Inserts the showing suggestion into an empty draft, as Tab does. */
+	acceptSuggestion(): void;
+	/** Dismisses the showing suggestion, as Escape does. */
+	dismissSuggestion(): void;
 };
 
 /** What an inline image chip shows for a staged path; the path itself is the wire text. */
@@ -378,6 +386,15 @@ function $removeImageTokens(remove: (path: string) => boolean): void {
 	}
 }
 
+// Shared by Tab and chat.accept_suggestion; runs inside an editor update.
+function $acceptSuggestion(selection: RangeSelection, suggestionText: string): void {
+	$addUpdateTag(HISTORY_PUSH_TAG);
+	// End a generated @path or /skill with a boundary, including after draft
+	// restore. Outgoing text is trimmed; ordinary prose stays unchanged.
+	const trailingTrigger = findActiveTrigger(suggestionText, suggestionText.length);
+	selection.insertText(suggestionText + (trailingTrigger ? " " : ""));
+}
+
 function editorSnapshot(): ComposerEditorSnapshot {
 	const text = $serializeComposer();
 	const selection = $getSelection();
@@ -479,8 +496,21 @@ const EditorBridge = forwardRef<
 				editor.update(() => $removeImageTokens((candidate) => !attached.includes(candidate)), { discrete: true });
 			},
 			getSnapshot: () => editor.getEditorState().read(editorSnapshot),
+			hasFocus: () => editor.getRootElement() === document.activeElement,
+			getSuggestion: () => promptSuggestion?.text ?? null,
+			acceptSuggestion: () => {
+				if (!promptSuggestion || editor.getEditorState().read(editorSnapshot).text) return;
+				editor.update(() => {
+					const selection = $getSelection();
+					$acceptSuggestion($isRangeSelection(selection) ? selection : $getRoot().selectEnd(), promptSuggestion.text);
+				}, { discrete: true });
+				onDismissSuggestion();
+			},
+			dismissSuggestion: () => {
+				if (promptSuggestion) onDismissSuggestion();
+			},
 		}),
-		[attachedImages, editor],
+		[attachedImages, editor, onDismissSuggestion, promptSuggestion],
 	);
 
 	useLayoutEffect(() => {
@@ -509,11 +539,7 @@ const EditorBridge = forwardRef<
 			) {
 				const selection = $getSelection();
 				if (!$isRangeSelection(selection) || !selection.isCollapsed()) return false;
-				$addUpdateTag(HISTORY_PUSH_TAG);
-				// End a generated @path or /skill with a boundary, including after draft
-				// restore. Outgoing text is trimmed; ordinary prose stays unchanged.
-				const trailingTrigger = findActiveTrigger(promptSuggestion.text, promptSuggestion.text.length);
-				selection.insertText(promptSuggestion.text + (trailingTrigger ? " " : ""));
+				$acceptSuggestion(selection, promptSuggestion.text);
 				onDismissSuggestion();
 				if (event) {
 					completionHandledEvents.add(event);

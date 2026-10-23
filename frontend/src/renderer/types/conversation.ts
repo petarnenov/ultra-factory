@@ -894,6 +894,28 @@ export function activeTurn(snapshot: ConversationSnapshot): ConversationTurn | u
 	);
 }
 
+// Failed turns still offering retry. A daemon-recorded attempt consumes
+// the affordance, and ids are matched within this snapshot.
+export function retryableTurnIds(snapshot: ConversationSnapshot): Set<string> {
+	const consumed = retrySourceTurnIds(snapshot);
+	return new Set(
+		snapshot.turns
+			.filter((turn) => turn.state === "failed" && Boolean(turn.providerTurnId) && !consumed.has(turn.id))
+			.map((turn) => turn.id),
+	);
+}
+
+function retrySourceTurnIds(snapshot: ConversationSnapshot): Set<string> {
+	const turnIds = new Set(snapshot.turns.map((turn) => turn.id));
+	const sources = new Set<string>();
+	for (const turn of snapshot.turns) {
+		if (turn.hasRetryAttempt) sources.add(turn.id);
+		const source = turn.retryOfTurnId;
+		if (source && turnIds.has(source)) sources.add(source);
+	}
+	return sources;
+}
+
 /**
  * Turn ids whose human prompt is represented in the queue dock instead.
  *
