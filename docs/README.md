@@ -10,6 +10,8 @@ Start with [architecture.md](architecture.md) for the current backend model and
 
 ## Reference docs
 
+[OpenSpec adoption blueprint and backlog](backlog/openspec/README.md) covers the planned SDD migration across the SDLC.
+
 Gemini CLI setup, permission mapping, and current capability limits are documented
 in [gemini-cli.md](gemini-cli.md).
 
