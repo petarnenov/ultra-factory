@@ -54,6 +54,8 @@ type Service struct {
 	minScore float64
 	// embedKick wakes the embed loop after a write.
 	embedKick chan struct{}
+	// embedDims is the model's vector size, probed by the embed loop.
+	embedDims int
 
 	queue chan job
 	mu    sync.Mutex

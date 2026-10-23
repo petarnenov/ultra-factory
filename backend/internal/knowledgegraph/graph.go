@@ -327,18 +327,20 @@ type EmbedTarget struct {
 	Text  string
 }
 
-// MissingEmbeddings lists up to limit lessons and tasks without vectors.
-func (g *Graph) MissingEmbeddings(ctx context.Context, limit int) ([]EmbedTarget, error) {
+// MissingEmbeddings lists up to limit lessons and tasks without a vector
+// of dims dimensions; a vector from an earlier model counts as missing.
+func (g *Graph) MissingEmbeddings(ctx context.Context, limit, dims int) ([]EmbedTarget, error) {
 	rows, err := g.run.Run(ctx, `
 CALL () {
-  MATCH (l:Lesson) WHERE l.embedding IS NULL
+  MATCH (l:Lesson) WHERE l.embedding IS NULL OR size(l.embedding) <> $dims
   RETURN 'Lesson' AS label, l.id AS id, l.text AS text LIMIT $limit
   UNION ALL
-  MATCH (t:Task) WHERE t.embedding IS NULL AND t.title IS NOT NULL
+  MATCH (t:Task)
+  WHERE (t.embedding IS NULL OR size(t.embedding) <> $dims) AND t.title IS NOT NULL
   RETURN 'Task' AS label, t.id AS id,
          t.title + '\n' + coalesce(t.summary, '') AS text LIMIT $limit
 }
-RETURN label, id, text`, map[string]any{"limit": limit})
+RETURN label, id, text`, map[string]any{"limit": limit, "dims": dims})
 	if err != nil {
 		return nil, err
 	}

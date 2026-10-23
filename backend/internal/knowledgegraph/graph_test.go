@@ -447,7 +447,7 @@ func TestMissingEmbeddings(t *testing.T) {
 		{"label": "Task", "id": "h/s1", "text": "Fix\ndone: ok"},
 	}}
 
-	got, err := NewGraph(r).MissingEmbeddings(context.Background(), 7)
+	got, err := NewGraph(r).MissingEmbeddings(context.Background(), 7, 1024)
 
 	if err != nil {
 		t.Fatalf("MissingEmbeddings() error = %v", err)
@@ -456,15 +456,21 @@ func TestMissingEmbeddings(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("targets = %#v, want %#v", got, want)
 	}
-	if p := r.snapshot()[0].params; p["limit"] != 7 {
-		t.Fatalf("params = %#v", p)
+	call := r.snapshot()[0]
+	if call.params["limit"] != 7 || call.params["dims"] != 1024 {
+		t.Fatalf("params = %#v", call.params)
+	}
+	// A vector from an earlier model must count as missing.
+	if !strings.Contains(call.statement, "size(l.embedding) <> $dims") ||
+		!strings.Contains(call.statement, "size(t.embedding) <> $dims") {
+		t.Fatalf("statement does not re-embed wrong-sized vectors:\n%s", call.statement)
 	}
 }
 
 func TestMissingEmbeddingsReturnsRunnerError(t *testing.T) {
 	r := &fakeRunner{err: errors.New("down")}
 
-	got, err := NewGraph(r).MissingEmbeddings(context.Background(), 1)
+	got, err := NewGraph(r).MissingEmbeddings(context.Background(), 1, 1024)
 
 	if err == nil || got != nil {
 		t.Fatalf("MissingEmbeddings() = %v, %v; want error", got, err)

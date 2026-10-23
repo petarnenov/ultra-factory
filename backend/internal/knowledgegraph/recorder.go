@@ -118,10 +118,18 @@ func (s *Service) embedLoop(ctx context.Context, tick <-chan time.Time) {
 	}
 }
 
-// embedMissing embeds batches until no node lacks a vector.
+// embedMissing embeds batches until no node lacks a vector of the
+// model's size.
 func (s *Service) embedMissing(ctx context.Context) error {
+	if s.embedDims == 0 {
+		probe, err := s.embedder.EmbedQuery(ctx, "dimension probe")
+		if err != nil {
+			return err
+		}
+		s.embedDims = len(probe)
+	}
 	for {
-		targets, err := s.graph.MissingEmbeddings(ctx, embedBatchSize)
+		targets, err := s.graph.MissingEmbeddings(ctx, embedBatchSize, s.embedDims)
 		if err != nil || len(targets) == 0 {
 			return err
 		}
