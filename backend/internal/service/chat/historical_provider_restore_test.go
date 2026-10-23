@@ -61,6 +61,9 @@ func seedHistoricalProviderFixture(t *testing.T) historicalProviderFixture {
 	if err != nil || !created {
 		t.Fatalf("seed old transcript: created=%v err=%v", created, err)
 	}
+	if err := st.SettleTurnByID(ctx, "old-turn", domain.TurnStateCompleted, "", now.Add(time.Second)); err != nil {
+		t.Fatalf("settle old transcript turn: %v", err)
+	}
 
 	target, err := st.CreateSession(ctx, domain.SessionRecord{
 		ProjectID: testProject, Kind: domain.KindOrchestrator,
