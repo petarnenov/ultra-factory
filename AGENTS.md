@@ -12,6 +12,7 @@ This file holds what every task needs. Load the page for your task when it appli
 | Touch a daemon listener, route auth, remote access, or the Railway hub | [`docs/agents/network-boundaries.md`](docs/agents/network-boundaries.md) |
 | Spawn workers, run reviews, or pick a machine | [`docs/agents/orchestration.md`](docs/agents/orchestration.md) |
 | Change install paths, release workflows, or macOS artifacts | [`docs/agents/distribution.md`](docs/agents/distribution.md) |
+| Use or upgrade the OpenSpec authoring workflow | [`docs/agents/openspec.md`](docs/agents/openspec.md) |
 | File an issue or check its labels | [`docs/issue-policy.md`](docs/issue-policy.md) |
 | Write a PR description | [`.agents/skills/pr-description/SKILL.md`](.agents/skills/pr-description/SKILL.md) |
 | Resolve a complex architecture decision through the consul workflow | [`.agents/skills/geo.architect/SKILL.md`](.agents/skills/geo.architect/SKILL.md) |
