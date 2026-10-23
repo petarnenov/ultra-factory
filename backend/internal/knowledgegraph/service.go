@@ -25,6 +25,30 @@ type TaskReports interface {
 	Get(ctx context.Context, projectID domain.ProjectID, id domain.SessionID) (taskreport.Report, error)
 }
 
+// PRFailures reads normalized blocking evidence for a pull request.
+type PRFailures interface {
+	ForPR(ctx context.Context, prURL string) (PRFailureEvidence, error)
+}
+
+// PRFailureEvidence contains stored PR facts used in task context.
+type PRFailureEvidence struct {
+	Checks   []FailedCheck
+	Comments []UnresolvedComment
+}
+
+// FailedCheck describes one failed check and its stored log tail.
+type FailedCheck struct {
+	Name    string
+	LogTail string
+}
+
+// UnresolvedComment describes an open human review comment.
+type UnresolvedComment struct {
+	Author string
+	File   string
+	Body   string
+}
+
 // Deps configures a Service.
 type Deps struct {
 	Graph *Graph
@@ -36,6 +60,7 @@ type Deps struct {
 	MergeScore float64
 	Sessions   Sessions
 	Tasks      TaskReports
+	Failures   PRFailures
 	HostID     string
 	Logger     *slog.Logger
 	Now        func() time.Time
@@ -48,6 +73,7 @@ type Service struct {
 	graph    *Graph
 	sessions Sessions
 	tasks    TaskReports
+	failures PRFailures
 	hostID   string
 	log      *slog.Logger
 	now      func() time.Time
@@ -87,7 +113,7 @@ func New(d Deps) *Service {
 		d.NewID = uuid.NewString
 	}
 	return &Service{
-		graph: d.Graph, sessions: d.Sessions, tasks: d.Tasks, hostID: d.HostID,
+		graph: d.Graph, sessions: d.Sessions, tasks: d.Tasks, failures: d.Failures, hostID: d.HostID,
 		log: d.Logger, now: d.Now, newID: d.NewID,
 		embedder: d.Embedder, minScore: d.MinScore, mergeScore: d.MergeScore, embedKick: make(chan struct{}, 1),
 		queue: make(chan job, queueSize), recorded: map[domain.SessionID]string{},

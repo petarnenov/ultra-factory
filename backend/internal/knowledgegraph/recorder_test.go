@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -206,7 +207,8 @@ func TestStartEnrichesFromTaskReport(t *testing.T) {
 
 	p := waitRun(t, r).params
 	want := map[string]any{
-		"title": "Report title", "issue": "#42", "outcome": "merged", "harness": "claude-code",
+		"failures": []string{},
+		"title":    "Report title", "issue": "#42", "outcome": "merged", "harness": "claude-code",
 		"model": "opus", "effort": "high", "branch": "ao/s1-fix", "stages": "building 60s x1, validating 30s x2",
 		"prs": []string{"https://gh/pr/1"}, "elapsedSeconds": int64(90),
 		"inputTokens": int64(1000), "outputTokens": int64(200),
@@ -216,6 +218,63 @@ func TestStartEnrichesFromTaskReport(t *testing.T) {
 	}
 	if p["key"] != "host1/s1" || p["host"] != "host1" || p["issueKey"] != "ao/42" {
 		t.Fatalf("params = %#v", p)
+	}
+}
+
+type fakePRFailureReader struct {
+	evidence map[string]PRFailureEvidence
+	calls    []string
+}
+
+func (f *fakePRFailureReader) ForPR(_ context.Context, url string) (PRFailureEvidence, error) {
+	f.calls = append(f.calls, url)
+	return f.evidence[url], nil
+}
+
+func TestFailureFactsAreDeterministicCappedAndClipped(t *testing.T) {
+	sess := worker("s1", "ao")
+	sess.PRs = []domain.PRFacts{{URL: "https://z/pr/2"}, {URL: "https://a/pr/1"}, {URL: "https://a/pr/1"}}
+	long := strings.Repeat("tail ", 80)
+	reader := &fakePRFailureReader{evidence: map[string]PRFailureEvidence{
+		"https://a/pr/1": {
+			Checks:   []FailedCheck{{Name: "z-check", LogTail: long}, {Name: "a-check", LogTail: long}, {Name: "b-check"}, {Name: "c-check"}},
+			Comments: []UnresolvedComment{{Author: "zoe", Body: "z"}, {Author: "amy", File: "a.go", Body: strings.Repeat("comment ", 80)}, {Author: "ben", Body: "b"}, {Author: "cal", Body: "c"}},
+		},
+		"https://z/pr/2": {Checks: []FailedCheck{{Name: "earlier-by-url"}}, Comments: []UnresolvedComment{{Author: "aaron", Body: "earlier by url"}}},
+	}}
+	svc := newTestService(&fakeRunner{}, &fakeSessions{}, &fakeTasks{reports: map[domain.SessionID]taskreport.Report{"s1": {Outcome: taskreport.OutcomeFailed}}})
+	svc.failures = reader
+	fact := svc.factFor(context.Background(), sess)
+	want := []string{"CI a-check: " + clip(long, 200), "CI b-check", "CI c-check", "Review by amy on a.go: " + clip(strings.Repeat("comment ", 80), 200), "Review by ben: b", "Review by cal: c"}
+	if !reflect.DeepEqual(fact.Failures, want) {
+		t.Fatalf("failures = %#v, want %#v", fact.Failures, want)
+	}
+	if !reflect.DeepEqual(reader.calls, []string{"https://a/pr/1", "https://z/pr/2"}) {
+		t.Fatalf("PR reads = %#v, want sorted unique URLs", reader.calls)
+	}
+	for _, item := range fact.Failures {
+		if utf8.RuneCountInString(item) > 320 {
+			t.Fatalf("stored fact exceeds clipped fields: %d runes", utf8.RuneCountInString(item))
+		}
+	}
+}
+
+func TestFailureFactsSkipMergedAndInProgress(t *testing.T) {
+	reader := &fakePRFailureReader{}
+	svc := newTestService(&fakeRunner{}, &fakeSessions{}, &fakeTasks{reports: map[domain.SessionID]taskreport.Report{
+		"merged": {Outcome: taskreport.OutcomeMerged},
+		"live":   {Outcome: "in_progress"},
+	}})
+	svc.failures = reader
+	for _, id := range []domain.SessionID{"merged", "live"} {
+		sess := worker(id, "ao")
+		sess.PRs = []domain.PRFacts{{URL: "https://x/pr/1"}}
+		if got := svc.factFor(context.Background(), sess).Failures; len(got) != 0 {
+			t.Fatalf("%s failures = %#v, want none", id, got)
+		}
+	}
+	if len(reader.calls) != 0 {
+		t.Fatalf("failure evidence queried for excluded outcomes: %#v", reader.calls)
 	}
 }
 

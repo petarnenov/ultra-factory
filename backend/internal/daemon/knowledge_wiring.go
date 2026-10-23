@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"
 )
@@ -14,9 +15,40 @@ type knowledgeGraphDeps struct {
 	DataDir  string
 	Sessions knowledgegraph.Sessions
 	Tasks    knowledgegraph.TaskReports
+	PRStore  knowledgeGraphPRStore
 	HostID   string
 	Events   *cdc.Broadcaster
 	Log      *slog.Logger
+}
+
+type knowledgeGraphPRStore interface {
+	ListChecks(context.Context, string) ([]domain.PullRequestCheck, error)
+	ListPRComments(context.Context, string) ([]domain.PullRequestComment, error)
+}
+
+type knowledgeGraphPRFailures struct{ store knowledgeGraphPRStore }
+
+func (f knowledgeGraphPRFailures) ForPR(ctx context.Context, prURL string) (knowledgegraph.PRFailureEvidence, error) {
+	checks, err := f.store.ListChecks(ctx, prURL)
+	if err != nil {
+		return knowledgegraph.PRFailureEvidence{}, err
+	}
+	comments, err := f.store.ListPRComments(ctx, prURL)
+	if err != nil {
+		return knowledgegraph.PRFailureEvidence{}, err
+	}
+	out := knowledgegraph.PRFailureEvidence{}
+	for _, check := range checks {
+		if check.Status == domain.PRCheckFailed {
+			out.Checks = append(out.Checks, knowledgegraph.FailedCheck{Name: check.Name, LogTail: check.LogTail})
+		}
+	}
+	for _, comment := range comments {
+		if !comment.Resolved && !comment.IsBot {
+			out.Comments = append(out.Comments, knowledgegraph.UnresolvedComment{Author: comment.Author, File: comment.File, Body: comment.Body})
+		}
+	}
+	return out, nil
 }
 
 // runningKnowledgeGraph is the started recorder plus its teardown.
@@ -52,7 +84,7 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	svc := knowledgegraph.New(knowledgegraph.Deps{
 		Graph:    knowledgegraph.NewGraph(knowledgegraph.NewClient(cfg, nil)),
 		Embedder: embedder, MinScore: cfg.MinScore, MergeScore: cfg.MergeScore,
-		Sessions: d.Sessions, Tasks: d.Tasks, HostID: d.HostID, Logger: d.Log,
+		Sessions: d.Sessions, Tasks: d.Tasks, Failures: knowledgeGraphPRFailures{store: d.PRStore}, HostID: d.HostID, Logger: d.Log,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	k := &runningKnowledgeGraph{Service: svc, cancel: cancel}

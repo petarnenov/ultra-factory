@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -201,10 +202,12 @@ func (s *Service) factFor(ctx context.Context, sess domain.Session) TaskFact {
 		}
 	}
 	if s.tasks == nil {
+		f.Failures = failuresForOutcome(s, ctx, sess, f.Outcome)
 		return f
 	}
 	rep, err := s.tasks.Get(ctx, sess.ProjectID, sess.ID)
 	if err != nil {
+		f.Failures = failuresForOutcome(s, ctx, sess, f.Outcome)
 		return f
 	}
 	f.Outcome = string(rep.Outcome)
@@ -221,7 +224,90 @@ func (s *Service) factFor(ctx context.Context, sess domain.Session) TaskFact {
 		f.OutputTokens = *rep.Tokens.OutputTokens
 	}
 	f.Stages = stagesText(rep.Stages)
+	f.Failures = failuresForOutcome(s, ctx, sess, f.Outcome)
 	return f
+}
+
+func failuresForOutcome(s *Service, ctx context.Context, sess domain.Session, outcome string) []string {
+	if outcome == string(taskreport.OutcomeMerged) || outcome == outcomeInProgress {
+		return nil
+	}
+	return s.failureFacts(ctx, sess.PRs)
+}
+
+func (s *Service) failureFacts(ctx context.Context, prs []domain.PRFacts) []string {
+	if s.failures == nil {
+		return nil
+	}
+	urls := make([]string, 0, len(prs))
+	for _, pr := range prs {
+		if url := strings.TrimSpace(pr.URL); url != "" {
+			urls = append(urls, url)
+		}
+	}
+	sort.Strings(urls)
+	urls = compactStrings(urls)
+	type checkFact struct{ prURL, name, tail string }
+	type commentFact struct{ prURL, author, file, body string }
+	var checks []checkFact
+	var comments []commentFact
+	for _, url := range urls {
+		evidence, err := s.failures.ForPR(ctx, url)
+		if err != nil {
+			continue
+		}
+		for _, c := range evidence.Checks {
+			if strings.TrimSpace(c.Name) != "" {
+				checks = append(checks, checkFact{url, strings.TrimSpace(c.Name), strings.TrimSpace(c.LogTail)})
+			}
+		}
+		for _, c := range evidence.Comments {
+			comments = append(comments, commentFact{url, strings.TrimSpace(c.Author), strings.TrimSpace(c.File), strings.TrimSpace(c.Body)})
+		}
+	}
+	sort.Slice(checks, func(i, j int) bool {
+		a, b := checks[i], checks[j]
+		return a.prURL+"\x00"+a.name+"\x00"+a.tail < b.prURL+"\x00"+b.name+"\x00"+b.tail
+	})
+	sort.Slice(comments, func(i, j int) bool {
+		a, b := comments[i], comments[j]
+		return a.prURL+"\x00"+a.author+"\x00"+a.file+"\x00"+a.body < b.prURL+"\x00"+b.author+"\x00"+b.file+"\x00"+b.body
+	})
+	out := make([]string, 0, 6)
+	for _, c := range checks[:min(3, len(checks))] {
+		line := "CI " + clip(c.name, 100)
+		if c.tail != "" {
+			line += ": " + clip(c.tail, 200)
+		}
+		out = append(out, line)
+	}
+	for _, c := range comments[:min(3, len(comments))] {
+		line := "Review"
+		if c.author != "" {
+			line += " by " + clip(c.author, 60)
+		}
+		if c.file != "" {
+			line += " on " + clip(c.file, 100)
+		}
+		if c.body != "" {
+			line += ": " + clip(c.body, 200)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func compactStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	out := values[:1]
+	for _, value := range values[1:] {
+		if value != out[len(out)-1] {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func stagesText(st taskreport.StageHistory) string {
