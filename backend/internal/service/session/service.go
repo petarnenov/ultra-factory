@@ -1583,7 +1583,7 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 		ChatProviderPreserved: rec.Mode == domain.SessionModeChat && !rec.IsTerminated &&
 			s.chatProviderPreserved != nil && s.chatProviderPreserved(rec.ID),
 		Status:           deriveStatus(rec, prs, now, s.harnessSignals(rec.Harness)),
-		Health:           sessionhealth.Derive(rec, rec.Progress, now, s.healthConfig),
+		Health:           sessionhealth.WithOperation(sessionhealth.Derive(rec, rec.Progress, now, s.healthConfig), operation, now, s.healthConfig),
 		SCMStatus:        deriveSCMStatus(prs),
 		KanbanColumn:     presentation.Column,
 		DisplayStatus:    presentation.DisplayStatus,

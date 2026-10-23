@@ -196,3 +196,26 @@ func TestKillBeforeWakeRegistersCancelStillStopsIt(t *testing.T) {
 		t.Fatalf("wake was force-cleared although it was cancelled: %s", logs.String())
 	}
 }
+
+func TestAbandonAgentOperationCancelsOnlyCancellableHolder(t *testing.T) {
+	ctx := context.Background()
+	id := domain.SessionID("worker-1")
+	m := newInFlightWakeTestManager(&bytes.Buffer{})
+	if m.AbandonAgentOperation(id) {
+		t.Fatal("idle session reported an abandoned operation")
+	}
+	if err := m.beginAgentOperation(ctx, id, agentOperationResume); err != nil {
+		t.Fatal(err)
+	}
+	if m.AbandonAgentOperation(id) {
+		t.Fatal("wake without a registered cancel reported abandoned")
+	}
+	wakeCtx, cancel := context.WithCancel(ctx)
+	m.setAgentOperationCancel(id, cancel)
+	if !m.AbandonAgentOperation(id) {
+		t.Fatal("wake with a cancel was not abandoned")
+	}
+	if wakeCtx.Err() == nil {
+		t.Fatal("abandon did not cancel the wake context")
+	}
+}
