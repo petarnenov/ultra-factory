@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -18,6 +17,13 @@ import (
 func codexGitMetadataWritableArgs(ctx context.Context, workspace string) ([]string, error) {
 	workspace = strings.TrimSpace(workspace)
 	if workspace == "" {
+		return nil, nil
+	}
+	hasMetadata, err := workspaceHasGitMetadata(workspace)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMetadata {
 		return nil, nil
 	}
 	gitDir, err := gitPath(ctx, workspace, "--absolute-git-dir")
@@ -63,23 +69,12 @@ func codexGitMetadataWritableArgs(ctx context.Context, workspace string) ([]stri
 func gitPath(ctx context.Context, workspace string, args ...string) (string, error) {
 	cmdArgs := append([]string{"-C", workspace, "rev-parse"}, args...)
 	cmd := aoprocess.CommandContext(ctx, "git", cmdArgs...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		if strings.Contains(stderr.String(), "not a git repository") {
-			hasMetadata, markerErr := workspaceHasGitMetadata(workspace)
-			if markerErr != nil {
-				return "", markerErr
-			}
-			if !hasMetadata {
-				return "", nil
-			}
-		}
-		return "", fmt.Errorf("codex: git rev-parse %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("codex: git rev-parse %s: %w", strings.Join(args, " "), err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }

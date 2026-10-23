@@ -417,6 +417,14 @@ func TestCodexGitMetadataWritableArgsDistinguishesMissingAndBrokenMetadata(t *te
 			t.Fatal("expected malformed linked worktree metadata to return an error")
 		}
 	})
+
+	t.Run("git unavailable for linked worktree", func(t *testing.T) {
+		workspace, _, _ := makeLinkedGitWorktree(t)
+		t.Setenv("PATH", t.TempDir())
+		if _, err := codexGitMetadataWritableArgs(context.Background(), workspace); err == nil {
+			t.Fatal("expected missing git executable to return an error")
+		}
+	})
 }
 
 func makeLinkedGitWorktree(t *testing.T) (string, string, string) {
