@@ -75,7 +75,8 @@ type agentSwitchResponse struct {
 }
 
 type agentSwitchListResponse struct {
-	Switches []agentSwitchDTO `json:"switches"`
+	Switches  []agentSwitchDTO          `json:"switches"`
+	Operation *sessionAgentOperationDTO `json:"operation,omitempty"`
 }
 
 func newSessionSwitchAgentCommand(ctx *commandContext) *cobra.Command {
@@ -258,7 +259,7 @@ func (c *commandContext) listSessionAgentSwitches(
 	if opts.json {
 		return writeJSON(cmd.OutOrStdout(), res)
 	}
-	return writeAgentSwitchList(cmd, res.Switches)
+	return writeAgentSwitchList(cmd, res)
 }
 
 func (c *commandContext) submitSessionAgentHandoff(
@@ -322,17 +323,34 @@ func (c *commandContext) submitSessionAgentHandoff(
 	return err
 }
 
-func writeAgentSwitchList(cmd *cobra.Command, switches []agentSwitchDTO) error {
+func writeAgentSwitchList(cmd *cobra.Command, response agentSwitchListResponse) error {
 	out := cmd.OutOrStdout()
-	if len(switches) == 0 {
+	if len(response.Switches) == 0 && response.Operation == nil {
 		_, err := fmt.Fprintln(out, "(no agent switches)")
 		return err
+	}
+	if response.Operation != nil {
+		if _, err := fmt.Fprintf(out, "operation: %s in progress since %s", response.Operation.Kind,
+			response.Operation.StartedAt.Format(time.RFC3339)); err != nil {
+			return err
+		}
+		if response.Operation.RequestID != "" {
+			if _, err := fmt.Fprintf(out, " (started by request %s)", response.Operation.RequestID); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(out); err != nil {
+			return err
+		}
+	}
+	if len(response.Switches) == 0 {
+		return nil
 	}
 	tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	if _, err := fmt.Fprintln(tw, "ID\tFROM\tTARGET\tSTATE\tHANDOFF\tUPDATED"); err != nil {
 		return err
 	}
-	for _, agentSwitch := range switches {
+	for _, agentSwitch := range response.Switches {
 		updated := ""
 		if !agentSwitch.UpdatedAt.IsZero() {
 			updated = agentSwitch.UpdatedAt.Format(time.RFC3339)

@@ -973,6 +973,10 @@ func TestSessionsAPI_AgentSwitchLifecycle(t *testing.T) {
 		t.Fatalf("switch config = %+v", svc.switchConfig)
 	}
 
+	startedAt := time.Now().UTC().Truncate(time.Second)
+	session := svc.sessions["ao-1"]
+	session.AgentOperation = &domain.SessionAgentOperation{Kind: "exit", StartedAt: startedAt, RequestID: "request-exit-1"}
+	svc.sessions["ao-1"] = session
 	body, status, _ = doRequest(t, srv, http.MethodGet, "/api/v1/sessions/ao-1/agent-switches", "")
 	if status != http.StatusOK {
 		t.Fatalf("list switches = %d, want 200; body=%s", status, body)
@@ -982,6 +986,10 @@ func TestSessionsAPI_AgentSwitchLifecycle(t *testing.T) {
 	mustJSON(t, body, &listed)
 	if len(listed.Switches) != 1 || listed.Switches[0].ID != "switch-1" {
 		t.Fatalf("listed switches = %+v", listed.Switches)
+	}
+	if listed.Operation == nil || listed.Operation.Kind != "exit" || !listed.Operation.StartedAt.Equal(startedAt) ||
+		listed.Operation.RequestID != "request-exit-1" {
+		t.Fatalf("listed operation = %+v", listed.Operation)
 	}
 
 	body, status, _ = doRequest(t, srv, http.MethodPost, "/api/v1/sessions/ao-1/agent-switches/switch-1/handoff", `{

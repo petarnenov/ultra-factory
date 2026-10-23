@@ -2889,12 +2889,15 @@ func (m *Manager) relaunchRestoredSession(ctx context.Context, rec domain.Sessio
 // terminal identity, and provider-native conversation remain available for an
 // exact ResumeAgentWithMode call.
 func (m *Manager) ExitAgent(ctx context.Context, id domain.SessionID) (domain.SessionRecord, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if err := m.preemptResume(ctx, id, agentOperationExit); err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("exit agent %s: %w", id, err)
 	}
 	if err := m.beginAgentOperation(ctx, id, agentOperationExit); err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("exit agent %s: %w", id, err)
 	}
+	m.setAgentOperationCancel(id, cancel)
 	defer m.endAgentOperation(id, agentOperationExit)
 
 	if active, err := m.hasActiveInterfaceTransition(ctx, id); err != nil {
@@ -3440,6 +3443,11 @@ func (m *Manager) relaunchSessionWithPolicyAndGeneration(ctx context.Context, op
 	if err != nil {
 		m.cleanupSystemPromptDir(rec.ID)
 		return RestoreResult{}, fmt.Errorf("%s %s: runtime: %w", operation, rec.ID, agentlaunch.RedactError(err, project.Config.Env))
+	}
+	if err := ctx.Err(); err != nil {
+		m.destroySpawnRuntimeAfterFailure(ctx, handle)
+		m.cleanupSystemPromptDir(rec.ID)
+		return RestoreResult{}, fmt.Errorf("%s %s: runtime started after operation was cancelled: %w", operation, rec.ID, err)
 	}
 	metadata := domain.SessionMetadata{
 		Permissions:               rec.Metadata.Permissions,
