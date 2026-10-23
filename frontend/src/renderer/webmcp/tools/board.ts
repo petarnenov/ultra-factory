@@ -133,7 +133,8 @@ export function useBoardTools({ scopeKey, enabled, ...context }: BoardToolsInput
 	};
 
 	// Runs after each board commit, so waiters read the rendered lanes.
-	useEffect(notify, [context.sessions]);
+	// Also on `enabled`, so a board hidden mid-wait rejects its waiters.
+	useEffect(notify, [context.sessions, enabled]);
 
 	useEffect(() => {
 		latest.current = current;

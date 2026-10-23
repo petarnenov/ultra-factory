@@ -2,7 +2,7 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { boardKanbanColumnOrder, type KanbanColumnView } from "../../lib/session-presentation";
 import type { WorkspaceSession } from "../../types/workspace";
-import { listTools } from "../model-context";
+import { callTool, listTools } from "../model-context";
 import { type BoardAccess, type BoardContext, boardTools, readBoard, useBoardTools } from "./board";
 
 const columns = boardKanbanColumnOrder.map(
@@ -205,6 +205,28 @@ describe("useBoardTools", () => {
 		unmount();
 
 		expect(listTools().filter((tool) => tool.name.startsWith("board."))).toEqual([]);
+	});
+
+	it("rejects an in-flight wait as soon as the board becomes non-interactive", async () => {
+		const props = {
+			scopeKey: "local:fake-proj",
+			enabled: true,
+			projectId: "fake-proj",
+			columns,
+			sessions: [session({ id: "mover", kanbanColumn: "building" })],
+			openSession: vi.fn(),
+			requestNewTask: vi.fn(),
+		};
+		const { rerender, unmount } = renderHook((next: typeof props) => useBoardTools(next), {
+			initialProps: props,
+		});
+		// A timeout far beyond the test budget: only an immediate teardown can settle it.
+		const waiting = callTool("board.wait_for_card", { sessionId: "mover", column: "ready", timeoutMs: 60_000 });
+
+		rerender({ ...props, enabled: false });
+
+		await expect(waiting).rejects.toMatchObject({ code: "precondition" });
+		unmount();
 	});
 
 	it("registers nothing while the board is not interactive", () => {
