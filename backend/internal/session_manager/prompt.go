@@ -648,7 +648,7 @@ Your owner can change after this prompt was written, by a reassignment. Resolve 
 
 ` + "`ao session owner $AO_SESSION_ID --json`" + `
 
-If ` + "`ownerSessionId`" + ` is set and that coordinator is live (check it with ` + "`ao session ls`" + `), it is your owner. If it is null, or the coordinator is terminated or belongs to another project, the project root owns you: use ` + "`rootSessionId`" + ` from the same output. Message the owner only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
+If ` + "`ownerSessionId`" + ` is set and that coordinator is live (check it with ` + "`ao session ls`" + `), it is your owner. If it is null, or the coordinator is terminated or belongs to another project, the project root owns you: use ` + "`rootSessionId`" + ` from the same output. For a linked remote worker, ` + "`ao session owner`" + ` reports the remote host root. Find the root daemon host by checking ` + "`ao host ls`" + ` and ` + "`ao orchestrator ls --host <host> --json`" + ` for this project's root. On that host, read ` + "`ao remote-worker ls --project $AO_PROJECT_ID --json`" + ` and find your link by ` + "`remoteSessionId`" + `; its ` + "`ownerSessionId`" + ` is the local coordinator, or null when the root owns it. Send to the coordinator or root using the root daemon host label: ` + "`ao send --host <root-host-label> --session <owner-session-id> --message \"<your message>\"`" + `. Message the owner only for true blockers, cross-session coordination, or decisions you cannot resolve locally:
 
 ` + "`ao send --session <owner-session-id> --message \"<your message>\"`" + ``
 }

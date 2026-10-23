@@ -12340,6 +12340,22 @@ func TestSystemPrompt_WorkerEscalationResolvesOwnerAtSendTime(t *testing.T) {
 	}
 }
 
+func TestWorkerEscalationPromptResolvesLinkedRemoteOwnerThroughRootDaemon(t *testing.T) {
+	sp := workerEscalationPrompt()
+	for _, want := range []string{
+		"ao host ls",
+		"ao orchestrator ls --host <host> --json",
+		"ao remote-worker ls --project $AO_PROJECT_ID --json",
+		"remoteSessionId",
+		"ownerSessionId",
+		"ao send --host <root-host-label> --session <owner-session-id>",
+	} {
+		if !strings.Contains(sp, want) {
+			t.Errorf("remote escalation prompt missing %q:\n%s", want, sp)
+		}
+	}
+}
+
 func TestSpawnCoordinatorPersistsItsOwnWorkerLimitAndPromptShowsTheEffectiveOne(t *testing.T) {
 	two, five := 2, 5
 	for _, tc := range []struct {
