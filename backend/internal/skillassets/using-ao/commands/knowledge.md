@@ -8,6 +8,8 @@ outcome is recorded there automatically; lessons are what workers add on top.
 ```text
 ao knowledge add [--kind pitfall|fix|tip|context] [--topic <area>]... <lesson>
 ao knowledge search [--project <id>] [--limit <n>] [--json] <words>
+ao knowledge rate <lesson-id> wrong|useful
+ao knowledge retire <lesson-id> --reason "<text>"
 ```
 
 A new worker's task prompt already carries a "Knowledge Graph" section with
@@ -34,6 +36,10 @@ nothing to retry.
 
 Lessons served to a task that later merges rank higher; lessons served to
 closed or failed tasks rank lower.
+
+Rate a served lesson by its displayed short id; duplicate ratings from one
+session count once. Operators can retire a lesson with a reason. Retired
+lessons no longer appear in prompts or searches.
 
 `ao knowledge` answers `501` when this machine has no knowledge graph
 configured. That is not a task failure; continue without it.

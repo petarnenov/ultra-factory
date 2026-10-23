@@ -178,6 +178,38 @@ func TestMarkServed(t *testing.T) {
 	}
 }
 
+func TestRateAndRetireLesson(t *testing.T) {
+	r := &fakeRunner{rows: []Row{{"id": "lesson-1"}}}
+	g := NewGraph(r)
+	found, err := g.RateLesson(context.Background(), "host/session", "lesson-1", "wrong", testAt)
+	if err != nil || !found {
+		t.Fatalf("RateLesson = %v, %v", found, err)
+	}
+	calls := r.snapshot()
+	if !strings.Contains(calls[0].statement, "edge.rating IS NULL") || !strings.Contains(calls[0].statement, "l.wrong") || calls[0].params["taskKey"] != "host/session" {
+		t.Fatalf("rating query/params = %+v", calls[0])
+	}
+	found, err = g.RetireLesson(context.Background(), "lesson-1", "obsolete", testAt)
+	if err != nil || !found {
+		t.Fatalf("RetireLesson = %v, %v", found, err)
+	}
+	calls = r.snapshot()
+	if calls[1].params["reason"] != "obsolete" || !strings.Contains(calls[1].statement, "retiredAt") {
+		t.Fatalf("retire query/params = %+v", calls[1])
+	}
+}
+
+func TestSimilarLessonsExcludesRetired(t *testing.T) {
+	r := &fakeRunner{}
+	if _, err := NewGraph(r).SimilarLessons(context.Background(), "ao", "tip", []float64{1}, 0.8); err != nil {
+		t.Fatal(err)
+	}
+	call := r.snapshot()[0]
+	if call.statement != similarLessonsCypher || !strings.Contains(call.statement, "retiredAt IS NULL") {
+		t.Fatalf("similar query = %s", call.statement)
+	}
+}
+
 func TestPriorBuildsSubqueries(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -233,6 +265,19 @@ func TestPriorBuildsSubqueries(t *testing.T) {
 				t.Fatalf("issueKey = %v", p["issueKey"])
 			}
 		})
+	}
+}
+
+func TestLessonRetrievalExcludesRetiredAndRanksRatings(t *testing.T) {
+	for name, query := range map[string]string{"fulltext": lessonsCypher, "vector": lessonsVectorCypher} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(query, "retiredAt IS NULL") || !strings.Contains(query, "l.useful") || !strings.Contains(query, "l.wrong") || !strings.Contains(query, "2.0 * coalesce(l.wrong, 0)") {
+				t.Fatalf("query missing retired filter or rating rank: %s", query)
+			}
+		})
+	}
+	if !strings.Contains(similarLessonsCypher, "retiredAt IS NULL") {
+		t.Fatalf("similar lesson lookup must exclude retired lessons: %s", similarLessonsCypher)
 	}
 }
 

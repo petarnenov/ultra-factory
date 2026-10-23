@@ -72,6 +72,11 @@ func TestFormatSection(t *testing.T) {
 			want:  []string{"- [tip] plain"},
 		},
 		{
+			name:  "lesson includes a short rateable id",
+			items: []Item{{Section: "lesson", ID: "12345678-90ab", Text: "plain"}},
+			want:  []string{"- [tip] (12345678) plain"},
+		},
+		{
 			name:    "unknown sections are ignored",
 			items:   []Item{{Section: "other", Title: "x"}},
 			want:    []string{"No earlier task"},

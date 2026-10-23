@@ -128,6 +128,24 @@ func TestAddLessonStoresLesson(t *testing.T) {
 	}
 }
 
+func TestAddLessonMatchingOnlyRetiredCandidateStoresNew(t *testing.T) {
+	r := &fakeRunner{reply: func(statement string) ([]Row, error) {
+		if statement == similarLessonsCypher {
+			return nil, nil
+		}
+		return nil, nil
+	}}
+	svc := New(Deps{Graph: NewGraph(r), Sessions: &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, HostID: "host1", NewID: func() string { return "new-lesson" }, Now: func() time.Time { return testAt }, Embedder: &fakeEmbedder{vec: []float64{0.5}}, MergeScore: 0.9})
+	added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Kind: "tip", Text: "new wording"})
+	if err != nil || added != (AddedLesson{ID: "new-lesson"}) {
+		t.Fatalf("AddLesson = %+v, %v", added, err)
+	}
+	calls := r.snapshot()
+	if len(calls) < 2 || calls[0].statement != similarLessonsCypher || calls[1].statement != addLessonCypher {
+		t.Fatalf("queries = %+v", calls)
+	}
+}
+
 func TestAddLessonDefaultsKindToTip(t *testing.T) {
 	r := &fakeRunner{}
 	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, nil)
@@ -223,6 +241,47 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestRateLessonValidationAndStoredTarget(t *testing.T) {
+	validSessions := &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}
+	tests := []struct {
+		name string
+		in   RatingInput
+		code string
+	}{
+		{"missing session", RatingInput{LessonID: "l1", Rating: "wrong"}, "SESSION_ID_REQUIRED"},
+		{"missing lesson", RatingInput{SessionID: "s1", Rating: "wrong"}, "LESSON_ID_REQUIRED"},
+		{"invalid rating", RatingInput{SessionID: "s1", LessonID: "l1", Rating: "bad"}, "INVALID_RATING"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRunner{}
+			_, code := apiCode(t, newTestService(r, validSessions, nil).RateLesson(context.Background(), tt.in))
+			if code != tt.code || len(r.snapshot()) != 0 {
+				t.Fatalf("code=%s calls=%d", code, len(r.snapshot()))
+			}
+		})
+	}
+	r := &fakeRunner{rows: []Row{{"id": "stored"}}}
+	err := newTestService(r, validSessions, nil).RateLesson(context.Background(), RatingInput{SessionID: "s1", LessonID: "stored", Rating: "useful"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := r.snapshot()[0]
+	if call.params["id"] != "stored" || call.params["taskKey"] != "host1/s1" {
+		t.Fatalf("rating params = %#v", call.params)
+	}
+}
+
+func TestRetireLessonValidation(t *testing.T) {
+	for _, tt := range []struct{ id, reason, code string }{{"", "obsolete", "LESSON_ID_REQUIRED"}, {"l1", " ", "RETIRE_REASON_REQUIRED"}} {
+		r := &fakeRunner{}
+		_, code := apiCode(t, newTestService(r, &fakeSessions{}, nil).RetireLesson(context.Background(), tt.id, tt.reason))
+		if code != tt.code || len(r.snapshot()) != 0 {
+			t.Fatalf("code=%s calls=%d", code, len(r.snapshot()))
+		}
+	}
+}
+
 func TestSearchWithoutTermsReturnsEmpty(t *testing.T) {
 	r := &fakeRunner{}
 	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}, nil)
@@ -284,7 +343,7 @@ func TestPriorContextReturnsLessonIDsOnly(t *testing.T) {
 	if !reflect.DeepEqual(ids, []string{"l1", "l2"}) {
 		t.Fatalf("ids = %#v", ids)
 	}
-	if !strings.HasPrefix(section, "## Knowledge Graph") || !strings.Contains(section, "- [tip] one") {
+	if !strings.HasPrefix(section, "## Knowledge Graph") || !strings.Contains(section, "- [tip] (l1) one") {
 		t.Fatalf("section = %q", section)
 	}
 }
