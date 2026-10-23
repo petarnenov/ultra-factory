@@ -98,13 +98,14 @@ OPTIONAL MATCH (:Task)-[r:RECEIVED]->(l)
 WITH l, count(r) AS served
 RETURN l.project, l.id, l.kind, l.text, served,
        coalesce(l.helped, 0) AS helped, coalesce(l.hurt, 0) AS hurt,
-       l.useful AS useful, l.wrong AS wrong
+       l.useful AS useful, l.wrong AS wrong,
+       l.retiredAt AS retiredAt, l.retiredReason AS retiredReason
 ORDER BY served DESC LIMIT 50;
 ```
 
-The `useful` and `wrong` fields are not available until #560 is rolled out;
-until then, omit those return expressions when running the current query.
-The separate wrong-rated query is also pending that rollout:
+The `useful`, `wrong`, `retiredAt`, and `retiredReason` fields were added by
+#560. Run queries using these fields only after the all-host rollout. The
+separate wrong-rated query is also pending that rollout:
 
 ```cypher
 // Pending #560 rollout: lessons workers rated wrong.
@@ -112,6 +113,16 @@ MATCH (l:Lesson)
 WHERE coalesce(l.wrong, 0) > 0
 RETURN l.project, l.id, l.kind, l.text, l.wrong
 ORDER BY l.wrong DESC LIMIT 50;
+```
+
+Review retired lessons and their operator-recorded reasons after rollout:
+
+```cypher
+// Pending the all-host rollout of #560.
+MATCH (l:Lesson)
+WHERE l.retiredAt IS NOT NULL
+RETURN l.project, l.id, l.kind, l.text, l.retiredAt, l.retiredReason
+ORDER BY l.retiredAt DESC LIMIT 50;
 ```
 
 Find likely near-duplicates by cosine similarity within one project. Treat
@@ -153,9 +164,9 @@ Retiring a lesson writes to the shared graph. Only the operator performs that
 write; workers can identify and report candidates but must not retire lessons.
 Retirement and rating commands, and live validation of queries that use the
 new `useful`, `wrong`, or retirement fields, remain pending until #560 has
-rolled out. Run every query and record its result counts in the issue comment
-once the rollout is available. Do not treat the pending queries or final live
-validation as complete before then.
+rolled out to every host. Run every query and record its result counts in the
+issue comment once the rollout is available. Do not treat the pending queries
+or final live validation as complete before then.
 
 ## Change the embedding model
 
