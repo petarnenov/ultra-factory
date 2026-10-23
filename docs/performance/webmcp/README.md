@@ -18,7 +18,7 @@ Each driver/scenario has one warm-up and five measured repeats, run serially wit
 
 ## Results
 
-Machine and environment from the records: Intel(R) Core(TM) i7-10700K CPU @ 3.80GHz, 16 logical CPUs, 40 GiB RAM; macOS x64; Node v24.21.0; Chromium 148.0.7778.96; 1280 × 720 viewport. The records identify platform and architecture but do not include a macOS version. There are 203 records across the three drivers, including warm-ups and failed measured attempts. Values below are the summarizer's medians and measured-repeat ranges; see [raw measurements](measurements.json) and the dashboard's [summary data](../../frontend/src/renderer/benchmarks/data/summary.json).
+Machine and environment from the records: Intel(R) Core(TM) i7-10700K CPU @ 3.80GHz, 16 logical CPUs, 40 GiB RAM; macOS x64; Node v24.21.0; Chromium 148.0.7778.96; 1280 × 720 viewport. The records identify platform and architecture but do not include a macOS version. There are 203 records across the three drivers, including warm-ups and failed measured attempts. Values below are the summarizer's medians and measured-repeat ranges; see [raw measurements](measurements.json) and the dashboard's [summary data](../../../frontend/src/renderer/benchmarks/data/summary.json).
 
 | Scenario | Driver | Median (min–max) | Pass rate |
 | --- | --- | ---: | ---: |
