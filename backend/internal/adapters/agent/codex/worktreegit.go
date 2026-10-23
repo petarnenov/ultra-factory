@@ -1,8 +1,11 @@
 package codex
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -59,12 +62,46 @@ func codexGitMetadataWritableArgs(ctx context.Context, workspace string) ([]stri
 
 func gitPath(ctx context.Context, workspace string, args ...string) (string, error) {
 	cmdArgs := append([]string{"-C", workspace, "rev-parse"}, args...)
-	output, err := aoprocess.CommandContext(ctx, "git", cmdArgs...).Output()
+	cmd := aoprocess.CommandContext(ctx, "git", cmdArgs...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		return "", nil
+		if strings.Contains(stderr.String(), "not a git repository") {
+			hasMetadata, markerErr := workspaceHasGitMetadata(workspace)
+			if markerErr != nil {
+				return "", markerErr
+			}
+			if !hasMetadata {
+				return "", nil
+			}
+		}
+		return "", fmt.Errorf("codex: git rev-parse %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+func workspaceHasGitMetadata(workspace string) (bool, error) {
+	abs, err := filepath.Abs(workspace)
+	if err != nil {
+		return false, fmt.Errorf("codex: resolve workspace for Git metadata check: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return false, fmt.Errorf("codex: inspect workspace for Git metadata: %w", err)
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("codex: workspace %q is not a directory", workspace)
+	}
+	_, err = os.Lstat(filepath.Join(abs, ".git"))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("codex: inspect Git metadata marker: %w", err)
 }

@@ -400,6 +400,25 @@ func TestGetLaunchCommandAddsLinkedWorktreeGitMetadataRoots(t *testing.T) {
 	}
 }
 
+func TestCodexGitMetadataWritableArgsDistinguishesMissingAndBrokenMetadata(t *testing.T) {
+	t.Run("non repository", func(t *testing.T) {
+		args, err := codexGitMetadataWritableArgs(context.Background(), t.TempDir())
+		if err != nil || len(args) != 0 {
+			t.Fatalf("args = %#v, error = %v, want no override", args, err)
+		}
+	})
+
+	t.Run("broken linked worktree", func(t *testing.T) {
+		workspace, _, _ := makeLinkedGitWorktree(t)
+		if err := os.WriteFile(filepath.Join(workspace, ".git"), []byte("gitdir: missing-target\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := codexGitMetadataWritableArgs(context.Background(), workspace); err == nil {
+			t.Fatal("expected malformed linked worktree metadata to return an error")
+		}
+	})
+}
+
 func makeLinkedGitWorktree(t *testing.T) (string, string, string) {
 	t.Helper()
 	root := t.TempDir()
