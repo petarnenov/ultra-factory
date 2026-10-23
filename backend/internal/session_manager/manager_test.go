@@ -12361,6 +12361,21 @@ func TestWorkerEscalationPromptResolvesRootHostByExactIDAcrossSameProjectHosts(t
 	if matchedHost != "host-b" {
 		t.Fatalf("matched host = %q, want host-b for exact root ID %q", matchedHost, rootSessionID)
 	}
+	link := struct {
+		localProjectID  string
+		remoteProjectID string
+		remoteSessionID string
+	}{
+		localProjectID:  "root-project",
+		remoteProjectID: "worker-project",
+		remoteSessionID: "worker-7",
+	}
+	if link.localProjectID == link.remoteProjectID {
+		t.Fatal("fixture must use different local and remote project IDs")
+	}
+	if link.remoteSessionID != "worker-7" {
+		t.Fatalf("remote session ID = %q, want worker-7", link.remoteSessionID)
+	}
 
 	for _, want := range []string{
 		"ao host ls",
@@ -12368,7 +12383,10 @@ func TestWorkerEscalationPromptResolvesRootHostByExactIDAcrossSameProjectHosts(t
 		"matching the session ID exactly to that `rootSessionId`",
 		"if two hosts both list this project but only one lists the returned root session ID, use that host",
 		"Never choose a host just because its project or orchestrator listing matches",
-		"ao remote-worker ls --project $AO_PROJECT_ID --json",
+		"ao remote-worker ls --json",
+		"do not pass `--project $AO_PROJECT_ID`",
+		"that is the remote daemon's project ID",
+		"this filter matches the link's local project",
 		"remoteSessionId",
 		"ownerSessionId",
 		"ao send --host <root-host-label> --session <owner-session-id>",
