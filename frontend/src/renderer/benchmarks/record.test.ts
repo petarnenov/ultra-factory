@@ -9,6 +9,7 @@ import {
 
 const base: BenchRecord = {
 	schema: 1,
+	protocolVersion: 1,
 	runId: "run-1",
 	label: "wm-3.1.1",
 	commit: "abc123",
@@ -154,6 +155,11 @@ describe("validateRecord", () => {
 		expect(() => validateRecord(invalid)).toThrow(/driver/);
 	});
 
+	it("rejects a record without protocol version", () => {
+		const invalid = withoutField(base, "protocolVersion");
+		expect(() => validateRecord(invalid)).toThrow(/protocolVersion/);
+	});
+
 	it("rejects a record without env.chromium", () => {
 		const env: Record<string, unknown> = { ...base.env };
 		delete env.chromium;
@@ -167,7 +173,7 @@ describe("validateRecord", () => {
 
 	it("lists every missing field in one error", () => {
 		expect(() => validateRecord({})).toThrow(
-			/schema, runId, label.*driver.*steps/,
+			/schema, protocolVersion, runId, label.*driver.*steps/,
 		);
 	});
 });

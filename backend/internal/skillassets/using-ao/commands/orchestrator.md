@@ -28,35 +28,42 @@ ao orchestrator ls [flags]
 | `--json` | Output as JSON | - |
 | `--host string` | List orchestrators on a paired remote AO machine | This machine |
 
-## Delegating to other machines
+## Delegating to other hosts
 
-An orchestrator can spread workers across machines the user paired as remote
-hosts: `ao host ls`, then `ao spawn --host <name> ...`, and follow them with
-`ao session ls --host <name>`. See [host.md](host.md).
+Discover available hosts with `ao host ls`, start remote work with
+`ao spawn --host <host> ...`, and follow it with
+`ao session ls --host <host>`. See [host.md](host.md).
 
 ## Delegating through coordinators
 
 When coordinators are enabled and an assignment has two or more bounded areas
-that can run independently, spawn one coordinator per area instead of spawning
-every worker yourself:
+that can run independently, delegate those areas to coordinators instead of
+spawning every implementation worker yourself. Give each coordinator a full
+brief with scope, exclusions, tasks and acceptance criteria, worker cap and
+branch rules, and reporting cadence. Keep one-off tasks as direct workers.
 
 ```bash
-ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>
+ao spawn --kind coordinator --scope "<area>" --max-workers <n> \
+  --hosts <label>:<slots>[,...] --prompt "<full brief>"
 ```
 
-The brief has five sections: scope, out of scope, task list with acceptance
-criteria, worker cap and branch rules, and reporting cadence.
-Check coordinators with `ao coordinator ls`, change limits with
-`ao coordinator set-limits <coordinator-id>`, and move a worker with
-`ao session assign <worker> --owner <coordinator-id>`. Only the root merges; a
-coordinator reports `ao coordinator report --ready-pr <number>@<head-sha>`.
-Keep one-off tasks as direct workers.
+Use `ao coordinator ls` to inspect coordinator scopes and their local workers;
+use `ao remote-worker ls` for linked remote workers. Change limits with
+`ao coordinator set-limits <coordinator-id>`. Assign an existing local worker
+with `ao session assign <worker> --owner <coordinator-id>` or a linked worker
+with `ao remote-worker assign <host-id> <worker-id> --owner <coordinator-id>`.
+Only the root merges. A coordinator reports ready PRs with
+`ao coordinator report --ready-pr <number>@<head-sha>`.
 
-Host allocation: discover hosts with `ao host ls`, skip hosts that run their
-own orchestrator or coordinator (`LOCAL_ORCHESTRATOR_ACTIVE`), probe each for
-toolchain and required secrets with a short worker, then split slots as
-`--hosts <label>:<slots>`. Never hard-code a host label in a prompt, brief or
-worker prompt.
+### Host allocation
+
+Discover candidate hosts with `ao host ls`. Check each with
+`ao orchestrator ls --host <host>` and `ao coordinator ls --host <host>`; do not
+allocate workers to a host running its own orchestrator or coordinator
+(`LOCAL_ORCHESTRATOR_ACTIVE`). Probe candidates with a short worker for the
+required toolchain and credentials, then allocate capacity per coordinator
+with `--hosts <label>:<slots>`. Never hard-code a host label in a prompt, brief,
+or worker prompt; resolve it from the host registry.
 
 ## Examples
 

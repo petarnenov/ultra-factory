@@ -94,6 +94,7 @@ function buildRecord(run: RunContext, result: DriverResult): BenchRecord {
 	const viewport = run.page.viewportSize();
 	return {
 		schema: 1,
+		protocolVersion: 1,
 		runId,
 		label,
 		commit,
@@ -121,7 +122,7 @@ async function writeRecord(record: BenchRecord): Promise<void> {
 	const output = process.env.AO_PERF_DIR;
 	if (!output) return;
 	await mkdir(output, { recursive: true });
-	const file = `${label}-${record.scenario}-${record.driver}-${record.repeat}.json`;
+	const file = `${label}-${record.runId}-${record.scenario}-${record.driver}-${record.repeat}.json`;
 	await writeFile(path.join(output, file), JSON.stringify(record, null, 2) + "\n");
 }
 

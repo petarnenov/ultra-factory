@@ -12393,6 +12393,66 @@ func TestSystemPrompt_WorkerEscalationResolvesOwnerAtSendTime(t *testing.T) {
 	}
 }
 
+func TestWorkerEscalationPromptResolvesRootHostByExactIDAcrossSameProjectHosts(t *testing.T) {
+	sp := workerEscalationPrompt()
+	rootSessionID := "project-root-b"
+	hostSessions := map[string][]struct {
+		projectID string
+		sessionID string
+	}{
+		"host-a": {{projectID: "project", sessionID: "project-root-a"}},
+		"host-b": {{projectID: "project", sessionID: rootSessionID}},
+	}
+	matchedHost := ""
+	for host, sessions := range hostSessions {
+		for _, session := range sessions {
+			if session.projectID == "project" && session.sessionID == rootSessionID {
+				matchedHost = host
+			}
+		}
+	}
+	if matchedHost != "host-b" {
+		t.Fatalf("matched host = %q, want host-b for exact root ID %q", matchedHost, rootSessionID)
+	}
+	link := struct {
+		localProjectID  string
+		remoteProjectID string
+		remoteSessionID string
+	}{
+		localProjectID:  "root-project",
+		remoteProjectID: "worker-project",
+		remoteSessionID: "worker-7",
+	}
+	if link.localProjectID == link.remoteProjectID {
+		t.Fatal("fixture must use different local and remote project IDs")
+	}
+	if link.remoteSessionID != "worker-7" {
+		t.Fatalf("remote session ID = %q, want worker-7", link.remoteSessionID)
+	}
+
+	for _, want := range []string{
+		"ao host ls",
+		"ao session ls --host <host> --json",
+		"matching the session ID exactly to that `rootSessionId`",
+		"if two hosts both list this project but only one lists the returned root session ID, use that host",
+		"Never choose a host just because its project or orchestrator listing matches",
+		"ao remote-worker ls --json",
+		"do not pass `--project $AO_PROJECT_ID`",
+		"that is the remote daemon's project ID",
+		"this filter matches the link's local project",
+		"remoteSessionId",
+		"ownerSessionId",
+		"ao send --host <root-host-label> --session <owner-session-id>",
+	} {
+		if !strings.Contains(sp, want) {
+			t.Errorf("remote escalation prompt missing %q:\n%s", want, sp)
+		}
+	}
+	if strings.Contains(sp, "ao orchestrator ls --host <host> --json") {
+		t.Fatalf("remote root host lookup must use the exact rootSessionId, not project matching:\n%s", sp)
+	}
+}
+
 func TestSpawnCoordinatorPersistsItsOwnWorkerLimitAndPromptShowsTheEffectiveOne(t *testing.T) {
 	two, five := 2, 5
 	for _, tc := range []struct {
