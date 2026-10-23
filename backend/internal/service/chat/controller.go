@@ -1465,6 +1465,17 @@ func (c *Controller) sendLocked(
 	if handoff {
 		return domain.ConversationTurn{}, nil, 0, ErrControllerHandoff
 	}
+	if msg.SupersedeSenderSessionID != "" && msg.ClientMessageID != "" {
+		if _, found, err := c.store.ConversationMessageByClientID(
+			ctx, c.conversation.ID, msg.ClientMessageID,
+		); err != nil {
+			return domain.ConversationTurn{}, nil, 0, fmt.Errorf("read message delivery: %w", err)
+		} else if found {
+			// A replay must not apply superseding side effects to messages that
+			// arrived after the original request was accepted.
+			return domain.ConversationTurn{}, nil, 0, nil
+		}
+	}
 	queuing := queueWhenBusy && c.busy()
 	if !queuing && c.reviewNudgeResolved(ctx, msg.ClientMessageID) {
 		return domain.ConversationTurn{}, nil, 0, nil

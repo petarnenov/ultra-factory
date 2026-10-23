@@ -6014,6 +6014,51 @@ func TestRelaySessionChatTurnAddsTimestampAndSupersedesOnlySenderQueue(t *testin
 	}
 }
 
+func TestSupersedeReplayDoesNotCancelMessagesQueuedAfterOriginalSend(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	original, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "original instruction", "original-id",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true})
+	if err != nil || original.Queued || original.SupersededCount != 0 {
+		t.Fatalf("initial superseding delivery = %+v, err=%v; want direct accepted send", original, err)
+	}
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+
+	newer, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "newer queued instruction", "newer-id",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a"})
+	if err != nil || !newer.Queued {
+		t.Fatalf("newer queued delivery = %+v, err=%v; want queued", newer, err)
+	}
+
+	replay, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "original instruction", "original-id",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true})
+	if err != nil {
+		t.Fatalf("replay original superseding delivery: %v", err)
+	}
+	if replay.Queued || replay.SupersededCount != 0 {
+		t.Fatalf("replayed delivery = %+v, want no-op with zero superseded", replay)
+	}
+
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, h.ctrl.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := turnStateByText(t, snapshot)
+	var newerState domain.TurnState
+	for message, state := range states {
+		if strings.Contains(message, "newer queued instruction") {
+			newerState = state
+		}
+	}
+	if newerState != domain.TurnStateQueued {
+		t.Fatalf("newer message state = %q, want queued; states=%v", newerState, states)
+	}
+}
+
 type rejectingSupersedingAppendStore struct {
 	*sqlite.Store
 }
