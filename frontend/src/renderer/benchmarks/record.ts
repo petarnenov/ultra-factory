@@ -17,6 +17,7 @@ export type BenchStep = {
 
 export type BenchRecord = {
 	schema: 1;
+	protocolVersion: 1;
 	runId: string; // unique batch identity; reruns use a new ID
 	label: string;
 	commit: string;
@@ -148,6 +149,7 @@ export function validateRecord(r: unknown): asserts r is BenchRecord {
 		if (!ok) problems.push(field);
 	};
 	check(r.schema === 1, "schema");
+	check(r.protocolVersion === 1, "protocolVersion");
 	check(isString(r.runId), "runId");
 	check(isString(r.label), "label");
 	check(isString(r.commit), "commit");
