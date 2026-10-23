@@ -104,7 +104,7 @@ export function BenchmarksView() {
 							{tabs.map((tab) => (
 								<TabsContent key={tab} value={tab} className="mt-3 min-w-0">
 									<div className="min-w-0">
-										<BenchmarkChartPanel tab={tab} summary={filtered.summary} records={filtered.records} drivers={visibleDrivers} />
+										<BenchmarkChartPanel tab={tab} summary={filtered.summary} records={filtered.records} calibrationRecords={data.records} drivers={visibleDrivers} />
 									</div>
 								</TabsContent>
 							))}

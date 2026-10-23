@@ -31,11 +31,14 @@ export function aggregateDriverPassRates(summary: BenchSummaryRow[]) {
 	});
 }
 
-export function getOverheadReference(records: BenchRecord[]): number | null {
-	const callOverheads = records
+export function getOverheadReference(
+	calibrationRecords: BenchRecord[],
+	flowRecords: BenchRecord[] = calibrationRecords,
+): number | null {
+	const callOverheads = calibrationRecords
 		.filter((record) => record.page === "overhead" && record.pass && record.driver !== "playwright")
 		.flatMap((record) => record.steps.map((step) => step.roundTripMs));
-	const measuredFlowStepCounts = records
+	const measuredFlowStepCounts = flowRecords
 		.filter((record) => record.page !== "overhead" && record.pass && record.driver !== "playwright")
 		.map((record) => record.steps.length);
 	const overheadPerCall = median(callOverheads);

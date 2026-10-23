@@ -66,7 +66,7 @@ function totalsConfig(t: TFunction): ChartConfig {
 	};
 }
 
-function TotalsChart({ summary, records, drivers }: { summary: BenchSummaryRow[]; records: BenchRecord[]; drivers: Driver[] }) {
+function TotalsChart({ summary, records, calibrationRecords, drivers }: { summary: BenchSummaryRow[]; records: BenchRecord[]; calibrationRecords: BenchRecord[]; drivers: Driver[] }) {
 	const { t } = useTranslation();
 	const scenarios = scenariosFrom(summary);
 	const data = scenarios.map(({ scenario, values }) => ({
@@ -78,7 +78,7 @@ function TotalsChart({ summary, records, drivers }: { summary: BenchSummaryRow[]
 		jev: values["webmcp-jev"]?.medianMs ?? undefined,
 		jevError: errorRange(values["webmcp-jev"]),
 	}));
-	const overhead = getOverheadReference(records);
+	const overhead = getOverheadReference(calibrationRecords, records);
 	const config = totalsConfig(t);
 	const headers = [t("benchmarks.col.scenario"), ...drivers.map((driver) => driverLabel(driver, t))];
 	return (
@@ -221,13 +221,14 @@ function PassRateChart({ summary, drivers }: { summary: BenchSummaryRow[]; drive
 	);
 }
 
-export function BenchmarkChartPanel({ tab, summary, records, drivers }: {
+export function BenchmarkChartPanel({ tab, summary, records, calibrationRecords, drivers }: {
 	tab: "totals" | "jev" | "repeats" | "passRate";
 	summary: BenchSummaryRow[];
 	records: BenchRecord[];
+	calibrationRecords: BenchRecord[];
 	drivers: Driver[];
 }) {
-	if (tab === "totals") return <TotalsChart summary={summary} records={records} drivers={drivers} />;
+	if (tab === "totals") return <TotalsChart summary={summary} records={records} calibrationRecords={calibrationRecords} drivers={drivers} />;
 	if (tab === "jev") return <JevChart summary={summary} />;
 	if (tab === "repeats") return <RepeatsChart records={records} drivers={drivers} />;
 	return <PassRateChart summary={summary} drivers={drivers} />;

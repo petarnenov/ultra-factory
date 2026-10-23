@@ -8,6 +8,15 @@ export type BenchmarkData = {
 	summary: BenchSummaryRow[];
 };
 
+function canonicalize(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonicalize);
+	if (typeof value !== "object" || value === null) return value;
+	return Object.fromEntries(
+		Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+			.map(([key, entry]) => [key, canonicalize(entry)]),
+	);
+}
+
 export function validateBenchmarkData(recordsValue: unknown, summaryValue: unknown): BenchmarkData {
 	if (!Array.isArray(recordsValue)) throw new Error("benchmark measurements must be an array");
 	if (!Array.isArray(summaryValue)) throw new Error("benchmark summary must be an array");
@@ -17,7 +26,7 @@ export function validateBenchmarkData(recordsValue: unknown, summaryValue: unkno
 	const order = (row: BenchSummaryRow) => `${row.scenario}\u0000${row.page}\u0000${row.driver}`;
 	const expected = summarize(records).sort((left, right) => order(left).localeCompare(order(right)));
 	const supplied = [...summary].sort((left, right) => order(left).localeCompare(order(right)));
-	if (JSON.stringify(expected) !== JSON.stringify(supplied)) {
+	if (JSON.stringify(canonicalize(expected)) !== JSON.stringify(canonicalize(supplied))) {
 		throw new Error("benchmark summary does not match measurements");
 	}
 	return { records, summary };
