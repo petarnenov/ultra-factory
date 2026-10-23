@@ -35,6 +35,8 @@ OpenSpec 1.14.3 generated and this repository checked these profiles:
 
 Only these three profiles are initialized here. Generated guidance supplements the repository’s `AGENTS.md`, `docs/agents/`, and task-specific instructions; it does not override them or grant permission to skip their review, security, CI, issue, branch, or integration rules. Existing project instructions were not edited by initialization.
 
+The upstream generated commands and skills use bare `openspec` invocations. In this repository, run every CLI command from the repository root as `npm run openspec -- <original arguments>` (for example, translate `openspec status --change <id> --json` to `npm run openspec -- status --change <id> --json`). This applies to all generated Claude Code, Codex, and OpenCode 2 workflows, including commands they print as follow-up hints. Never invoke a global or bare executable; the npm script selects the lockfile-pinned version.
+
 ## Provenance and upgrades
 
 At implementation setup on 2026-10-23 20:21:05 UTC, the official npm `latest` tag resolved to `@fission-ai/openspec` 1.14.3. npm metadata identifies upstream repository `https://github.com/Fission-AI/OpenSpec`, release/tag [`v1.14.3`](https://github.com/Fission-AI/OpenSpec/releases/tag/v1.14.3), published 2026-10-17 at commit `c794978f4f8845ce59693373c9dd882ee776588c`. The package declares Node `>=20.19.0`; local validation used Node `v24.21.0` and npm `11.19.0`. Registry tarball: `https://registry.npmjs.org/@fission-ai/openspec/-/openspec-1.14.3.tgz`. Lockfile integrity: `sha512-ALFW1d5bSm6t27Kmcle93SDFuqUc8fLwy5ZdBfIiNffo0Yk9AEOJxw6xDqBv38eMM7l7TeOZBB/7C08luxYGfg==`.
