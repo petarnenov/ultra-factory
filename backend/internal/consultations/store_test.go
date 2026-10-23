@@ -219,3 +219,42 @@ func TestDetailDistinguishesUnavailableRetainedEvidence(t *testing.T) {
 		t.Fatal("unavailability destroyed or misreported evidence")
 	}
 }
+
+func TestCompleteOneRoundImportDetailExcludesUnusedPlaceholders(t *testing.T) {
+	dir, root := archive(t)
+	writeCompleteArchive(t, dir)
+	d, err := ReadArchive(context.Background(), root, "host", "2026-10-23", "case", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted map[string]any
+	s := &Store{Write: runnerFunc(func(_ context.Context, _ string, p map[string]any) ([]knowledgegraph.Row, error) {
+		persisted = p
+		return nil, nil
+	})}
+	s.Read = runnerFunc(func(context.Context, string, map[string]any) ([]knowledgegraph.Row, error) {
+		rows := []knowledgegraph.Row{}
+		for _, item := range persisted["artifacts"].([]map[string]any) {
+			rows = append(rows, knowledgegraph.Row{"summary": persisted["summary"], "artifact": item["content"], "missing": item["missing"], "unavailable": item["unavailable"]})
+		}
+		return rows, nil
+	})
+	if d.Partial {
+		t.Fatal("complete source fixture is partial")
+	}
+	if err := s.Import(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Detail(context.Background(), d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Partial || got.Rounds != 1 || len(got.Artifacts) != len(d.Artifacts) {
+		t.Fatalf("unused placeholders changed complete evidence: %+v", got.Summary)
+	}
+	for _, a := range got.Artifacts {
+		if a.Round == 2 || a.Phase == "arbitration" {
+			t.Fatal("unused artifacts leaked into detail")
+		}
+	}
+}

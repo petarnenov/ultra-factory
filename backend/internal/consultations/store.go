@@ -182,13 +182,9 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 		if unavailable, ok := row["unavailable"].(bool); ok {
 			a.Unavailable = unavailable
 		}
-		if a.Missing || a.Unavailable {
-			d.Partial = true
-		}
 		a.AbsentSince = row.String("absentSince")
 		if a.AbsentSince != "" {
 			a.Missing = true
-			d.Partial = true
 		}
 		byName[a.Name] = a
 	}
@@ -213,14 +209,17 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 	}
 	for _, a := range artifactLayout() {
 		stored, ok := byName[a.Name]
-		if !ok || (a.Round > 0 && !groups[a.Round]) {
+		if !ok || (a.Round > 0 && !groups[a.Round] && !stored.Unavailable) {
 			continue
 		}
-		if a.Phase == "ballot" && !ballots[a.Round] {
+		if a.Phase == "ballot" && !ballots[a.Round] && !stored.Unavailable {
 			continue
 		}
-		if a.Phase == "arbitration" && stored.Missing && stored.AbsentSince == "" && d.Arbitration.Status == "" && d.Mode != "d03_fallback" && d.Mode != "fallback_arbitration" {
+		if a.Phase == "arbitration" && stored.Missing && stored.Hash == "" {
 			continue
+		}
+		if stored.Missing || stored.Unavailable || stored.Truncated || (stored.Phase == "ballot" && len(stored.Ballots) == 0) {
+			d.Partial = true
 		}
 		d.Artifacts = append(d.Artifacts, stored)
 	}

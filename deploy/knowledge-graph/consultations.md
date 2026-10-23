@@ -28,7 +28,7 @@ consultation, with an
 explicit truncation flag and full-file SHA-256 for successfully hashed artifacts.
 Symlinks and nonregular artifacts are rejected. Only the exact skill artifacts
 for the three named consuls and rounds 1–2, plus the explicitly supported
-`fallback-arbitration/fable.md` original arbiter report, are indexed; logs,
+`fallback-arbitration/{fable,astra,deepseek}.md` original arbiter reports, are indexed; logs,
 prompts and other directories are excluded.
 
 Set `AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN=0` before starting the daemon to disable
@@ -44,7 +44,9 @@ verified timestamps, dedicated decision status and separate process statuses.
 It also reads only nested `archive.status`, `delivery.status`, escalation status
 and UTC timestamps, and per-consul closure strings (including the fallback
 arbiter). Fallback arbitration exposes only status, requested model, effort and
-host. Unknown shapes remain unknown. Requester is read only from a structured
+host for any permitted arbiter. Model identifiers may include one provider/model
+separator, as in `opencode/deepseek-v4.1-flash`; absolute paths remain invalid.
+Fallback closure keys are allowlisted separately for Fable, Astra and DeepSeek. Unknown shapes remain unknown. Requester is read only from a structured
 `requester` string; `owner`, caller prose and channel objects never supply it.
 The skill requires this explicit field for new consultations; historical
 archives without it remain Unknown and are never rewritten to infer a caller.
@@ -70,7 +72,7 @@ mismatched
 versions and other formatting produce unknown stance while retaining raw text.
 Keep rationale in the original collected reports. This grammar does not infer
 required decision IDs, quorum, consensus or final outcomes. Historic ballots are
-not rewritten. `fallback_arbitration` metadata and its original Fable report identify
+not rewritten. `fallback_arbitration` metadata and observed original arbiter reports identify
 arbitration without council votes. Proposal versions and observed ballot rounds
 are counted separately; a proposal file alone does not create a voting round.
 

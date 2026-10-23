@@ -162,3 +162,135 @@ func TestLiveUnavailableEvidenceRetainsLastCopy(t *testing.T) {
 		t.Fatal("restored artifact stayed unavailable")
 	}
 }
+
+func TestLiveCompleteOneRoundImportDetailNotPartial(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
+	if err != nil || !cfg.Enabled() {
+		t.Skip("no graph configured")
+	}
+	client := knowledgegraph.NewClient(cfg, nil)
+	store := &Store{Write: client, Read: client}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	dir, root := archive(t)
+	writeCompleteArchive(t, dir)
+	host := "complete-round-test-" + time.Now().UTC().Format("20060102T150405.000000000")
+	d, err := ReadArchive(ctx, root, host, "2026-10-23", "case", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := DecodeID(d.ID)
+	t.Cleanup(func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := client.Run(cleanup, `MATCH (c:ArchitectureConsultation {key:$key}) OPTIONAL MATCH (c)-[:HAS_ARTIFACT]->(a) DETACH DELETE c,a`, map[string]any{"key": key})
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if d.Partial {
+		t.Fatal("source fixture is not complete")
+	}
+	if err := store.Import(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Detail(ctx, d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Partial || got.Rounds != 1 || got.ProposalVersions != 1 || len(got.Artifacts) != len(d.Artifacts) {
+		t.Fatalf("unused placeholders marked complete consultation partial: %+v", got.Summary)
+	}
+}
+
+func TestLiveUnavailableRoundEvidenceImportDetail(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
+	if err != nil || !cfg.Enabled() {
+		t.Skip("no graph configured")
+	}
+	client := knowledgegraph.NewClient(cfg, nil)
+	store := &Store{Write: client, Read: client}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	for _, directory := range []bool{false, true} {
+		name := "proposal"
+		if directory {
+			name = "ballot directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir, root := archive(t)
+			artifactName := "proposal-2.md"
+			replaceName := artifactName
+			expectedRounds := 0
+			if directory {
+				artifactName = "ballots/round-2/astra.md"
+				replaceName = "ballots/round-2"
+				expectedRounds = 1
+			}
+			original := "Original proposal"
+			if directory {
+				original = "Proposal: proposal-2.md\nD639-1: APPROVE"
+			}
+			put(t, dir, artifactName, original)
+			host := "round-state-test-" + time.Now().UTC().Format("20060102T150405.000000000")
+			d, err := ReadArchive(ctx, root, host, "2026-10-23", "case", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			key, _ := DecodeID(d.ID)
+			t.Cleanup(func() {
+				cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_, err := client.Run(cleanup, `MATCH (c:ArchitectureConsultation {key:$key}) OPTIONAL MATCH (c)-[:HAS_ARTIFACT]->(a) DETACH DELETE c,a`, map[string]any{"key": key})
+				if err != nil {
+					t.Error(err)
+				}
+			})
+			if err := store.Import(ctx, d); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(dir, "2026-10-23/case", replaceName)
+			if err := os.Rename(path, path+".original"); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			if !directory {
+				outside = filepath.Join(outside, "outside.md")
+				if err := os.WriteFile(outside, []byte("outside-sentinel"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(outside, path); err != nil {
+				t.Fatal(err)
+			}
+			d, err = ReadArchive(ctx, root, host, "2026-10-23", "case", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Import(ctx, d); err != nil {
+				t.Fatal(err)
+			}
+			got, err := store.Detail(ctx, d.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, a := range got.Artifacts {
+				if a.Name == artifactName {
+					found = a.Unavailable && !a.Missing && a.AbsentSince == "" && a.Content == original && a.Hash != ""
+				}
+			}
+			if !found || !got.Partial || got.Rounds != expectedRounds {
+				t.Fatalf("round state was lost or invented: %+v", got.Summary)
+			}
+		})
+	}
+}

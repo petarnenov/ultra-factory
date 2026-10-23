@@ -17,6 +17,7 @@ import (
 )
 
 var consulNames = []string{"deepseek", "astra", "fable"}
+var fallbackConsulNames = []string{"fable", "astra", "deepseek"}
 var voteLine = regexp.MustCompile(`^(D[A-Za-z0-9][A-Za-z0-9._-]{0,63}): (APPROVE|REJECT)$`)
 
 // ParseBallot accepts a version line followed only by unique decision votes.
@@ -51,9 +52,10 @@ func artifactLayout() []Artifact {
 			out = append(out, Artifact{Name: fmt.Sprintf("ballots/round-%d/%s.md", round, name), Phase: "ballot", Round: round, Consul: name})
 		}
 	}
-	out = append(out,
-		Artifact{Name: "fallback-arbitration/fable.md", Phase: "arbitration", Consul: "fable"},
-		Artifact{Name: "final.md", Phase: "final"})
+	for _, name := range fallbackConsulNames {
+		out = append(out, Artifact{Name: "fallback-arbitration/" + name + ".md", Phase: "arbitration", Consul: name})
+	}
+	out = append(out, Artifact{Name: "final.md", Phase: "final"})
 	for _, name := range consulNames {
 		out = append(out, Artifact{Name: name + ".md", Phase: "collected", Consul: name})
 	}
@@ -234,14 +236,14 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 	d.PhaseRounds += d.Rounds
 	filtered := d.Artifacts[:0]
 	for _, a := range d.Artifacts {
-		if a.Round > 0 && !observed[a.Round] {
+		if a.Round > 0 && !observed[a.Round] && !a.Unavailable {
 			continue
 		}
 
-		if a.Phase == "ballot" && !ballots[a.Round] {
+		if a.Phase == "ballot" && !ballots[a.Round] && !a.Unavailable {
 			continue
 		}
-		if a.Phase == "arbitration" && a.Missing && d.Arbitration.Status == "" && d.Mode != "d03_fallback" && d.Mode != "fallback_arbitration" {
+		if a.Phase == "arbitration" && a.Missing {
 			continue
 		}
 		if a.Missing || a.Unavailable || (a.Phase == "ballot" && len(a.Ballots) == 0) || a.Truncated {
@@ -266,6 +268,7 @@ func safeDir(root *os.Root, path string) bool {
 }
 
 var stateToken = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,95}$`)
+var modelToken = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,95}(/[A-Za-z0-9][A-Za-z0-9._-]{0,95})?$`)
 var digestToken = regexp.MustCompile(`^[a-fA-F0-9]{40,64}$`)
 
 func applyState(s *Summary, state map[string]json.RawMessage) {
@@ -332,13 +335,17 @@ func applyState(s *Summary, state map[string]json.RawMessage) {
 	s.EscalationDeadline = timestamp(escalation["deadline_at_utc"])
 	s.RespondedAt = timestamp(escalation["response_at_utc"])
 	closure := nested("closure")
-	for _, name := range []string{"deepseek", "astra", "fable", "fallback_arbiter_fable"} {
+	for _, name := range []string{"deepseek", "astra", "fable", "fallback_arbiter_fable", "fallback_arbiter_astra", "fallback_arbiter_deepseek"} {
 		if value := token(closure[name]); value != "" {
 			s.ConsulClosure = append(s.ConsulClosure, ClosureEvidence{Consul: name, Status: value})
 		}
 	}
 	arbitration := nested("fallback_arbitration")
-	s.Arbitration = ArbitrationEvidence{Status: token(arbitration["status"]), Model: text(arbitration["model_requested"]), Effort: token(arbitration["effort"]), Host: text(arbitration["host"])}
+	s.Arbitration = ArbitrationEvidence{Status: token(arbitration["status"]), Effort: token(arbitration["effort"]), Host: text(arbitration["host"])}
+	var model string
+	if json.Unmarshal(arbitration["model_requested"], &model) == nil && modelToken.MatchString(model) {
+		s.Arbitration.Model = model
+	}
 	if s.Arbitration.Status != "" {
 		s.Mode = "fallback_arbitration"
 	}

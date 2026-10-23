@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,8 +36,8 @@ func put(t *testing.T, dir, name, text string) {
 		t.Fatal(err)
 	}
 }
-func TestArchiveEvidence(t *testing.T) {
-	dir, root := archive(t)
+func writeCompleteArchive(t *testing.T, dir string) {
+	t.Helper()
 	put(t, dir, "state.json", `{"requester":"Engineer","case":"Design","host":"recorded","phase":"complete","decision_status":"resolved","archive_status":"verified","delivery_status":"unconfirmed","closure_status":"not_started","escalation_status":"timed_out","mode":"council","session_id":"secret","path":"/secret","caller":"secret"}`)
 	for _, a := range artifactLayout() {
 		if a.Round == 2 || a.Phase == "arbitration" {
@@ -48,6 +49,11 @@ func TestArchiveEvidence(t *testing.T) {
 		}
 		put(t, dir, a.Name, text)
 	}
+}
+
+func TestArchiveEvidence(t *testing.T) {
+	dir, root := archive(t)
+	writeCompleteArchive(t, dir)
 	d, err := ReadArchive(context.Background(), root, "host", "2026-10-23", "case", time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -223,5 +229,98 @@ func TestArchiveRefusesOutsideEvidenceWithoutReadingIt(t *testing.T) {
 	raw, _ := json.Marshal(d)
 	if strings.Contains(string(raw), "outside-sentinel") || strings.Contains(string(raw), outside) {
 		t.Fatal("outside evidence leaked")
+	}
+}
+
+func TestUnavailableRoundArtifactsSurviveReadAndImport(t *testing.T) {
+	for _, test := range []struct {
+		name, path string
+		directory  bool
+	}{
+		{"proposal", "proposal-2.md", false}, {"ballot directory", "ballots/round-2", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, root := archive(t)
+			outside := t.TempDir()
+			path := filepath.Join(dir, "2026-10-23/case", test.path)
+			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if !test.directory {
+				outside = filepath.Join(outside, "outside.md")
+				if err := os.WriteFile(outside, []byte("outside-sentinel"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(outside, path); err != nil {
+				t.Fatal(err)
+			}
+			d, err := ReadArchive(context.Background(), root, "host", "2026-10-23", "case", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := test.path
+			if test.directory {
+				expected += "/astra.md"
+			}
+			var imported map[string]any
+			s := &Store{Write: runnerFunc(func(_ context.Context, _ string, p map[string]any) ([]knowledgegraph.Row, error) {
+				imported = p
+				return nil, nil
+			})}
+			if err := s.Import(context.Background(), d); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, item := range imported["artifacts"].([]map[string]any) {
+				if item["name"] == expected {
+					found = item["unavailable"] == true && item["missing"] == false
+				}
+			}
+			if !found || d.Rounds != 0 {
+				t.Fatal("unavailable evidence was replaced by missing or invented votes")
+			}
+		})
+	}
+}
+
+func TestEachAuthorizedFallbackArtifactAndMetadata(t *testing.T) {
+	for _, test := range []struct{ name, model string }{
+		{"fable", "claude-fable-5-1"}, {"astra", "gpt-6-astra"}, {"deepseek", "opencode/deepseek-v4.1-flash"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir, root := archive(t)
+			state := map[string]any{"requester": "Recorded engineer", "fallback_arbitration": map[string]string{"status": "completed", "model_requested": test.model, "effort": "medium", "host": "recorded-host"}, "closure": map[string]string{"fallback_arbiter_" + test.name: "exited"}}
+			raw, err := json.Marshal(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			put(t, dir, "state.json", string(raw))
+			put(t, dir, "proposal-1.md", "Recorded proposal")
+			name := "fallback-arbitration/" + test.name + ".md"
+			put(t, dir, name, "APPROVE: original arbitration, no council vote")
+			d, err := ReadArchive(context.Background(), root, "host", "2026-10-23", "case", time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.Mode != "fallback_arbitration" || d.Arbitration.Model != test.model || d.Arbitration.Status != "completed" || len(d.ConsulClosure) != 1 || d.ConsulClosure[0].Consul != "fallback_arbiter_"+test.name {
+				t.Fatalf("lost arbiter metadata %+v", d.Summary)
+			}
+			observed := 0
+			for _, a := range d.Artifacts {
+				if a.Phase == "arbitration" {
+					observed++
+					if a.Name != name || a.Consul != test.name || a.Missing || a.Content == "" || a.Hash == "" || len(a.Ballots) != 0 {
+						t.Fatal("incorrect arbitration evidence")
+					}
+				}
+				if a.Phase == "ballot" {
+					t.Fatal("arbitration manufactured a council ballot")
+				}
+			}
+			if observed != 1 || d.Rounds != 0 || d.Decision != "" {
+				t.Fatal("arbitration manufactured a decision or votes")
+			}
+		})
 	}
 }

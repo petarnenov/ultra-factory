@@ -56,18 +56,19 @@ it("loads a detail using its opaque identifier", async () => {
  expect(get).toHaveBeenCalledWith("/api/v1/knowledge/consultations/{id}", expect.objectContaining({ params: { path: { id: "opaque" } } }));
 });
 
-it("separates recorded fallback arbitration, closure and proposal versions from votes", () => {
+it.each([["fable", "claude-fable-5-1"], ["astra", "gpt-6-astra"], ["deepseek", "opencode/deepseek-v4.1-flash"]])("labels %s fallback arbitration without council votes", (consul, model) => {
  const detail = {
   name: "Arbitration case", partial: true, rounds: 0, proposalVersions: 1, phaseRounds: 0,
   archive: "verified", delivery: "unconfirmed", mode: "fallback_arbitration",
   consulClosure: [{ consul: "deepseek", status: "not_started" }],
-  arbitration: { status: "completed", model: "claude-fable-5-1", effort: "medium" },
-  artifacts: [{ name: "fallback-arbitration/fable.md", phase: "arbitration", consul: "fable", content: "Original arbiter ruling", ballots: [] }],
+  arbitration: { status: "completed", model, effort: "medium" },
+  artifacts: [{ name: `fallback-arbitration/${consul}.md`, phase: "arbitration", consul, content: "Original arbiter ruling", ballots: [] }],
  } as unknown as components["schemas"]["ConsultationDetail"];
  render(<ConsultationEvidence detail={detail} />);
  expect(screen.getByText(/0 observed ratification rounds · 1 proposal versions/)).toBeInTheDocument();
  expect(screen.getByText("not_started")).toBeInTheDocument();
  expect(screen.getByText("Original arbiter ruling")).toBeInTheDocument();
+ expect(screen.getByText(`Fallback arbitration · ${consul}`)).toBeInTheDocument();
  expect(screen.queryByText("Ballot stance unknown")).not.toBeInTheDocument();
 });
 

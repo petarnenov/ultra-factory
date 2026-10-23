@@ -67,7 +67,7 @@ The system SHALL show the number of observed ratification rounds and the events 
 - **THEN** the page presents both proposal versions, the ballot and objections for each version, and identifies the applicable final outcome
 
 #### Scenario: Fallback arbitration with no council ballots
-- **WHEN** an archive has a proposal and `fallback-arbitration/fable.md` but no ballot round directories
+- **WHEN** an archive has a proposal and an observed report at one of `fallback-arbitration/{fable,astra,deepseek}.md` but no ballot round directories
 - **THEN** the original arbiter report is shown as fallback arbitration, the proposal count is one and the ratification round count is zero
 
 ### Requirement: Serve bounded read-only consultation views
@@ -89,3 +89,11 @@ The daemon SHALL expose paginated list and detail reads through its established 
 #### Scenario: No indexed consultations
 - **WHEN** Neo4j is configured but contains no consultation records
 - **THEN** the page shows an empty state that explains how an archive appears after a host scan
+
+#### Scenario: Complete consultation excludes unused placeholders
+- **WHEN** a complete one-round consultation is imported and read through the index
+- **THEN** unused round-two and fallback placeholders do not mark it partial
+
+#### Scenario: Unavailable round evidence is retained
+- **WHEN** an indexed proposal or ballot round becomes unsafe or unreadable
+- **THEN** its unavailable marker survives import, prior content remains retained, and no absence timestamp or new vote is manufactured
