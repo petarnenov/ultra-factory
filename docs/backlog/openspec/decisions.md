@@ -14,9 +14,21 @@ Owner answer: Yes to retaining Railway/self-hosted, hub/BFF and remote workers w
 
 ### D02 Proposal approval by geo.architect
 
-Owner answer: Ask geo.architect. Every behavioral proposal uses the repository's `.agents/skills/geo.architect/SKILL.md` before implementation. Three exact consuls perform independent analysis, mutual critique and ratification. Require at least two approvals for each decision and no unresolved evidence-backed hard-requirement objection. Missing consuls or incomplete ballots are not approval. Preserve the consultation archive and the exact proposal/revision identity. Changed constraints or proposal content invalidate affected approvals and require re-review according to the skill. A completed council does not grant merge, release, spending or deployment authority. Documentation-only/no-behavior handling is still pending D05.
+Owner answer: Ask geo.architect. Behavioral proposals use the repository's `.agents/skills/geo.architect/SKILL.md` before implementation. Use its independent analysis, mutual critique, proposal identity and archived evidence. Normal council ratification uses its voting rules; D03 overrides its requirement for all three successful ballots and unresolved-decision escalation when the council cannot decide or a consul is unavailable. A completed consultation does not grant merge, release, spending or deployment authority. Documentation-only/no-behavior handling is pending D05.
 
-This selects the future approval mechanism; no council has been launched or approval claimed during this interview. Unresolved council escalation is pending D03.
+Changed constraints or proposal content invalidate affected approvals and require review of the new version. This selects the future approval mechanism; no council has been launched or approval claimed during this interview.
+
+### D03 Final decision authority and fallback order
+
+Owner instruction: Fable 5.1 decides conclusively; if unavailable, Codex Astra decides; if also unavailable, OpenCode DeepSeek Flash 4.1 decides. For an unresolved council decision or an unavailable consul, obtain an explicit final ruling on the exact proposal/revision from the first available consul in this order:
+
+1. Claude Code, `claude-fable-5-1`, medium effort.
+2. Codex, `gpt-6-astra`, medium effort.
+3. OpenCode, `opencode/deepseek-v4.1-flash`, provider default effort.
+
+The selected consul is the final arbiter, not an extra majority vote. Preserve available analyses, dissent, the reason a higher-priority consul is unavailable, the selected arbiter and its explicit decision with rationale in the consultation archive. An observed provider/harness/access failure can establish unavailability; silence or an observation timeout alone is not a decision or proof that a live consultation ended. Do not substitute another model.
+
+This owner-approved project policy overrides the skill's all-three-ballots requirement and unresolved-council human escalation for this initiative. The arbiter must resolve documented objections within approved scope and existing hard requirements; a decision does not itself grant missing credentials or authority to deploy, spend, merge or expand product scope. If none of the three can provide a ruling, no approval exists: keep the affected task blocked and report the missing prerequisite. Independent already-approved work can continue. No automatic human proposal-approval step is added.
 
 ## Pending owner decisions
 
@@ -24,7 +36,6 @@ The options below are candidates, not defaults or approvals. Ask one decision at
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D03 | Unresolved council or requested change outside approved scope | Stop only affected task and ask owner; defer affected task and continue independent approved work without expanding scope; explicit narrower delegation defined by owner | SDD-02, SDD-08, SDD-15 |
 | D04 | Supported platforms and required native acceptance | All currently supported desktop/mobile platforms; selected named platforms; staged platform adoption with explicit unverified backlog | SDD-04, SDD-05, SDD-11, SDD-13 |
 | D05 | Proportional review and emergency exceptions | Council for behavior only, ordinary review for justified no-behavior work, no emergency bypass; same with owner-approved emergency deferral; council for every change | SDD-02, SDD-09, SDD-16 |
 | D06 | Existing code/spec conflicts and missing tests | Agents record gaps and preserve evidenced behavior within hard constraints; owner resolves every discrepancy; council resolves technical discrepancies with owner deciding intended product changes | SDD-03 to SDD-07 |

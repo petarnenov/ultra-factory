@@ -22,7 +22,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 ## Acceptance criteria
 
 - [ ] Reconcile the completed owner decision record into enforceable instructions before implementing policy; pending options are not authorization.
-- [ ] Require geo.architect proposal ratification for behavioral changes under D02, linked to the evaluated proposal/revision and archived votes; no missing-consul or unresolved-blocker fallback to approval.
+- [ ] Require geo.architect review for behavioral proposals under D02 and the D03 final-arbiter order: Fable 5.1 → Codex Astra → OpenCode DeepSeek Flash 4.1. Link explicit rulings to the evaluated proposal/revision and archive; test all fallback cases and the all-unavailable blocked outcome. Never infer approval from missing votes.
 - [ ] Define readiness/completion, roles, stable requirement/scenario IDs and one OpenSpec change per independently mergeable implementation issue/PR. Keep umbrella planning in GitHub; do not retain an umbrella delta that is reapplied across child PRs.
 - [ ] Require each PR to declare affected capabilities and change IDs or a justified no-behavior classification. Require a reviewer to check the declaration against the diff and record the reviewed head; machine validation cannot discover undeclared semantics.
 - [ ] Preserve one issue per PR and exactly one type/priority; distinguish accepted dev specs from released behavior. Describe promotion, automation and docs-only declarations explicitly rather than adding silent exemptions.
