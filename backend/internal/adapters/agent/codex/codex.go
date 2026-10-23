@@ -131,7 +131,7 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 		return nil, err
 	}
 
-	var providerArgs []string
+	providerArgs := make([]string, 0, 2)
 	if err := appendSessionHookFlags(&providerArgs); err != nil {
 		return nil, err
 	}
@@ -140,6 +140,11 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	if err := appendShellEnvFlags(&providerArgs, cfg.ShellEnv); err != nil {
 		return nil, err
 	}
+	gitMetadataArgs, err := codexGitMetadataWritableArgs(ctx, cfg.WorkspacePath)
+	if err != nil {
+		return nil, err
+	}
+	providerArgs = append(providerArgs, gitMetadataArgs...)
 	return agentruntime.BuildLaunchCommand(agentruntime.LaunchConfig{
 		Harness:          agentruntime.HarnessCodex,
 		Binary:           binary,
@@ -173,7 +178,7 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 		return nil, false, err
 	}
 
-	var providerArgs []string
+	providerArgs := make([]string, 0, 2)
 	if err := appendSessionHookFlags(&providerArgs); err != nil {
 		return nil, false, err
 	}
@@ -182,6 +187,11 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 	if err := appendShellEnvFlags(&providerArgs, cfg.ShellEnv); err != nil {
 		return nil, false, err
 	}
+	gitMetadataArgs, err := codexGitMetadataWritableArgs(ctx, cfg.Session.WorkspacePath)
+	if err != nil {
+		return nil, false, err
+	}
+	providerArgs = append(providerArgs, gitMetadataArgs...)
 	return agentruntime.BuildRestoreCommand(agentruntime.RestoreConfig{
 		Harness:          agentruntime.HarnessCodex,
 		Binary:           binary,
