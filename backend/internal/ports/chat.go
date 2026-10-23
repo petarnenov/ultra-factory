@@ -442,6 +442,8 @@ type ChatUserMessage struct {
 	// InteractionAt preserves initial acceptance across transition outbox replay.
 	InteractionAt time.Time
 	Text          string
+	// AuthoredText preserves user prompt facts when Text has a delivery header.
+	AuthoredText string
 	// SenderSessionID identifies the AO session that authored an automation steer.
 	// It is presentation metadata only and is never sent to the provider.
 	SenderSessionID string
@@ -468,6 +470,8 @@ type ChatUserMessage struct {
 	// AuthoredByUser distinguishes user-written content carried through AO's
 	// automation delivery path from content authored by automation itself.
 	AuthoredByUser bool
+	// SupersedeSenderSessionID scopes queued-message cancellation to this sender.
+	SupersedeSenderSessionID string
 	// Settings are the per-turn provider choices for this message. Zero means the
 	// conversation's own defaults.
 	Settings ChatTurnSettings
@@ -477,6 +481,8 @@ type ChatUserMessage struct {
 // mechanism AO uses to deliver it.
 type MessageDeliveryOptions struct {
 	InteractionAt time.Time
+	// Supersede cancels the sender's unread queued Chat messages before enqueue.
+	Supersede bool
 	// SenderSessionID is cooperative local identity, resolved from stored metadata.
 	SenderSessionID string
 	AuthoredByUser  bool
@@ -494,6 +500,8 @@ type MessageDelivery struct {
 	// PendingInputRequestIDs are the unanswered structured questions pending
 	// when the message was recorded, read in that same transaction.
 	PendingInputRequestIDs []string
+	// SupersededCount is how many unread queued messages were cancelled.
+	SupersededCount int
 }
 
 // ChatTurnSettings are the per-turn choices a provider accepts alongside the

@@ -4741,6 +4741,9 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 	} else if queued {
 		return ports.MessageDelivery{}, nil
 	}
+	if options.InteractionAt.IsZero() {
+		options.InteractionAt = m.clock()
+	}
 	// Chat mode has no pane to type into, so it does not go through the messenger
 	// at all. Without this branch the send reached the runtime guard and was
 	// refused as "missing runtime handles" — true of the handles, wrong about the
@@ -4749,9 +4752,20 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 	if handled, delivery, err := m.sendChat(ctx, id, message, clientMessageID, options); handled {
 		return delivery, err
 	}
+	if options.Supersede {
+		return ports.MessageDelivery{}, errors.New("send supersede requires a Chat session")
+	}
 
 	if !freshNudge && m.reviewNudgeResolved(ctx, id, clientMessageID) {
 		return ports.MessageDelivery{}, nil
+	}
+	originalMessage := message
+	if strings.TrimSpace(message) != "" && (options.AuthoredByUser || options.SenderSessionID != "") {
+		sender := strings.TrimSpace(options.SenderSessionID)
+		if options.AuthoredByUser {
+			sender = "user"
+		}
+		message = domain.FormatAgentMessage(message, sender, options.InteractionAt)
 	}
 
 	if _, coordination := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(message)); !coordination && !options.AuthoredByUser && strings.TrimSpace(message) != "" {
@@ -4766,15 +4780,12 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 	if err != nil {
 		return ports.MessageDelivery{}, err
 	}
-	if options.InteractionAt.IsZero() {
-		options.InteractionAt = m.clock()
-	}
 	var afterWrite func(context.Context) error
 	_, internalReportDelivery := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(message))
 	if strings.TrimSpace(message) != "" && !internalReportDelivery && options.AuthoredByUser {
 		if recorder, ok := m.store.(latestUserPromptRecorder); ok {
 			afterWrite = func(writeCtx context.Context) error {
-				if _, recordErr := recorder.RecordSessionLatestUserPrompt(writeCtx, id, boundedConversationFact(message), options.InteractionAt); recordErr != nil {
+				if _, recordErr := recorder.RecordSessionLatestUserPrompt(writeCtx, id, boundedConversationFact(originalMessage), options.InteractionAt); recordErr != nil {
 					m.logger.Warn("send: delivered message but failed to persist latest user prompt", "sessionID", id, "error", recordErr)
 				}
 				return nil

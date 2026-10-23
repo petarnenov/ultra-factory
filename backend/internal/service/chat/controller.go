@@ -110,6 +110,7 @@ type Store interface {
 	CancelQueuedTurns(ctx context.Context, conversationID string, cutoff, now time.Time) error
 	CancelAllQueuedTurns(ctx context.Context, conversationID string, now time.Time) error
 	CancelQueuedTurnByID(ctx context.Context, conversationID, turnID string, now time.Time) error
+	CancelQueuedTurnsBySender(ctx context.Context, conversationID, senderSessionID string, now time.Time) (int64, error)
 	QueuedTurnMessage(ctx context.Context, conversationID, turnID string) (domain.ConversationMessage, error)
 	QueuedEditDelivery(ctx context.Context, conversationID, clientMessageID string) (string, bool, error)
 	UpdateQueuedTurnMessage(ctx context.Context, conversationID, turnID, text, contentJSON string, revision int64, now time.Time, delivery domain.ConversationQueuedEditDelivery) error
@@ -1423,7 +1424,7 @@ func (c *Controller) Capabilities() ports.ChatCapabilities {
 // concurrent turn is not a thing it can run, and a queued row is a promise AO can
 // keep across a restart, which a message dropped into a busy provider is not.
 func (c *Controller) Send(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, error) {
-	turn, _, err := c.SendWithDelivery(ctx, msg)
+	turn, _, _, err := c.SendWithDelivery(ctx, msg)
 	return turn, err
 }
 
@@ -1435,7 +1436,7 @@ type appendedMessageSnapshotter interface {
 
 // SendWithDelivery is Send plus the structured questions pending when the
 // message was recorded, captured in the same transaction.
-func (c *Controller) SendWithDelivery(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, []string, error) {
+func (c *Controller) SendWithDelivery(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, []string, int, error) {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
 	return c.sendLocked(ctx, msg, true)
@@ -1445,24 +1446,44 @@ func (c *Controller) sendLocked(
 	ctx context.Context,
 	msg ports.ChatUserMessage,
 	queueWhenBusy bool,
-) (domain.ConversationTurn, []string, error) {
+) (domain.ConversationTurn, []string, int, error) {
+	supersededCount := 0
 	if msg.ClientPayloadHash == "" {
 		var err error
 		msg.ClientPayloadHash, err = clientPayloadHash(msg)
 		if err != nil {
-			return domain.ConversationTurn{}, nil, err
+			return domain.ConversationTurn{}, nil, 0, err
 		}
 	}
 	c.mu.Lock()
 	handoff := c.handoff != controllerHandoffNone
 	c.mu.Unlock()
 	if handoff {
-		return domain.ConversationTurn{}, nil, ErrControllerHandoff
+		return domain.ConversationTurn{}, nil, 0, ErrControllerHandoff
+	}
+	if msg.SupersedeSenderSessionID != "" {
+		alreadyAccepted := false
+		if msg.ClientMessageID != "" {
+			_, found, lookupErr := c.store.ConversationMessageByClientID(
+				ctx, c.conversation.ID, msg.ClientMessageID)
+			if lookupErr != nil {
+				return domain.ConversationTurn{}, nil, 0, lookupErr
+			}
+			alreadyAccepted = found
+		}
+		if !alreadyAccepted {
+			count, cancelErr := c.store.CancelQueuedTurnsBySender(ctx, c.conversation.ID,
+				msg.SupersedeSenderSessionID, c.now())
+			if cancelErr != nil {
+				return domain.ConversationTurn{}, nil, 0, cancelErr
+			}
+			supersededCount = int(count)
+		}
 	}
 
 	queuing := queueWhenBusy && c.busy()
 	if !queuing && c.reviewNudgeResolved(ctx, msg.ClientMessageID) {
-		return domain.ConversationTurn{}, nil, nil
+		return domain.ConversationTurn{}, nil, 0, nil
 	}
 	now := c.now()
 	turnID := c.newID()
@@ -1484,13 +1505,14 @@ func (c *Controller) sendLocked(
 	if len(msg.Content) > 0 {
 		encoded, err := json.Marshal(msg.Content)
 		if err != nil {
-			return domain.ConversationTurn{}, nil, fmt.Errorf("encode chat delivery content: %w", err)
+			return domain.ConversationTurn{}, nil, 0, fmt.Errorf("encode chat delivery content: %w", err)
 		}
 		deliveryContent = string(encoded)
 	}
 	record := domain.ConversationMessage{
 		ID:                  c.newID(),
 		Text:                msg.Text,
+		AuthoredText:        msg.AuthoredText,
 		Origin:              normalizeOrigin(msg.Origin),
 		ClientMessageID:     msg.ClientMessageID,
 		ClientPayloadHash:   msg.ClientPayloadHash,
@@ -1516,14 +1538,14 @@ func (c *Controller) sendLocked(
 		created, err = c.store.AppendReviewUserMessage(ctx, c.conversation.ID, c.sessionID, c.reviewID, c.generation, record, turnID, now)
 	}
 	if err != nil {
-		return domain.ConversationTurn{}, nil, fmt.Errorf("record user message: %w", err)
+		return domain.ConversationTurn{}, nil, 0, fmt.Errorf("record user message: %w", err)
 	}
 	if !created {
 		// Already delivered under this client message id. Returning the empty turn
 		// signals "nothing new happened" without claiming a second dispatch.
 		c.log.Debug("duplicate chat send ignored",
 			"session", c.sessionID, "clientMessageId", msg.ClientMessageID)
-		return domain.ConversationTurn{}, nil, nil
+		return domain.ConversationTurn{}, nil, 0, nil
 	}
 
 	if queueWhenBusy && c.busy() {
@@ -1541,12 +1563,12 @@ func (c *Controller) sendLocked(
 			HandledByReviewID:  c.reviewID,
 			State:              domain.TurnStateQueued,
 			RequestedAt:        now,
-		}, pendingInputs, nil
+		}, pendingInputs, supersededCount, nil
 	}
 
 	turn, err := c.dispatch(ctx, turnID, msg, now)
 	dispatched = err == nil
-	return turn, nil, err
+	return turn, nil, supersededCount, err
 }
 
 // reviewNudgeResolved reports a review nudge whose thread has resolved.

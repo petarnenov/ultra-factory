@@ -11795,6 +11795,24 @@ func TestSendAutomationDoesNotRecordHumanDirection(t *testing.T) {
 	}
 }
 
+func TestSendTerminalDeliveryIncludesTimestampAndSender(t *testing.T) {
+	st := newFakeStore()
+	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{ID: "s1", Harness: "claude-code"})
+	messenger := &fakeMessenger{}
+	m := newSendTestManager(t, fakeAgent{}, messenger, st)
+	if err := m.SendWithOptions(context.Background(), "s1", "continue the task", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(messenger.msgs) != 1 || !strings.Contains(messenger.msgs[0], "[Sent ") ||
+		!strings.Contains(messenger.msgs[0], " by user]\n\ncontinue the task") {
+		t.Fatalf("terminal message = %q, want timestamp and sender header", messenger.msgs)
+	}
+	if st.sessions["s1"].Metadata.LatestUserPrompt != "continue the task" {
+		t.Fatalf("latest prompt = %q, want original user text", st.sessions["s1"].Metadata.LatestUserPrompt)
+	}
+}
+
 func TestSendEmptyNudgeDoesNotBecomeCoordinationPrompt(t *testing.T) {
 	st := newFakeStore()
 	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{ID: "s1", Harness: "claude-code"})

@@ -533,6 +533,36 @@ func (q *Queries) CancelQueuedConversationTurns(ctx context.Context, arg CancelQ
 	return err
 }
 
+const cancelQueuedConversationTurnsBySender = `-- name: CancelQueuedConversationTurnsBySender :execrows
+UPDATE conversation_turns
+SET state = 'cancelled', completed_at = ?1
+WHERE conversation_turns.conversation_id = ?2
+  AND state = 'queued'
+  AND promotion_started_at IS NULL
+  AND id IN (
+      SELECT turn_id FROM conversation_messages
+      WHERE conversation_id = ?2
+        AND role = 'user'
+        AND origin = 'automation'
+        AND sender_session_id = ?3
+  )
+`
+
+type CancelQueuedConversationTurnsBySenderParams struct {
+	CompletedAt     sql.NullTime
+	ConversationID  string
+	SenderSessionID string
+}
+
+// Supersede this sender's queued prompts that have not begun promotion.
+func (q *Queries) CancelQueuedConversationTurnsBySender(ctx context.Context, arg CancelQueuedConversationTurnsBySenderParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelQueuedConversationTurnsBySender, arg.CompletedAt, arg.ConversationID, arg.SenderSessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const completeQueuedConversationTurnPromotion = `-- name: CompleteQueuedConversationTurnPromotion :execrows
 UPDATE conversation_turns
 SET state = 'completed',

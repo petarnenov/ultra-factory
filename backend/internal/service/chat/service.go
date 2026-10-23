@@ -2511,7 +2511,7 @@ func (s *Service) relayChatTurn(
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
 ) (string, error) {
-	turn, _, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
+	turn, _, _, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
 	if err != nil {
 		return "", err
 	}
@@ -2525,22 +2525,43 @@ func (s *Service) relayConversationTurn(
 	id domain.SessionID,
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
-) (domain.ConversationTurn, []string, error) {
+) (domain.ConversationTurn, []string, int, error) {
 	controller, release, err := s.workingController(ctx, id)
 	if err != nil {
-		return domain.ConversationTurn{}, nil, err
+		return domain.ConversationTurn{}, nil, 0, err
 	}
 	defer release()
 	msg := s.resolveSteerSender(ctx, ports.ChatUserMessage{
-		Text: text, ClientMessageID: clientMessageID,
+		Text: text, AuthoredText: text, ClientMessageID: clientMessageID,
 		SenderSessionID: options.SenderSessionID, InteractionAt: options.InteractionAt,
 		Origin: domain.MessageOriginAutomation, AuthoredByUser: options.AuthoredByUser,
 	})
-	turn, pendingInputs, err := controller.SendWithDelivery(ctx, msg)
-	if err != nil {
-		return domain.ConversationTurn{}, nil, err
+	if options.Supersede {
+		if strings.TrimSpace(options.SenderSessionID) == "" {
+			return domain.ConversationTurn{}, nil, 0, errors.New("supersede requires a sender session")
+		}
+		msg.SupersedeSenderSessionID = options.SenderSessionID
 	}
-	return turn, pendingInputs, nil
+	if msg.InteractionAt.IsZero() {
+		msg.InteractionAt = s.now()
+	}
+	msg.Text = formatRelayedMessage(text, msg)
+	turn, pendingInputs, supersededCount, err := controller.SendWithDelivery(ctx, msg)
+	if err != nil {
+		return domain.ConversationTurn{}, nil, 0, err
+	}
+	return turn, pendingInputs, supersededCount, nil
+}
+
+func formatRelayedMessage(text string, msg ports.ChatUserMessage) string {
+	sender := strings.TrimSpace(msg.SenderDisplayName)
+	if sender == "" {
+		sender = strings.TrimSpace(msg.SenderSessionID)
+	}
+	if sender == "" {
+		sender = "user"
+	}
+	return domain.FormatAgentMessage(text, sender, msg.InteractionAt)
 }
 
 // RelaySessionChatTurn preserves cooperative sender identity and automation origin.
@@ -2556,7 +2577,7 @@ func (s *Service) RelaySessionChatTurnDelivery(
 	text, clientMessageID string,
 	options ports.MessageDeliveryOptions,
 ) (ports.MessageDelivery, error) {
-	turn, pendingInputs, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
+	turn, pendingInputs, supersededCount, err := s.relayConversationTurn(ctx, id, text, clientMessageID, options)
 	if err != nil {
 		return ports.MessageDelivery{}, err
 	}
@@ -2564,6 +2585,7 @@ func (s *Service) RelaySessionChatTurnDelivery(
 		Known:                  true,
 		Queued:                 turn.State == domain.TurnStateQueued,
 		PendingInputRequestIDs: pendingInputs,
+		SupersededCount:        supersededCount,
 	}, nil
 }
 

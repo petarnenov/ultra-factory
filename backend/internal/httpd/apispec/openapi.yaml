@@ -19040,6 +19040,8 @@ components:
           type: array
         queued:
           type: boolean
+        supersededCount:
+          type: integer
       required:
       - queued
       type: object
@@ -19053,6 +19055,8 @@ components:
           type: string
         senderSessionId:
           type: string
+        supersede:
+          type: boolean
         userAuthored:
           type: boolean
       required:

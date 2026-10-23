@@ -4667,6 +4667,23 @@ func TestSessionsAPI_SendCarriesCooperativeSenderWithoutHumanAuthorship(t *testi
 	}
 }
 
+func TestSessionsAPI_SendCarriesSupersedeAndReportsDroppedMessages(t *testing.T) {
+	svc := newFakeSessionService()
+	svc.delivery = ports.MessageDelivery{Known: true, Queued: true, SupersededCount: 2}
+	srv := newSessionTestServer(t, svc)
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/ao-1/send",
+		`{"message":"latest","senderSessionId":"ao-orchestrator","supersede":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("status=%d body=%s", status, body)
+	}
+	if !svc.sentDeliveryOptions.Supersede || svc.sentDeliveryOptions.SenderSessionID != "ao-orchestrator" {
+		t.Fatalf("delivery options=%+v, want supersede from sender", svc.sentDeliveryOptions)
+	}
+	if !strings.Contains(string(body), `"supersededCount":2`) {
+		t.Fatalf("response = %s, want supersededCount 2", body)
+	}
+}
+
 func TestSessionsAPI_InteractionRecencyKeepsHumanTimestampSeparate(t *testing.T) {
 	svc := newFakeSessionService()
 	srv := newSessionTestServer(t, svc)

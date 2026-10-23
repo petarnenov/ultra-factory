@@ -1357,9 +1357,13 @@ func (s *Store) appendUserMessage(
 			}
 		}
 		if msg.Origin == domain.MessageOriginHuman || msg.AuthoredByUser {
+			latestPrompt := msg.Text
+			if msg.AuthoredText != "" {
+				latestPrompt = msg.AuthoredText
+			}
 			if _, err := q.RecordSessionHumanMessage(ctx, gen.RecordSessionHumanMessageParams{
 				ID:                 session,
-				LatestUserPrompt:   msg.Text,
+				LatestUserPrompt:   latestPrompt,
 				LatestUserPromptAt: timeToNullTime(interactionAt),
 			}); err != nil {
 				return fmt.Errorf("record latest human message: %w", err)
@@ -2495,6 +2499,25 @@ func (s *Store) CancelQueuedTurnByID(
 		return fmt.Errorf("%w: %s", ErrQueuedTurnNotAvailable, turnID)
 	}
 	return nil
+}
+
+// CancelQueuedTurnsBySender drops unread automation messages from one sender.
+func (s *Store) CancelQueuedTurnsBySender(
+	ctx context.Context,
+	conversationID, senderSessionID string,
+	now time.Time,
+) (int64, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	rows, err := s.qw.CancelQueuedConversationTurnsBySender(ctx,
+		gen.CancelQueuedConversationTurnsBySenderParams{
+			CompletedAt: sql.NullTime{Time: now, Valid: true}, ConversationID: conversationID,
+			SenderSessionID: senderSessionID,
+		})
+	if err != nil {
+		return 0, fmt.Errorf("cancel queued turns from %s: %w", senderSessionID, err)
+	}
+	return rows, nil
 }
 
 // ErrInvalidQueuedTurnOrder means the requested queue order does not match the

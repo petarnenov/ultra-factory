@@ -5938,6 +5938,82 @@ func TestRelaySessionChatTurnDeliveryReportsTheAcceptedQueueOutcome(t *testing.T
 	}
 }
 
+func TestRelaySessionChatTurnAddsTimestampAndSupersedesOnlySenderQueue(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "running", "root", ports.MessageDeliveryOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+
+	at := time.Date(2026, 10, 23, 12, 34, 56, 0, time.UTC)
+	first, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "stale guidance", "old-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", InteractionAt: at})
+	if err != nil || !first.Queued {
+		t.Fatalf("first sender message delivery = %+v, err=%v", first, err)
+	}
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "other sender", "old-b",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-b", InteractionAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "new guidance", "new-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", InteractionAt: at, Supersede: true})
+	if err != nil {
+		t.Fatalf("superseding delivery: %v", err)
+	}
+	if latest.SupersededCount != 1 || !latest.Queued {
+		t.Fatalf("superseding delivery = %+v, want one dropped and new message queued", latest)
+	}
+
+	conversation, err := h.st.ConversationForSession(ctx, testSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := turnStateByText(t, snapshot)
+	if states["[Sent 2026-10-23T12:34:56Z by sender-b]\n\nother sender"] != domain.TurnStateQueued {
+		t.Errorf("other sender message state = %q, want queued", states["[Sent 2026-10-23T12:34:56Z by sender-b]\n\nother sender"])
+	}
+	if states["[Sent 2026-10-23T12:34:56Z by sender-a]\n\nnew guidance"] != domain.TurnStateQueued {
+		t.Errorf("new sender message state = %q, want queued", states["[Sent 2026-10-23T12:34:56Z by sender-a]\n\nnew guidance"])
+	}
+	var sawCancelled bool
+	for _, turn := range snapshot.Turns {
+		if turn.State == domain.TurnStateCancelled {
+			sawCancelled = true
+		}
+	}
+	if !sawCancelled {
+		t.Fatalf("superseded message was not settled cancelled; turns=%+v", snapshot.Turns)
+	}
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventTurnCompleted, ProviderTurnID: "provider-turn-1",
+		TurnState: domain.TurnStateCompleted,
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return turnStateByText(t, s)["[Sent 2026-10-23T12:34:56Z by sender-b]\n\nother sender"] == domain.TurnStateRunning
+	})
+	if got := h.conv.sentTexts(); len(got) != 2 || !strings.Contains(got[1], "other sender") {
+		t.Fatalf("first queued delivery = %v, want other sender before new guidance", got)
+	}
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventTurnCompleted, ProviderTurnID: "provider-turn-2",
+		TurnState: domain.TurnStateCompleted,
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return turnStateByText(t, s)["[Sent 2026-10-23T12:34:56Z by sender-a]\n\nnew guidance"] == domain.TurnStateRunning
+	})
+	if got := h.conv.sentTexts(); len(got) != 3 || !strings.Contains(got[2], "new guidance") {
+		t.Fatalf("second queued delivery = %v, want latest sender guidance", got)
+	}
+}
+
 // A relayed message is AO carrying someone else's words: `ao send`, or an
 // orchestrator writing to a worker. It must be attributed to automation, not
 // passed off as something the user typed here — the timeline distinguishes the
@@ -5960,7 +6036,8 @@ func TestRelayedMessageIsAttributedToAutomation(t *testing.T) {
 	if msg.Role != domain.MessageRoleUser {
 		t.Errorf("relay role = %q; a relay is still an inbound request", msg.Role)
 	}
-	if got := h.conv.sentTexts(); len(got) != 1 || got[0] != "orchestrator: rebase onto main" {
+	if got := h.conv.sentTexts(); len(got) != 1 || !strings.Contains(got[0], "orchestrator: rebase onto main") ||
+		!strings.Contains(got[0], "[Sent ") || !strings.Contains(got[0], " by user]") {
 		t.Fatalf("provider received %v, want the relayed text dispatched", got)
 	}
 	rec, ok, err := h.st.GetSession(ctx, testSession)

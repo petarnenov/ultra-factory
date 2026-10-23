@@ -3,8 +3,19 @@ package domain
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 )
+
+// FormatAgentMessage adds stable send-time and sender context for the agent.
+func FormatAgentMessage(text, sender string, at time.Time) string {
+	sender = SanitizeControlChars(strings.TrimSpace(sender))
+	if sender == "" {
+		sender = "user"
+	}
+	return fmt.Sprintf("[Sent %s by %s]\n\n%s", at.UTC().Format(time.RFC3339), sender, text)
+}
 
 // The durable conversation model for Chat-mode sessions.
 //
@@ -637,6 +648,8 @@ type ConversationMessage struct {
 	Role     MessageRole   `json:"role"`
 	Origin   MessageOrigin `json:"origin"`
 	Text     string        `json:"text"`
+	// AuthoredText is the original user text before AO adds a delivery header.
+	AuthoredText string `json:"-"`
 	// AuthoredByUser is an intake-only fact used to project user activity when
 	// AO delivered the message as automation. It is not part of the persisted
 	// delivery origin or the conversation API representation.

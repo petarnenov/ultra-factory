@@ -18,6 +18,7 @@ type sendOptions struct {
 	steer           bool
 	clientMessageID string
 	recoverOnly     bool
+	supersede       bool
 }
 
 // sendAPIRequest mirrors the daemon's SendSessionMessageRequest body for
@@ -27,6 +28,7 @@ type sendAPIRequest struct {
 	UserAuthored    bool   `json:"userAuthored,omitempty"`
 	SenderSessionID string `json:"senderSessionId,omitempty"`
 	Message         string `json:"message"`
+	Supersede       bool   `json:"supersede,omitempty"`
 }
 
 // The steering DTOs mirror the daemon conversation API without coupling the
@@ -56,6 +58,7 @@ type sendAPIResponse struct {
 type sendAPIDelivery struct {
 	Queued                 bool     `json:"queued"`
 	PendingInputRequestIDs []string `json:"pendingInputRequestIds,omitempty"`
+	SupersededCount        int      `json:"supersededCount,omitempty"`
 }
 
 func newSendCommand(ctx *commandContext) *cobra.Command {
@@ -77,6 +80,7 @@ func newSendCommand(ctx *commandContext) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.steer, "steer", false, "Steer an active Chat turn, or start the next turn when idle")
 	cmd.Flags().StringVar(&opts.clientMessageID, "client-message-id", "", "Stable steering delivery handle")
 	cmd.Flags().BoolVar(&opts.recoverOnly, "recover-only", false, "Recover a steering result without contacting the provider")
+	cmd.Flags().BoolVar(&opts.supersede, "supersede", false, "Drop your earlier unread queued messages to this session")
 	addHostFlag(cmd, ctx)
 	return cmd
 }
@@ -84,6 +88,9 @@ func newSendCommand(ctx *commandContext) *cobra.Command {
 func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) error {
 	if opts.recoverOnly && !opts.steer {
 		return usageError{errors.New("usage: --recover-only requires --steer")}
+	}
+	if opts.supersede && opts.steer {
+		return usageError{errors.New("usage: --supersede cannot be combined with --steer")}
 	}
 	if strings.TrimSpace(opts.clientMessageID) != "" && !opts.steer {
 		return usageError{errors.New("usage: --client-message-id requires --steer")}
@@ -104,9 +111,15 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 	}
 	userAuthored := senderSessionID == ""
 	if c.targetsRemote() {
+		if opts.supersede {
+			return usageError{errors.New("usage: --supersede requires a local session sender")}
+		}
 		// senderSessionId is loopback attribution; the same ID names an unrelated
 		// session on another daemon, so a remote send keeps only the text prefix.
 		senderSessionID = ""
+	}
+	if opts.supersede && senderSessionID == "" {
+		return usageError{errors.New("usage: --supersede requires AO_SESSION_ID")}
 	}
 	session := strings.TrimSpace(opts.session)
 	if session == "" {
@@ -117,7 +130,7 @@ func (c *commandContext) sendMessage(ctx context.Context, opts sendOptions) erro
 	// from sanitized issue refs; keep the URL well-formed regardless.
 	path := "sessions/" + url.PathEscape(session)
 	if !opts.steer {
-		return c.plainSend(ctx, path, session, message, senderSessionID, userAuthored)
+		return c.plainSend(ctx, path, session, message, senderSessionID, userAuthored, opts.supersede)
 	}
 	return c.steerMessage(ctx, path, message, senderSessionID, strings.TrimSpace(opts.clientMessageID), opts.recoverOnly)
 }
@@ -128,12 +141,18 @@ func (c *commandContext) plainSend(
 	ctx context.Context,
 	path, session, message, senderSessionID string,
 	userAuthored bool,
+	supersede bool,
 ) error {
 	var res sendAPIResponse
 	if err := c.postJSON(ctx, path+"/send", sendAPIRequest{
-		Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored,
+		Message: message, SenderSessionID: senderSessionID, UserAuthored: userAuthored, Supersede: supersede,
 	}, &res); err != nil {
 		return err
+	}
+	if res.Delivery != nil && res.Delivery.SupersededCount > 0 {
+		if _, err := fmt.Fprintf(c.deps.Out, "Superseded %d earlier unread message%s.\n", res.Delivery.SupersededCount, pluralS(res.Delivery.SupersededCount)); err != nil {
+			return err
+		}
 	}
 	if res.Delivery == nil || !res.Delivery.Queued {
 		return nil
