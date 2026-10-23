@@ -208,7 +208,7 @@ func newAPIWithLogger(cfg config.Config, deps APIDeps, log *slog.Logger) *API {
 		notifications: &controllers.NotificationsController{Svc: deps.Notifications, Stream: deps.NotificationStream},
 		reports:       &controllers.ReportsController{Svc: deps.Reports, Completion: deps.CompletionReports},
 		summaries:     &controllers.CoordinatorSummariesController{Svc: deps.Summaries},
-		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks, Sync: deps.RemoteWorkerSync},
+		remoteWorkers: &controllers.RemoteWorkerLinksController{Svc: deps.RemoteWorkerLinks, Sync: deps.RemoteWorkerSync, PullerID: deps.HostID},
 		completed:     &controllers.CompletedTasksController{Svc: deps.CompletedTasks, HostID: deps.HostID},
 		knowledge:     &controllers.KnowledgeController{Svc: deps.Knowledge},
 		push:          &controllers.PushController{Registry: deps.Push},

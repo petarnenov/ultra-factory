@@ -634,3 +634,23 @@ func TestCoordinatorWorkerAgentRouteChangesAndExposesTheSelection(t *testing.T) 
 		t.Fatalf("roster = %s", roster)
 	}
 }
+
+func TestRemoteWorkerLinkListNamesThePullerIdentity(t *testing.T) {
+	f := newOwnershipFixture(t)
+	srv := newRouterServer(t, httpd.APIDeps{
+		Sessions:          sessionsvc.NewWithDeps(sessionsvc.Deps{Store: f.store}),
+		RemoteWorkerLinks: remoteworker.New(remoteworker.Deps{Store: f.store, SelfHostID: "host-local"}),
+		HostID:            "host-local",
+	})
+
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/remote-worker-links", "")
+	var listed struct {
+		PullerID string `json:"pullerId"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil || status != http.StatusOK {
+		t.Fatalf("list status=%d body=%s err=%v", status, body, err)
+	}
+	if listed.PullerID != "host-local" {
+		t.Fatalf("pullerId = %q, want host-local", listed.PullerID)
+	}
+}

@@ -48,16 +48,17 @@ func TestRemoteWorkerSyncRejectsArguments(t *testing.T) {
 	}
 }
 
-func TestRemoteWorkerListJSONCarriesTheLocalProjectID(t *testing.T) {
+func TestRemoteWorkerListJSONCarriesTheLocalProjectIDAndPullerID(t *testing.T) {
 	srv, _ := ownershipServer(t, http.StatusOK,
-		`{"links":[{"hostId":"host-build","remoteSessionId":"widgets-3","remoteProjectId":"widgets","projectId":"demo","localProjectId":"demo","ownerSessionId":null,"source":"discovered"}]}`)
+		`{"pullerId":"host-local","links":[{"hostId":"host-build","remoteSessionId":"widgets-3","remoteProjectId":"widgets","projectId":"demo","localProjectId":"demo","ownerSessionId":null,"source":"discovered"}]}`)
 
 	out, _, err := runOwnershipCLI(t, srv, "remote-worker", "ls", "--json")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
-		Links []struct {
+		PullerID string `json:"pullerId"`
+		Links    []struct {
 			LocalProjectID string `json:"localProjectId"`
 		} `json:"links"`
 	}
@@ -66,6 +67,9 @@ func TestRemoteWorkerListJSONCarriesTheLocalProjectID(t *testing.T) {
 	}
 	if len(payload.Links) != 1 || payload.Links[0].LocalProjectID != "demo" {
 		t.Fatalf("links = %+v, want localProjectId demo", payload.Links)
+	}
+	if payload.PullerID != "host-local" {
+		t.Fatalf("pullerId = %q, want host-local", payload.PullerID)
 	}
 }
 
