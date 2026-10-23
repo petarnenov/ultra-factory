@@ -1805,3 +1805,9 @@ duplicate owner notifications. The root's tick message retains completion
 visibility. The runbook's Merge queue subsection defines operator controls
 and the pending live authorization check; this decision changes no live
 Railway variables.
+
+> Superseded 2026-10-23: the external orchestrator tick, its gated merge path
+> and its completion endpoint were removed. Owner notifications are native
+> worker lifecycle reports: the daemon delivers PR merged, PR closed without
+> merge, and worker session ended to the owning coordinator or root
+> orchestrator automatically. The text above is kept as history.

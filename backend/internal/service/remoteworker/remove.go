@@ -50,8 +50,8 @@ func (s *Service) RemoveLink(
 	return link, nil
 }
 
-// ReleaseKilled drops the link of a worker this daemon just killed, with no
-// root check and no removal memory: discovery skips a terminated worker.
+// ReleaseKilled marks the link of a worker this daemon just killed as ended,
+// with no root check: its slot frees now and late reports are still pulled.
 func (s *Service) ReleaseKilled(ctx context.Context, hostID string, remoteSessionID domain.SessionID) error {
 	if s == nil || s.store == nil {
 		return fmt.Errorf("remoteworker: store is required")
@@ -63,7 +63,7 @@ func (s *Service) ReleaseKilled(ctx context.Context, hostID string, remoteSessio
 	projectLock := s.capacity.Project(link.ProjectID)
 	projectLock.Lock()
 	defer projectLock.Unlock()
-	if err := s.store.DeleteRemoteWorkerLink(ctx, hostID, remoteSessionID); err != nil {
+	if err := s.store.UpdateRemoteWorkerLinkLiveness(ctx, hostID, remoteSessionID, s.now().UTC(), domain.RemoteLinkTerminated); err != nil {
 		return err
 	}
 	slog.Info("remote worker link released after kill",

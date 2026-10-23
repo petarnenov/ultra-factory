@@ -171,7 +171,7 @@ func (f *fakeDeliverer) DeliverExternal(_ context.Context, project domain.Projec
 }
 
 type seenRequest struct {
-	method, path, auth, expectedHost, body, conn string
+	method, path, auth, expectedHost, body, conn, query string
 }
 
 // fakeHost is a remote AO daemon answering the identity probe and the pull routes.
@@ -219,7 +219,7 @@ func newFakeHost(t *testing.T, identity, password string) *fakeHost {
 func (h *fakeHost) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	h.mu.Lock()
-	h.requests = append(h.requests, seenRequest{r.Method, r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-AO-Expected-Host-ID"), string(body), r.RemoteAddr})
+	h.requests = append(h.requests, seenRequest{r.Method, r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-AO-Expected-Host-ID"), string(body), r.RemoteAddr, r.URL.RawQuery})
 	hang := h.hang
 	h.mu.Unlock()
 	if r.URL.Path == "/api/v1/identity" {
@@ -358,6 +358,15 @@ func needsInput(id string, at time.Time) map[string]any {
 
 func link(host, session string) domain.RemoteWorkerLink {
 	return domain.RemoteWorkerLink{HostID: host, HostLabel: "stored-label", RemoteSessionID: domain.SessionID(session), RemoteProjectID: "widgets", ProjectID: "ultra-factory", DisplayName: "auth refactor", CreatedAt: time.Now()}
+}
+
+// endedLongAgo marks a link's worker as terminated past the PR refresh
+// window, so nothing keeps the link once its reports are delivered.
+func endedLongAgo(l domain.RemoteWorkerLink) domain.RemoteWorkerLink {
+	ended := time.Now().Add(-domain.TerminatedPRRefreshWindow - time.Hour)
+	l.TerminatedAt = &ended
+	l.LastState = domain.RemoteLinkTerminated
+	return l
 }
 
 func newTestObserver(store Store, deliverer Deliverer, hosts ...*fakeHost) *Observer {
@@ -586,7 +595,7 @@ func TestPollDropsLinksOnlyWhenTheRemoteWorkerIsGone(t *testing.T) {
 	host.pending["old-remote"] = "!404 ROUTE_NOT_FOUND"
 	host.terminated["finished"] = true
 	host.gone["vanished"] = true
-	store := newMemStore(link("host-build", "deleted"), link("host-build", "old-remote"), link("host-build", "finished"),
+	store := newMemStore(link("host-build", "deleted"), link("host-build", "old-remote"), endedLongAgo(link("host-build", "finished")),
 		link("host-build", "vanished"), link("host-build", "running"))
 
 	if err := newTestObserver(store, &fakeDeliverer{}, host).Poll(context.Background()); err != nil {
@@ -631,9 +640,15 @@ func TestPollKeepsATerminatedWorkerUntilItsSettlingReportIsDelivered(t *testing.
 	host := newFakeHost(t, "host-build", "pw")
 	host.terminated["widgets-3"] = true
 	host.pending["widgets-3"] = `{"reports":[],"morePending":true}`
-	store := newMemStore(link("host-build", "widgets-3"))
+	store := newMemStore(endedLongAgo(link("host-build", "widgets-3")))
 	deliverer := &fakeDeliverer{}
 	observer := newTestObserver(store, deliverer, host)
+	// Each pass is past the ended links' pull cadence.
+	clock := time.Now()
+	observer.now = func() time.Time {
+		clock = clock.Add(retainedPullInterval)
+		return clock
+	}
 
 	if err := observer.Poll(context.Background()); err != nil {
 		t.Fatal(err)
@@ -1499,6 +1514,12 @@ func (m *memStore) UpdateRemoteWorkerLinkLiveness(_ context.Context, host string
 			seen := at
 			m.links[i].LastSeenAt = &seen
 			m.links[i].LastState = state
+			switch {
+			case state != domain.RemoteLinkTerminated:
+				m.links[i].TerminatedAt = nil
+			case m.links[i].TerminatedAt == nil:
+				m.links[i].TerminatedAt = &seen
+			}
 		}
 	}
 	return nil

@@ -81,7 +81,7 @@ func TestKillingCoordinatorWakesIdleReportLoop(t *testing.T) {
 
 	deliv := &recordingDelivery{}
 	coordinator := report.NewCoordinator(report.CoordinatorDeps{Store: store, Delivery: deliv, Summaries: store, RetryDelay: 50 * time.Millisecond})
-	defer wakeOnCoordinatorTermination(ctx, bcast, store, slog.Default(), coordinator.Wake)()
+	defer wakeOnTermination(ctx, bcast, store, slog.Default(), coordinator.Wake)()
 	loopDone := coordinator.Start(ctx)
 	defer func() { cancel(); <-loopDone; <-pollDone }()
 	time.Sleep(100 * time.Millisecond) // let the loop go idle
@@ -108,8 +108,11 @@ func TestKillingCoordinatorWakesIdleReportLoop(t *testing.T) {
 	t.Fatalf("root did not receive escalation and report in time; sent = %v", deliv.sent)
 }
 
-func TestWorkerTerminationDoesNotWakeReportLoop(t *testing.T) {
-	ctx := context.Background()
+// TestKillingWorkerReportsToIdleRoot runs the real trigger, CDC poller, and
+// Start loop; nothing calls Wake except the termination wiring.
+func TestKillingWorkerReportsToIdleRoot(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store, err := sqlite.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -119,18 +122,68 @@ func TestWorkerTerminationDoesNotWakeReportLoop(t *testing.T) {
 	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao-wake2", RegisteredAt: now}); err != nil {
 		t.Fatalf("seed project: %v", err)
 	}
-	worker, err := store.CreateSession(ctx, domain.SessionRecord{ProjectID: "ao", Kind: domain.KindWorker, Harness: domain.HarnessClaudeCode,
+	mk := func(kind domain.SessionKind) domain.SessionRecord {
+		rec, err := store.CreateSession(ctx, domain.SessionRecord{ProjectID: "ao", Kind: kind, Harness: domain.HarnessClaudeCode,
+			Activity: domain.Activity{State: domain.ActivityActive, LastActivityAt: now}, CreatedAt: now, UpdatedAt: now})
+		if err != nil {
+			t.Fatalf("create %s: %v", kind, err)
+		}
+		return rec
+	}
+	root := mk(domain.KindOrchestrator)
+	worker := mk(domain.KindWorker)
+
+	bcast := cdc.NewBroadcaster()
+	poller := cdc.NewPoller(store, bcast, cdc.PollerConfig{Interval: 20 * time.Millisecond})
+	if err := poller.SeekToHead(ctx); err != nil {
+		t.Fatalf("seek: %v", err)
+	}
+	pollDone := poller.Start(ctx)
+	deliv := &recordingDelivery{}
+	coordinator := report.NewCoordinator(report.CoordinatorDeps{Store: store, Delivery: deliv, RetryDelay: 50 * time.Millisecond})
+	defer wakeOnTermination(ctx, bcast, store, slog.Default(), coordinator.Wake)()
+	loopDone := coordinator.Start(ctx)
+	defer func() { cancel(); <-loopDone; <-pollDone }()
+	time.Sleep(100 * time.Millisecond) // let the loop go idle
+
+	worker.IsTerminated = true
+	worker.UpdatedAt = time.Now().UTC()
+	if err := store.UpdateSession(ctx, worker); err != nil {
+		t.Fatalf("kill worker: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if deliv.count(root.ID, "the worker session ended") == 1 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("root was not told the worker ended; sent = %v", deliv.sent)
+}
+
+func TestOrchestratorTerminationDoesNotWakeReportLoop(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Now().UTC()
+	if err := store.UpsertProject(ctx, domain.ProjectRecord{ID: "ao", Path: "/tmp/ao-wake3", RegisteredAt: now}); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	root, err := store.CreateSession(ctx, domain.SessionRecord{ProjectID: "ao", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode,
 		Activity: domain.Activity{State: domain.ActivityActive, LastActivityAt: now}, CreatedAt: now, UpdatedAt: now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bcast := cdc.NewBroadcaster()
 	woke := 0
-	defer wakeOnCoordinatorTermination(ctx, bcast, store, slog.Default(), func() { woke++ })()
-	payload := []byte(`{"isTerminated":true}`)
-	bcast.Publish(cdc.Event{Type: cdc.EventSessionUpdated, SessionID: string(worker.ID), Payload: payload})
+	defer wakeOnTermination(ctx, bcast, store, slog.Default(), func() { woke++ })()
+	bcast.Publish(cdc.Event{Type: cdc.EventSessionUpdated, SessionID: string(root.ID), Payload: []byte(`{"isTerminated":true}`)})
 	if woke != 0 {
-		t.Fatalf("worker termination woke the loop %d times", woke)
+		t.Fatalf("orchestrator termination woke the loop %d times", woke)
 	}
 }
 
@@ -143,7 +196,7 @@ func (failingKindStore) GetSession(context.Context, domain.SessionID) (domain.Se
 func TestLookupFailureStillWakesReportLoop(t *testing.T) {
 	bcast := cdc.NewBroadcaster()
 	woke := 0
-	defer wakeOnCoordinatorTermination(context.Background(), bcast, failingKindStore{}, slog.Default(), func() { woke++ })()
+	defer wakeOnTermination(context.Background(), bcast, failingKindStore{}, slog.Default(), func() { woke++ })()
 	bcast.Publish(cdc.Event{Type: cdc.EventSessionUpdated, SessionID: "ao-1", Payload: []byte(`{"isTerminated":true}`)})
 	if woke != 1 {
 		t.Fatalf("woke = %d, want 1", woke)

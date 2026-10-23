@@ -38,7 +38,7 @@ Read the report, `backlog/README.md`, and all `EPIC.md` and `STORY.md` files bef
 
 The user agreed this process on 2026-10-19. It decides where work may run.
 
-- **The hub runs only the orchestrator.** The hub service runs the orchestrator session with the daemon, the BFF and the wake-up loop. Do not start implementation, fixes, tests or reviews on the hub. It is not a build machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so a Go change cannot be validated there.
+- **The hub runs only the orchestrator.** The hub service runs the orchestrator session with the daemon and the BFF. Do not start implementation, fixes, tests or reviews on the hub. It is not a build machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so a Go change cannot be validated there.
 - **Work runs on the worker machines.** `Linux`, `IMac` and `Z600` run the implementation, fixes, tests and reviews. Start those tasks with `ao spawn --host <H>`, never on the hub. A task started on the hub has to be stopped and moved.
 - **Workers report to their orchestrator.** A worker sends its reports to the orchestrator that spawned it; this is how you know who is doing what and decide the next step. Do not wait for a report to learn the state: `ao session ls --host <H>`, `gh pr list --base dev` and `gh pr checks` are authoritative.
 - **A silent worker reports itself.** `ao session ls` exposes derived `health`. `stalled` means the agent is alive but produced no real progress inside its budget; `blocked` means it is paused on input or a missing credential; an unreachable host or a missing health answer is not a stalled agent. Check `ao host ls` and the report before acting. Do not kill a session on another machine to "fix" a stall: its local commits may exist only there. See `docs/runbooks/session-health-stalls.md`.
@@ -161,20 +161,19 @@ Before starting on a host, confirm that host has no active local orchestrator (`
 
 After starting: issue → `status:in-progress` + `host:<h>`, a row in the tracker with the session id.
 
-## Wake-up and reconcile loop
+## Reconcile loop
 Exactly-once delivery of `ao report` from remote workers to the hub orchestrator is being verified in RW-5.4.3 (#121), and issue #63 remains open. Therefore:
 
 - **Do not wait for `--done`, `--needs-input` or `--stuck` from a remote worker.** Read the state yourself: `ao session ls --host <H>` for `IMac`, `Linux` and `Z600` over the tailnet, `gh pr list --base dev`, and `gh pr checks <PR>`.
-- **Wake-up:** The hub runs `ao orchestrator tick loop` every 3 minutes by default (`RW_TICK_INTERVAL` overrides the interval in seconds) when `AO_HUB_ORCHESTRATOR_TICK=1`. When the orchestrator is idle and the state has changed, the loop sends it a message that starts with `TICK` and contains the current state. It is not from the user.
-- **`VIOLATION:` lines in a `TICK` are fixed first**, before anything else in the loop. The wake-up script checks in code the rules that must always hold:
+- **Lifecycle reports:** The daemon delivers worker lifecycle reports (PR merged, PR closed without merge, worker session ended) to the owning coordinator or root orchestrator automatically. They are system context, not from the user. No external wake-up loop runs.
+- **Check these rules first on every loop pass**, before anything else:
   - `dev` contains `origin/main`;
   - a green, mergeable PR does not wait more than 10 min;
   - a merged PR does not leave open issues from `Closes #N`;
   - a worker does not sit idle without a PR for more than 30 min.
 
-  While a violation persists, the wake-up script repeats it every 10 min. If you cannot fix it, for example because of a merge conflict, write why in #59 and tell the user.
-- **Completion reconciliation** runs in the same tick when the hub opts in with `RW_TICK_MERGE_AUTHORIZED=1` and `RW_TICK_CLOSE_COMPLETED=1`. It merges only a PR whose fresh current head has green required checks, an AO native review verdict of `up_to_date` for the exact head, `mergeable`, no unresolved review threads, and no `needs-human`, `do-not-merge`, or `status:blocked` label; the merge is pinned to that exact head. After the merge it closes a worker only when every owned PR is terminal, the agent is not active, the branch has no unpublished commits, and no obligation remains. Keep a worker open for deployment or live verification with `ao orchestrator tick hold <session> --host <H> --reason "<why>" --until "<condition>"`, then `ao orchestrator tick release <session> --host <H>`. The flag survives restarts; `ao orchestrator tick pause` stops all of it before any merge or close.
-- **On every `TICK` and at the end of each of your turns**, run the full loop:
+  If you cannot fix a broken rule, for example because of a merge conflict, write why in #59 and tell the user.
+- **On every lifecycle report or worker report, and at the end of each of your turns**, run the full loop:
   1. Sessions per machine: who is working, who is idle, who is terminated.
   2. Every open PR against `dev` with green CI and `mergeable`: check it per "Review and merge" below and merge it immediately if it is clean. ADR and `needs-human` only with user approval.
   3. A worker idle without a PR for over 30 min: `ao send` asking what is blocking it.
@@ -196,7 +195,7 @@ When a worker's PR is ready (green CI and the worker is idle; do not rely on `--
 10. On a conflict between two PRs: merge the first one, and send the second worker `ao send` to merge `origin/dev` into its branch and resolve the conflict.
 
 ## Monitoring and communication
-- Check `ao session ls --host <H>` for the three machines on every `TICK` (see "Wake-up and reconcile loop"). If a session is idle for over 30 min without a PR, send `ao send` asking for status. If it is dead, restart the task (new session, same branch if there are pushed commits).
+- Check `ao session ls --host <H>` for the three machines on every loop pass (see "Reconcile loop"). If a session is idle for over 30 min without a PR, send `ao send` asking for status. If it is dead, restart the task (new session, same branch if there are pushed commits).
 - On `--stuck` or `--needs-input`: issue → `status:blocked` or `needs-human`, a comment in the issue with the reason, and a short message to the user.
 - At the end of each wave: a comment in the tracker issue with a summary (merged, blocked, next wave) and the same summary to the user.
 - At the end (all tasks merged): open a **draft** PR `dev → main` with the title `feat: Railway hosting (RW-1…RW-4)` and a description by epic. Do not merge it.

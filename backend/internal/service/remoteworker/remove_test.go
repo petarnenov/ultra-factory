@@ -48,7 +48,7 @@ func TestRemoveLinkUnknownIsNotFound(t *testing.T) {
 	}
 }
 
-func TestReleaseKilledDropsTheLinkWithoutACaller(t *testing.T) {
+func TestReleaseKilledMarksTheLinkEndedWithoutACaller(t *testing.T) {
 	store := removableStore(t)
 	svc := New(Deps{Store: store})
 	for i := 0; i < 2; i++ {
@@ -56,7 +56,8 @@ func TestReleaseKilledDropsTheLinkWithoutACaller(t *testing.T) {
 			t.Fatalf("release %d: %v", i, err)
 		}
 	}
-	if len(store.stored) != 0 || len(store.removals) != 0 {
-		t.Fatalf("stored = %d, removals = %d; want the link gone and no removal", len(store.stored), len(store.removals))
+	// The link stays so late reports are pulled; ended, it holds no slot.
+	if len(store.stored) != 1 || store.stored[0].LastState != domain.RemoteLinkTerminated || len(store.removals) != 0 {
+		t.Fatalf("stored = %+v, removals = %d; want the link kept as ended", store.stored, len(store.removals))
 	}
 }

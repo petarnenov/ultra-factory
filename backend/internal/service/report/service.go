@@ -45,17 +45,20 @@ type Service struct {
 	newID        func() string
 	onCreated    func(domain.ReportRecord)
 	artifacts    ArtifactRecorder
+	claims       PROutcomeClaims
 	selfHostID   string
 	selfHostName string
 }
 
-// Deps configures a Service. Artifacts is optional.
+// Deps configures a Service. Artifacts is optional; Claims is required only
+// for PR outcome announcements.
 type Deps struct {
 	Store        Store
 	Now          func() time.Time
 	NewID        func() string
 	OnCreated    func(domain.ReportRecord)
 	Artifacts    ArtifactRecorder
+	Claims       PROutcomeClaims
 	SelfHostID   string
 	SelfHostName string
 }
@@ -68,7 +71,7 @@ func New(d Deps) *Service {
 	if d.NewID == nil {
 		d.NewID = func() string { return "rpt_" + uuid.NewString() }
 	}
-	return &Service{store: d.Store, now: d.Now, newID: d.NewID, onCreated: d.OnCreated, artifacts: d.Artifacts, selfHostID: d.SelfHostID, selfHostName: d.SelfHostName}
+	return &Service{store: d.Store, now: d.Now, newID: d.NewID, onCreated: d.OnCreated, artifacts: d.Artifacts, claims: d.Claims, selfHostID: d.SelfHostID, selfHostName: d.SelfHostName}
 }
 
 // DefaultListProjectLimit keeps the first Reports panel page bounded.
@@ -563,7 +566,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 
 // createLifecycleReport files an AO-authored checkpoint that is due now. It
 // accepts a terminated worker, because a PR can close after its worker ends.
-func (s *Service) createLifecycleReport(ctx context.Context, worker domain.SessionRecord, note string) (domain.ReportRecord, error) {
+func (s *Service) createLifecycleReport(ctx context.Context, worker domain.SessionRecord, note string) error {
 	now := s.now().UTC()
 	created, err := s.store.CreateReport(ctx, domain.ReportRecord{
 		ID: s.newID(), SessionID: worker.ID, ProjectID: worker.ProjectID,
@@ -571,12 +574,12 @@ func (s *Service) createLifecycleReport(ctx context.Context, worker domain.Sessi
 		CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: now, RepeatCount: 1,
 	})
 	if err != nil {
-		return created, err
+		return err
 	}
 	if s.onCreated != nil {
 		s.onCreated(created)
 	}
-	return created, nil
+	return nil
 }
 
 // MaxAcknowledgeReports bounds one acknowledgement request.

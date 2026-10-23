@@ -269,7 +269,6 @@ func TestLANManagerBlocksLoopbackOnlyControlRoutes(t *testing.T) {
 		"/api/v1/agents/codex/accounts/login-terminal",
 		"/api/v1/agents/codex/accounts/login-operations/op-1/verify",
 		"/api/v1/agents/codex/account-switches",
-		"/api/v1/reports/completion",
 		"/api/v1/secrets/github",
 		"/api/v1/secrets/github/work-account",
 	}
