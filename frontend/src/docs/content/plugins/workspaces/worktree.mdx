@@ -3,7 +3,7 @@ title: Git worktrees
 description: Isolated branches and files for sessions in Git projects.
 ---
 
-Each Git-backed session gets its own worktree and branch, based on the repository's default branch rather than the branch currently checked out in your source repository. Multi-repository workspaces resolve the root and each child repository independently.
+Each Git-backed session gets its own worktree and branch, based on the project's configured `defaultBranch` rather than the branch currently checked out in your source repository. When the setting is `auto`, Orchestrator resolves the repository's Git default. Multi-repository workspaces resolve the root and each child repository independently.
 
 ```bash
 ao project add --path /path/to/repo --worker-agent codex
@@ -15,7 +15,9 @@ Worktrees keep checked-out files separate while sharing the repository's Git obj
 <span id="how-ao-chooses-the-base-branch" />
 ## How Orchestrator chooses the base branch
 
-Orchestrator asks the selected remote for its default branch. If it cannot reach the remote, Orchestrator uses that remote's cached `HEAD`. If the remote has no default branch, a fetched branch named in the spawn request can seed the explicitly requested session branch.
+An explicit project `defaultBranch` selects the worktree base. Set it with `ao project set-config <id> --default-branch dev` when workers should start from `dev`. With `auto`, Orchestrator asks the selected remote for that repository's default branch. If it cannot reach the remote, Orchestrator uses that remote's cached `HEAD`.
+
+For `ao spawn --host <host>`, the target host's daemon selects the base from its copy of the project's configuration. Configure the project on that host as well; the spawning machine's project setting is not sent with the request. In a multi-repository workspace, the explicit project setting applies to the root repository, while each child repository resolves its own configured or Git default.
 
 Orchestrator records the base ref for each repository. Workspace and review diffs use it to recalculate the merge base after a rebase or when the repository default advances, so upstream-only changes do not appear as agent edits.
 

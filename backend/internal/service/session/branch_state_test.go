@@ -82,6 +82,30 @@ func TestReconcileSessionBranchStateTracksCommitsAndPushes(t *testing.T) {
 	}
 }
 
+func TestReconcileBranchStateCountsFromConfiguredProjectBase(t *testing.T) {
+	repo := newPushableRepo(t)
+	runGit(t, repo, "switch", "-c", "dev")
+	commitFile(t, repo, "dev-base.go")
+	runGit(t, repo, "push", "-u", "origin", "dev")
+	runGit(t, repo, "switch", "-c", "ao/worker")
+	commitFile(t, repo, "worker-a.go")
+	commitFile(t, repo, "worker-b.go")
+
+	st := &branchStateStore{fakeStore: newFakeStore()}
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: domain.ProjectConfig{DefaultBranch: "dev"}}
+	st.sessions["ao-1"] = domain.SessionRecord{
+		ID: "ao-1", ProjectID: "mer",
+		Metadata: domain.SessionMetadata{WorkspacePath: repo},
+	}
+	if err := (&Service{store: st}).ReconcileSessionBranchState(context.Background(), "ao-1"); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	want := domain.SessionBranchState{Commits: 2, Unpushed: 2}
+	if got := st.sessions["ao-1"].BranchState; got == nil || *got != want {
+		t.Fatalf("branch state = %+v, want %+v (counts relative to configured dev)", got, want)
+	}
+}
+
 func TestReconcileBranchStatesFollowsTheWorktreeBranch(t *testing.T) {
 	repo := newPushableRepo(t)
 	worktree := filepath.Join(t.TempDir(), "wt")

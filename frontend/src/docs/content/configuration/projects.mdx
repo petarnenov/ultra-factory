@@ -70,7 +70,13 @@ ao project rm <project-id>
 
 ### Choose a base branch
 
-The default `defaultBranch: "auto"` resolves each repository separately. Orchestrator chooses the remote named by Git's `checkout.defaultRemote`, then `origin`, or the repository's only remote. It reads that remote's symbolic `HEAD` and fetches the advertised branch. When offline, Orchestrator can use the same remote's cached `HEAD`.
+The default `defaultBranch: "auto"` resolves each repository separately. Orchestrator chooses the remote named by Git's `checkout.defaultRemote`, then `origin`, or the repository's only remote. It reads that remote's symbolic `HEAD` and fetches the advertised branch. When offline, Orchestrator can use the same remote's cached `HEAD`. Set `defaultBranch` explicitly when workers should use a project base such as `dev`:
+
+```bash
+ao project set-config my-project --default-branch dev
+```
+
+`ao spawn --host <host>` reads this setting from the project registered on the target host, so configure that host's project separately. For a multi-repository project, `defaultBranch` selects the root repository base; child repositories keep their own configured or inferred defaults.
 
 Orchestrator does not guess from the checked-out branch, `main`, or `master`. If a repository has no authoritative remote default, or its remotes are ambiguous, spawning fails with `DEFAULT_BRANCH_UNRESOLVED`.
 

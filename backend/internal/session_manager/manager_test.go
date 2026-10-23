@@ -5590,7 +5590,7 @@ func TestPromptProjectContextOmitsAutomaticBranchSentinel(t *testing.T) {
 func TestSpawn_FetchesDefaultBranchBeforeCreatingWorkerWorktree(t *testing.T) {
 	m, st, _, ws := newManager()
 	cfg := testRoleAgents()
-	cfg.DefaultBranch = "main"
+	cfg.DefaultBranch = "dev"
 	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Path: "/repo/mer", Config: cfg}
 	var calls []string
 	ws.sharedLog = &calls
@@ -5599,13 +5599,16 @@ func TestSpawn_FetchesDefaultBranchBeforeCreatingWorkerWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := ws.fetches, []fetchDefaultBranchCall{{repoPath: "/repo/mer", remote: "origin", branch: "main", baseRef: "refs/remotes/origin/main"}}; !reflect.DeepEqual(got, want) {
+	if got, want := ws.fetches, []fetchDefaultBranchCall{{repoPath: "/repo/mer", remote: "origin", branch: "dev", baseRef: "refs/remotes/origin/dev"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("fetches = %#v, want %#v", got, want)
 	}
-	if got, want := ws.lastCfg.BaseRef, "refs/remotes/origin/main"; got != want {
+	if got, want := ws.lastCfg.BaseBranch, "dev"; got != want {
+		t.Fatalf("create base branch = %q, want %q", got, want)
+	}
+	if got, want := ws.lastCfg.BaseRef, "refs/remotes/origin/dev"; got != want {
 		t.Fatalf("create base ref = %q, want %q", got, want)
 	}
-	if got, want := calls[:2], []string{"FetchDefaultBranch:origin/main", "Create"}; !reflect.DeepEqual(got, want) {
+	if got, want := calls[:2], []string{"FetchDefaultBranch:origin/dev", "Create"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("workspace call order = %#v, want %#v", calls, want)
 	}
 }
