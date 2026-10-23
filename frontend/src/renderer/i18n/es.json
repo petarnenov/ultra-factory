@@ -3543,6 +3543,7 @@
   "benchmarks.meta.commit": "Commit",
   "benchmarks.meta.timestamp": "Measured",
   "benchmarks.meta.environment": "Environment",
+  "benchmarks.meta.environmentDetails": "{{platform}}/{{arch}} · Chromium {{chromium}} · {{viewport}}",
   "benchmarks.col.scenario": "Scenario",
   "benchmarks.col.pass": "Pass",
   "benchmarks.col.median": "Median",

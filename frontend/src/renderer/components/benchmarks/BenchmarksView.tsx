@@ -60,7 +60,7 @@ export function BenchmarksView() {
 						<div className="flex gap-1"><dt>{t("benchmarks.meta.label")}</dt><dd>{fixture.label}</dd></div>
 						<div className="flex gap-1"><dt>{t("benchmarks.meta.commit")}</dt><dd className="font-mono">{fixture.commit}</dd></div>
 						<div className="flex gap-1"><dt>{t("benchmarks.meta.timestamp")}</dt><dd>{formatTimestamp(fixture.timestamp)}</dd></div>
-						<div className="flex gap-1"><dt>{t("benchmarks.meta.environment")}</dt><dd>{fixture.env.platform}/{fixture.env.arch} · Chromium {fixture.env.chromium} · {fixture.env.viewport}</dd></div>
+						<div className="flex gap-1"><dt>{t("benchmarks.meta.environment")}</dt><dd>{t("benchmarks.meta.environmentDetails", { platform: fixture.env.platform, arch: fixture.env.arch, chromium: fixture.env.chromium, viewport: fixture.env.viewport })}</dd></div>
 					</dl>
 					)}
 			</header>
