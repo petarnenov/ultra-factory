@@ -2,6 +2,20 @@
 
 Operational guidance for coding agents working in this repository. Keep changes small, match the current rewrite architecture, and prefer the documented daemon/API boundaries over behavior from the old TypeScript implementation.
 
+This file holds what every task needs. Load the page for your task when it applies:
+
+| When you are about to... | Read |
+| --- | --- |
+| Run builds, tests, CI checks, the hub BFF checks, or the desktop lab | [`docs/agents/commands.md`](docs/agents/commands.md) |
+| Change a daemon HTTP request or response shape | [`docs/agents/api-contract.md`](docs/agents/api-contract.md) |
+| Branch, merge, or promote `dev` to `main` | [`docs/agents/git-flow.md`](docs/agents/git-flow.md) |
+| Touch a daemon listener, route auth, remote access, or the Railway hub | [`docs/agents/network-boundaries.md`](docs/agents/network-boundaries.md) |
+| Spawn workers, run reviews, or pick a machine | [`docs/agents/orchestration.md`](docs/agents/orchestration.md) |
+| Change install paths, release workflows, or macOS artifacts | [`docs/agents/distribution.md`](docs/agents/distribution.md) |
+| File an issue or check its labels | [`docs/issue-policy.md`](docs/issue-policy.md) |
+| Write a PR description | [`.agents/skills/pr-description/SKILL.md`](.agents/skills/pr-description/SKILL.md) |
+| Make a visual or UI decision | [`DESIGN.md`](DESIGN.md) |
+
 ## Language
 
 **All documents, comments, and similar text in this repository are written in English only.** That covers:
@@ -20,102 +34,7 @@ This applies even when you talk to the user in another language: conversation ca
 - `test/`: External smoke/e2e assets, including the CLI fresh-install container check.
 - `.github/workflows/`: CI definitions. Mirror these commands locally when possible.
 
-## Commands
-
-From the repo root unless noted. The root `Makefile` wraps these (`make help`, `make setup`, `make doctor`, `make check`, `make check-all`, `make ci-check`):
-
-```bash
-make ci-check                        # CI comment policy, issue policy, and lint job
-npm run lint                         # backend go test -p 2 + golangci-lint v2.14.0
-npm run frontend:typecheck           # frontend TypeScript check
-npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
-npm run api                          # regenerate OpenAPI spec + frontend TS types (see API contract changes below)
-npx @redwoodjs/agent-ci run --all    # local workflow validation; requires Docker socket
-```
-
-`make ci-check` is the documented way to reproduce the policy jobs. It resolves
-the pull request's comparison base, forces `GOTOOLCHAIN` to `backend/go.mod`'s
-version, and supplies the environment the policy scripts read. The raw
-`npm run comment:check` defaults to `origin/main`, which is not the base of a
-`dev`-targeted pull request.
-
-**Local validation on a shared machine runs one heavy check at a time.** Do not
-start a second compiler, linter, or test suite from another shell while one is
-running. The local entry points cap parallelism; raise it deliberately only on a
-larger machine:
-
-```bash
-make test-backend                    # go test -p ${GO_TEST_PARALLELISM:-2} ./...
-make test-race                       # go test -race -p ${GO_TEST_PARALLELISM:-2} ./...
-make test-frontend                   # Vitest with AO_VITEST_MAX_FORKS forks (default 2)
-npm run lint                         # go test -p ${GO_TEST_PARALLELISM:-2} then golangci-lint
-```
-
-`AO_VITEST_MAX_FORKS=0` leaves Vitest's own fork limit. CI keeps its own
-invocations and parallelism. `make check-all` and `make check` run their heavy
-steps serially, including under `make -j`.
-
-Backend-specific checks:
-
-```bash
-cd backend
-go build ./...
-go test -p 2 ./...
-go test -race -p 2 ./...
-go vet ./...
-go run ./cmd/ao start
-```
-
-Frontend-specific checks:
-
-```bash
-cd frontend
-npm run typecheck
-npm run build
-npm run build:web       # standalone web renderer → dist-web/ (VITE_AO_WEB=1; dev:web:real runs it against a real daemon via AO_DEV_API_TARGET)
-```
-
-Railway hub (web BFF, `packages/hub-bff`) checks, from the repo root:
-
-```bash
-npm run hub-bff:check                       # BFF typecheck + vitest (same as make hub-bff-check)
-npm --prefix packages/hub-bff test          # BFF tests only
-./deploy/railway/compose.e2e.sh             # local hub + worker Compose and Playwright web e2e; requires Docker
-```
-
-When showing or demoing frontend changes, run `ao preview [url]` from inside the session so the change renders in the desktop browser panel (the inspector rail's Browser tab); do not just describe it.
-
-### Desktop lab (running the real Electron app for UI review)
-
-For visual verification that needs the real app rather than `ao preview` or `dev:web`, run the checkout in an isolated worktree against scratch data. Never use the invoking working tree (it may hold unrelated uncommitted work) and never touch the user's real `~/.ao` data.
-
-```bash
-git worktree add /tmp/ao-lab <branch>   # the PR branch under review
-cd /tmp/ao-lab/frontend
-npm ci                                  # never symlink node_modules from another checkout (see below)
-npm run build:daemon -- --dev
-AO_DATA_DIR=/tmp/ao-lab-data ./node_modules/.bin/electron-forge start
-```
-
-- **Run a real `npm ci`.** Symlinking another checkout's `node_modules` makes React resolve from two physical paths and shares the Vite optimizer cache across checkouts: the symptom is a black window with `Invalid hook call` / `useSyncExternalStore` errors in the renderer console. It also writes `.vite/deps` output into the other checkout's tree.
-- **Isolate data with `AO_DATA_DIR`.** The lab starts with an empty board; create throwaway sessions inside it to exercise list/detail flows. The Electron `userData` dir already defaults to a dev path, not the production one.
-- **Diagnose with `ELECTRON_ENABLE_LOGGING=1`.** Renderer console errors (the cause of most blank windows) land in the launcher's stdout.
-- **Killing the forge wrapper is not enough.** The Electron main process cmdline is just `Electron .`, so `pkill -f electron-forge` leaves the app running and the next launch exits silently. Kill the `Electron.app/.../MacOS/Electron` main process explicitly before relaunching.
-- A missing-dependency warning for a lazily imported module (for example `mermaid`, which is dynamically imported on first use) does not blank the window; treat it as informational.
-
-## Where to look first
-
-- `README.md`: Current run/config/test quickstart.
-- `docs/README.md`: Docs index.
-- `docs/documentation-map.md`: Which artifacts are the machine-readable contract layer (`openapi.yaml`, `AGENTS.md`, `skills/`, sqlc `gen/`), what each is source of truth for, and how CI keeps them from drifting.
-- `docs/issue-policy.md`: Issue type and priority labels, the pull request check that enforces them, and its two exemptions.
-- `docs/architecture.md`: Backend mental model, package layout, lifecycle/session/service boundaries, and load-bearing rules.
-- `docs/STATUS.md`: What is shipped on `main` today and what is still in flight.
-- `docs/cli/README.md`: Intended CLI shape, a thin Cobra client over daemon HTTP with no direct storage/runtime access.
-- `docs/railway/architecture.md`: AO on Railway (hub, workers, web BFF), request flows, and web-build limits. Operator runbook: `deploy/railway/README.md`; threat model: `docs/railway/threat-model.md`.
-- `CLAUDE.md`: Compatibility pointer for Claude Code. It directs agents back to `AGENTS.md`.
-
-For code entry points:
+Where to look first: `README.md` (quickstart), `docs/README.md` (docs index), `docs/architecture.md` (backend mental model and load-bearing rules), `docs/STATUS.md` (what is shipped), `docs/cli/README.md` (CLI shape), and `docs/documentation-map.md` (which docs are contract). Code entry points:
 
 - CLI commands: `backend/internal/cli/*.go`; follow nearby command/test patterns before adding a new style.
 - HTTP controllers and DTOs: `backend/internal/httpd/controllers/`.
@@ -125,14 +44,21 @@ For code entry points:
 - SQLite queries/migrations/store: `backend/internal/storage/sqlite/`.
 - Generated sqlc code: `backend/internal/storage/sqlite/gen/`.
 
-## Distribution
+## Core commands
 
-- The **desktop app** (GitHub Releases) is the canonical, auto-updating install path. Point users there first.
-- **npm still works but is no longer recommended.** `0.10.0` is the final version published to npm; the `@aoagents/ao` package is frozen and will not receive further updates. It remains a legacy on-ramp for users who already have `ao` on their PATH, where `ao start` fetches and opens the desktop build. Do not add features, docs, or flows that treat npm as the intended way to install AO.
-- **Exactly one publisher.** Only the designated release conductor runs a real publish, on any channel. Divergent artifacts from multiple publishers made the 28-29 Jul macOS incident unreadable. Use the fork dev loop for test builds. Full rule and rationale: `frontend/docs/desktop-release.md`, "Hard rule: exactly one publisher".
-- **The daemon update channel is the one exception** to that rule: `.github/workflows/daemon-channel.yml` publishes prereleases under `daemon-channel-*` for self-hosted hosts, never a desktop artifact and never `/releases/latest`, and `frontend/release-workflows.test.ts` pins those properties. See `docs/adr/0009-daemon-update-channel.md`.
-- **Verify macOS artifacts with `frontend/scripts/verify-mac-artifact.sh`, never by hand.** It extracts with `ditto -x -k` and runs `codesign --verify --deep --strict`, `spctl -a -vv -t exec`, `xcrun stapler validate`. Plain `unzip` breaks the seal and yields a convincing false failure; `spctl` without `-vv` prints nothing at all on success.
-- **macOS ships both a `.zip` and a `.dmg`.** The dmg is first install only. The zip and `latest-mac.yml` must keep publishing forever: electron-updater cannot install an update from a dmg. macOS differential updates are permanently disabled (full download only); see issues #3151 and #3267.
+From the repo root. The full catalog, parallelism settings, and the desktop lab are in [`docs/agents/commands.md`](docs/agents/commands.md).
+
+```bash
+make ci-check                        # CI comment policy, issue policy, and lint job
+npm run lint                         # backend go test -p 2 + golangci-lint v2.14.0
+npm run frontend:typecheck           # frontend TypeScript check
+npm run sqlc                         # regenerate backend/internal/storage/sqlite/gen from queries/schema
+npm run api                          # regenerate OpenAPI spec + frontend TS types
+```
+
+**Local validation on a shared machine runs one heavy check at a time.** Do not start a second compiler, linter, or test suite from another shell while one is running.
+
+When showing or demoing frontend changes, run `ao preview [url]` from inside the session so the change renders in the desktop browser panel (the inspector rail's Browser tab); do not just describe it.
 
 ## Coding conventions
 
@@ -148,13 +74,12 @@ For code entry points:
 - Use `context.Context` as the first argument for functions that do I/O or blocking work.
 - Do not add abstractions for one-off use cases. Add helpers only when they remove duplication across real call sites.
 - Tests should cover the user-visible behavior and boundary being changed: happy path, validation/missing args, daemon error envelopes, and any destructive confirmation path.
-- Test coverage must be at least 75%.
+- Test coverage must be at least 75% for each Go package the change touches, measured with `go test -cover ./<pkg>/...`. It is the owner's bar for new and changed code, not a whole-repo figure. CI does not enforce it, so report the measured numbers in the PR body and explain any package that stays below. The frontend has no coverage tooling yet (`@vitest/coverage-v8` is not a dependency), so frontend changes report coverage as not measured.
 
 ## Hard rules and boundaries
 
 - The daemon's **primary (loopback) listener** stays bound to `127.0.0.1` and unauthenticated. Do not change its bind host or add auth to it.
-- The daemon MAY run a **second, opt-in LAN listener** (the "Connect Mobile" feature) that binds `0.0.0.0` **only while explicitly enabled**, **only** behind the bearer-password `authMiddleware`, serving the app API but never the loopback-gated control routes (`/shutdown`, telemetry, mobile control). **Exactly one route is exempt from `authMiddleware`: `GET /api/v1/identity`**, which returns an opaque host id and the mobile contract version so a phone can confirm which machine answered before presenting a credential. See `docs/adr/0003-unauthenticated-identity-probe.md`. The exemption is an exact path, `GET` only, and checked ahead of the lockout; any further unauthenticated route needs its own ADR. The same listener may instead bind only this machine's Tailscale address (`ao remote-host enable`, `LANManager.StartTailnet`) and admit callers on their Tailscale identity checked through the local `tailscaled` (`backend/internal/tailnet`), failing closed; the password is then off unless the user opts in. See `docs/adr/0011-tailscale-identity-for-remote-hosts.md`. The direct LAN listener is plaintext for trusted home networks. See `docs/adr/0001-lan-listener-for-mobile.md` and `CONTEXT.md` for the original decision. Current managed cloudflared and Tailscale TLS endpoints wrap this authenticated mobile path; they do not authorize exposing the primary listener or adding an unauthenticated route. See `frontend/src/docs/content/configuration/remote-access.mdx` for current pairing behavior. Do not add any other network-facing bind.
-- Extensions for hosting AO on Railway: `docs/adr/0005-trusted-proxy-remote-host.md` lets the LAN listener key its lockout on the rightmost `X-Forwarded-For` entry, only behind the opt-in `AO_REMOTE_TRUSTED_PROXY=1`, never by default and never for authorization. `docs/adr/0006-web-bff-for-hub.md` puts a web BFF in front of the hub daemon: the BFF is a separate process, talks only to the authenticated listener (loopback-only on the hub) with a bearer, and never proxies the primary `127.0.0.1` listener. `docs/adr/0007-dual-stack-remote-host-listener.md` records that the `0.0.0.0` LAN bind is already dual-stack in Go and must not be narrowed to `tcp4`. `docs/adr/0008-hub-egress-to-off-railway-hosts.md` (Accepted) allows one extra loopback-only SOCKS5 listener in the hub, used only for tailnet destinations and never through `HTTP(S)_PROXY`.
+- The only other network-facing bind is the **opt-in remote-host listener** (Connect Mobile, Tailscale, Railway hub), always behind `authMiddleware` or the Tailscale identity check. Exactly one route is exempt: `GET /api/v1/identity`; any further unauthenticated route needs its own ADR. Do not add any other network-facing bind. The full contract and ADRs 0001, 0003, 0005-0008 and 0011 are in [`docs/agents/network-boundaries.md`](docs/agents/network-boundaries.md).
 - The CLI is a thin client. Do not port old in-process TypeScript CLI behavior that bypasses daemon HTTP routes.
 - Do not store derived/display session status. Status is derived from durable facts (`activity_state`, `is_terminated`, PR/check/comment facts) at service read time.
 - Do not treat failed/unknown runtime probes as proof a session is dead.
@@ -167,94 +92,13 @@ For code entry points:
 - Do not commit local run state, daemon data, temporary worktrees, build outputs, or credentials.
 - All AO-owned app state lives under `~/.ao` only. The daemon's data dir, `running.json`, worktrees, and the Electron supervisor's `userData` (Chromium cache, cookies, local/session storage, crash dumps) must resolve under `~/.ao` (overridable via `AO_DATA_DIR`/`AO_RUN_FILE`). Never write to or otherwise use `~/Library/Application Support` or any other OS default app-data location for AO state. The sole read exception is an explicit, user-initiated browser-profile import: it may read only validated, known source-browser profile files, must never write to the source profile, must keep source paths out of the renderer, and must place every snapshot, staging file, and imported result under `~/.ao`. `main.ts` pins Electron's `userData` to `~/.ao/electron`; do not remove that override or rely on Electron's default path.
 
-## Orchestration and machine roles
+## Issues and pull requests
 
-The user agreed this process on 2026-10-19. It decides where work may run.
-
-- **The hub runs only the orchestrator.** The Railway hub service runs the orchestrator session with the daemon, the BFF and the wake-up loop. Do not start implementation, fixes, tests or reviews on the hub. It is not a build machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so a Go change cannot be validated there.
-- **Work runs on the worker machines.** Start implementation, fixes, tests and reviews on a paired machine with `ao spawn --host`. A machine that runs its own orchestrator refuses a worker started from another machine with `LOCAL_ORCHESTRATOR_ACTIVE`, even when that local orchestrator belongs to another project, because it would claim the worker's reports. Observed on `IMac` with the local orchestrator `geowealth-1`. Check `ao orchestrator ls --host <H>` before starting a worker; stop that orchestrator or use another machine.
-- **Workers report to their orchestrator.** A worker sends reports to the orchestrator that spawned it. The orchestrator does not wait for a report before inspecting state.
-- **Workers cannot merge.** The daemon refuses `ao pr merge` from every live worker (and coordinator) with `403 MERGE_ROOT_ONLY`, in every project and whether or not coordinators are enabled. Integration belongs to the project root: report a green PR to your orchestrator and let it merge.
-- **Reviews run where the worker's checkout lives.** The reviewer runs over that checkout with an enforced read-only guarantee. `ao review trigger|ls|cancel --host` runs them on the owning machine from another orchestrator. Before a pass: the worker is idle or exited, everything is committed and pushed, the PR is open, and the reviewer is given the evaluated head SHA. Findings go to the owning worker, which fixes and pushes; a moved head needs a new pass.
-- **Agent configuration is per machine.** Project Settings / Agents and the machine's harness defaults apply on that machine. Precedence is defined in #254; do not copy the hub's configuration to a worker.
-
-Runbook: `deploy/railway/README.md` ("Orchestration roles and the review flow"). Orchestrator instructions: `docs/backlog/railway/orchestrator-prompt.md` ("Machine roles and the orchestration process").
-
-## API contract changes
-
-The daemon API is code-first. The OpenAPI spec and frontend TypeScript types are generated artifacts. Edit the source, then regenerate.
-
-**Source files to edit:**
-
-- `backend/internal/httpd/controllers/dto.go`: request/response shapes.
-- `backend/internal/httpd/apispec/specgen/build.go`: operation registry. Add a `schemaNames` entry for any new named type.
-
-**Regenerate after editing:**
-
-```bash
-npm run api          # runs api:spec then api:ts in sequence
-```
-
-This is equivalent to running:
-
-```bash
-npm run api:spec     # cd backend && go generate ./internal/httpd/apispec/...
-npm run api:ts       # npx openapi-typescript@7.4.4 backend/internal/httpd/apispec/openapi.yaml -o frontend/src/api/schema.ts
-```
-
-**Verify:**
-
-```bash
-cd backend && go test ./internal/httpd/...    # spec drift + route/spec parity tests (does not cover schema.ts; the api-drift CI job checks it)
-```
-
-Commit `openapi.yaml` and `frontend/src/api/schema.ts` together with the Go changes. CI will regenerate both files and fail if the committed versions are out of date. The CLI hand-mirrored DTOs remain a deliberate manual boundary and are not generated.
-
-## Git flow
-
-`main` is the release boundary and the only branch that publishes. `dev` is the integration branch. Every story, bug, or improvement reaches `main` through `dev`.
-
-1. **Task worktree branched from `dev`.** One worktree and one branch per task:
-   ```bash
-   git fetch origin
-   git worktree add ../uf-worktrees/<slug> -b feat/<slug> origin/dev
-   ```
-   Branch from `dev`, never from `main`. Never work in the invoking working tree: it may hold unrelated uncommitted work. Keep the worktree outside the checkout (an untracked `.worktrees/` directory inside it gets walked by repo tooling), and never use `~/.ao/data/worktrees/...`, which the AO product itself creates for agent sessions.
-2. **Open the PR against `dev`.** One issue per PR. Keep the repo's conventional prefixes (`feat/`, `fix/`, `docs/`, `test/`, `chore/`, `ci/`).
-3. **Merge the task branch into `dev`** once the full CI job set is green on its final commit. Green CI alone is not the promotion bar.
-4. **Promote `dev` to `main`** when the batch is ready: every CI job green on the latest `dev` commit, plus a manual smoke check of the touched surface (for UI, `ao preview` or the desktop lab). The promotion is a PR into `main`, so it is also where the `main`-only checks run for the batch. `dev` never publishes on its own; the `main`-only workflows (`hub-image`, `worker-image`, `deploy-docs`, the release guards) stay the only path to a release.
-5. **Sync `main` back into `dev` immediately after promoting.** `version-bump` commits a semver bump and a CHANGELOG entry to `main` when the promoted batch touches release inputs, so `dev` is usually stale the moment the promotion lands; a docs-only batch gets no bump, so pass `--skip-wait`. `make promote-sync` does this: it waits for the bump commit, merges `main` into `dev`, and pushes `dev`. Merge `main` into `dev` before starting the next task, or the next promotion conflicts in `frontend/package.json` and `CHANGELOG.md`.
-6. **Clean up the worktree** after the merge (`git worktree remove <dir>`, then delete the branch). Never force-remove a dirty worktree.
-
-`pricing-catalog-validate.yml` only runs on pull requests whose base is `main`, so a task PR touching `pricing/**` is first validated at promotion; run that job locally in the task worktree instead of waiting.
-
-## Issue tracking
-
-Every change is tracked by a GitHub issue. The issue carries exactly one type
-label (`bug`, `enhancement`, `documentation`, `accessibility`, `chore`) and
-exactly one priority label (`priority:critical`, `priority:high`,
-`priority:medium`, `priority:low`), assigned by the agent that files it. The
-orchestrator may adjust the priority and says so in a comment. Backlog labels
-(`rw*`, `co*`, `status:*`, `wave:*`, `host:*`, `needs-human`) are additive, not a
-substitute, and do not satisfy the requirement. `docs/issue-policy.md` holds the
-label mapping and one-line examples.
-
-A pull request must reference its issue with `Closes #NNN` in the description.
-`.github/workflows/issue-policy.yml` fails the pull request when it references
-no issue, or when a referenced issue lacks a type or priority label, and prints
-the `gh issue edit` command that fixes it. Exactly two pull requests are exempt:
-the `dev` into `main` promotion, which is the batch record rather than a change,
-and the automated agent-pin refresh on `chore/agent-cli-pins`.
-
-## PR hygiene
-
-- Reference the issue in the description with `Closes #NNN`; see [Issue tracking](#issue-tracking). A pull request without a referenced, labelled issue fails `Issue tracking policy`.
-
+- Every change is tracked by a GitHub issue with exactly one type label and one priority label; see [`docs/issue-policy.md`](docs/issue-policy.md). Backlog labels (`rw*`, `co*`, `status:*`, `wave:*`, `host:*`, `needs-human`) do not satisfy the requirement.
+- A pull request must reference its issue with `Closes #NNN`; `.github/workflows/issue-policy.yml` fails it otherwise. Only the `dev` into `main` promotion and the agent-pin refresh on `chore/agent-cli-pins` are exempt.
+- Branch from `dev` in a task worktree and target the PR at `dev`, unless explicitly continuing an existing PR; only a `dev` promotion merges into `main`. Never work in the invoking working tree. Details: [`docs/agents/git-flow.md`](docs/agents/git-flow.md).
 - When creating or updating a PR, follow `.agents/skills/pr-description/SKILL.md` so the published description starts with verified category change counts.
-
 - Before creating or handing over a PR, run all CI validation jobs locally using the workflow commands, pinned runtimes, and CI environment (including complete suites, not only focused tests). Run `make ci-check` for the comment policy, issue policy, and lint job; it supplies their CI inputs. Fix failures and rerun the affected full suites before sharing the PR. A local pass is not a guarantee: verify the remote checks too. If a job cannot run locally (for example, an unavailable native OS runner, Docker, or required credentials), explicitly report the exact gap and verify that job in CI; never label it locally passed. Do not execute publishing or production deployment as a validation step.
-
-- Branch from `dev` and target the PR at `dev`, unless explicitly continuing an existing PR. Only a `dev` promotion merges into `main`; see [Git flow](#git-flow).
 - Keep one issue per PR. If asked for separate work, create a separate branch and PR.
 - Use conventional commit messages (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
 - Explain intentional omissions in the PR body, especially when the TypeScript original had more behavior than the Go rewrite domain currently supports.
