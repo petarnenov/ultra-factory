@@ -21,10 +21,10 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
-- [ ] Verify maintainer-enabled required checks on dev/main and demonstrate an invalid change is rejected while a compliant change passes.
+- [ ] Verify maintainer-enabled required checks and current-head semantic review on dev/main; demonstrate rejection of missing declarations and invalid archive entries plus acceptance of a compliant change.
 - [ ] Complete capability ownership and documentation migration index; retain historical designs as linked history.
-- [ ] Measure changed-requirement evidence coverage, gaps, escaped regressions and cycle time over the first ten subsequent changes.
-- [ ] Require all changed behavior mapped, all high-priority blockers resolved and rollback-to-reporting documented before declaring adoption complete.
+- [ ] Measure PR declaration completeness, declared-requirement mapping completeness, semantic-review gaps, escaped regressions and cycle time over the first ten subsequent changes. Record denominators and review evidence; do not claim automated discovery of undeclared behavior.
+- [ ] Require all PRs classified, 100% of declared changed requirements mapped, semantic review accepted and all high-priority blockers resolved before declaring adoption complete. Document rollback to reporting mode.
 
 ## Verification and delivery
 

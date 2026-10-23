@@ -21,10 +21,11 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
-- [ ] Define a minimal machine-readable mapping for requirement/scenario IDs, test path/name, platform and manual evidence references.
-- [ ] Reject duplicate/missing IDs, dangling mappings, unmapped changed behavior and stale mappings after rename/deletion.
-- [ ] Test positive and negative fixtures, multi-capability changes, no-behavior declarations and explicit manual evidence.
-- [ ] Report structural validation separately from test execution; no fabricated test pass from a file existing.
+- [ ] Define the machine-readable PR impact declaration and mapping for declared capabilities/change IDs, requirement/scenario IDs, test path/name, platform and manual evidence references. Apply the early pilot findings.
+- [ ] Reject absent declarations, duplicate/missing IDs, dangling mappings, unmapped declared changed requirements and stale mappings after rename/deletion. Validate a no-behavior rationale structurally, not as proof that it is true.
+- [ ] Require semantic review against the actual diff and reviewed head to catch undeclared behavior. Specify how review evidence becomes stale after a push; do not claim the deterministic checker can infer every behavioral change from code.
+- [ ] Test behavior-code changes with no declaration, malformed or empty declarations, renamed/deleted mappings, multi-capability changes, explicit manual evidence and valid no-behavior declarations. Include a misleading declaration example that only semantic review can reject.
+- [ ] Report declaration completeness, mapping completeness and semantic review separately from test execution. Name the denominator in coverage metrics: 100% of declared changed requirements mapped is not 100% behavioral or code coverage.
 
 ## Verification and delivery
 

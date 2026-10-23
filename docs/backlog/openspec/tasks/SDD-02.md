@@ -21,10 +21,11 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
-- [ ] Define readiness and completion criteria, roles, scope classification and requirement/scenario identity conventions.
-- [ ] Preserve one issue per PR and exactly one type/priority; distinguish accepted dev specs from released behavior.
-- [ ] Define proportional handling for docs-only and behavior-preserving maintenance plus owned, dated emergency follow-up.
-- [ ] Document how contradictions with ADRs/generated contracts are reconciled; walkthrough feature, bugfix and maintenance examples.
+- [ ] Define readiness/completion, roles, stable requirement/scenario IDs and one OpenSpec change per independently mergeable implementation issue/PR. Keep umbrella planning in GitHub; do not retain an umbrella delta that is reapplied across child PRs.
+- [ ] Require each PR to declare affected capabilities and change IDs or a justified no-behavior classification. Require a reviewer to check the declaration against the diff and record the reviewed head; machine validation cannot discover undeclared semantics.
+- [ ] Preserve one issue per PR and exactly one type/priority; distinguish accepted dev specs from released behavior. Describe promotion, automation and docs-only declarations explicitly rather than adding silent exemptions.
+- [ ] Define proportional handling for documentation and behavior-preserving maintenance plus owned, dated emergency follow-up. A deferred artifact must remain visibly incomplete and cannot qualify for archival.
+- [ ] Document conflict resolution with ADRs/generated contracts, final-PR synchronization/archive and source evidence. Walk through feature, bugfix and maintenance examples; SDD-15 must refine these conventions before broad baselining.
 
 ## Verification and delivery
 

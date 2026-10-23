@@ -15,7 +15,7 @@ Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before impl
 
 ## Dependencies and priority
 
-Hard dependencies: #618 (SDD-01), #619 (SDD-02).
+Hard dependencies: #618 (SDD-01), #619 (SDD-02), #633 (SDD-15).
 Priority: `high`. Blocks the foundation or verification gates of this adoption batch.
 Responsible role: Backend owner; named assignee to be set when scheduled. Status: backlog.
 

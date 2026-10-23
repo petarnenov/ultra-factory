@@ -24,7 +24,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 - [ ] Map promoted change IDs to dev/main commits, versions and immutable artifact digests.
 - [ ] Define Windows/macOS/Linux install/update and mobile compatibility evidence with exact environment and revision.
 - [ ] Preserve sole publisher, main release boundary, daemon prerelease isolation and macOS zip/update requirements.
-- [ ] Walk through rollback/compatibility and archival timing using existing artifacts; perform no production publication for validation.
+- [ ] Walk through rollback/compatibility using existing artifacts; perform no production publication for validation. Archival belongs to the verified implementation PR on dev; release records reference the archive without reapplying its delta.
 
 ## Verification and delivery
 

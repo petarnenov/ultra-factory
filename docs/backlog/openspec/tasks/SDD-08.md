@@ -1,14 +1,14 @@
-# SDD-08 Integrate specification context with agent assignments and review
+# SDD-08 Integrate repository-local specification context with agent assignments
 
 Issue: [#625](https://github.com/petarnenov/ultra-factory/issues/625).
 
 ## Outcome
 
-Integrate specification context with agent assignments and review. Part of #617, the OpenSpec adoption tracker.
+Integrate repository-local specification context with agent assignments. Part of #617, the OpenSpec adoption tracker.
 
 ## Scope and integration points
 
-backend/internal/session_manager/prompt.go, backend/internal/skillassets/, docs/coordinators/operating-contract.md.
+AGENTS.md pointers, repository-local .agents/ instructions and docs/agents/ assignment and review guidance. Do not modify backend/internal/session_manager/prompt.go, embedded backend/internal/skillassets/ or other global AO prompts in this task.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.
@@ -21,10 +21,11 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
-- [ ] Include issue/change IDs, relevant capabilities, bounded task scope and scenario evidence in assignment/review guidance.
+- [ ] Use repository-local instructions and assignment templates to carry issue/change IDs, relevant capabilities, bounded task scope and scenario evidence for ultra-factory.
+- [ ] Keep the AO product and other projects unchanged. If runtime integration later proves necessary, open a separately reviewed proposal with explicit per-project opt-in, default-off behavior and tests for projects without OpenSpec; this task does not implement it.
 - [ ] Keep GitHub status authoritative; do not assume tracker intake can write issues or add a parallel persisted status model.
-- [ ] Verify resume/handoff preserves references and conflicting spec edits are escalated or serialized.
-- [ ] Test prompt/instruction integration, then demonstrate one real assignment-to-review flow; fixtures alone do not prove agent behavior.
+- [ ] Demonstrate one real assignment-to-review flow and resume/handoff using repository-local references. Reconcile conflicting spec edits by rebasing or serializing accepted changes.
+- [ ] Confirm the delivered diff contains no global prompt or embedded skill changes; verify a control assignment for a project without OpenSpec acquires no SDD requirement from this change.
 
 ## Verification and delivery
 
