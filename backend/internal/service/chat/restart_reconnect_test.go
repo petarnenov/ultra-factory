@@ -59,9 +59,8 @@ func TestRestartProviderHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-// Startup health reconnects each chat with a bounded context that it cancels
-// as soon as the check returns. The reattached controller must outlive that
-// context and keep the session live (#572).
+// Startup reconnect checks use a bounded context. The controller must outlive
+// cancellation and keep the session live (#572).
 func TestReconnectOnlyAfterDaemonRestartKeepsControllerLive(t *testing.T) {
 	for _, tc := range []struct {
 		name string
