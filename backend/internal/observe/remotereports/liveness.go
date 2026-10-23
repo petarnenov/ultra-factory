@@ -13,11 +13,15 @@ import (
 // It drops links that are gone or ended, and returns the links still used.
 func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, links []domain.RemoteWorkerLink) []domain.RemoteWorkerLink {
 	var kept []domain.RemoteWorkerLink
-	for i, link := range links {
+	var retainedLinks []domain.RemoteWorkerLink
+	keep := func(link domain.RemoteWorkerLink) {
 		if retained(link) {
+			retainedLinks = append(retainedLinks, link)
+		} else {
 			kept = append(kept, link)
-			continue
 		}
+	}
+	for i, link := range links {
 		terminated, err := client.terminated(ctx, link.RemoteSessionID)
 		switch {
 		case errors.Is(err, errSessionGone):
@@ -26,13 +30,18 @@ func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, li
 			}
 		case errors.Is(err, errCredentialRefused):
 			o.refuse(link.HostID, client.password)
-			return append(kept, links[i:]...)
+			return append(append(kept, retainedLinks...), links[i:]...)
 		case err != nil:
 			o.note("liveness "+link.HostID+"/"+string(link.RemoteSessionID), client.label, err)
-			kept = append(kept, link)
+			if !retained(link) || o.retainedPullDue(link) {
+				keep(link)
+			}
 		case !terminated:
 			o.recordLiveness(ctx, link, domain.RemoteLinkLive)
-			kept = append(kept, link)
+			link.LastState = domain.RemoteLinkLive
+			link.TerminatedAt = nil
+			o.clearRetainedPull(link)
+			keep(link)
 		default:
 			if link.TerminatedAt == nil {
 				endedAt := o.now()
@@ -40,12 +49,14 @@ func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, li
 			}
 			link.LastState = domain.RemoteLinkTerminated
 			o.recordLiveness(ctx, link, domain.RemoteLinkTerminated)
-			if !o.endedWithNothingPending(ctx, client, link) {
-				kept = append(kept, link)
+			if !retained(link) || o.retainedPullDue(link) {
+				if !o.endedWithNothingPending(ctx, client, link) {
+					keep(link)
+				}
 			}
 		}
 	}
-	return kept
+	return append(kept, retainedLinks...)
 }
 
 // endedWithNothingPending drops a terminated worker's link once it has no
@@ -90,26 +101,25 @@ func retained(link domain.RemoteWorkerLink) bool {
 	return link.LastState == domain.RemoteLinkTerminated && link.TerminatedAt != nil
 }
 
-// schedule orders one host's links for a pass: live links first, then the
-// ended links whose slow cadence is due. It records those as pulled now.
-func (o *Observer) schedule(hostID string, links []domain.RemoteWorkerLink) []domain.RemoteWorkerLink {
+// retainedPullDue keeps settled terminated links on a slower pull cadence
+// while still checking host liveness every pass for a possible restoration.
+func (o *Observer) retainedPullDue(link domain.RemoteWorkerLink) bool {
+	ref := linkRef{hostID: link.HostID, session: link.RemoteSessionID}
 	now := o.now()
-	var live, ended []domain.RemoteWorkerLink
 	o.retainedMu.Lock()
 	defer o.retainedMu.Unlock()
-	for _, link := range links {
-		if !retained(link) {
-			live = append(live, link)
-			continue
-		}
-		ref := linkRef{hostID: hostID, session: link.RemoteSessionID}
-		if last, ok := o.lastRetainedPull[ref]; ok && now.Sub(last) < retainedPullInterval {
-			continue
-		}
-		o.lastRetainedPull[ref] = now
-		ended = append(ended, link)
+	if last, ok := o.lastRetainedPull[ref]; ok && now.Sub(last) < retainedPullInterval {
+		return false
 	}
-	return append(live, ended...)
+	o.lastRetainedPull[ref] = now
+	return true
+}
+
+func (o *Observer) clearRetainedPull(link domain.RemoteWorkerLink) {
+	ref := linkRef{hostID: link.HostID, session: link.RemoteSessionID}
+	o.retainedMu.Lock()
+	delete(o.lastRetainedPull, ref)
+	o.retainedMu.Unlock()
 }
 
 func (o *Observer) recordLiveness(ctx context.Context, link domain.RemoteWorkerLink, state string) {

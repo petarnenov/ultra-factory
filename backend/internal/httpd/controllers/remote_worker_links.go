@@ -154,7 +154,7 @@ func (c *RemoteWorkerLinksController) sync(w http.ResponseWriter, r *http.Reques
 	resp := RemoteWorkerSyncResponse{Hosts: make([]RemoteWorkerHostSync, 0, len(results))}
 	for _, result := range results {
 		resp.Hosts = append(resp.Hosts, RemoteWorkerHostSync{
-			HostID: result.HostID, HostLabel: result.Label, Linked: result.Linked, Skipped: result.Skipped,
+			HostID: result.HostID, HostLabel: result.Label, Linked: result.Linked, Revived: result.Revived, Skipped: result.Skipped,
 			Blocked: result.Blocked, Error: result.Error,
 		})
 	}
