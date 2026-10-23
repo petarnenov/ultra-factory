@@ -551,7 +551,7 @@ func (c *Controller) SteerOrSend(
 		}
 	}
 
-	turn, _, err := c.sendLocked(ctx, msg, false)
+	turn, _, _, err := c.sendLocked(ctx, msg, false)
 	if err != nil {
 		return SteerOrSendResult{}, err
 	}

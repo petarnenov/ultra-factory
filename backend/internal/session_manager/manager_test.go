@@ -35,6 +35,36 @@ import (
 
 var ctx = context.Background()
 
+var testSendInteractionAt = time.Date(2026, time.October, 23, 16, 58, 0, 0, time.UTC)
+
+func setSendTestClock(m *Manager) {
+	m.clock = func() time.Time { return testSendInteractionAt }
+}
+
+func setAdvancingSendTestClock(m *Manager) {
+	now := testSendInteractionAt
+	m.clock = func() time.Time {
+		current := now
+		now = now.Add(time.Millisecond)
+		return current
+	}
+}
+
+func assertTimestampedUserSend(t *testing.T, got, wantBody string) {
+	t.Helper()
+	header, body, found := strings.Cut(got, "\n\n")
+	if !found {
+		t.Fatalf("delivered message missing timestamp header separator: %q", got)
+	}
+	wantHeader := "[Sent 2026-10-23T16:58:00Z by user]"
+	if header != wantHeader {
+		t.Fatalf("delivery header = %q, want %q", header, wantHeader)
+	}
+	if body != wantBody {
+		t.Fatalf("delivered body = %q, want %q", body, wantBody)
+	}
+}
+
 // The scheduler's durable run identity must cross the existing spawn boundary
 // into the seed row so retries can adopt the same session.
 func TestSeedRecordPreservesAutomationRunIdentity(t *testing.T) {
@@ -1471,8 +1501,10 @@ func TestSend_WrapsCopilotOrchestratorMessageWithDelegationDirective(t *testing.
 	})
 	msg := &fakeMessenger{}
 	m := New(Deps{Store: st, Messenger: msg})
+	setSendTestClock(m)
 
-	if err := m.SendWithOptions(ctx, "mer-1", "make the button red", nil, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(ctx, "mer-1", "make the button red", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatal(err)
 	}
 	if len(msg.msgs) != 1 {
@@ -1484,7 +1516,7 @@ func TestSend_WrapsCopilotOrchestratorMessageWithDelegationDirective(t *testing.
 		"Do not implement code changes",
 		"ao spawn --project mer",
 		"After spawning or redirecting, report the worker session id and stop",
-		"USER MESSAGE:\nmake the button red",
+		"USER MESSAGE:\n[Sent 2026-10-23T16:58:00Z by user]\n\nmake the button red",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("wrapped message missing %q:\n%s", want, got)
@@ -1502,13 +1534,13 @@ func TestSend_DoesNotWrapCopilotWorkerMessage(t *testing.T) {
 	})
 	msg := &fakeMessenger{}
 	m := New(Deps{Store: st, Messenger: msg})
+	setSendTestClock(m)
 
-	if err := m.SendWithOptions(ctx, "mer-2", "make the button red", nil, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(ctx, "mer-2", "make the button red", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := msg.msgs[0]; got != "make the button red" {
-		t.Fatalf("worker message = %q, want original", got)
-	}
+	assertTimestampedUserSend(t, msg.msgs[0], "make the button red")
 }
 
 func TestSend_DoesNotWrapNonCopilotOrchestratorMessage(t *testing.T) {
@@ -1521,13 +1553,13 @@ func TestSend_DoesNotWrapNonCopilotOrchestratorMessage(t *testing.T) {
 	})
 	msg := &fakeMessenger{}
 	m := New(Deps{Store: st, Messenger: msg})
+	setSendTestClock(m)
 
-	if err := m.SendWithOptions(ctx, "mer-1", "make the button red", nil, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(ctx, "mer-1", "make the button red", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatal(err)
 	}
-	if got := msg.msgs[0]; got != "make the button red" {
-		t.Fatalf("non-copilot orchestrator message = %q, want original", got)
-	}
+	assertTimestampedUserSend(t, msg.msgs[0], "make the button red")
 }
 
 func TestSend_WritesAttachmentAndAppendsReference(t *testing.T) {
@@ -1543,9 +1575,11 @@ func TestSend_WritesAttachmentAndAppendsReference(t *testing.T) {
 	msg := &fakeMessenger{}
 	ws := &fakeWorkspace{}
 	m := New(Deps{Store: st, Messenger: msg, Workspace: ws, DataDir: t.TempDir()})
+	setSendTestClock(m)
 
 	attachment := &ports.SpawnAttachment{Ext: ".png", Data: []byte("snapshot-bytes")}
-	if err := m.SendWithOptions(ctx, "mer-1", "Make the button blue.", attachment, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(ctx, "mer-1", "Make the button blue.", attachment,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1553,8 +1587,8 @@ func TestSend_WritesAttachmentAndAppendsReference(t *testing.T) {
 		t.Fatalf("messages = %d, want 1", len(msg.msgs))
 	}
 	got := msg.msgs[0]
-	if !strings.HasPrefix(got, "Make the button blue.\n\n") {
-		t.Fatalf("delivered message lost the original text: %q", got)
+	if !strings.HasPrefix(got, "[Sent 2026-10-23T16:58:00Z by user]\n\nMake the button blue.\n\n") {
+		t.Fatalf("delivered message lost timestamp or original text: %q", got)
 	}
 	if !strings.Contains(got, "Attached files (read these files in the workspace for context):") {
 		t.Fatalf("delivered message missing attachment reference block: %q", got)
@@ -1590,14 +1624,14 @@ func TestSend_WithoutAttachmentSkipsWorkspaceWrite(t *testing.T) {
 	msg := &fakeMessenger{}
 	ws := &fakeWorkspace{}
 	m := New(Deps{Store: st, Messenger: msg, Workspace: ws})
+	setSendTestClock(m)
 
-	if err := m.SendWithOptions(ctx, "mer-1", "make the button red", nil, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(ctx, "mer-1", "make the button red", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := msg.msgs[0]; got != "make the button red" {
-		t.Fatalf("message = %q, want unchanged original", got)
-	}
+	assertTimestampedUserSend(t, msg.msgs[0], "make the button red")
 	if len(ws.calls) != 0 {
 		t.Errorf("workspace calls = %v, want none when no attachment is sent", ws.calls)
 	}
@@ -10899,13 +10933,16 @@ func TestSend_RecordsDeliveredUserInput(t *testing.T) {
 	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{ID: "s1", Harness: "claude-code"})
 	messenger := &fakeMessenger{}
 	m := newSendTestManager(t, fakeAgent{}, messenger, st)
+	setSendTestClock(m)
 
-	if err := m.SendWithOptions(context.Background(), "s1", "continue with the migration", nil, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(context.Background(), "s1", "continue with the migration", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if len(messenger.msgs) != 1 || messenger.msgs[0] != "continue with the migration" {
-		t.Fatalf("human send was wrapped as coordination: %+v", messenger.msgs)
+	if len(messenger.msgs) != 1 {
+		t.Fatalf("human send count = %d, want 1", len(messenger.msgs))
 	}
+	assertTimestampedUserSend(t, messenger.msgs[0], "continue with the migration")
 	if got := st.sessions["s1"].Metadata.LatestUserPrompt; got != "continue with the migration" {
 		t.Fatalf("LatestUserPrompt = %q, want delivered user input", got)
 	}
@@ -11290,16 +11327,16 @@ func TestSend_ConfirmsAndNudgesUntilActive(t *testing.T) {
 	// mimicking the agent accepting the prompt.
 	msg := &flipOnNudgeMessenger{sessionID: "s1", store: st}
 	m := newSendTestManager(t, signalingAgent{}, msg, st)
+	setAdvancingSendTestClock(m)
 
-	if err := m.SendWithOptions(context.Background(), "s1", "do the thing", nil, ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+	if err := m.SendWithOptions(context.Background(), "s1", "do the thing", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if len(msg.msgs) != 2 {
 		t.Fatalf("Send calls = %d, want 2 (initial + one nudge)", len(msg.msgs))
 	}
-	if msg.msgs[0] != "do the thing" {
-		t.Fatalf("first msg = %q, want the prompt", msg.msgs[0])
-	}
+	assertTimestampedUserSend(t, msg.msgs[0], "do the thing")
 	if msg.msgs[1] != "" {
 		t.Fatalf("nudge msg = %q, want empty (Enter-only)", msg.msgs[1])
 	}
@@ -11795,6 +11832,24 @@ func TestSendAutomationDoesNotRecordHumanDirection(t *testing.T) {
 				t.Fatal("terminal delivery lacks coordination provenance for hooks")
 			}
 		})
+	}
+}
+
+func TestSendTerminalDeliveryIncludesTimestampAndSender(t *testing.T) {
+	st := newFakeStore()
+	st.sessions["s1"] = pastStartupGate(domain.SessionRecord{ID: "s1", Harness: "claude-code"})
+	messenger := &fakeMessenger{}
+	m := newSendTestManager(t, fakeAgent{}, messenger, st)
+	if err := m.SendWithOptions(context.Background(), "s1", "continue the task", nil,
+		ports.MessageDeliveryOptions{AuthoredByUser: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(messenger.msgs) != 1 || !strings.Contains(messenger.msgs[0], "[Sent ") ||
+		!strings.Contains(messenger.msgs[0], " by user]\n\ncontinue the task") {
+		t.Fatalf("terminal message = %q, want timestamp and sender header", messenger.msgs)
+	}
+	if st.sessions["s1"].Metadata.LatestUserPrompt != "continue the task" {
+		t.Fatalf("latest prompt = %q, want original user text", st.sessions["s1"].Metadata.LatestUserPrompt)
 	}
 }
 

@@ -123,6 +123,38 @@ func TestSend_ReportsWhenMessageOnlyQueues(t *testing.T) {
 	}
 }
 
+func TestSendSupersedeReportsDroppedUnreadMessages(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "sender-1")
+	cfg := setConfigEnv(t)
+	srv, capture := sendServer(t, http.StatusOK,
+		`{"delivery":{"queued":true,"supersededCount":2}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, aliveDeps(), "send", "--session", "demo-1", "--message", "latest", "--supersede")
+	if err != nil {
+		t.Fatalf("send --supersede: %v\nstderr=%s", err, errOut)
+	}
+	var request sendAPIRequest
+	if err := json.Unmarshal([]byte(capture.body), &request); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	if !request.Supersede || request.SenderSessionID != "sender-1" {
+		t.Fatalf("request = %+v, want supersede and sender attribution", request)
+	}
+	if !strings.Contains(out, "Superseded 2 earlier unread messages") {
+		t.Fatalf("output = %q, want dropped count", out)
+	}
+}
+
+func TestSendSupersedeRequiresLocalSessionSender(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "")
+	_, _, err := executeCLI(t, Deps{}, "send", "--session", "demo-1", "--message", "latest", "--supersede")
+	var usage usageError
+	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "AO_SESSION_ID") {
+		t.Fatalf("error=%v, want local sender usage error", err)
+	}
+}
+
 func TestSend_RemoteQueuedHintKeepsTheHost(t *testing.T) {
 	t.Setenv("AO_SESSION_ID", "")
 	cfg := setConfigEnv(t)

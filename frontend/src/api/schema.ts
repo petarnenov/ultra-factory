@@ -6574,11 +6574,13 @@ export interface components {
         SendSessionMessageDelivery: {
             pendingInputRequestIds?: string[];
             queued: boolean;
+            supersededCount?: number;
         };
         SendSessionMessageRequest: {
             attachment?: components["schemas"]["AttachmentInput"];
             message: string;
             senderSessionId?: string;
+            supersede?: boolean;
             userAuthored?: boolean;
         };
         SendSessionMessageResponse: {

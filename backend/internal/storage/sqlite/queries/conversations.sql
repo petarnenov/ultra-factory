@@ -1173,6 +1173,21 @@ WHERE id = ?
   AND state = 'queued'
   AND promotion_started_at IS NULL;
 
+-- Supersede this sender's queued prompts that have not begun promotion.
+-- name: CancelQueuedConversationTurnsBySender :execrows
+UPDATE conversation_turns
+SET state = 'cancelled', completed_at = sqlc.arg(completed_at)
+WHERE conversation_turns.conversation_id = sqlc.arg(conversation_id)
+  AND state = 'queued'
+  AND promotion_started_at IS NULL
+  AND id IN (
+      SELECT turn_id FROM conversation_messages
+      WHERE conversation_id = sqlc.arg(conversation_id)
+        AND role = 'user'
+        AND origin = 'automation'
+        AND sender_session_id = sqlc.arg(sender_session_id)
+  );
+
 -- Read only an undispatched human prompt for editing.
 -- name: SelectQueuedConversationMessage :one
 SELECT conversation_messages.*

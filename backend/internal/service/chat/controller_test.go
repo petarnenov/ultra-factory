@@ -5938,6 +5938,246 @@ func TestRelaySessionChatTurnDeliveryReportsTheAcceptedQueueOutcome(t *testing.T
 	}
 }
 
+func TestRelaySessionChatTurnAddsTimestampAndSupersedesOnlySenderQueue(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "running", "root", ports.MessageDeliveryOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+
+	at := time.Date(2026, 10, 23, 12, 34, 56, 0, time.UTC)
+	first, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "stale guidance", "old-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", InteractionAt: at})
+	if err != nil || !first.Queued {
+		t.Fatalf("first sender message delivery = %+v, err=%v", first, err)
+	}
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "other sender", "old-b",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-b", InteractionAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "new guidance", "new-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", InteractionAt: at, Supersede: true})
+	if err != nil {
+		t.Fatalf("superseding delivery: %v", err)
+	}
+	if latest.SupersededCount != 1 || !latest.Queued {
+		t.Fatalf("superseding delivery = %+v, want one dropped and new message queued", latest)
+	}
+
+	conversation, err := h.st.ConversationForSession(ctx, testSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := turnStateByText(t, snapshot)
+	if states["[Sent 2026-10-23T12:34:56Z by sender-b]\n\nother sender"] != domain.TurnStateQueued {
+		t.Errorf("other sender message state = %q, want queued", states["[Sent 2026-10-23T12:34:56Z by sender-b]\n\nother sender"])
+	}
+	if states["[Sent 2026-10-23T12:34:56Z by sender-a]\n\nnew guidance"] != domain.TurnStateQueued {
+		t.Errorf("new sender message state = %q, want queued", states["[Sent 2026-10-23T12:34:56Z by sender-a]\n\nnew guidance"])
+	}
+	var sawCancelled bool
+	for _, turn := range snapshot.Turns {
+		if turn.State == domain.TurnStateCancelled {
+			sawCancelled = true
+		}
+	}
+	if !sawCancelled {
+		t.Fatalf("superseded message was not settled cancelled; turns=%+v", snapshot.Turns)
+	}
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventTurnCompleted, ProviderTurnID: "provider-turn-1",
+		TurnState: domain.TurnStateCompleted,
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return turnStateByText(t, s)["[Sent 2026-10-23T12:34:56Z by sender-b]\n\nother sender"] == domain.TurnStateRunning
+	})
+	if got := h.conv.sentTexts(); len(got) != 2 || !strings.Contains(got[1], "other sender") {
+		t.Fatalf("first queued delivery = %v, want other sender before new guidance", got)
+	}
+	h.conv.emit(ports.ChatEvent{
+		Kind: ports.ChatEventTurnCompleted, ProviderTurnID: "provider-turn-2",
+		TurnState: domain.TurnStateCompleted,
+	})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return turnStateByText(t, s)["[Sent 2026-10-23T12:34:56Z by sender-a]\n\nnew guidance"] == domain.TurnStateRunning
+	})
+	if got := h.conv.sentTexts(); len(got) != 3 || !strings.Contains(got[2], "new guidance") {
+		t.Fatalf("second queued delivery = %v, want latest sender guidance", got)
+	}
+}
+
+func TestSupersedeReplayDoesNotCancelMessagesQueuedAfterOriginalSend(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	original, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "original instruction", "original-id",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true})
+	if err != nil || original.Queued || original.SupersededCount != 0 {
+		t.Fatalf("initial superseding delivery = %+v, err=%v; want direct accepted send", original, err)
+	}
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+
+	newer, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "newer queued instruction", "newer-id",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a"})
+	if err != nil || !newer.Queued {
+		t.Fatalf("newer queued delivery = %+v, err=%v; want queued", newer, err)
+	}
+
+	replay, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "original instruction", "original-id",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true})
+	if err != nil {
+		t.Fatalf("replay original superseding delivery: %v", err)
+	}
+	if replay.Queued || replay.SupersededCount != 0 {
+		t.Fatalf("replayed delivery = %+v, want no-op with zero superseded", replay)
+	}
+
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, h.ctrl.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := turnStateByText(t, snapshot)
+	var newerState domain.TurnState
+	for message, state := range states {
+		if strings.Contains(message, "newer queued instruction") {
+			newerState = state
+		}
+	}
+	if newerState != domain.TurnStateQueued {
+		t.Fatalf("newer message state = %q, want queued; states=%v", newerState, states)
+	}
+}
+
+type rejectingSupersedingAppendStore struct {
+	*sqlite.Store
+}
+
+func (s *rejectingSupersedingAppendStore) AppendUserMessageSnapshotSuperseding(
+	context.Context,
+	string,
+	domain.SessionID,
+	string,
+	string,
+	domain.ConversationMessage,
+	string,
+	string,
+	time.Time,
+) (bool, []string, int64, error) {
+	return false, nil, 0, errors.New("replacement acceptance failed")
+}
+
+func TestSupersedePreservesUnreadQueueWhenReplacementIsRejected(t *testing.T) {
+	h := newHarnessWithConversationAndStore(t, nil, func(st *sqlite.Store) chatsvc.Store {
+		return &rejectingSupersedingAppendStore{Store: st}
+	})
+	ctx := context.Background()
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "running", "root", ports.MessageDeliveryOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	h.conv.emit(ports.ChatEvent{Kind: ports.ChatEventTurnStarted, ProviderTurnID: "provider-turn-1"})
+	h.awaitSnapshot(t, func(s store.ConversationSnapshot) bool {
+		return len(s.Turns) == 1 && s.Turns[0].State == domain.TurnStateRunning
+	})
+	first, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "keep this", "old-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a"})
+	if err != nil || !first.Queued {
+		t.Fatalf("initial queued delivery = %+v, err=%v", first, err)
+	}
+	_, err = h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "replacement", "new-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true})
+	if err == nil || !strings.Contains(err.Error(), "replacement acceptance failed") {
+		t.Fatalf("superseding delivery error = %v, want acceptance failure", err)
+	}
+
+	conversation, err := h.st.ConversationForSession(ctx, testSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, conversation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := turnStateByText(t, snapshot)
+	var keptQueued, replacementPersisted bool
+	for text, state := range states {
+		keptQueued = keptQueued || (strings.Contains(text, "keep this") && state == domain.TurnStateQueued)
+		replacementPersisted = replacementPersisted || strings.Contains(text, "replacement")
+	}
+	if !keptQueued {
+		t.Fatalf("earlier unread turn was not queued: states=%v", states)
+	}
+	if replacementPersisted {
+		t.Fatalf("rejected replacement was persisted: states=%v", states)
+	}
+}
+
+func TestSupersedePreservesUnreadQueueWhenProviderRejectsDirectSend(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.st.AppendUserMessage(ctx, h.ctrl.ConversationID(), testSession,
+		h.ctrl.Generation(), domain.ConversationMessage{
+			ID: "old-message", Text: "keep queued", Origin: domain.MessageOriginAutomation,
+			SenderSessionID: "sender-a",
+		}, "old-turn", h.now()); err != nil {
+		t.Fatalf("seed unread queue: %v", err)
+	}
+	h.conv.mu.Lock()
+	h.conv.sendErr = errors.New("provider rejected replacement")
+	h.conv.mu.Unlock()
+	delivery, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "replacement", "new-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true})
+	if err == nil || !strings.Contains(err.Error(), "provider rejected replacement") {
+		t.Fatalf("direct superseding delivery = %+v, err=%v, want provider rejection", delivery, err)
+	}
+
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, h.ctrl.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := turnStateByText(t, snapshot)
+	if states["keep queued"] != domain.TurnStateQueued {
+		t.Fatalf("earlier unread turn state = %q, want queued after provider rejection", states["keep queued"])
+	}
+}
+
+func TestSupersedePreservesUnreadQueueWhenHandoffHasClosedIntake(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if _, err := h.st.AppendUserMessage(ctx, h.ctrl.ConversationID(), testSession,
+		h.ctrl.Generation(), domain.ConversationMessage{
+			ID: "old-message", Text: "keep queued", Origin: domain.MessageOriginAutomation,
+			SenderSessionID: "sender-a",
+		}, "old-turn", h.now()); err != nil {
+		t.Fatalf("seed unread queue: %v", err)
+	}
+	if err := h.ctrl.ArmHandoff(ctx, domain.SessionInterfaceTransitionDrain); err != nil {
+		t.Fatalf("arm handoff: %v", err)
+	}
+	if _, err := h.svc.RelaySessionChatTurnDelivery(ctx, testSession, "replacement", "new-a",
+		ports.MessageDeliveryOptions{SenderSessionID: "sender-a", Supersede: true}); !errors.Is(err, chatsvc.ErrControllerHandoff) {
+		t.Fatalf("superseding delivery error = %v, want handoff refusal", err)
+	}
+
+	snapshot, err := h.st.LoadConversationSnapshot(ctx, h.ctrl.ConversationID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := turnStateByText(t, snapshot)["keep queued"]; got != domain.TurnStateQueued {
+		t.Fatalf("earlier unread turn state = %q, want queued after handoff refusal", got)
+	}
+}
+
 // A relayed message is AO carrying someone else's words: `ao send`, or an
 // orchestrator writing to a worker. It must be attributed to automation, not
 // passed off as something the user typed here — the timeline distinguishes the
@@ -5960,7 +6200,8 @@ func TestRelayedMessageIsAttributedToAutomation(t *testing.T) {
 	if msg.Role != domain.MessageRoleUser {
 		t.Errorf("relay role = %q; a relay is still an inbound request", msg.Role)
 	}
-	if got := h.conv.sentTexts(); len(got) != 1 || got[0] != "orchestrator: rebase onto main" {
+	if got := h.conv.sentTexts(); len(got) != 1 || !strings.Contains(got[0], "orchestrator: rebase onto main") ||
+		!strings.Contains(got[0], "[Sent ") || !strings.Contains(got[0], " by user]") {
 		t.Fatalf("provider received %v, want the relayed text dispatched", got)
 	}
 	rec, ok, err := h.st.GetSession(ctx, testSession)

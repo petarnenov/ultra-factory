@@ -1501,6 +1501,8 @@ type SendSessionMessageRequest struct {
 	// UserAuthored marks content written directly by the user but delivered via
 	// AO's automation relay, such as inline document feedback.
 	UserAuthored bool `json:"userAuthored,omitempty"`
+	// Supersede drops this sender's earlier unread queued messages first.
+	Supersede bool `json:"supersede,omitempty"`
 	// Attachment is an optional inline image (e.g. a browser-annotation
 	// snapshot) delivered alongside the message. The daemon writes it into the
 	// session worktree and appends a path reference to the message.
@@ -1526,6 +1528,7 @@ type SendSessionMessageDelivery struct {
 	// PendingInputRequestIDs name the structured questions pending when the
 	// message was recorded.
 	PendingInputRequestIDs []string `json:"pendingInputRequestIds,omitempty"`
+	SupersededCount        int      `json:"supersededCount,omitempty"`
 }
 
 // DelegateTaskRequest is the body of POST /api/v1/orchestrators/delegate.

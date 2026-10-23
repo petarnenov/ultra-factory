@@ -1996,7 +1996,7 @@ func (c *SessionsController) send(w http.ResponseWriter, r *http.Request) {
 		attachment = &decoded
 	}
 	message := domain.SanitizeControlChars(in.Message)
-	options := ports.MessageDeliveryOptions{AuthoredByUser: in.UserAuthored, SenderSessionID: in.SenderSessionID}
+	options := ports.MessageDeliveryOptions{AuthoredByUser: in.UserAuthored, SenderSessionID: in.SenderSessionID, Supersede: in.Supersede}
 	var (
 		delivery *SendSessionMessageDelivery
 		err      error
@@ -2005,7 +2005,7 @@ func (c *SessionsController) send(w http.ResponseWriter, r *http.Request) {
 		out, sendErr := sender.SendWithDelivery(r.Context(), sessionID(r), message, attachment, options)
 		err = sendErr
 		if err == nil && out.Known {
-			delivery = &SendSessionMessageDelivery{Queued: out.Queued, PendingInputRequestIDs: out.PendingInputRequestIDs}
+			delivery = &SendSessionMessageDelivery{Queued: out.Queued, PendingInputRequestIDs: out.PendingInputRequestIDs, SupersededCount: out.SupersededCount}
 		}
 	} else if in.UserAuthored || in.SenderSessionID != "" {
 		sender, ok := c.Svc.(sessionMessageOptionsSender)
