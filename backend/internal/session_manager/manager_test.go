@@ -12344,7 +12344,9 @@ func TestWorkerEscalationPromptResolvesLinkedRemoteOwnerThroughRootDaemon(t *tes
 	sp := workerEscalationPrompt()
 	for _, want := range []string{
 		"ao host ls",
-		"ao orchestrator ls --host <host> --json",
+		"ao session ls --host <host> --json",
+		"matching the session ID to that `rootSessionId`",
+		"Do not identify the daemon by project or orchestrator listing",
 		"ao remote-worker ls --project $AO_PROJECT_ID --json",
 		"remoteSessionId",
 		"ownerSessionId",
@@ -12353,6 +12355,9 @@ func TestWorkerEscalationPromptResolvesLinkedRemoteOwnerThroughRootDaemon(t *tes
 		if !strings.Contains(sp, want) {
 			t.Errorf("remote escalation prompt missing %q:\n%s", want, sp)
 		}
+	}
+	if strings.Contains(sp, "ao orchestrator ls --host <host> --json") {
+		t.Fatalf("remote root host lookup must use the exact rootSessionId, not project matching:\n%s", sp)
 	}
 }
 
