@@ -84,14 +84,14 @@ func formatItem(it Item) string {
 	}
 }
 
-func clipBytes(s string, max int) string {
-	if max <= 0 {
+func clipBytes(s string, maxBytes int) string {
+	if maxBytes <= 0 {
 		return ""
 	}
-	if len(s) <= max {
+	if len(s) <= maxBytes {
 		return s
 	}
-	for len(s) > max {
+	for len(s) > maxBytes {
 		_, size := utf8.DecodeLastRuneInString(s)
 		s = s[:len(s)-size]
 	}

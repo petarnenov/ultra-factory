@@ -202,12 +202,12 @@ func (s *Service) factFor(ctx context.Context, sess domain.Session) TaskFact {
 		}
 	}
 	if s.tasks == nil {
-		f.Failures = failuresForOutcome(s, ctx, sess, f.Outcome)
+		f.Failures = failuresForOutcome(ctx, s, sess, f.Outcome)
 		return f
 	}
 	rep, err := s.tasks.Get(ctx, sess.ProjectID, sess.ID)
 	if err != nil {
-		f.Failures = failuresForOutcome(s, ctx, sess, f.Outcome)
+		f.Failures = failuresForOutcome(ctx, s, sess, f.Outcome)
 		return f
 	}
 	f.Outcome = string(rep.Outcome)
@@ -224,11 +224,11 @@ func (s *Service) factFor(ctx context.Context, sess domain.Session) TaskFact {
 		f.OutputTokens = *rep.Tokens.OutputTokens
 	}
 	f.Stages = stagesText(rep.Stages)
-	f.Failures = failuresForOutcome(s, ctx, sess, f.Outcome)
+	f.Failures = failuresForOutcome(ctx, s, sess, f.Outcome)
 	return f
 }
 
-func failuresForOutcome(s *Service, ctx context.Context, sess domain.Session, outcome string) []string {
+func failuresForOutcome(ctx context.Context, s *Service, sess domain.Session, outcome string) []string {
 	if outcome == string(taskreport.OutcomeMerged) || outcome == outcomeInProgress {
 		return nil
 	}
