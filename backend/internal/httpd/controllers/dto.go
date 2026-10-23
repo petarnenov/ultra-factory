@@ -22,16 +22,15 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
 )
 
-// CreateReportRequest is the local caller-to-daemon report submission contract.
-// SessionID attributes the report; like the rest of AO's unauthenticated
-// loopback API, it is not cryptographic proof of worker authorship. Reports do
-// not mutate or derive authoritative session status.
+// CreateReportRequest is the caller-to-daemon report contract.
+// Only an explicit terminal outcome can trigger worker termination.
 type CreateReportRequest struct {
-	SessionID string                `json:"sessionId"`
-	State     string                `json:"state,omitempty" enum:"checkpoint,needs_input,stuck,done"`
-	Note      string                `json:"note,omitempty" maxLength:"1000"`
-	Message   string                `json:"message,omitempty" maxLength:"1000"`
-	Outputs   []ReportOutputRequest `json:"outputs,omitempty"`
+	SessionID       string                `json:"sessionId"`
+	State           string                `json:"state,omitempty" enum:"checkpoint,needs_input,stuck,done"`
+	TerminalOutcome string                `json:"terminalOutcome,omitempty" enum:"success,failure"`
+	Note            string                `json:"note,omitempty" maxLength:"1000"`
+	Message         string                `json:"message,omitempty" maxLength:"1000"`
+	Outputs         []ReportOutputRequest `json:"outputs,omitempty"`
 }
 
 // ReportOutputRequest is one ordered structured output reference.
@@ -84,6 +83,7 @@ type ReportResponse struct {
 	SessionID       string                 `json:"sessionId"`
 	ProjectID       string                 `json:"projectId"`
 	State           string                 `json:"state,omitempty"`
+	TerminalOutcome string                 `json:"terminalOutcome,omitempty"`
 	Note            string                 `json:"note,omitempty"`
 	Message         string                 `json:"message,omitempty"`
 	Outputs         []ReportOutputResponse `json:"outputs,omitempty"`

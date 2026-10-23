@@ -1,10 +1,13 @@
 -- name: CreateReport :one
 INSERT INTO reports (
     id, session_id, project_id, state, note, message, created_at, available_at,
-    settlement_deadline, repeat_count
+    settlement_deadline, repeat_count, terminal_outcome
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: GetTerminalReportOutcome :one
+SELECT outcome FROM report_terminal_completions WHERE session_id = ?;
 
 -- name: CreateReportOutput :exec
 INSERT INTO report_outputs (report_id, position, kind, reference, label)

@@ -249,7 +249,8 @@ type Manager struct {
 	progress *sessionhealth.Recorder
 	// completionTerminator is late-bound because Session Manager itself depends
 	// on this lifecycle reducer. It is required before the SCM observer starts.
-	completionTerminator sessionTerminator
+	completionTerminator  sessionTerminator
+	terminalReportFlights map[domain.SessionID]bool
 	// readyAnnouncer is late-bound: report delivery is wired after lifecycle.
 	readyAnnouncer ReadyToMergeAnnouncer
 	// reviewThreads re-reads a PR's review threads before a review-comment
@@ -315,6 +316,7 @@ func New(store sessionStore, messenger ports.AgentMessenger, opts ...Option) *Ma
 		flights:                     map[domain.SessionID]*toolFlight{},
 		steps:                       map[domain.SessionID][]domain.SessionStep{},
 		pendingLaunches:             map[domain.SessionID]pendingLaunch{},
+		terminalReportFlights:       map[domain.SessionID]bool{},
 		steerActive:                 func(domain.AgentHarness) bool { return false },
 		startupSignalGatesInput:     func(domain.AgentHarness) bool { return false },
 		urgentNudgeWaitingInputSafe: func(domain.AgentHarness) bool { return false },
@@ -506,6 +508,11 @@ func needsInputResolutions(prev, next domain.SessionRecord, now time.Time) []por
 // existing recent-activity guard; supervised workload death is independently
 // fenced by the launch generation and never terminates the runtime.
 func (m *Manager) ApplyRuntimeObservation(ctx context.Context, id domain.SessionID, f ports.RuntimeFacts) error {
+	// Recheck durable terminal reports regardless of probe certainty so retries
+	// can finish after transient lifecycle failures.
+	if err := m.ApplyTerminalReport(ctx, id); err != nil {
+		return err
+	}
 	matchesLaunch := func(cur domain.SessionRecord) bool {
 		currentLaunch := cur.Metadata.RuntimeLaunchID
 		return currentLaunch == "" || f.LaunchID == currentLaunch

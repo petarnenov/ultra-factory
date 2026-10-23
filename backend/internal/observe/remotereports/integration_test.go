@@ -16,6 +16,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
+	"github.com/aoagents/agent-orchestrator/backend/internal/lifecycle"
 	"github.com/aoagents/agent-orchestrator/backend/internal/observe/remotereports"
 	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/remoteworker"
@@ -28,6 +29,38 @@ type recordedDelivery struct {
 	mu          sync.Mutex
 	submissions []string
 	targets     []domain.SessionID
+}
+
+type integrationTerminator struct {
+	store *sqlite.Store
+	calls int
+}
+
+func (k *integrationTerminator) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
+	k.calls++
+	rec, ok, err := k.store.GetSession(ctx, id)
+	if err != nil || !ok {
+		return false, err
+	}
+	rec.IsTerminated = true
+	rec.Activity.State = domain.ActivityExited
+	rec.UpdatedAt = time.Now().UTC()
+	return true, k.store.UpdateSession(ctx, rec)
+}
+
+func terminalReports(t *testing.T, store *sqlite.Store) (*reportsvc.Service, *integrationTerminator) {
+	t.Helper()
+	manager := lifecycle.New(store, nil)
+	terminator := &integrationTerminator{store: store}
+	manager.SetCompletionTerminator(terminator)
+	reports := reportsvc.New(reportsvc.Deps{Store: store, OnCreated: func(rec domain.ReportRecord) {
+		if rec.TerminalOutcome != "" {
+			if err := manager.ApplyTerminalReport(context.Background(), rec.SessionID); err != nil {
+				t.Errorf("apply terminal report: %v", err)
+			}
+		}
+	}})
+	return reports, terminator
 }
 
 func (d *recordedDelivery) Submit(_ context.Context, target domain.SessionID, message, _ string) error {
@@ -234,6 +267,94 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 	}
 }
 
+func TestRemoteFinalReportTerminatesAtSourceAndKeepsHostQualifiedDelivery(t *testing.T) {
+	ctx := context.Background()
+	remoteStore := openStore(t, "widgets")
+	remoteReports, remoteTerminator := terminalReports(t, remoteStore)
+	remoteWorker := createSession(t, remoteStore, "widgets", domain.KindWorker)
+	remote := startRemoteDaemon(t, remoteStore, remoteReports, "host-build", "s3cret")
+
+	localStore := openStore(t, "ultra-factory")
+	if err := localStore.UpsertProject(ctx, domain.ProjectRecord{ID: "widgets", Path: "/tmp/widgets", RegisteredAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	// Both databases intentionally allocate the same session ID. Host identity
+	// must keep a remote completion from touching this local worker.
+	localCollision := createSession(t, localStore, "widgets", domain.KindWorker)
+	if localCollision.ID != remoteWorker.ID {
+		t.Fatalf("test setup IDs differ: local=%s remote=%s", localCollision.ID, remoteWorker.ID)
+	}
+	orchestrator := createSession(t, localStore, "ultra-factory", domain.KindOrchestrator)
+	delivery := &recordedDelivery{}
+	coordinator := reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{Store: localStore, Delivery: delivery})
+	lookup := func(id string) (remotehost.Entry, bool, error) {
+		if id == "host-build" {
+			return remotehost.Entry{Label: "build-box", URL: remote.URL, Password: "s3cret", HostID: "host-build"}, true, nil
+		}
+		return remotehost.Entry{}, false, nil
+	}
+	observer := remotereports.New(remotereports.Deps{
+		Store: localStore, Deliverer: coordinator, SelfHostID: "host-local", Lookup: lookup,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	links := remoteworker.New(remoteworker.Deps{Store: localStore, SelfHostID: "host-local", Lookup: lookup})
+	if _, err := links.Register(ctx, remoteworker.RegisterInput{
+		ParentSessionID: orchestrator.ID, HostID: "host-build", RemoteSessionID: remoteWorker.ID,
+		RemoteProjectID: "widgets", DisplayName: "research task",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := remoteReports.Create(ctx, reportsvc.CreateInput{
+		SessionID: remoteWorker.ID, State: domain.ReportDone, TerminalOutcome: domain.ReportOutcomeFailure,
+		Note: "required source unavailable", Outputs: []domain.ReportOutput{{Kind: domain.ReportOutputArtifact, Reference: "opaque://evidence"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteState, _, err := remoteStore.GetSession(ctx, remoteWorker.ID)
+	if err != nil || !remoteState.IsTerminated || remoteTerminator.calls != 1 {
+		t.Fatalf("source worker termination: session=%+v calls=%d err=%v", remoteState, remoteTerminator.calls, err)
+	}
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivery.submissions) != 1 || delivery.targets[0] != orchestrator.ID ||
+		!strings.Contains(delivery.submissions[0], "[done/failure]") ||
+		!strings.Contains(delivery.submissions[0], "required source unavailable") ||
+		!strings.Contains(delivery.submissions[0], "opaque://evidence") {
+		t.Fatalf("terminal report delivery = %v targets=%v", delivery.submissions, delivery.targets)
+	}
+	localState, _, err := localStore.GetSession(ctx, localCollision.ID)
+	if err != nil || localState.IsTerminated {
+		t.Fatalf("same-ID local worker changed after remote termination: %+v err=%v", localState, err)
+	}
+	history, err := localStore.ListReportsByProject(ctx, "ultra-factory")
+	var terminalHistory, terminationCheckpoint bool
+	for _, report := range history {
+		if report.HostID != "host-build" || report.SessionID != remoteWorker.ID {
+			t.Fatalf("remote report lost host-qualified identity: %+v", report)
+		}
+		if report.ID == created.ID && report.TerminalOutcome == domain.ReportOutcomeFailure &&
+			report.State == domain.ReportDone && len(report.Outputs) == 1 &&
+			report.Outputs[0].Reference == "opaque://evidence" {
+			terminalHistory = true
+		}
+		if report.ID != created.ID && report.TerminalOutcome == "" && report.State == domain.ReportCheckpoint &&
+			report.Note == "AO: the worker session ended." {
+			terminationCheckpoint = true
+		}
+	}
+	if err != nil || len(history) != 2 || !terminalHistory || !terminationCheckpoint {
+		t.Fatalf("host-qualified remote history = %+v err=%v", history, err)
+	}
+	if dueForLocalPuller(ctx, t, remoteStore, remoteWorker.ID, created.ID) {
+		t.Fatal("terminal report was delivered before its durable remote acknowledgement")
+	}
+	if err := observer.Poll(ctx); err != nil || len(delivery.submissions) != 1 {
+		t.Fatalf("duplicate remote pass submissions=%v err=%v", delivery.submissions, err)
+	}
+}
+
 // TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts walks one report
 // through an offline host, a lost acknowledgement, and a restart of each
 // daemon, with both daemons on real stores, and requires exactly one delivery.
@@ -260,9 +381,14 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker := createSession(t, remoteStore, "widgets", domain.KindWorker)
-	created, err := reportsvc.New(reportsvc.Deps{Store: remoteStore}).Create(ctx, reportsvc.CreateInput{SessionID: worker.ID, State: domain.ReportNeedsInput, Note: "Postgres or SQLite?"})
+	remoteReports, remoteTerminator := terminalReports(t, remoteStore)
+	created, err := remoteReports.Create(ctx, reportsvc.CreateInput{SessionID: worker.ID, State: domain.ReportDone,
+		TerminalOutcome: domain.ReportOutcomeSuccess, Note: "research complete"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ended, _, err := remoteStore.GetSession(ctx, worker.ID); err != nil || !ended.IsTerminated || remoteTerminator.calls != 1 {
+		t.Fatalf("terminal report did not end remote worker: session=%+v calls=%d err=%v", ended, remoteTerminator.calls, err)
 	}
 	var (
 		urlMu     sync.Mutex
@@ -352,7 +478,9 @@ func TestRemoteReportIsDeliveredOnceAcrossOutagesAndRestarts(t *testing.T) {
 	if err := observer.Poll(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivery.submissions) != 1 || delivery.targets[0] != orchestrator.ID || !strings.Contains(delivery.submissions[0], "Postgres or SQLite?") {
+	if len(delivery.submissions) != 1 || delivery.targets[0] != orchestrator.ID ||
+		!strings.Contains(delivery.submissions[0], "research complete") ||
+		!strings.Contains(delivery.submissions[0], "[done/success]") {
 		t.Fatalf("submissions = %v targets = %v", delivery.submissions, delivery.targets)
 	}
 	if state := remoteState(remoteStore); state != domain.ReportPending {

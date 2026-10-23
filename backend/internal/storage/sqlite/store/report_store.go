@@ -20,13 +20,33 @@ func (s *Store) CreateReport(ctx context.Context, rec domain.ReportRecord) (doma
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var row gen.Report
-	err := s.inTx(ctx, "create report", func(q *gen.Queries) error {
+	duplicateTerminal := false
+	err := s.inTxDB(ctx, "create report", func(q *gen.Queries, tx gen.DBTX) error {
+		if rec.TerminalOutcome != "" {
+			var existingID, existingOutcome string
+			err := tx.QueryRowContext(ctx, `SELECT report_id, outcome FROM report_terminal_completions WHERE session_id = ?`, string(rec.SessionID)).Scan(&existingID, &existingOutcome)
+			if err == nil {
+				if existingOutcome != string(rec.TerminalOutcome) {
+					return domain.ErrTerminalReportConflict
+				}
+				row, err = q.GetReport(ctx, existingID)
+				if err != nil {
+					return err
+				}
+				duplicateTerminal = true
+				return nil
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+		}
 		var err error
 		row, err = q.CreateReport(ctx, gen.CreateReportParams{
 			ID: rec.ID, SessionID: string(rec.SessionID), ProjectID: string(rec.ProjectID),
 			State: string(rec.State), Note: rec.Note, Message: rec.Message,
 			CreatedAt: rec.CreatedAt, AvailableAt: rec.AvailableAt,
 			SettlementDeadline: nullTime(rec.SettlementDeadline), RepeatCount: rec.RepeatCount,
+			TerminalOutcome: string(rec.TerminalOutcome),
 		})
 		if err != nil {
 			return err
@@ -39,10 +59,18 @@ func (s *Store) CreateReport(ctx context.Context, rec domain.ReportRecord) (doma
 				return err
 			}
 		}
+		if rec.TerminalOutcome != "" {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO report_terminal_completions (session_id, report_id, outcome, created_at) VALUES (?, ?, ?, ?)`, string(rec.SessionID), rec.ID, string(rec.TerminalOutcome), rec.CreatedAt); err != nil {
+				return fmt.Errorf("record terminal report outcome: %w", err)
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		return domain.ReportRecord{}, fmt.Errorf("create report %s: %w", rec.ID, err)
+	}
+	if duplicateTerminal {
+		return s.reportWithOutputs(ctx, row)
 	}
 	created := reportFromGen(row)
 	created.Outputs = append([]domain.ReportOutput(nil), rec.Outputs...)
@@ -74,8 +102,34 @@ func (s *Store) ListReportsBySession(ctx context.Context, id domain.SessionID) (
 	return s.reportsWithOutputs(ctx, rows)
 }
 
+// GetTerminalReportOutcome returns the first durable terminal judgment for a
+// worker. Its session key prevents replayed reports from repeating effects.
+func (s *Store) GetTerminalReportOutcome(ctx context.Context, id domain.SessionID) (domain.ReportTerminalOutcome, bool, error) {
+	outcome, err := s.qr.GetTerminalReportOutcome(ctx, string(id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get terminal report outcome for %s: %w", id, err)
+	}
+	return domain.ReportTerminalOutcome(outcome), true, nil
+}
+
+// GetTerminalReport returns the first report that durably judged a session.
+func (s *Store) GetTerminalReport(ctx context.Context, id domain.SessionID) (domain.ReportRecord, bool, error) {
+	var reportID string
+	err := s.readDB.QueryRowContext(ctx, `SELECT report_id FROM report_terminal_completions WHERE session_id = ?`, string(id)).Scan(&reportID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.ReportRecord{}, false, nil
+	}
+	if err != nil {
+		return domain.ReportRecord{}, false, fmt.Errorf("get terminal report for %s: %w", id, err)
+	}
+	return s.GetReport(ctx, reportID)
+}
+
 func (s *Store) listRemoteReportsByProject(ctx context.Context, id domain.ProjectID) ([]domain.ReportRecord, error) {
-	rows, err := s.readDB.QueryContext(ctx, `SELECT host_id, remote_session_id, report_id, project_id, source_project_id, state, note, message,
+	rows, err := s.readDB.QueryContext(ctx, `SELECT host_id, remote_session_id, report_id, project_id, source_project_id, state, terminal_outcome, note, message,
 		agent, session_name, host_label, created_at, repeat_count
 		FROM remote_worker_reports WHERE project_id = ? ORDER BY created_at, host_id, remote_session_id, report_id`, string(id))
 	if err != nil {
@@ -85,8 +139,8 @@ func (s *Store) listRemoteReportsByProject(ctx context.Context, id domain.Projec
 	var reports []domain.ReportRecord
 	for rows.Next() {
 		var report domain.ReportRecord
-		var sessionID, projectID, sourceProjectID, state string
-		if err := rows.Scan(&report.HostID, &sessionID, &report.ID, &projectID, &sourceProjectID, &state, &report.Note, &report.Message,
+		var sessionID, projectID, sourceProjectID, state, terminalOutcome string
+		if err := rows.Scan(&report.HostID, &sessionID, &report.ID, &projectID, &sourceProjectID, &state, &terminalOutcome, &report.Note, &report.Message,
 			&report.Agent, &report.SessionDisplayName, &report.HostLabel, &report.CreatedAt, &report.RepeatCount); err != nil {
 			return nil, fmt.Errorf("scan remote project report: %w", err)
 		}
@@ -94,6 +148,7 @@ func (s *Store) listRemoteReportsByProject(ctx context.Context, id domain.Projec
 		report.ProjectID = domain.ProjectID(projectID)
 		report.SourceProjectID = sourceProjectID
 		report.State = domain.ReportState(state)
+		report.TerminalOutcome = domain.ReportTerminalOutcome(terminalOutcome)
 		report.Outputs, err = s.listRemoteReportOutputs(ctx, report.HostID, sessionID, report.ID)
 		if err != nil {
 			return nil, err
@@ -144,17 +199,17 @@ func (s *Store) ListReportsByProjectPage(ctx context.Context, id domain.ProjectI
 		limit = 20
 	}
 	fetchLimit := limit + 1
-	query := `SELECT host_id, session_id, report_id, project_id, source_project_id, state, note, message,
+	query := `SELECT host_id, session_id, report_id, project_id, source_project_id, state, terminal_outcome, note, message,
 		agent, session_name, host_label, created_at, repeat_count
 		FROM (
 			SELECT '' AS host_id, session_id, id AS report_id, project_id, '' AS source_project_id,
-				state, note, message, '' AS agent, '' AS session_name, '' AS host_label,
+				state, terminal_outcome, note, message, '' AS agent, '' AS session_name, '' AS host_label,
 				created_at, repeat_count
 			FROM reports
 			WHERE project_id = ?
 			UNION ALL
 			SELECT host_id, remote_session_id, report_id, project_id, source_project_id,
-				state, note, message, agent, session_name, host_label,
+				state, terminal_outcome, note, message, agent, session_name, host_label,
 				created_at, repeat_count
 			FROM remote_worker_reports
 			WHERE project_id = ?
@@ -180,7 +235,7 @@ func (s *Store) ListReportsByProjectPage(ctx context.Context, id domain.ProjectI
 	for rows.Next() {
 		var report domain.ReportRecord
 		var sessionID, projectID, sourceProjectID, state string
-		if err := rows.Scan(&report.HostID, &sessionID, &report.ID, &projectID, &sourceProjectID, &state, &report.Note, &report.Message,
+		if err := rows.Scan(&report.HostID, &sessionID, &report.ID, &projectID, &sourceProjectID, &state, &report.TerminalOutcome, &report.Note, &report.Message,
 			&report.Agent, &report.SessionDisplayName, &report.HostLabel, &report.CreatedAt, &report.RepeatCount); err != nil {
 			return nil, fmt.Errorf("scan project report page: %w", err)
 		}
@@ -514,7 +569,7 @@ func orderedReportRows(rows []gen.Report) []gen.Report {
 func reportFromGen(r gen.Report) domain.ReportRecord {
 	return domain.ReportRecord{
 		ID: r.ID, SessionID: domain.SessionID(r.SessionID), ProjectID: domain.ProjectID(r.ProjectID),
-		State: domain.ReportState(r.State), Note: r.Note, Message: r.Message, CreatedAt: r.CreatedAt,
+		State: domain.ReportState(r.State), TerminalOutcome: domain.ReportTerminalOutcome(r.TerminalOutcome), Note: r.Note, Message: r.Message, CreatedAt: r.CreatedAt,
 		DeliveryState: domain.ReportDeliveryState(r.DeliveryState), AvailableAt: r.AvailableAt,
 		SettlementDeadline: timeFromNull(r.SettlementDeadline), RepeatCount: r.RepeatCount,
 		ClaimToken: r.ClaimToken, ClaimedAt: timeFromNull(r.ClaimedAt), DeliveryAttempts: r.DeliveryAttempts,

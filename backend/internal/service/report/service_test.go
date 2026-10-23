@@ -103,6 +103,44 @@ func TestCreateDerivesOwnershipAndFixedDeliveryDeadlines(t *testing.T) {
 	}
 }
 
+func TestCreatePersistsOnlyExplicitTerminalOutcomesBeforeCallback(t *testing.T) {
+	for _, outcome := range []domain.ReportTerminalOutcome{domain.ReportOutcomeSuccess, domain.ReportOutcomeFailure} {
+		t.Run(string(outcome), func(t *testing.T) {
+			st := &fakeStore{ok: true, session: domain.SessionRecord{ID: "ao-7", ProjectID: "ao", Kind: domain.KindWorker}}
+			var artifacts artifactCalls
+			callbackSawArtifact := false
+			svc := New(Deps{
+				Store:     st,
+				Artifacts: &artifacts,
+				OnCreated: func(rec domain.ReportRecord) {
+					callbackSawArtifact = rec.TerminalOutcome == outcome && len(artifacts) == 1
+				},
+				Now:   func() time.Time { return time.Date(2026, 9, 7, 1, 2, 3, 0, time.UTC) },
+				NewID: func() string { return "rpt_final" },
+			})
+			rec, err := svc.Create(context.Background(), CreateInput{
+				SessionID: "ao-7", State: domain.ReportDone, TerminalOutcome: outcome, Note: "final result",
+				Outputs: []domain.ReportOutput{{Kind: domain.ReportOutputArtifact, Reference: "result.md"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rec.TerminalOutcome != outcome || st.created.TerminalOutcome != outcome || !callbackSawArtifact {
+				t.Fatalf("record=%+v stored=%+v callbackSawArtifact=%v", rec, st.created, callbackSawArtifact)
+			}
+		})
+	}
+	for _, state := range []domain.ReportState{domain.ReportCheckpoint, domain.ReportNeedsInput, domain.ReportStuck, domain.ReportDone} {
+		st := &fakeStore{ok: true, session: domain.SessionRecord{ID: "ao-7", ProjectID: "ao", Kind: domain.KindWorker}}
+		if _, err := New(Deps{Store: st}).Create(context.Background(), CreateInput{SessionID: "ao-7", State: state, Note: "not terminal"}); err != nil {
+			t.Fatal(err)
+		}
+		if st.created.TerminalOutcome != "" {
+			t.Fatalf("state %q unexpectedly stored terminal outcome %q", state, st.created.TerminalOutcome)
+		}
+	}
+}
+
 func TestCreateDefendsValidationAndOwnership(t *testing.T) {
 	worker := &fakeStore{ok: true, session: domain.SessionRecord{ID: "ao-2", ProjectID: "ao", Kind: domain.KindWorker}}
 	for _, tc := range []struct {

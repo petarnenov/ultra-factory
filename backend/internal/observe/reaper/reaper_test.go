@@ -17,6 +17,7 @@ var ctx = context.Background()
 
 type fakeLCM struct {
 	observed map[domain.SessionID]ports.RuntimeFacts
+	terminal []domain.SessionID
 }
 
 func (l *fakeLCM) ApplyRuntimeObservation(_ context.Context, id domain.SessionID, f ports.RuntimeFacts) error {
@@ -24,6 +25,11 @@ func (l *fakeLCM) ApplyRuntimeObservation(_ context.Context, id domain.SessionID
 		l.observed = map[domain.SessionID]ports.RuntimeFacts{}
 	}
 	l.observed[id] = f
+	return nil
+}
+
+func (l *fakeLCM) ApplyTerminalReport(_ context.Context, id domain.SessionID) error {
+	l.terminal = append(l.terminal, id)
 	return nil
 }
 
@@ -70,6 +76,22 @@ func TestTick_ReportsAliveProbe(t *testing.T) {
 	}
 	if got := lcm.observed["mer-1"]; got.Runtime != ports.ProbeAlive || got.Workload != ports.ProbeFailed {
 		t.Fatalf("want alive runtime with unsupported workload, got %+v", got)
+	}
+}
+
+func TestTick_ReconcilesTerminalReportsWithoutRuntimeProbe(t *testing.T) {
+	lcm := &fakeLCM{}
+	worker := domain.SessionRecord{ID: "chat-worker", Kind: domain.KindWorker, Mode: domain.SessionModeChat}
+	root := domain.SessionRecord{ID: "root", Kind: domain.KindOrchestrator}
+	sessions := fakeSessions{rows: []domain.SessionRecord{worker, root}}
+	if err := newReaper(lcm, sessions, fakeRuntime{}).Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(lcm.terminal) != 1 || lcm.terminal[0] != worker.ID {
+		t.Fatalf("terminal reconciliations = %v, want only %s", lcm.terminal, worker.ID)
+	}
+	if len(lcm.observed) != 0 {
+		t.Fatalf("runtime observations = %v, chat worker must not be runtime-probed", lcm.observed)
 	}
 }
 

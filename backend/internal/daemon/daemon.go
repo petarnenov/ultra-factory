@@ -730,6 +730,11 @@ func Run() error {
 		if reportCoordinator != nil {
 			reportCoordinator.Wake()
 		}
+		if rec.TerminalOutcome != "" {
+			if err := lcStack.LCM.ApplyTerminalReport(ctx, rec.SessionID); err != nil {
+				log.Error("terminal report session termination failed", "session", rec.SessionID, "report", rec.ID, "err", err)
+			}
+		}
 		if knowledge != nil {
 			knowledge.ReportCreated(rec)
 		}

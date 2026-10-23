@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,121 @@ func TestReportStorePersistsOutputsAndDeadlinesAcrossRestart(t *testing.T) {
 	pending, err := s.ListPendingReports(ctx, want.AvailableAt, 10)
 	if err != nil || len(pending) != 1 || pending[0].ID != want.ID || len(pending[0].Outputs) != 3 {
 		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+}
+
+func TestTerminalReportOutcomePersistsAtomicallyAndIsMonotonicAcrossRestart(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedProject(t, s, "ao")
+	sess, err := s.CreateSession(ctx, sampleRecord("ao"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	base := domain.ReportRecord{
+		SessionID: sess.ID, ProjectID: sess.ProjectID, State: domain.ReportDone,
+		Note: "final result", CreatedAt: now, DeliveryState: domain.ReportPending,
+		AvailableAt: now.Add(domain.ReportSettlementWindow), SettlementDeadline: now.Add(domain.ReportSettlementWindow), RepeatCount: 1,
+		Outputs: []domain.ReportOutput{{Kind: domain.ReportOutputArtifact, Reference: "opaque://final"}},
+	}
+	first := base
+	first.ID = "rpt_final"
+	first.TerminalOutcome = domain.ReportOutcomeSuccess
+	created, err := s.CreateReport(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.ID != first.ID {
+		t.Fatalf("first final report ID=%s, want %s", created.ID, first.ID)
+	}
+	retry := first
+	retry.ID = "rpt_retry_final"
+	retry.Note = "retried request"
+	created, err = s.CreateReport(ctx, retry)
+	if err != nil || created.ID != first.ID {
+		t.Fatalf("same-outcome retry report=%+v err=%v, want original %s", created, err, first.ID)
+	}
+	interim := base
+	interim.ID = "rpt_late_checkpoint"
+	interim.State = domain.ReportCheckpoint
+	interim.Note = "late informational report"
+	interim.AvailableAt = now.Add(domain.ReportBatchFallback)
+	interim.SettlementDeadline = time.Time{}
+	interim.Outputs = nil
+	if _, err := s.CreateReport(ctx, interim); err != nil {
+		t.Fatal(err)
+	}
+	second := base
+	second.ID = "rpt_duplicate_final"
+	second.TerminalOutcome = domain.ReportOutcomeFailure
+	if _, err := s.CreateReport(ctx, second); !errors.Is(err, domain.ErrTerminalReportConflict) {
+		t.Fatalf("conflicting terminal report err=%v, want conflict", err)
+	}
+	outcome, found, err := s.GetTerminalReportOutcome(ctx, sess.ID)
+	if err != nil || !found || outcome != domain.ReportOutcomeSuccess {
+		t.Fatalf("terminal outcome=%q found=%v err=%v", outcome, found, err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = sqlite.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	outcome, found, err = s.GetTerminalReportOutcome(ctx, sess.ID)
+	if err != nil || !found || outcome != domain.ReportOutcomeSuccess {
+		t.Fatalf("restarted outcome=%q found=%v err=%v", outcome, found, err)
+	}
+	got, ok, err := s.GetReport(ctx, first.ID)
+	if err != nil || !ok || got.TerminalOutcome != domain.ReportOutcomeSuccess || len(got.Outputs) != 1 {
+		t.Fatalf("durable report=%+v ok=%v err=%v", got, ok, err)
+	}
+	all, err := s.ListReportsBySession(ctx, sess.ID)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("reports=%+v err=%v", all, err)
+	}
+}
+
+func TestTerminalReportDeliveryRemainsPendingAfterWorkerTermination(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedProject(t, s, "ao")
+	now := time.Now().UTC().Truncate(time.Second)
+	worker, err := s.CreateSession(ctx, domain.SessionRecord{ProjectID: "ao", Kind: domain.KindWorker,
+		Harness: domain.HarnessClaudeCode, Activity: domain.Activity{State: domain.ActivityActive}, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := s.CreateReport(ctx, domain.ReportRecord{ID: "final-report", SessionID: worker.ID, ProjectID: "ao",
+		State: domain.ReportDone, TerminalOutcome: domain.ReportOutcomeFailure, Note: "terminal failure",
+		CreatedAt: now, AvailableAt: now, SettlementDeadline: now.Add(5 * time.Minute),
+		DeliveryState: domain.ReportPending, RepeatCount: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	worker.IsTerminated = true
+	worker.UpdatedAt = now.Add(time.Second)
+	if err := s.UpdateSession(ctx, worker); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListPendingReports(ctx, report.SettlementDeadline, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, pending := range got {
+		if pending.ID == report.ID && pending.TerminalOutcome == domain.ReportOutcomeFailure {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("terminal report was not pending after termination: %+v", got)
 	}
 }
 

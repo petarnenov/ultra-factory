@@ -336,6 +336,45 @@ func (m *Manager) RetryCompletedSessionTermination(ctx context.Context, id domai
 	return m.terminateSessionIfComplete(ctx, id)
 }
 
+type terminalReportReader interface {
+	GetTerminalReportOutcome(context.Context, domain.SessionID) (domain.ReportTerminalOutcome, bool, error)
+}
+
+// ApplyTerminalReport terminates a worker only after its explicit terminal
+// outcome and report have been committed to the local durable store.
+func (m *Manager) ApplyTerminalReport(ctx context.Context, id domain.SessionID) error {
+	rec, ok, err := m.store.GetSession(ctx, id)
+	if err != nil || !ok || rec.Kind != domain.KindWorker || rec.IsTerminated {
+		return err
+	}
+	reader, ok := m.store.(terminalReportReader)
+	if !ok {
+		return nil
+	}
+	outcome, found, err := reader.GetTerminalReportOutcome(ctx, id)
+	if err != nil || !found {
+		return err
+	}
+	if !outcome.Valid() {
+		return fmt.Errorf("terminate completed session %s: invalid durable terminal outcome %q", id, outcome)
+	}
+	if m.sessionMutationInProgress(id) {
+		return nil
+	}
+	m.mu.Lock()
+	if m.terminalReportFlights[id] {
+		m.mu.Unlock()
+		return nil
+	}
+	m.terminalReportFlights[id] = true
+	m.mu.Unlock()
+	err = m.terminateCompletedSession(ctx, id)
+	m.mu.Lock()
+	delete(m.terminalReportFlights, id)
+	m.mu.Unlock()
+	return err
+}
+
 func (m *Manager) terminateSessionIfComplete(ctx context.Context, id domain.SessionID) error {
 	done, err := m.sessionComplete(ctx, id)
 	if err != nil {

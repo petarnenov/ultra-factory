@@ -20,6 +20,10 @@ func TestReportValidation(t *testing.T) {
 		{"empty", []string{"report"}},
 		{"legacy positional status", []string{"report", "working"}},
 		{"state missing note", []string{"report", "--done"}},
+		{"final success missing note", []string{"report", "--final-success"}},
+		{"final failure missing note", []string{"report", "--final-failure"}},
+		{"terminal outcomes conflict", []string{"report", "--final-success", "--final-failure", "--note", "x"}},
+		{"terminal outcome conflicts with state", []string{"report", "--final-success", "--stuck", "--note", "x"}},
 		{"mutually exclusive states", []string{"report", "--done", "--stuck", "--note", "x"}},
 		{"free form with note", []string{"report", "hello", "--note", "x"}},
 		{"free form with empty note flag", []string{"report", "hello", "--note="}},
@@ -60,6 +64,8 @@ func TestReportModesAndBoundaries(t *testing.T) {
 		{name: "needs input", args: []string{"report", "--needs-input", "--note", "x"}, want: reportAPIRequest{SessionID: "worker-1", State: "needs_input", Note: "x"}},
 		{name: "stuck", args: []string{"report", "--stuck", "--note", "x"}, want: reportAPIRequest{SessionID: "worker-1", State: "stuck", Note: "x"}},
 		{name: "done without output", args: []string{"report", "--done", "--note", strings.Repeat("x", 1000)}, want: reportAPIRequest{SessionID: "worker-1", State: "done", Note: strings.Repeat("x", 1000)}},
+		{name: "final success", args: []string{"report", "--final-success", "--note", "task complete"}, want: reportAPIRequest{SessionID: "worker-1", State: "done", TerminalOutcome: "success", Note: "task complete"}},
+		{name: "final failure", args: []string{"report", "--final-failure", "--note", "terminal failure"}, want: reportAPIRequest{SessionID: "worker-1", State: "done", TerminalOutcome: "failure", Note: "terminal failure"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

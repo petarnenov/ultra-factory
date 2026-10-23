@@ -62,16 +62,17 @@ type wireReportOutput struct {
 }
 
 type wireReport struct {
-	ID          string             `json:"id"`
-	State       string             `json:"state,omitempty"`
-	Note        string             `json:"note,omitempty"`
-	Message     string             `json:"message,omitempty"`
-	Outputs     []wireReportOutput `json:"outputs,omitempty"`
-	CreatedAt   time.Time          `json:"createdAt"`
-	RepeatCount int64              `json:"repeatCount"`
-	Agent       string             `json:"agent,omitempty"`
-	SessionName string             `json:"sessionName,omitempty"`
-	ProjectID   string             `json:"projectId,omitempty"`
+	ID              string             `json:"id"`
+	State           string             `json:"state,omitempty"`
+	TerminalOutcome string             `json:"terminalOutcome,omitempty"`
+	Note            string             `json:"note,omitempty"`
+	Message         string             `json:"message,omitempty"`
+	Outputs         []wireReportOutput `json:"outputs,omitempty"`
+	CreatedAt       time.Time          `json:"createdAt"`
+	RepeatCount     int64              `json:"repeatCount"`
+	Agent           string             `json:"agent,omitempty"`
+	SessionName     string             `json:"sessionName,omitempty"`
+	ProjectID       string             `json:"projectId,omitempty"`
 }
 
 type wireAPIError struct {
@@ -148,7 +149,9 @@ func acceptReport(wire wireReport) (domain.ReportRecord, bool) {
 		outputs[i] = domain.ReportOutput{Kind: domain.ReportOutputKind(output.Kind), Reference: output.Reference, Label: output.Label}
 	}
 	state := domain.ReportState(wire.State)
-	if domain.ValidateReportContent(state, wire.Note, wire.Message, outputs) != nil {
+	outcome := domain.ReportTerminalOutcome(wire.TerminalOutcome)
+	if domain.ValidateReportContent(state, wire.Note, wire.Message, outputs) != nil ||
+		(outcome != "" && (state != domain.ReportDone || !outcome.Valid())) {
 		return domain.ReportRecord{}, false
 	}
 	repeat := wire.RepeatCount
@@ -157,7 +160,8 @@ func acceptReport(wire wireReport) (domain.ReportRecord, bool) {
 	}
 	return domain.ReportRecord{
 		ID: wire.ID, State: state, Note: wire.Note, Message: wire.Message,
-		Outputs: outputs, CreatedAt: wire.CreatedAt, RepeatCount: repeat,
+		TerminalOutcome: outcome,
+		Outputs:         outputs, CreatedAt: wire.CreatedAt, RepeatCount: repeat,
 		Agent: wire.Agent, SessionDisplayName: wire.SessionName, SourceProjectID: wire.ProjectID,
 	}, true
 }

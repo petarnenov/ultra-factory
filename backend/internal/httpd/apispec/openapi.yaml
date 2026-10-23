@@ -16263,6 +16263,11 @@ components:
           - stuck
           - done
           type: string
+        terminalOutcome:
+          enum:
+          - success
+          - failure
+          type: string
       required:
       - sessionId
       type: object
@@ -18738,6 +18743,8 @@ components:
         sourceProjectId:
           type: string
         state:
+          type: string
+        terminalOutcome:
           type: string
       required:
       - id

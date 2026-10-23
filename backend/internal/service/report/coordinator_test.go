@@ -219,6 +219,16 @@ func TestReportSessionLinkUsesDisplayName(t *testing.T) {
 	}
 }
 
+func TestPreparedBatchRenderIncludesExplicitTerminalOutcome(t *testing.T) {
+	report := reportAt("final", "worker", time.Now(), time.Now(), "task ended")
+	report.State = domain.ReportDone
+	report.TerminalOutcome = domain.ReportOutcomeFailure
+	got := (PreparedBatch{Reports: []domain.ReportRecord{report}}).Render()
+	if !strings.Contains(got, "[done/failure]") {
+		t.Fatalf("rendered final report omitted its terminal outcome: %q", got)
+	}
+}
+
 func TestCoordinatorAcceptanceAndPiggybackFencing(t *testing.T) {
 	now := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
 	store := newCoordinatorStore(now)
