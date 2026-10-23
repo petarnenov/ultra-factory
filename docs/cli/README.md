@@ -139,7 +139,7 @@ commit and records which tree the verdict read. See
 | `ao session claim-pr [<id>] <pr-ref>` | `POST /api/v1/sessions/{id}/pr/claim`        |
 | `ao orchestrator ls`                | `GET /api/v1/orchestrators`                    |
 | `ao host ls`                        | `GET /api/v1/identity` then `GET /healthz` on each saved remote host (no local route) |
-| `ao send`                           | `POST /api/v1/sessions/{id}/send`              |
+| `ao send`                           | `POST /api/v1/sessions/{id}/send`; the message is limited to 16 KiB (16384 bytes), larger messages are refused with `MESSAGE_TOO_LONG` |
 | `ao report ...`                     | `POST /api/v1/reports`                         |
 | `ao preview [url]`                  | `POST /api/v1/sessions/{id}/preview`           |
 | `ao preview start/status/stop`      | `POST/GET/DELETE /api/v1/sessions/{id}/preview/server` |

@@ -1823,6 +1823,28 @@ func TestIsChildAlivePreservesProbeFailures(t *testing.T) {
 
 // -- SendMessage tests --
 
+func TestSendMessageSplitsA16KiBMessageIntoSmallChunks(t *testing.T) {
+	r, fr := newTestRuntime(0) // 0 selects defaultChunkBytes
+	message := strings.Repeat("a", 16*1024)
+	if err := r.SendMessage(context.Background(), ports.RuntimeHandle{ID: "sess-1"}, message); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if len(fr.calls) != 3 {
+		t.Fatalf("calls = %d, want 3 (2 chunks + Enter)", len(fr.calls))
+	}
+	var sent strings.Builder
+	for _, call := range fr.calls[:2] {
+		chunk := call.args[len(call.args)-1]
+		if len(chunk) > defaultChunkBytes {
+			t.Fatalf("chunk is %d bytes, want at most %d", len(chunk), defaultChunkBytes)
+		}
+		sent.WriteString(chunk)
+	}
+	if sent.String() != message {
+		t.Fatalf("chunks rejoin to %d bytes, want the 16 KiB message", sent.Len())
+	}
+}
+
 func TestSendMessageChunksAndSendsEnter(t *testing.T) {
 	r, fr := newTestRuntime(5) // chunkSize=5
 	// "hello世界": hello=5 bytes, 世=3 bytes, 界=3 bytes => 3 sends + 1 Enter

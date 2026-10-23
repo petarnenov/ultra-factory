@@ -1496,7 +1496,7 @@ type CleanupSessionsResponse struct {
 type SendSessionMessageRequest struct {
 	// SenderSessionID is cooperative loopback attribution, not authentication.
 	SenderSessionID string `json:"senderSessionId,omitempty"`
-	Message         string `json:"message" minLength:"1" maxLength:"4096"`
+	Message         string `json:"message" minLength:"1" maxLength:"16384"`
 	// UserAuthored marks content written directly by the user but delivered via
 	// AO's automation relay, such as inline document feedback.
 	UserAuthored bool `json:"userAuthored,omitempty"`

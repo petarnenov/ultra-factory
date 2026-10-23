@@ -44,7 +44,7 @@ import (
 
 const (
 	maxPromptLen      = 16 << 10
-	maxMessageLen     = 4096
+	maxMessageLen     = 16 * 1024
 	maxModelLen       = 256
 	maxDisplayNameLen = 100
 	maxIdempotencyKey = 128
