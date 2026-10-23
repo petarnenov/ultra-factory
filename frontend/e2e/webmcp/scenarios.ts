@@ -267,7 +267,8 @@ const newCardScenario = defineScenario({
 		await installFakeAgent(page);
 	},
 	phases: [
-		{ id: "empty", actions: [], checks: [readExpect("board.read", "columns.*.cards", boardColumns.map(() => []))] },
+		// dev:web fills an empty board with demo cards; check fake-spawn only.
+		{ id: "empty", actions: [], checks: [readExpect("board.read", "columns.*.cards.[id=fake-spawn]", boardColumns.map(() => undefined))] },
 		{
 			id: "spawned",
 			bridge: spawnWorker,
