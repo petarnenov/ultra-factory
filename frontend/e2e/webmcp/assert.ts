@@ -57,7 +57,9 @@ export async function waitForTools(page: Page, prefix: string): Promise<void> {
 // Polls, so UI settling after a bridge push stays in the timed window.
 export async function runExpect(page: Page, host: HostState, step: ExpectStep): Promise<void> {
 	if (step.kind === "expect-host") {
-		await expect(async () => step.check(host), step.label).toPass();
+		await expect.poll(() => step.check(host), { message: step.label }).toBeUndefined().catch((error: Error) => {
+			throw new Error(`${step.label}: ${error.message}`);
+		});
 		return;
 	}
 	await expect
