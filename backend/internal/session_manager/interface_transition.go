@@ -1623,7 +1623,7 @@ func (m *Manager) recoverInterfaceTransitions(ctx context.Context, transitionID 
 			m.logger.Info("interface transition: recovery deferred behind exclusive operation", "sessionID", transition.SessionID, "operation", operation)
 			continue
 		}
-		m.markAgentOperationLocked(transition.SessionID, agentOperationInterfaceRecovery)
+		m.markAgentOperationLocked(transition.SessionID, agentOperationInterfaceRecovery, "")
 		delete(m.deferredInterfaceRecovery, transition.SessionID)
 		drained := m.inputDrained[transition.SessionID]
 		m.agentOpMu.Unlock()

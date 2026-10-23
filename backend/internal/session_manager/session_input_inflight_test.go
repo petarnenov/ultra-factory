@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
@@ -88,7 +90,7 @@ func TestKillCancelsWakeAndReleasesGate(t *testing.T) {
 }
 
 func TestKillReportsWakeThatIgnoresCancelWithoutClearingGate(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "wake-starter-19")
 	id := domain.SessionID("worker-1")
 	logs := &bytes.Buffer{}
 	m := newInFlightWakeTestManager(logs)
@@ -101,8 +103,9 @@ func TestKillReportsWakeThatIgnoresCancelWithoutClearingGate(t *testing.T) {
 	m.setAgentOperationCancel(id, func() {})
 
 	_, err := m.kill(ctx, id, false)
-	if !errors.Is(err, ErrResumeInProgress) || !strings.Contains(err.Error(), "resume in progress for") {
-		t.Fatalf("kill over wedged wake = %v, want ErrResumeInProgress naming the wake", err)
+	if !errors.Is(err, ErrResumeInProgress) || !strings.Contains(err.Error(), "resume in progress for") ||
+		!strings.Contains(err.Error(), "wake-starter-19") {
+		t.Fatalf("kill over wedged wake = %v, want ErrResumeInProgress with wake details", err)
 	}
 	if !m.SessionMutationInProgress(id) {
 		t.Fatal("gate was cleared while the wake was still running")
@@ -117,7 +120,7 @@ func TestKillReportsWakeThatIgnoresCancelWithoutClearingGate(t *testing.T) {
 }
 
 func TestBusyGateErrorNamesOperationAndAge(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "starter-req-17")
 	id := domain.SessionID("worker-1")
 	m := newInFlightWakeTestManager(&bytes.Buffer{})
 	if err := m.beginAgentOperation(ctx, id, agentOperationRestore); err != nil {
@@ -127,13 +130,13 @@ func TestBusyGateErrorNamesOperationAndAge(t *testing.T) {
 	if !errors.Is(err, ErrAgentOperationInProgress) {
 		t.Fatalf("kill during restore = %v, want ErrAgentOperationInProgress", err)
 	}
-	if !strings.Contains(err.Error(), "restore in progress for") {
-		t.Fatalf("error %q does not name the operation and its age", err)
+	if !strings.Contains(err.Error(), "restore in progress for") || !strings.Contains(err.Error(), "starter-req-17") {
+		t.Fatalf("error %q does not name the operation, age, and starter request ID", err)
 	}
 }
 
 func TestAgentOperationInProgressReportsKindAndStart(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), middleware.RequestIDKey, "wake-req-18")
 	id := domain.SessionID("worker-1")
 	m := newInFlightWakeTestManager(&bytes.Buffer{})
 	if _, ok := m.AgentOperationInProgress(id); ok {
@@ -144,12 +147,37 @@ func TestAgentOperationInProgressReportsKindAndStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, ok := m.AgentOperationInProgress(id)
-	if !ok || status.Kind != string(agentOperationResume) || status.StartedAt.Before(before) {
+	if !ok || status.Kind != string(agentOperationResume) || status.StartedAt.Before(before) || status.RequestID != "wake-req-18" {
 		t.Fatalf("status = %+v ok=%v, want resume started after %v", status, ok, before)
 	}
 	m.endAgentResume(id)
 	if _, ok := m.AgentOperationInProgress(id); ok {
 		t.Fatal("released operation still reported")
+	}
+}
+
+func TestAbandonCancelsSwitchAndExitWithoutReleasingTheirFence(t *testing.T) {
+	for _, kind := range []agentOperationKind{agentOperationSwitch, agentOperationExit} {
+		t.Run(string(kind), func(t *testing.T) {
+			m := newInFlightWakeTestManager(&bytes.Buffer{})
+			id := domain.SessionID("worker-1")
+			if err := m.beginAgentOperation(context.Background(), id, kind); err != nil {
+				t.Fatal(err)
+			}
+			opCtx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			m.setAgentOperationCancel(id, cancel)
+			if !m.AbandonAgentOperation(id) || opCtx.Err() == nil {
+				t.Fatal("abandon did not cancel the transition")
+			}
+			if !m.SessionMutationInProgress(id) {
+				t.Fatal("abandon released the fence before the operation unwound")
+			}
+			m.endAgentOperation(id, kind)
+			if m.SessionMutationInProgress(id) {
+				t.Fatal("completed transition kept its fence")
+			}
+		})
 	}
 }
 

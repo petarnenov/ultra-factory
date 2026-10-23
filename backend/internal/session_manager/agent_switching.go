@@ -1079,6 +1079,8 @@ func (m *Manager) startAgentSwitchWorker(admitted *admittedAgentSwitch) error {
 		return ErrSwitchShuttingDown
 	}
 	m.agentSwitchWorkerMu.Unlock()
+	workerCtx, cancelWorker := context.WithCancel(m.backgroundContext)
+	m.setAgentOperationCancel(admitted.record.SessionID, cancelWorker)
 
 	m.logger.Info("agent switch accepted",
 		"sessionID", admitted.record.SessionID,
@@ -1089,7 +1091,9 @@ func (m *Manager) startAgentSwitchWorker(admitted *admittedAgentSwitch) error {
 	)
 	attemptID := uuid.NewString()
 	go func() {
+		defer cancelWorker()
 		defer m.agentSwitchWorkers.Done()
+		defer m.clearAgentOperationCancel(admitted.record.SessionID, agentOperationSwitch)
 		defer func() {
 			if recover() == nil {
 				return
@@ -1118,7 +1122,7 @@ func (m *Manager) startAgentSwitchWorker(admitted *admittedAgentSwitch) error {
 				"error", err,
 			)
 		}()
-		result, err := m.executeAgentSwitch(m.backgroundContext, admitted)
+		result, err := m.executeAgentSwitch(workerCtx, admitted)
 		if err != nil {
 			m.logger.Error("agent switch failed",
 				"sessionID", result.SessionID,

@@ -77,6 +77,50 @@ func TestLiveGraph(t *testing.T) {
 	}
 }
 
+func TestLiveRateAndRetireLesson(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	cfg, err := Load(os.Getenv, filepath.Join(home, ".ao", "data"))
+	if err != nil || !cfg.Enabled() {
+		t.Skipf("no knowledge graph configured: %v", err)
+	}
+	cfg.Timeout = 15 * time.Second
+	c := NewClient(cfg, nil)
+	g := NewGraph(c)
+	ctx := context.Background()
+	const project = "__kglive_rate_retire"
+	const taskKey = "kg560-probe/session"
+	const lessonID = "kg560-probe-lesson"
+	t.Cleanup(func() {
+		_, _ = c.Run(ctx, "MATCH (n) WHERE n.project = $p OR n.id = $id DETACH DELETE n", map[string]any{"p": project, "id": taskKey})
+	})
+	now := time.Now()
+	if err := g.AddLesson(ctx, Lesson{ID: lessonID, TaskKey: taskKey, Session: "session", Host: "kg560-probe", Project: project, Kind: "pitfall", Text: "Probe lesson", At: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.MarkServed(ctx, taskKey, []string{lessonID}, now); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		found, err := g.RateLesson(ctx, taskKey, lessonID, "wrong", now)
+		if err != nil || !found {
+			t.Fatalf("rating attempt %d = %v, %v", i+1, found, err)
+		}
+	}
+	rows, err := c.Run(ctx, `MATCH (t:Task {id: $taskKey})-[r:RECEIVED]->(l:Lesson {id: $id})
+RETURN r.rating AS rating, l.wrong AS wrong, l.useful AS useful`, map[string]any{"taskKey": taskKey, "id": lessonID})
+	if err != nil || len(rows) != 1 || rows[0].String("rating") != "wrong" || rows[0].Float("wrong") != 1 || rows[0].Float("useful") != 0 {
+		t.Fatalf("rated graph state = %v, %v", rows, err)
+	}
+	found, err := g.RetireLesson(ctx, lessonID, "probe complete", now)
+	if err != nil || !found {
+		t.Fatalf("RetireLesson = %v, %v", found, err)
+	}
+	rows, err = c.Run(ctx, "MATCH (l:Lesson {id: $id}) RETURN l.retiredAt IS NOT NULL AS retired, l.retiredReason AS reason", map[string]any{"id": lessonID})
+	if err != nil || len(rows) != 1 || rows[0]["retired"] != true || rows[0].String("reason") != "probe complete" {
+		t.Fatalf("retired graph state = %v, %v", rows, err)
+	}
+}
+
 // TestLiveSemantic needs embeddingUrl in the config; it proves a lesson is
 // found by meaning when the query shares none of its words.
 func TestLiveSemantic(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
+	"github.com/aoagents/agent-orchestrator/backend/internal/reqid"
 	"github.com/aoagents/agent-orchestrator/backend/internal/sessionguard"
 )
 
@@ -36,6 +37,7 @@ const defaultResumePreemptWait = 15 * time.Second
 // how to cancel it.
 type agentOperationRecord struct {
 	startedAt time.Time
+	requestID string
 	cancel    context.CancelFunc
 }
 
@@ -44,6 +46,7 @@ type agentOperationRecord struct {
 type AgentOperationStatus struct {
 	Kind      string
 	StartedAt time.Time
+	RequestID string
 }
 
 var _ sessionguard.InputLease = (*Manager)(nil)
@@ -144,7 +147,7 @@ func (m *Manager) beginAgentOperation(ctx context.Context, id domain.SessionID, 
 				continue
 			}
 		}
-		m.markAgentOperationLocked(id, kind)
+		m.markAgentOperationLocked(id, kind, reqid.FromContext(ctx))
 		drained = m.inputDrained[id]
 		m.agentOpMu.Unlock()
 		break
@@ -180,7 +183,7 @@ func (m *Manager) beginAgentOperations(ctx context.Context, ids []domain.Session
 		if id == "" || m.agentOperationActiveLocked(id) {
 			continue
 		}
-		m.markAgentOperationLocked(id, kind)
+		m.markAgentOperationLocked(id, kind, reqid.FromContext(ctx))
 		reservations = append(reservations, reservation{id: id, drained: m.inputDrained[id]})
 	}
 	m.agentOpMu.Unlock()
@@ -220,12 +223,12 @@ func (m *Manager) endAgentOperation(id domain.SessionID, kind agentOperationKind
 
 // markAgentOperationLocked records kind as the gate holder, timestamped now.
 // Callers hold agentOpMu.
-func (m *Manager) markAgentOperationLocked(id domain.SessionID, kind agentOperationKind) {
+func (m *Manager) markAgentOperationLocked(id domain.SessionID, kind agentOperationKind, requestID string) {
 	m.agentOperations[id] = kind
 	if m.agentOperationRecords == nil {
 		m.agentOperationRecords = make(map[domain.SessionID]agentOperationRecord)
 	}
-	m.agentOperationRecords[id] = agentOperationRecord{startedAt: time.Now()}
+	m.agentOperationRecords[id] = agentOperationRecord{startedAt: time.Now(), requestID: requestID}
 }
 
 // clearAgentOperationLocked releases the gate and its record together.
@@ -248,7 +251,8 @@ func (m *Manager) AgentOperationInProgress(id domain.SessionID) (AgentOperationS
 	if !ok {
 		return AgentOperationStatus{}, false
 	}
-	return AgentOperationStatus{Kind: string(kind), StartedAt: m.agentOperationRecords[id].startedAt}, true
+	record := m.agentOperationRecords[id]
+	return AgentOperationStatus{Kind: string(kind), StartedAt: record.startedAt, RequestID: record.requestID}, true
 }
 
 // AbandonAgentOperation cancels a cancellable gate holder (a wake) and
@@ -259,25 +263,84 @@ func (m *Manager) AbandonAgentOperation(id domain.SessionID) bool {
 	}
 	id = domain.SessionID(strings.TrimSpace(string(id)))
 	m.agentOpMu.Lock()
-	cancel := m.agentOperationRecords[id].cancel
+	record := m.agentOperationRecords[id]
+	cancel := record.cancel
+	retainedSwitch := m.agentOperations[id] == agentOperationSwitch
+	if _, retained := m.retainedSwitches[id]; !retained {
+		retainedSwitch = false
+	}
+	if cancel != nil {
+		record.cancel = nil
+		m.agentOperationRecords[id] = record
+	}
 	m.agentOpMu.Unlock()
 	if cancel == nil {
+		if retainedSwitch {
+			return m.reconcileRetainedAgentSwitchAsync(id)
+		}
 		return false
 	}
 	cancel()
 	return true
 }
 
+func (m *Manager) reconcileRetainedAgentSwitchAsync(id domain.SessionID) bool {
+	if err := m.beginAgentSwitchAttempt(); err != nil {
+		return false
+	}
+	go func() {
+		defer m.agentSwitchWorkers.Done()
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			if !m.agentSwitchRetained(id) {
+				return
+			}
+			store, err := m.switchStore()
+			if err == nil {
+				ctx, cancel := context.WithTimeout(m.backgroundContext, switchPostStopWait)
+				_, err = m.reconcileRetainedAgentSwitchOnce(ctx, store, id)
+				cancel()
+			}
+			if err != nil {
+				m.logger.Warn("session health: retained switch recovery failed", "sessionID", id, "error", err)
+			}
+			select {
+			case <-m.backgroundContext.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return true
+}
+
+func (m *Manager) clearAgentOperationCancel(id domain.SessionID, kind agentOperationKind) {
+	m.agentOpMu.Lock()
+	defer m.agentOpMu.Unlock()
+	if m.agentOperations[id] != kind {
+		return
+	}
+	record := m.agentOperationRecords[id]
+	record.cancel = nil
+	m.agentOperationRecords[id] = record
+}
+
 // agentOperationBusy refuses an operation that cannot share the gate. It names
 // the holder and its age; it matches the holder's sentinel and the generic one.
 type agentOperationBusy struct {
-	sentinel error
-	holder   string
-	age      time.Duration
+	sentinel  error
+	holder    string
+	age       time.Duration
+	requestID string
 }
 
 func (e agentOperationBusy) Error() string {
-	return fmt.Sprintf("%s: %s in progress for %s", e.sentinel, e.holder, e.age)
+	message := fmt.Sprintf("%s: %s in progress for %s", e.sentinel, e.holder, e.age)
+	if e.requestID != "" {
+		message += " (started by request " + e.requestID + ")"
+	}
+	return message
 }
 
 func (e agentOperationBusy) Unwrap() []error {
@@ -291,6 +354,7 @@ func (m *Manager) agentOperationBusyLocked(id domain.SessionID) error {
 	busy := agentOperationBusy{holder: string(kind)}
 	if record, ok := m.agentOperationRecords[id]; ok {
 		busy.age = time.Since(record.startedAt).Round(time.Second)
+		busy.requestID = record.requestID
 	}
 	switch kind {
 	case agentOperationSwitch:
@@ -342,8 +406,8 @@ func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller
 			// still relaunches the agent, so refuse and name the wake instead.
 			m.logger.Warn("resume did not release before "+string(caller),
 				"sessionID", id, "resumeStartedAt", startedAt, "waited", wait)
-			return fmt.Errorf("%w: resume in progress for %s and did not stop after cancel",
-				ErrResumeInProgress, time.Since(startedAt).Round(time.Second))
+			return fmt.Errorf("%w: resume in progress for %s and did not stop after cancel (started by request %s)",
+				ErrResumeInProgress, time.Since(startedAt).Round(time.Second), record.requestID)
 		case <-ticker.C:
 		}
 	}
@@ -353,7 +417,7 @@ func (m *Manager) preemptResume(ctx context.Context, id domain.SessionID, caller
 func (m *Manager) setAgentOperationCancel(id domain.SessionID, cancel context.CancelFunc) {
 	m.agentOpMu.Lock()
 	defer m.agentOpMu.Unlock()
-	if m.agentOperations[id] != agentOperationResume {
+	if !m.agentOperationActiveLocked(id) {
 		return
 	}
 	record := m.agentOperationRecords[id]
@@ -424,7 +488,7 @@ func (m *Manager) closeAgentSwitchDecisionInput(ctx context.Context, id domain.S
 func (m *Manager) beginAgentSwitch(ctx context.Context, id domain.SessionID) error {
 	if err := m.beginAgentOperation(ctx, id, agentOperationSwitch); err != nil {
 		if errors.Is(err, errAgentOperationInProgress) {
-			return ErrSwitchInProgress
+			return err
 		}
 		return err
 	}
@@ -464,7 +528,7 @@ func (m *Manager) claimRetainedAgentSwitchForKill(id domain.SessionID) bool {
 	}
 	delete(m.retainedSwitches, id)
 	delete(m.switchDecisionInput, id)
-	m.markAgentOperationLocked(id, agentOperationKill)
+	m.markAgentOperationLocked(id, agentOperationKill, "")
 	return true
 }
 
@@ -493,13 +557,14 @@ func (m *Manager) beginAgentSwitchRecovery(ctx context.Context, id domain.Sessio
 				return nil
 			}
 		}
+		busy := m.agentOperationBusyLocked(id)
 		m.agentOpMu.Unlock()
-		return ErrSwitchInProgress
+		return busy
 	}
 	if m.agentOperations == nil {
 		m.agentOperations = make(map[domain.SessionID]agentOperationKind)
 	}
-	m.markAgentOperationLocked(id, agentOperationSwitch)
+	m.markAgentOperationLocked(id, agentOperationSwitch, reqid.FromContext(ctx))
 	drained := m.inputDrained[id]
 	m.agentOpMu.Unlock()
 

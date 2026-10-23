@@ -96,6 +96,18 @@ commit and records which tree the verdict read. See
 
 ### Product commands
 
+Knowledge graph commands:
+
+```text
+ao knowledge add [--kind pitfall|fix|tip|context] [--topic <area>]... <lesson>
+ao knowledge search [--project <id>] [--limit <n>] [--json] <words>
+ao knowledge rate <lesson-id> wrong|useful
+ao knowledge retire <lesson-id> --reason "<text>"
+```
+
+Workers can rate served lessons once per session. Operators retire lessons
+that should no longer appear in prompts or search results.
+
 | Command                             | Daemon route                                   |
 | ----------------------------------- | ---------------------------------------------- |
 | `ao project add`                    | `POST /api/v1/projects`                        |
