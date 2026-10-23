@@ -51,6 +51,11 @@ func writeKnowledgeConfig(t *testing.T, cfg map[string]any) string {
 func TestStartKnowledgeGraphWithSemanticSearch(t *testing.T) {
 	statements := make(chan string, 16)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The embed loop first probes the model's vector size.
+		if r.URL.Path == "/api/embed" {
+			_, _ = w.Write([]byte(`{"embeddings":[[0.1,0.2,0.3]]}`))
+			return
+		}
 		var body struct {
 			Statement string `json:"statement"`
 		}
