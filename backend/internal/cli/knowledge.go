@@ -42,8 +42,51 @@ type knowledgeSearchResponse struct {
 
 func newKnowledgeCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{Use: "knowledge", Short: "Record and search lessons in the shared knowledge graph"}
-	cmd.AddCommand(newKnowledgeAddCommand(ctx), newKnowledgeSearchCommand(ctx))
+	cmd.AddCommand(newKnowledgeAddCommand(ctx), newKnowledgeSearchCommand(ctx), newKnowledgeRateCommand(ctx), newKnowledgeRetireCommand(ctx))
 	return cmd
+}
+
+func newKnowledgeRateCommand(ctx *commandContext) *cobra.Command {
+	cmd := &cobra.Command{Use: "rate <lesson-id> wrong|useful", Short: "Rate a lesson served to this worker", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		sid := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+		if sid == "" {
+			return usageError{errors.New("usage: AO_SESSION_ID is required")}
+		}
+		if args[1] != "wrong" && args[1] != "useful" {
+			return usageError{errors.New("usage: rating must be wrong or useful")}
+		}
+		var resp map[string]bool
+		if err := ctx.postJSON(cmd.Context(), "knowledge/lessons/"+url.PathEscape(args[0])+"/rating", map[string]string{"sessionId": sid, "rating": args[1]}, &resp); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(ctx.deps.Out, "Rated lesson %s %s\n", shortLessonID(args[0]), args[1])
+		return err
+	}}
+	return cmd
+}
+
+func newKnowledgeRetireCommand(ctx *commandContext) *cobra.Command {
+	var reason string
+	cmd := &cobra.Command{Use: "retire <lesson-id>", Short: "Retire a lesson from future knowledge results", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if strings.TrimSpace(reason) == "" {
+			return usageError{errors.New("usage: --reason is required")}
+		}
+		var resp map[string]bool
+		if err := ctx.postJSON(cmd.Context(), "knowledge/lessons/"+url.PathEscape(args[0])+"/retire", map[string]string{"reason": reason}, &resp); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(ctx.deps.Out, "Retired lesson %s\n", shortLessonID(args[0]))
+		return err
+	}}
+	cmd.Flags().StringVar(&reason, "reason", "", "Why this lesson should no longer be served")
+	return cmd
+}
+
+func shortLessonID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 func newKnowledgeAddCommand(ctx *commandContext) *cobra.Command {
@@ -146,6 +189,9 @@ func (c *commandContext) knowledgeSearch(ctx context.Context, text, project stri
 			label = it.Kind
 		}
 		line := fmt.Sprintf("%-8s [%s] %s", it.Section, label, it.Text)
+		if it.Section == "lesson" {
+			line = fmt.Sprintf("%-8s [%s] (%s) %s", it.Section, label, shortLessonID(it.ID), it.Text)
+		}
 		if it.Section != "lesson" {
 			line = fmt.Sprintf("%-8s [%s] %s — %s", it.Section, label, it.Title, it.Text)
 		}

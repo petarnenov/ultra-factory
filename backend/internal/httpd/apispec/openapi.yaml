@@ -2264,6 +2264,108 @@ paths:
       summary: Record a worker's lesson in the knowledge graph
       tags:
       - knowledge
+  /api/v1/knowledge/lessons/{id}/rating:
+    post:
+      operationId: rateKnowledgeLesson
+      parameters:
+      - description: Lesson id.
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Lesson id.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RateLessonRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLessonResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Rate a lesson served to a worker session
+      tags:
+      - knowledge
+  /api/v1/knowledge/lessons/{id}/retire:
+    post:
+      operationId: retireKnowledgeLesson
+      parameters:
+      - description: Lesson id.
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Lesson id.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetireLessonRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetireLessonResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Retire a lesson from future knowledge results
+      tags:
+      - knowledge
   /api/v1/knowledge/search:
     get:
       operationId: searchKnowledge
@@ -18278,6 +18380,27 @@ components:
       required:
       - token
       type: object
+    RateLessonRequest:
+      properties:
+        rating:
+          enum:
+          - wrong
+          - useful
+          type: string
+        sessionId:
+          description: Worker session that received the lesson.
+          type: string
+      required:
+      - sessionId
+      - rating
+      type: object
+    RateLessonResponse:
+      properties:
+        rated:
+          type: boolean
+      required:
+      - rated
+      type: object
     RegisterPushDeviceRequest:
       properties:
         deviceName:
@@ -18709,6 +18832,21 @@ components:
       - sessionId
       - resumeMode
       - session
+      type: object
+    RetireLessonRequest:
+      properties:
+        reason:
+          minLength: 1
+          type: string
+      required:
+      - reason
+      type: object
+    RetireLessonResponse:
+      properties:
+        retired:
+          type: boolean
+      required:
+      - retired
       type: object
     RetryTurnResponse:
       properties:

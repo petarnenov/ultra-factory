@@ -149,11 +149,14 @@ jobs:
 
   # Keep the existing required check as the gate for every backend race test.
   build-test:
-    if: always() && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    # Report neutral success while draft jobs are skipped or cancelled. On a
+    # ready PR, always run so failed or cancelled required jobs fail the gate.
+    if: always()
     needs: [backend-core, chat-race, session-store-race, sqlite-race]
     runs-on: ubuntu-latest
     steps:
       - name: Check backend results
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
         run: |
           test '${{ needs.backend-core.result }}' = success
           test '${{ needs.chat-race.result }}' = success

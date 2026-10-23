@@ -160,11 +160,7 @@ type LessonMatch struct {
 // SimilarLessons returns lessons of the same project and kind scoring at
 // least minScore against vector, best first.
 func (g *Graph) SimilarLessons(ctx context.Context, project, kind string, vector []float64, minScore float64) ([]LessonMatch, error) {
-	rows, err := g.run.Run(ctx, `
-CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
-WHERE l.project = $project AND l.kind = $kind AND score >= $minScore
-RETURN l.id AS id, l.text AS text, score
-ORDER BY score DESC LIMIT $limit`, map[string]any{
+	rows, err := g.run.Run(ctx, similarLessonsCypher, map[string]any{
 		"project": project, "kind": kind, "vector": vectorParam(vector), "minScore": minScore,
 		"limit": similarLessonLimit, "k": similarLessonLimit * vectorOversample,
 	})
@@ -177,6 +173,13 @@ ORDER BY score DESC LIMIT $limit`, map[string]any{
 	}
 	return out, nil
 }
+
+const similarLessonsCypher = `
+CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
+WHERE l.project = $project AND l.kind = $kind AND score >= $minScore
+  AND l.retiredAt IS NULL
+RETURN l.id AS id, l.text AS text, score
+ORDER BY score DESC LIMIT $limit`
 
 const similarLessonLimit = 5
 
@@ -207,6 +210,34 @@ func (g *Graph) ConfirmLesson(ctx context.Context, id string, l Lesson) (bool, e
 		"project": l.Project, "text": l.Text, "topics": topicsParam(l.Topics),
 		"at": l.At.UTC().Format(time.RFC3339Nano),
 	})
+	return len(rows) > 0, err
+}
+
+// RateLesson records a session's rating on the stored lesson's RECEIVED edge.
+func (g *Graph) RateLesson(ctx context.Context, taskKey, id, rating string, at time.Time) (bool, error) {
+	rows, err := g.run.Run(ctx, `
+MATCH (t:Task {id: $taskKey})-[r:RECEIVED]->(l:Lesson)
+WHERE l.id STARTS WITH $id
+WITH collect({edge: r, lesson: l}) AS matches
+WHERE size(matches) = 1
+WITH matches[0].edge AS r, matches[0].lesson AS l, matches[0].edge.rating IS NULL AS fresh
+FOREACH (_ IN CASE WHEN fresh THEN [1] ELSE [] END |
+  SET r.rating = $rating, r.ratedAt = datetime($at),
+      l.wrong = coalesce(l.wrong, 0) + CASE $rating WHEN 'wrong' THEN 1 ELSE 0 END,
+      l.useful = coalesce(l.useful, 0) + CASE $rating WHEN 'useful' THEN 1 ELSE 0 END)
+RETURN l.id AS id`, map[string]any{"taskKey": taskKey, "id": id, "rating": rating, "at": at.UTC().Format(time.RFC3339Nano)})
+	return len(rows) > 0, err
+}
+
+// RetireLesson removes a lesson from future retrieval.
+func (g *Graph) RetireLesson(ctx context.Context, id, reason string, at time.Time) (bool, error) {
+	rows, err := g.run.Run(ctx, `
+MATCH (l:Lesson) WHERE l.id STARTS WITH $id
+WITH collect(l) AS matches
+WHERE size(matches) = 1
+WITH matches[0] AS l
+SET l.retiredAt = datetime($at), l.retiredReason = $reason
+RETURN l.id AS id`, map[string]any{"id": id, "reason": reason, "at": at.UTC().Format(time.RFC3339Nano)})
 	return len(rows) > 0, err
 }
 
@@ -273,6 +304,7 @@ const (
 MATCH (i:Issue {key: $issueKey})<-[:FOR_ISSUE]-(t:Task)
 WHERE t.id <> $exclude
 OPTIONAL MATCH (t)-[:LEARNED|CONFIRMED]->(l:Lesson)
+WHERE l.retiredAt IS NULL
 WITH t, collect(DISTINCT l.text)[..5] AS lessons
 RETURN 'attempt' AS section, t.id AS id, '' AS kind, t.title AS title,
        coalesce(t.outcome, 'in_progress') AS outcome,
@@ -282,9 +314,9 @@ RETURN 'attempt' AS section, t.id AS id, '' AS kind, t.title AS title,
 ORDER BY t.updatedAt DESC LIMIT $limit`
 	lessonsCypher = `
 CALL db.index.fulltext.queryNodes('lesson_text', $q) YIELD node AS l, score
-WHERE l.project = $project
+WHERE l.project = $project AND l.retiredAt IS NULL
 WITH l, score AS similarity,
-     score * (1.0 + coalesce(l.helped, 0)) / (1.0 + coalesce(l.hurt, 0)) AS rank
+     score * (1.0 + coalesce(l.helped, 0) + coalesce(l.useful, 0)) / (1.0 + coalesce(l.hurt, 0) + 2.0 * coalesce(l.wrong, 0)) AS rank
 ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
@@ -292,9 +324,9 @@ RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
        l.text AS text, [] AS lessons, [] AS prs, [] AS files, '' AS branch, [] AS failures, rank AS score, similarity`
 	lessonsVectorCypher = `
 CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
-WHERE l.project = $project AND score >= $minScore
+WHERE l.project = $project AND l.retiredAt IS NULL AND score >= $minScore
 WITH l, score AS similarity,
-     score * (1.0 + coalesce(l.helped, 0)) / (1.0 + coalesce(l.hurt, 0)) AS rank
+     score * (1.0 + coalesce(l.helped, 0) + coalesce(l.useful, 0)) / (1.0 + coalesce(l.hurt, 0) + 2.0 * coalesce(l.wrong, 0)) AS rank
 ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
@@ -413,7 +445,7 @@ type EmbedTarget struct {
 func (g *Graph) MissingEmbeddings(ctx context.Context, limit, dims int) ([]EmbedTarget, error) {
 	rows, err := g.run.Run(ctx, `
 CALL () {
-  MATCH (l:Lesson) WHERE l.embedding IS NULL OR size(l.embedding) <> $dims
+  MATCH (l:Lesson) WHERE l.retiredAt IS NULL AND (l.embedding IS NULL OR size(l.embedding) <> $dims)
   RETURN 'Lesson' AS label, l.id AS id, l.text AS text LIMIT $limit
   UNION ALL
   MATCH (t:Task)
