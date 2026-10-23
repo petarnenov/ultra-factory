@@ -1,6 +1,6 @@
 # Owner decisions for machine implementation
 
-Status: owner interview in progress. Do not schedule implementation from this backlog until the pending decisions below are resolved and reconciled into the blueprint and issue acceptance criteria. This record authorizes planning changes only; it does not start implementation, merge, release or deployment.
+Status: decision interview complete. D00–D13 record the owner policy for machine implementation. The blueprint and backlog apply these decisions; this planning delivery launches no implementation sessions and performs no merge, release or deployment. Execute the backlog only as an assigned implementation run, following the machine handoff in README.md.
 
 ## Confirmed decisions
 
@@ -74,13 +74,15 @@ Owner answer: Root (option 3). The project root activates required SDD checks af
 
 Returning SDD checks to reporting-only or otherwise weakening enforcement still requires explicit owner permission under the selected option. Root may diagnose, fix the gate through the full proposal process and continue unaffected work, but may not silently disable it. If the workflow has not reached main through the owner-operated promotion process, do not require a nonexistent check there; track that activation prerequisite under D09/D11.
 
-## Pending owner decisions
+### D13 OpenSpec latest and remaining technical choices
 
-The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
+Owner answer: Use OpenSpec latest. At implementation setup, resolve the official `@fission-ai/openspec` npm `latest` tag rather than selecting an older preferred version. Record resolution time, actual version, upstream source/release identity, Node requirements and lockfile integrity. Use that resolved exact version for the change's local and CI checks; a mutable tag must not give the same revision different tool behavior. Resolve latest again for deliberate tool upgrades, each with a full proposal and geo.architect approval; do not silently self-upgrade in CI.
 
-| ID | Decision | Options to present | Affected work |
-| --- | --- | --- | --- |
-| D13 | Routine technical and scheduling decisions | Delegate version pin, schema details, test mapping and assignments to agents within this policy; council decides material tooling changes; owner approves each choice | SDD-01, SDD-02, all task ownership |
+The remaining schema/mapping/implementation choices follow D02/D03/D05: agents prepare and justify them in the full proposal and geo.architect decides, with no additional per-choice owner gate. Root assigns accountable task owners and eligible machines under existing repository orchestration rules. No specific machine, named worker or numerical performance threshold is invented in advance. This records the latest-version constraint and applies the already selected decision process; it does not claim the owner selected a particular unpublished version or authorized execution of setup during this interview.
+
+## Remaining human interactions and execution prerequisites
+
+There are no unanswered upfront policy questions in this record. Future production promotion/release/deployment remains owner-operated (D11), and weakening required checks requires explicit owner permission (D12). Credentials, hardware and unavailable consul access remain real execution prerequisites; use D03/D09 to report affected blockers and continue independent work, not to invent access or approval. These prerequisites do not reopen resolved design choices.
 
 ## Approval evidence convention
 

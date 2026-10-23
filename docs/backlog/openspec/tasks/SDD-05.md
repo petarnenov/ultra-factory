@@ -11,6 +11,8 @@ Baseline mobile contracts and device verification. Part of #617, the OpenSpec ad
 openspec/specs/, packages/mobile/, .github/workflows/mobile.yml.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
+Owner policy: [decisions D00–D13](https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/decisions.md). Read before implementation; all changes require a full proposal and geo.architect review.
+
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.
 
 ## Dependencies and priority

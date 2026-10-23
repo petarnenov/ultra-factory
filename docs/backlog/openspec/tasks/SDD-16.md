@@ -11,6 +11,8 @@ Enforce archive completeness independently of OpenSpec. Part of #617, the OpenSp
 scripts/ proposed archive checker, OpenSpec archive mappings and negative fixtures.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
+Owner policy: [decisions D00–D13](https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/decisions.md). Read before implementation; all changes require a full proposal and geo.architect review.
+
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.
 
 ## Dependencies and priority

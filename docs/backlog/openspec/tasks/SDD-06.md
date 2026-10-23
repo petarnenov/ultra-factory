@@ -11,6 +11,8 @@ Baseline Railway, self hosted workers and supported shared contracts. Part of #6
 openspec/specs/, packages/{product-ui,hub-bff}/, deploy/railway/ and remote-worker contracts. AO Cloud public/private components and cloud-only clients/contracts are excluded by owner decision D00; Railway/self-hosted remains in scope under D01.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
+Owner policy: [decisions D00–D13](https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/decisions.md). Read before implementation; all changes require a full proposal and geo.architect review.
+
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.
 
 ## Dependencies and priority

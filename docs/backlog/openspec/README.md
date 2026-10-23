@@ -2,13 +2,13 @@
 
 Tracker: [#617](https://github.com/petarnenov/ultra-factory/issues/617). [Blueprint and repository audit](blueprint.md).
 
-Status: owner decision interview in progress; implementation must not be scheduled until [owner decisions](decisions.md) are complete and reconciled. GitHub issues are authoritative for live status; this table is the reviewed planning snapshot on 2026-10-23. No assignees or dates are invented. Role owners are in the task bodies; the scheduler assigns people or sessions when work starts.
+Status: [owner decisions D00–D13](decisions.md) are complete and reconciled. Ready for an assigned machine implementation run; this planning delivery has not started one. GitHub issues are authoritative for live status; this table is the reviewed planning snapshot on 2026-10-23. No assignees or dates are invented. Role owners are in the task bodies; the scheduler assigns people or sessions when work starts.
 
 High priority marks a foundation or verification gate blocking this adoption batch. Medium marks normal migration work. No item is a production incident, so none is critical. Read dependencies before sorting by priority.
 
 | Task | Issue | Priority | Hard dependencies | Initial status |
 | --- | --- | --- | --- | --- |
-| [SDD-01 Pin OpenSpec and initialize the repository workflow](tasks/SDD-01.md) | [#618](https://github.com/petarnenov/ultra-factory/issues/618) | high | None | Awaiting owner decisions |
+| [SDD-01 Initialize OpenSpec latest with a reproducible repository workflow](tasks/SDD-01.md) | [#618](https://github.com/petarnenov/ultra-factory/issues/618) | high | None | Ready for assigned implementation |
 | [SDD-02 Define SDD intake, review and source of truth policy](tasks/SDD-02.md) | [#619](https://github.com/petarnenov/ultra-factory/issues/619) | high | #618 | Waiting for dependencies |
 | [SDD-15 Run an early SDD pilot on one bounded capability](tasks/SDD-15.md) | [#633](https://github.com/petarnenov/ultra-factory/issues/633) | high | #619 | Waiting for dependencies |
 | [SDD-03 Baseline daemon, CLI, lifecycle and storage capabilities](tasks/SDD-03.md) | [#620](https://github.com/petarnenov/ultra-factory/issues/620) | high | #618, #619, #633 | Waiting for dependencies |
@@ -38,3 +38,14 @@ Every task needs a named owner, PR, reviewed head, CI evidence and dev merge SHA
 ## Verification of this planning delivery
 
 Verify all 16 issue bodies against their local task mirrors, one type and priority label per issue, tracker membership and dependency numbers. Verify relative documentation links, a dependency DAG without cycles, `git diff --check`, and the published branch SHA. These are documentation checks, not runtime or OpenSpec implementation validation.
+
+## Machine handoff
+
+1. Read [owner decisions](decisions.md), the blueprint, repository AGENTS.md and the current GitHub task body. The owner record governs this initiative; do not treat historical planning defaults as a second policy.
+2. Root assigns eligible worker machines and accountable owners under the repository orchestration rules. Start with #618, then #619 → #633 → #620; enforce the dependency graph for the remaining tasks. No worker/coordinator merges.
+3. For every change, including bootstrap, documentation and tooling, author the full proposal before execution and obtain geo.architect approval. Bootstrap may author Markdown before OpenSpec is installed. Apply D03 arbitration: Fable 5.1 → Codex Astra → OpenCode DeepSeek Flash 4.1; preserve explicit rulings, identity and archive evidence. No available arbiter means the affected proposal is not approved.
+4. #618 resolves OpenSpec latest at setup and locks the resolved version for reproducible checks. Agents propose remaining technical choices; council decisions and root scheduling follow the confirmed policy without another owner design interview.
+5. Keep AO Cloud excluded, Railway/self-hosted included and all supported platforms accounted for. Missing hardware/access creates owned verification follow-ups; independent work continues. Record performance observations without new numerical blocking SLOs in the first stage.
+6. Implement, run the complete applicable checks and obtain independent review on the final head. Root may merge qualifying PRs only into dev. Preserve incomplete acceptance as incomplete even if another part is delivered.
+7. Root enables required SDD checks after pilot/readiness evidence and target-branch workflow availability. Downgrading them requires explicit owner permission. Promotion/main/release/deployment remains owner-operated; do not launch those workflows as tests.
+8. Record each child issue's evidence, head and dev integration in #617. Maintain the distinction between ready policy, implemented process, verified platform coverage and owner-operated release. Close the initiative only when its full acceptance evidence exists.

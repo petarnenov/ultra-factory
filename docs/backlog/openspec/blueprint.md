@@ -1,6 +1,6 @@
 # OpenSpec adoption blueprint
 
-Status: proposed backlog, not an enabled policy. Owner decision interview in progress; see [owner decisions](decisions.md). Implementation must wait for the completed decision record. Tracker: [#617](https://github.com/petarnenov/ultra-factory/issues/617).
+Status: proposed backlog, not an enabled policy. Owner decisions D00–D13 are recorded in [owner decisions](decisions.md); the plan is ready for an assigned machine implementation run. No implementation has been launched by this planning delivery. Tracker: [#617](https://github.com/petarnenov/ultra-factory/issues/617).
 Audit baseline: `060dd3cdb` on `origin/dev`, 2026-10-23.
 
 ## Outcome and scope
@@ -37,7 +37,7 @@ No `openspec/` setup or OpenSpec package dependency was found at the baseline. E
 
 Use the upstream `spec-driven` schema and repository-local `openspec/specs/<capability>/spec.md` plus `openspec/changes/<change-id>/` containing proposal, delta specs, design and tasks. Keep archived changes under `openspec/changes/archive/`. Start without beta cross-repository stores or a custom schema; neither is needed to adopt SDD in this repository.
 
-The upstream documentation inspected on 2026-10-23 describes `openspec init`, `new change`, `status`, `instructions`, `validate` and `archive`. Upstream is moving: SDD-01 must select an exact published version, record its source tag, lock its dependency, verify Node compatibility against CI, and test the supported flags. Do not build CI around an unpinned global `@latest` installation. Slash commands are assistant integrations, not portable shell commands; document CLI equivalents and the selected tool profile.
+The upstream documentation inspected on 2026-10-23 describes `openspec init`, `new change`, `status`, `instructions`, `validate` and `archive`. Upstream is moving: Under D13, SDD-01 resolves the official `@fission-ai/openspec` npm `latest` tag when implementation starts, records the actual version/source identity and resolution time, locks that version, verifies Node compatibility against CI, and tests supported flags. Local and CI validation use the same resolved version rather than silently resolving a mutable tag per run. Deliberate upgrades resolve latest again and require the full proposal process. Slash commands are assistant integrations, not portable shell commands; document CLI equivalents and the selected tool profile.
 
 Sources: [OpenSpec repository](https://github.com/Fission-AI/OpenSpec), [concepts](https://github.com/Fission-AI/OpenSpec/blob/main/docs/concepts.md), [CLI](https://github.com/Fission-AI/OpenSpec/blob/main/docs/cli.md), [workflows](https://github.com/Fission-AI/OpenSpec/blob/main/docs/workflows.md). The lifecycle and gates below are proposed AO policy, not claims that upstream enforces them.
 
@@ -45,7 +45,8 @@ Sources: [OpenSpec repository](https://github.com/Fission-AI/OpenSpec), [concept
 
 | Artifact | Authority |
 | --- | --- |
-| GitHub issue and tracker | Scope, priority, dependencies, owner and current delivery status. |
+| Owner decisions D00–D13 | Fork scope, approval authority, all-change proposal policy and execution limits. These task-specific owner instructions override conflicting planning defaults; D03 explicitly overrides the council fallback mechanics. |
+| GitHub issue and tracker | Scope, priority, dependencies, owner and current delivery status within the owner decisions. |
 | OpenSpec capability spec on dev | Accepted integration behavior; not proof of production deployment. |
 | OpenSpec change proposal and delta | Intended behavior under review; implementation discoveries can revise it with review. |
 | ADR and AGENTS guidance | Architectural decisions and working constraints; spec conflicts must be reconciled explicitly. |

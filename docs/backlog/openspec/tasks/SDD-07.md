@@ -11,6 +11,8 @@ Define security, privacy and nonfunctional scenarios. Part of #617, the OpenSpec
 openspec/specs/, docs/agents/network-boundaries.md, docs/railway/threat-model.md, docs/telemetry.md.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
+Owner policy: [decisions D00–D13](https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/decisions.md). Read before implementation; all changes require a full proposal and geo.architect review.
+
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.
 
 ## Dependencies and priority
