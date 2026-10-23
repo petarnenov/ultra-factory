@@ -41,9 +41,10 @@ export function ConsultationEvidence({ detail }: { detail: Detail }) {
    {detail.artifacts?.map((artifact) => <details key={artifact.name} className="py-3" open={artifact.phase === "final"}>
     <summary className="cursor-pointer text-sm font-medium focus-visible:outline focus-visible:outline-ring">
      {phaseLabels[artifact.phase] || artifact.phase}{artifact.round ? ` · ${artifact.phase === "proposal" ? "Version" : "Round"} ${artifact.round}` : ""}{artifact.consul ? ` · ${artifact.consul}` : ""}
-     {artifact.missing ? " · Missing evidence" : ""}{artifact.truncated ? " · Truncated" : ""}
+     {artifact.missing ? " · Missing evidence" : artifact.unavailable ? " · Unavailable evidence" : ""}{artifact.truncated ? " · Truncated" : ""}
     </summary>
     <div className="mt-3 min-w-0 space-y-3">
+     {artifact.unavailable && <p role="status" className="text-sm text-muted-foreground">Evidence is unsafe or unreadable.{artifact.hash ? " Last indexed content retained." : ""}</p>}
      {artifact.absentSince && <p role="status" className="text-sm text-muted-foreground">Absent since {artifact.absentSince}; last indexed content retained.</p>}
      {artifact.phase === "ballot" && <p className="text-sm">{artifact.ballots?.length ? artifact.ballots.map((vote) => `${vote.decision}: ${vote.stance}`).join(" · ") : "Ballot stance unknown"}</p>}
      {artifact.truncated && <p className="text-sm text-muted-foreground">Stored excerpt; full artifact hash retained.</p>}

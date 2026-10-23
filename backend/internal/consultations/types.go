@@ -65,6 +65,7 @@ type Summary struct {
 	ProposalVersions   int                 `json:"proposalVersions"`
 	RatificationRounds []int               `json:"ratificationRounds"`
 	PhaseRounds        int                 `json:"phaseRounds"`
+	Phases             []string            `json:"phases"`
 	Partial            bool                `json:"partial"`
 }
 
@@ -84,6 +85,7 @@ type Artifact struct {
 	Hash        string   `json:"hash"`
 	Truncated   bool     `json:"truncated"`
 	Missing     bool     `json:"missing"`
+	Unavailable bool     `json:"unavailable"`
 	AbsentSince string   `json:"absentSince"`
 	Ballots     []Ballot `json:"ballots"`
 	Parsed      bool     `json:"parsed"`

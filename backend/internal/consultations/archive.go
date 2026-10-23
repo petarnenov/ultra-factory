@@ -172,12 +172,14 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 	}
 	d.ConsulClosure = append([]ClosureEvidence{}, d.ConsulClosure...)
 	d.RatificationRounds = []int{}
+	d.Phases = []string{}
 	for _, a := range artifactLayout() {
 		a.Ballots = []Ballot{}
 		text, digest, trunc, err := readArtifact(ctx, root, base+a.Name, min(contentCap, remaining))
 		if err != nil {
-			a.Missing = true
-			if !os.IsNotExist(err) {
+			a.Missing = os.IsNotExist(err)
+			a.Unavailable = !a.Missing
+			if a.Unavailable {
 				d.Warnings = append(d.Warnings, "Unsafe or unreadable artifact: "+a.Name)
 			}
 		} else {
@@ -225,6 +227,7 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 	}
 	for _, p := range []string{"independent", "critique", "arbitration"} {
 		if phases[p] {
+			d.Phases = append(d.Phases, p)
 			d.PhaseRounds++
 		}
 	}
@@ -241,7 +244,7 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 		if a.Phase == "arbitration" && a.Missing && d.Arbitration.Status == "" && d.Mode != "d03_fallback" && d.Mode != "fallback_arbitration" {
 			continue
 		}
-		if a.Missing || (a.Phase == "ballot" && len(a.Ballots) == 0) || a.Truncated {
+		if a.Missing || a.Unavailable || (a.Phase == "ballot" && len(a.Ballots) == 0) || a.Truncated {
 			d.Partial = true
 		}
 		filtered = append(filtered, a)

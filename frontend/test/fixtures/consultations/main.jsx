@@ -13,7 +13,7 @@ const summary = (name, partial) => ({
  requester: partial ? "" : "Recorded engineer", case: partial ? "Consultation with missing evidence" : "A recorded decision with a long case name that remains readable in a narrow panel",
  phase: partial ? "fallback_arbitration_complete" : "complete", decision: partial ? "approved_with_amendments" : "resolved",
  archive: "verified", delivery: partial ? "unconfirmed" : "delivered", closure: partial ? "" : "closed",
- mode: partial ? "fallback_arbitration" : "council", rounds: partial ? 0 : 1, proposalVersions: 1, phaseRounds: partial ? 0 : 3,
+ mode: partial ? "fallback_arbitration" : "council", rounds: partial ? 0 : 1, proposalVersions: 1, phaseRounds: partial ? 1 : 3,
  syncedAt: "2026-10-23T21:30:00Z", partial,
  consulClosure: partial ? [{ consul: "deepseek", status: "not_started" }] : [],
  arbitration: partial ? { status: "completed", model: "claude-fable-5-1", effort: "medium" } : {},

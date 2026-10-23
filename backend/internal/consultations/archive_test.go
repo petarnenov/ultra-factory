@@ -201,3 +201,27 @@ func TestProposalDoesNotManufactureVotingRound(t *testing.T) {
 		t.Fatal("explicit decision ID rejected")
 	}
 }
+
+func TestArchiveRefusesOutsideEvidenceWithoutReadingIt(t *testing.T) {
+	dir, root := archive(t)
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("outside-sentinel"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "2026-10-23/case/request.md")
+	if err := os.Symlink(outside, target); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := d.Artifacts[0]
+	if a.Missing || !a.Unavailable || a.Content != "" || a.Hash != "" {
+		t.Fatal("unsafe evidence was read or called absent")
+	}
+	raw, _ := json.Marshal(d)
+	if strings.Contains(string(raw), "outside-sentinel") || strings.Contains(string(raw), outside) {
+		t.Fatal("outside evidence leaked")
+	}
+}

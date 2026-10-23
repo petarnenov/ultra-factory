@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,10 +14,12 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"
 )
@@ -160,5 +164,107 @@ func TestStartKnowledgeGraphRejectsBadEmbeddingURL(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "invalid configuration") {
 		t.Fatalf("logs = %q, want invalid configuration warning", logs.String())
+	}
+}
+
+func TestKnowledgeGraphScansCanonicalArchiveAndStops(t *testing.T) {
+	stateRoot := t.TempDir()
+	dir := filepath.Join(stateRoot, "architecture-consults/archive/2026-10-23/case")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"requester":"Recorded engineer","archive":{"status":"verified"}}`)
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	imported := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Statement  string         `json:"statement"`
+			Parameters map[string]any `json:"parameters"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			return
+		}
+		if strings.Contains(body.Statement, "MERGE (c:ArchitectureConsultation") {
+			if summary, ok := body.Parameters["summary"].(string); ok {
+				select {
+				case imported <- summary:
+				default:
+				}
+			}
+		}
+		_, _ = w.Write([]byte(`{"data":{"fields":[],"values":[]}}`))
+	}))
+	defer srv.Close()
+	path := writeKnowledgeConfig(t, map[string]any{"url": srv.URL})
+	k, _ := startKnowledgeGraph(context.Background(), knowledgeGraphDeps{Getenv: func(key string) string {
+		if key == "AO_KNOWLEDGE_GRAPH_CONFIG" {
+			return path
+		}
+		return ""
+	}, DataDir: filepath.Join(stateRoot, "data"), HostID: "host1", Events: cdc.NewBroadcaster(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if k == nil {
+		t.Fatal("graph did not start")
+	}
+	defer k.Stop()
+	select {
+	case raw := <-imported:
+		var summary consultations.Summary
+		if err := json.Unmarshal([]byte(raw), &summary); err != nil {
+			t.Fatal(err)
+		}
+		if summary.Requester != "Recorded engineer" || summary.Host != "host1" || summary.Archive != "verified" {
+			t.Fatal("canonical archive was not wired")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("startup scanner did not import canonical archive")
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(original, after) {
+		t.Fatal("scanner modified the archive")
+	}
+}
+
+func TestKnowledgeGraphScanOptOutAndUnavailableStatus(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disabled=%t", disabled), func(t *testing.T) {
+			var writes atomic.Int64
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writes.Add(1)
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}))
+			defer srv.Close()
+			path := writeKnowledgeConfig(t, map[string]any{"url": srv.URL})
+			k, _ := startKnowledgeGraph(context.Background(), knowledgeGraphDeps{Getenv: func(key string) string {
+				if key == "AO_KNOWLEDGE_GRAPH_CONFIG" {
+					return path
+				}
+				if disabled && key == "AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN" {
+					return "0"
+				}
+				return ""
+			}, DataDir: filepath.Join(t.TempDir(), "data"), HostID: "host1", Events: cdc.NewBroadcaster(), Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			if k == nil {
+				t.Fatal("graph did not start")
+			}
+			if !disabled {
+				deadline := time.Now().Add(2 * time.Second)
+				for k.Consultations.Status().LastScan == "" && time.Now().Before(deadline) {
+					time.Sleep(time.Millisecond)
+				}
+			}
+			k.Stop()
+			status := k.Consultations.Status()
+			if disabled && (status.Enabled || writes.Load() != 0) {
+				t.Fatal("opt-out allowed graph requests")
+			}
+			if !disabled && (!status.Enabled || status.Error == "" || status.Imported != 0) {
+				t.Fatal("unavailable graph hid scan failure")
+			}
+		})
 	}
 }

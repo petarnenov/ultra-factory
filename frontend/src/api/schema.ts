@@ -4957,6 +4957,7 @@ export interface components {
             phase: string;
             round: number;
             truncated: boolean;
+            unavailable: boolean;
         };
         ConsultationBallot: {
             decision: string;
@@ -4989,6 +4990,7 @@ export interface components {
             patchDigest: string;
             phase: string;
             phaseRounds: number;
+            phases: string[];
             project: string;
             proposalVersions: number;
             ratificationRounds: number[];
@@ -5038,6 +5040,7 @@ export interface components {
             patchDigest: string;
             phase: string;
             phaseRounds: number;
+            phases: string[];
             project: string;
             proposalVersions: number;
             ratificationRounds: number[];

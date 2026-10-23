@@ -203,3 +203,19 @@ func TestImportFingerprintIgnoresScanClock(t *testing.T) {
 		t.Fatal("missing evidence did not change digest")
 	}
 }
+
+func TestDetailDistinguishesUnavailableRetainedEvidence(t *testing.T) {
+	summary, _ := json.Marshal(Summary{ID: EncodeID("h/2026-10-23/case")})
+	artifact, _ := json.Marshal(Artifact{Name: "request.md", Phase: "request", Content: "Last indexed question", Hash: "full-hash", Ballots: []Ballot{}})
+	s := &Store{Read: runnerFunc(func(context.Context, string, map[string]any) ([]knowledgegraph.Row, error) {
+		return []knowledgegraph.Row{{"summary": string(summary), "artifact": string(artifact), "missing": false, "unavailable": true}}, nil
+	})}
+	d, err := s.Detail(context.Background(), EncodeID("h/2026-10-23/case"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := d.Artifacts[0]
+	if !d.Partial || !a.Unavailable || a.Missing || a.AbsentSince != "" || a.Content != "Last indexed question" {
+		t.Fatal("unavailability destroyed or misreported evidence")
+	}
+}

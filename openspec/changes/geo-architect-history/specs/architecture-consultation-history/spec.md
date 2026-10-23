@@ -18,6 +18,10 @@ The system SHALL ingest allowed original archive artifacts into the configured N
 - **WHEN** Neo4j is unavailable during a scan
 - **THEN** the source archive remains intact and the scan is retryable without losing previously indexed records
 
+#### Scenario: Unsafe or unreadable artifact
+- **WHEN** an artifact is unsafe or unreadable after a successful import
+- **THEN** its last indexed copy remains available with an unavailable marker, outside content is never read, and no false absence timestamp is created
+
 #### Scenario: Same consultation ID on two hosts
 - **WHEN** two AO hosts ingest archives with the same UTC date and consultation ID
 - **THEN** the graph keeps separate records keyed by each ingesting daemon host ID

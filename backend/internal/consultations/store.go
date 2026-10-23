@@ -57,13 +57,15 @@ WITH c
 UNWIND $artifacts AS item
 MERGE (a:ConsultationArtifact {key: $key + '/' + item.name})
 MERGE (c)-[:HAS_ARTIFACT]->(a)
-SET a.name = item.name
+SET a.name = item.name, a.missing = item.missing, a.unavailable = item.unavailable
 FOREACH (_ IN CASE WHEN item.missing AND a.observed = true THEN [1] ELSE [] END |
  SET a.absentSince = coalesce(a.absentSince, $at))
-FOREACH (_ IN CASE WHEN (NOT item.missing AND (a.content <> item.content OR a.absentSince IS NOT NULL)) OR a.content IS NULL THEN [1] ELSE [] END |
+FOREACH (_ IN CASE WHEN (NOT item.missing AND NOT item.unavailable AND (a.content <> item.content OR a.absentSince IS NOT NULL OR a.content IS NULL)) OR a.content IS NULL THEN [1] ELSE [] END |
  SET a.content = item.content, a.absentSince = null)
-FOREACH (_ IN CASE WHEN NOT item.missing THEN [1] ELSE [] END |
+FOREACH (_ IN CASE WHEN NOT item.missing AND NOT item.unavailable THEN [1] ELSE [] END |
  SET a.observed = true)
+FOREACH (_ IN CASE WHEN item.unavailable THEN [1] ELSE [] END |
+ SET a.absentSince = null)
 RETURN count(a) AS n`
 
 // Import atomically upserts changed evidence and preserves vanished artifacts.
@@ -99,7 +101,7 @@ func (s *Store) Import(ctx context.Context, d Detail) error {
 		if e != nil {
 			return e
 		}
-		items = append(items, map[string]any{"name": a.Name, "missing": a.Missing, "content": string(raw)})
+		items = append(items, map[string]any{"name": a.Name, "missing": a.Missing, "unavailable": a.Unavailable, "content": string(raw)})
 	}
 	_, err = s.Write.Run(ctx, upsert, map[string]any{"key": key, "digest": hex.EncodeToString(digest[:]), "summary": string(summary), "date": d.Date, "host": d.Host, "createdAt": d.CreatedAt, "at": d.SyncedAt, "warnings": d.Warnings, "artifacts": items})
 	return err
@@ -152,7 +154,8 @@ func (s *Store) Detail(ctx context.Context, id string) (Detail, error) {
 	rows, err := s.Read.Run(ctx, `MATCH (c:ArchitectureConsultation {key: $key})
 OPTIONAL MATCH (c)-[:HAS_ARTIFACT]->(a:ConsultationArtifact)
 RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
-       a.absentSince AS absentSince, a.observed AS observed ORDER BY a.name LIMIT 32`, map[string]any{"key": key})
+       a.absentSince AS absentSince, a.observed AS observed,
+ a.missing AS missing, a.unavailable AS unavailable ORDER BY a.name LIMIT 32`, map[string]any{"key": key})
 	if err != nil {
 		return Detail{}, err
 	}
@@ -173,6 +176,15 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 			return d, err
 		}
 
+		if missing, ok := row["missing"].(bool); ok {
+			a.Missing = missing
+		}
+		if unavailable, ok := row["unavailable"].(bool); ok {
+			a.Unavailable = unavailable
+		}
+		if a.Missing || a.Unavailable {
+			d.Partial = true
+		}
 		a.AbsentSince = row.String("absentSince")
 		if a.AbsentSince != "" {
 			a.Missing = true
@@ -189,7 +201,7 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 		groups[round] = true
 	}
 	for _, a := range byName {
-		if a.Round > 0 && (!a.Missing || a.AbsentSince != "") {
+		if a.Round > 0 && (a.Hash != "" || (!a.Missing && !a.Unavailable)) {
 			groups[a.Round] = true
 			if a.Phase == "ballot" {
 				ballots[a.Round] = true
@@ -220,15 +232,22 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 			d.RatificationRounds = append(d.RatificationRounds, round)
 		}
 	}
-	d.PhaseRounds = d.Rounds
-	for _, phase := range []string{"independent", "critique", "arbitration"} {
-		for _, a := range d.Artifacts {
-			if a.Phase == phase && (!a.Missing || a.AbsentSince != "") {
-				d.PhaseRounds++
-				break
-			}
+	phases := map[string]bool{}
+	for _, phase := range d.Phases {
+		phases[phase] = true
+	}
+	for _, a := range d.Artifacts {
+		if a.Hash != "" || (!a.Missing && !a.Unavailable) {
+			phases[a.Phase] = true
 		}
 	}
+	d.Phases = []string{}
+	for _, phase := range []string{"independent", "critique", "arbitration"} {
+		if phases[phase] {
+			d.Phases = append(d.Phases, phase)
+		}
+	}
+	d.PhaseRounds = d.Rounds + len(d.Phases)
 	return d, nil
 }
 

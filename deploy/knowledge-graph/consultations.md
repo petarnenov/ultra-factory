@@ -95,7 +95,9 @@ continues to advance.
 On graph failure, preserve the archive and restore connectivity/permissions;
 periodic scans retry. Reimport uses stable consultation/artifact keys and one
 transaction, so retries do not duplicate records. A vanished artifact retains
-its last indexed content and first observed absence time. Restore its original
+its last indexed content and first observed absence time. Unsafe or unreadable
+evidence is marked unavailable separately, retains any last indexed copy, and
+never claims that the source file vanished. Restore its original
 file to clear absence on the next successful scan. Restarting scanning resets
 directory cursors and backfills again safely. Existing Neo4j backup/restore
 covers the index; retain host archives separately. There is no global sync,

@@ -14725,6 +14725,8 @@ components:
           type: integer
         truncated:
           type: boolean
+        unavailable:
+          type: boolean
       required:
       - name
       - phase
@@ -14734,6 +14736,7 @@ components:
       - hash
       - truncated
       - missing
+      - unavailable
       - absentSince
       - ballots
       - parsed
@@ -14808,6 +14811,10 @@ components:
           type: string
         phaseRounds:
           type: integer
+        phases:
+          items:
+            type: string
+          type: array
         project:
           type: string
         proposalVersions:
@@ -14865,6 +14872,7 @@ components:
       - proposalVersions
       - ratificationRounds
       - phaseRounds
+      - phases
       - partial
       - artifacts
       - warnings
@@ -14956,6 +14964,10 @@ components:
           type: string
         phaseRounds:
           type: integer
+        phases:
+          items:
+            type: string
+          type: array
         project:
           type: string
         proposalVersions:
@@ -15009,6 +15021,7 @@ components:
       - proposalVersions
       - ratificationRounds
       - phaseRounds
+      - phases
       - partial
       type: object
     ConsumeCodexAccountResetCreditRequest:
