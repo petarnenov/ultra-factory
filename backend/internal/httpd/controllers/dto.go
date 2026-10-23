@@ -4144,8 +4144,33 @@ type CreateLessonResponse struct {
 	Merged bool   `json:"merged" description:"True when a near-identical lesson of the same kind absorbed this one."`
 }
 
-// KnowledgeSearchQuery scopes a knowledge search to a session's project or
-// an explicit project.
+// RateLessonRequest rates a lesson previously served to a worker session.
+type RateLessonRequest struct {
+	SessionID string `json:"sessionId" description:"Worker session that received the lesson."`
+	Rating    string `json:"rating" enum:"wrong,useful"`
+}
+
+// RateLessonResponse acknowledges the rating.
+type RateLessonResponse struct {
+	Rated bool `json:"rated"`
+}
+
+// RetireLessonRequest removes a lesson from future results.
+type RetireLessonRequest struct {
+	Reason string `json:"reason" minLength:"1"`
+}
+
+// RetireLessonResponse acknowledges retirement.
+type RetireLessonResponse struct {
+	Retired bool `json:"retired"`
+}
+
+// KnowledgeLessonIDParam selects a stored lesson by its displayed id prefix.
+type KnowledgeLessonIDParam struct {
+	ID string `path:"id" required:"true" description:"Lesson id."`
+}
+
+// KnowledgeSearchQuery scopes a search to a session's project or a project.
 type KnowledgeSearchQuery struct {
 	Q         string `query:"q" required:"true" description:"Free-text query."`
 	SessionID string `query:"sessionId,omitempty" description:"Asking worker; implies its project."`

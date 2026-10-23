@@ -18,6 +18,8 @@ import (
 type KnowledgeService interface {
 	AddLesson(context.Context, knowledgegraph.LessonInput) (knowledgegraph.AddedLesson, error)
 	Search(context.Context, knowledgegraph.SearchInput) ([]knowledgegraph.Item, error)
+	RateLesson(context.Context, knowledgegraph.RatingInput) error
+	RetireLesson(context.Context, string, string) error
 }
 
 // KnowledgeController owns /knowledge (ADR 0012). A nil Svc means no graph
@@ -32,7 +34,58 @@ const maxCreateLessonBytes = 16 << 10
 // Register mounts the knowledge routes on r.
 func (c *KnowledgeController) Register(r chi.Router) {
 	r.Post("/knowledge/lessons", c.addLesson)
+	r.Post("/knowledge/lessons/{id}/rating", c.rateLesson)
+	r.Post("/knowledge/lessons/{id}/retire", c.retireLesson)
 	r.Get("/knowledge/search", c.search)
+}
+
+type rateLessonRequest struct {
+	SessionID string `json:"sessionId"`
+	Rating    string `json:"rating"`
+}
+
+type retireLessonRequest struct {
+	Reason string `json:"reason"`
+}
+
+func (c *KnowledgeController) rateLesson(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/knowledge/lessons/{id}/rating")
+		return
+	}
+	var req rateLessonRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	if err := c.Svc.RateLesson(r.Context(), knowledgegraph.RatingInput{
+		SessionID: domain.SessionID(req.SessionID), LessonID: chi.URLParam(r, "id"), Rating: req.Rating,
+	}); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, map[string]bool{"rated": true})
+}
+
+func (c *KnowledgeController) retireLesson(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/knowledge/lessons/{id}/retire")
+		return
+	}
+	var req retireLessonRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	if err := c.Svc.RetireLesson(r.Context(), chi.URLParam(r, "id"), req.Reason); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, map[string]bool{"retired": true})
 }
 
 func (c *KnowledgeController) addLesson(w http.ResponseWriter, r *http.Request) {
