@@ -21,6 +21,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
+- [ ] Apply D08: accumulate performance/reliability observations during the first rollout window; do not block completion on newly invented numerical targets. Preserve existing required checks and report sample counts, failures and measurement limitations.
 - [ ] Verify maintainer-enabled required checks and current-head semantic review on dev/main; demonstrate rejection of missing declarations and invalid archive entries plus acceptance of a compliant change.
 - [ ] Complete capability ownership and documentation migration index; retain historical designs as linked history.
 - [ ] Measure PR declaration completeness, declared-requirement mapping completeness, semantic-review gaps, escaped regressions and cycle time over the first ten subsequent changes. Record denominators and review evidence; do not claim automated discovery of undeclared behavior.

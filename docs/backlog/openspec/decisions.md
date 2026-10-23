@@ -48,13 +48,18 @@ Owner answer: geo.architect. When code, tests and documentation disagree, the co
 
 Owner answer: Agents select and execute (option 3). Agents choose bounded real tasks for the early and broad pilots and execute within approved scope. Every selected change still requires its full proposal and council approval under D05 before implementation. No additional owner approval of pilot selection is required. geo.architect assesses the final evidence and decides go/no-go under D02/D03; selection authority is not permission to skip required validation or declare success without evidence.
 
+### D08 Measure and accumulate results first
+
+Owner answer: In the first stage, measure and accumulate results. During the pilots and initial rollout measurement window, collect reproducible performance/reliability observations with workload, platform, environment, revision and failures retained. Do not introduce new numerical performance/SLO thresholds as blocking SDD adoption criteria. Existing correctness, security, reliability contracts and already-required checks remain enforced; observation mode does not turn a functional failure into a pass.
+
+Threshold selection is later work based on the collected evidence and a new fully reviewed proposal; it is not a prerequisite for this initiative's first rollout. Report distributions and sample counts without inventing an acceptance SLO or claiming an unmeasured target was achieved.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D08 | Performance/reliability acceptance | Council sets evidence-based thresholds from reproducible baseline; owner supplies numerical targets; observational first phase with no unsupported performance claims | SDD-07, SDD-13 |
 | D09 | Missing native hardware, credentials or external evidence | Block affected acceptance and continue independent work; explicitly defer unsupported acceptance from first rollout; owner supplies prerequisites before execution | SDD-05, SDD-11 to SDD-14 |
 | D10 | Integration into dev | Root may merge after current-head council/review/CI criteria; owner approves each merge; implementation stops at ready PRs | SDD-02, SDD-08, SDD-16 |
 | D11 | Promotion, release and deployment | No automation beyond dev, owner handles production; agents prepare promotion/release artifacts for owner approval; explicit automatic promotion policy within existing publisher rules | SDD-11, SDD-12 |

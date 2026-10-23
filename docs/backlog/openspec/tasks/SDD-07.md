@@ -23,8 +23,8 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 - [ ] Map loopback/remote listener boundaries, identity exemption, auth failures, host/session isolation and secret handling to negative tests.
 - [ ] Cover AO state path confinement and browser-import restrictions, telemetry privacy and dependency/security scanning.
-- [ ] Define performance/reliability acceptance templates with workload, environment, metric and owner-approved thresholds.
-- [ ] Review scenarios against current ADRs and record gaps without weakening boundaries or inventing measured SLOs.
+- [ ] Define D08 observational performance/reliability records with workload, environment, platform, revision, metrics, sample counts and failures; accumulate results without imposing new numerical blocking thresholds during the first stage.
+- [ ] Review scenarios against current ADRs and record gaps without weakening existing correctness/security/reliability requirements or inventing measured SLOs. Propose numerical targets later from accumulated evidence.
 
 ## Verification and delivery
 
