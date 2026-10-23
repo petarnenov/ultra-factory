@@ -64,13 +64,16 @@ Do not fabricate a pass, remove a platform from scope, weaken security/functiona
 
 Owner answer: Yes. The project root orchestrator may merge implementation PRs into dev without a per-PR owner confirmation after the full proposal is approved, independent review approves the exact final head, all applicable required CI succeeds on that head, and no unresolved blocking review remains. Re-review and revalidate after head changes. Workers and coordinators cannot merge. D10 does not authorize promotion to main, publishing or deployment; D11 governs those boundaries. Closing a child issue requires verified integration and its complete acceptance evidence, not merely a green draft PR.
 
+### D11 Automation stops at dev
+
+Owner answer: Stop at dev. Promotion to main, publication, release execution and deployment are entirely owner-operated. Agents do not merge into main, start promotion/release/deployment workflows, or automatically create a promotion PR under this initiative. They may implement the requested release/operations documentation and prepare traceable evidence within their approved dev tasks. Preserve the sole-publisher and existing release contracts. This rule does not remove all-platform readiness verification from scope and never permits production publication as a test.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D11 | Promotion, release and deployment | No automation beyond dev, owner handles production; agents prepare promotion/release artifacts for owner approval; explicit automatic promotion policy within existing publisher rules | SDD-11, SDD-12 |
 | D12 | Enabling mandatory checks and process rollback | Owner approves activation and rollback; agent activates after agreed evidence and reports, rollback needs approval; council ratifies activation/rollback within explicit criteria | SDD-10, SDD-14 |
 | D13 | Routine technical and scheduling decisions | Delegate version pin, schema details, test mapping and assignments to agents within this policy; council decides material tooling changes; owner approves each choice | SDD-01, SDD-02, all task ownership |
 

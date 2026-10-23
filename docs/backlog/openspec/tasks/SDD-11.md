@@ -21,6 +21,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
+- [ ] Apply D11: agent automation ends at dev. Promotion PR creation, main merges, publishing and deployment are owner-operated; this task supplies documentation and evidence without starting those operations.
 - [ ] Apply D09 when hardware/access/evidence is unavailable: record the exact affected acceptance and owned follow-up, continue independent approved work, and distinguish verified delivery from outstanding checks. Do not claim full verification from missing evidence.
 - [ ] Retain all D04 targets: macOS, Windows, Linux, iOS, Android and Railway web; define platform-specific release/readiness evidence without excluding unavailable targets.
 - [ ] Map promoted change IDs to dev/main commits, versions and immutable artifact digests.
