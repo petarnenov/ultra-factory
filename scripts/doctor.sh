@@ -8,6 +8,7 @@
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$ROOT/scripts/dependency-freshness.sh"
 PREREQS_ONLY=0
 [ "${1:-}" = "--prereqs" ] && PREREQS_ONLY=1
 
@@ -100,9 +101,10 @@ if [ "$PREREQS_ONLY" = 0 ]; then
 	for dir in . frontend packages/cloud-client packages/product-ui; do
 		label="${dir#./}"
 		[ "$dir" = "." ] && label="root"
-		if [ ! -d "$ROOT/$dir/node_modules" ]; then
+		dependency_state="$(dependency_freshness "$ROOT/$dir")"
+		if [ "$dependency_state" = missing ]; then
 			fail "$label: node_modules missing. Run: make setup"
-		elif [ "$ROOT/$dir/package-lock.json" -nt "$ROOT/$dir/node_modules/.package-lock.json" ]; then
+		elif [ "$dependency_state" = stale ]; then
 			warn "$label: package-lock.json is newer than node_modules. Run: make setup"
 		else
 			ok "$label: node_modules installed"

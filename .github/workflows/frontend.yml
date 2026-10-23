@@ -100,6 +100,9 @@ jobs:
             echo "npm ci failed; retrying Electron dependency download ($attempt/3)"
           done
 
+      - name: Test dev dependency freshness guard
+        run: node --test scripts/check-dependencies.test.mjs
+
       - name: Install Cloud client dependencies
         run: npm ci
         working-directory: packages/cloud-client
