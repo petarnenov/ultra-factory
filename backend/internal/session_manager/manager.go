@@ -486,15 +486,17 @@ type Manager struct {
 	startupBackgroundReconcileOnce sync.Once
 	// A cold Chat resume must not launch a new persistent host while startup's
 	// orphan-host sweep is using its earlier snapshot of sleeping sessions.
-	persistentHostReconcileDone <-chan struct{}
-	statusRecoveryMu            sync.RWMutex
-	statusRecoveryFailed        bool
-	statusRecoveryRevision      uint64
-	statusRecoveries            map[domain.SessionID]statusRecovery
-	statusVerificationLimit     time.Duration
-	agentOpMu                   sync.Mutex
-	agentOperations             map[domain.SessionID]agentOperationKind
-	agentOperationRecords       map[domain.SessionID]agentOperationRecord
+	persistentHostReconcileDone     <-chan struct{}
+	statusRecoveryMu                sync.RWMutex
+	statusRecoveryFailed            bool
+	statusRecoveryRevision          uint64
+	statusRecoveries                map[domain.SessionID]statusRecovery
+	statusVerificationLimit         time.Duration
+	startupChatReconnectRetries     map[domain.SessionID]struct{}
+	startupChatReconnectRetryDelays []time.Duration
+	agentOpMu                       sync.Mutex
+	agentOperations                 map[domain.SessionID]agentOperationKind
+	agentOperationRecords           map[domain.SessionID]agentOperationRecord
 	// resumePreemptWait overrides resumePreemptWait in tests.
 	resumePreemptWait         time.Duration
 	interfaceRecoveryMu       sync.Mutex
@@ -931,6 +933,7 @@ func New(d Deps) *Manager {
 		}
 	}
 	m.statusRecoveries = make(map[domain.SessionID]statusRecovery)
+	m.startupChatReconnectRetries = make(map[domain.SessionID]struct{})
 	m.statusVerificationLimit = statusVerificationLimit
 	if m.reconcileWorkers < 1 {
 		m.reconcileWorkers = 1
@@ -4006,10 +4009,14 @@ func (m *Manager) reconcileLivePass(ctx context.Context, recs []domain.SessionRe
 					defer cancel()
 					return m.checkSessionHealth(recoveryCtx, rec)
 				}()
-				m.finishStatusRecovery(ctx, rec, err)
 				if err != nil {
+					if m.scheduleStartupChatReconnect(rec, err) {
+						m.logger.Warn("reconcile: transient Chat reconnect failed; retry scheduled", "sessionID", rec.ID, "error", err)
+						continue
+					}
 					m.logger.Error("reconcile: live pass failed, skipping", "sessionID", rec.ID, "error", err)
 				}
+				m.finishStatusRecovery(ctx, rec, err)
 			}
 		}()
 	}
