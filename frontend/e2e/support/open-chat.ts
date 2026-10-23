@@ -7,7 +7,7 @@ export const sessionId = "chat-prompt-suggestion-worker";
 export const turnId = "completed-turn";
 export const prompt = "Fix the reconnect test to handle either frame order, then rerun the package race tests.";
 
-export async function openChat(page: Page, suggestionReady = Promise.resolve(), suggestedPrompt = prompt) {
+export async function openChat(page: Page, suggestionReady = Promise.resolve(), suggestedPrompt = prompt, navigate = true) {
 	const sent: string[] = [];
 	await page.emulateMedia({ reducedMotion: "reduce" });
 	await installFakeAgent(page, {
@@ -60,8 +60,8 @@ export async function openChat(page: Page, suggestionReady = Promise.resolve(), 
 			await route.fulfill({ json: { status: "ok" } });
 		}
 	});
-	await page.goto(`/#/projects/${projectId}/sessions/${sessionId}`);
+	if (navigate) await page.goto(`/#/projects/${projectId}/sessions/${sessionId}`);
 	const composer = page.getByRole("combobox", { name: "Message the agent" });
-	await expect(composer).toBeVisible({ timeout: 15_000 });
+	if (navigate) await expect(composer).toBeVisible({ timeout: 15_000 });
 	return { composer, sent, suggestion: page.getByTestId("prompt-suggestion") };
 }
