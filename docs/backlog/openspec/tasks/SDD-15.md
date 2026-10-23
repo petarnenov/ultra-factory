@@ -23,7 +23,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 - [ ] Select one small real behavior change after SDD-01 and SDD-02; seed only its capability from current code and tests. Do not require the repository-wide baseline, new CI gates or global agent integration.
 - [ ] Use one child implementation issue, one OpenSpec change and one implementation PR; this pilot issue owns the evaluation report, not a second implementation of that change.
-- [ ] Exercise proposal, declared impact, scenarios, implementation, semantic review, manual evidence checks, spec synchronization and archive on the pinned version. Manually reject incomplete artifacts until SDD-16 supplies enforcement.
+- [ ] Exercise proposal ratification through geo.architect under D02, declared impact, scenarios, implementation, semantic review, manual evidence checks, spec synchronization and archive on the pinned version. Manually reject incomplete artifacts until SDD-16 supplies enforcement.
 - [ ] Record awkward fields, review effort, missing evidence and tool behavior; revise the initial conventions with the pilot results before SDD-03 expands them. Failures must become resolved blockers or explicitly owned follow-ups.
 - [ ] Publish the selected issue/PR, accepted spec and reviewed commit evidence plus a go/no-go decision for broad migration. Do not publish a production release to run this pilot.
 

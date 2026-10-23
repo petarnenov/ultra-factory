@@ -21,7 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
-- [ ] Map loopback/remote listener boundaries, identity exemption, auth failures, host/tenant isolation and secret handling to negative tests.
+- [ ] Map loopback/remote listener boundaries, identity exemption, auth failures, host/session isolation and secret handling to negative tests.
 - [ ] Cover AO state path confinement and browser-import restrictions, telemetry privacy and dependency/security scanning.
 - [ ] Define performance/reliability acceptance templates with workload, environment, metric and owner-approved thresholds.
 - [ ] Review scenarios against current ADRs and record gaps without weakening boundaries or inventing measured SLOs.

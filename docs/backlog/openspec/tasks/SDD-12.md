@@ -8,7 +8,7 @@ Connect operations, incidents and deprecation to specifications. Part of #617, t
 
 ## Scope and integration points
 
-docs/runbooks/, deploy/railway/README.md, cloud/docs/deployment.md, docs/backlog/knowledge-graph/.
+docs/runbooks/, deploy/railway/README.md, docs/backlog/knowledge-graph/.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.

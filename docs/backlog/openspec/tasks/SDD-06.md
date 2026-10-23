@@ -1,14 +1,14 @@
-# SDD-06 Baseline public cloud, shared contracts and Railway
+# SDD-06 Baseline Railway, self hosted workers and supported shared contracts
 
 Issue: [#623](https://github.com/petarnenov/ultra-factory/issues/623).
 
 ## Outcome
 
-Baseline public cloud, shared contracts and Railway. Part of #617, the OpenSpec adoption tracker.
+Baseline Railway, self hosted workers and supported shared contracts. Part of #617, the OpenSpec adoption tracker.
 
 ## Scope and integration points
 
-openspec/specs/, cloud/, contracts/cloud/, packages/{cloud-client,product-ui,hub-bff}/, deploy/railway/.
+openspec/specs/, packages/{product-ui,hub-bff}/, deploy/railway/ and remote-worker contracts. AO Cloud public/private components and cloud-only clients/contracts are excluded by owner decision D00; Railway/self-hosted remains in scope under D01.
 
 Blueprint: https://github.com/petarnenov/ultra-factory/blob/docs/openspec-sdd-blueprint/docs/backlog/openspec/blueprint.md
 Audit baseline: `060dd3cdb` (2026-10-23). Reconcile with current dev before implementation.
@@ -21,10 +21,10 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
-- [ ] Map tenant/auth/billing, worker execution/reconciliation and PostgreSQL upgrades to public code/test evidence.
-- [ ] Document cloud contract generation and shared consumer compatibility independently from daemon code-first generation.
-- [ ] Cover BFF cookie/CSRF, REST/SSE/mux proxying, remote workers, drain and backup/restore scenarios.
-- [ ] Record optional private submodule ownership and obtain owner evidence for private integration rather than claiming public inspection proves it.
+- [ ] Map Railway/self-hosted hub and worker lifecycle, shared UI/BFF boundaries and supported consumer compatibility to public code/test evidence.
+- [ ] Cover BFF cookie/CSRF, REST/SSE/mux proxying, bearer handling, remote-worker isolation, drain and backup/restore scenarios.
+- [ ] Preserve daemon code-first contract generation and supported shared contract sources; do not introduce an AO Cloud baseline or require private-submodule access.
+- [ ] Document AO Cloud exclusions and validate only supported consumer behavior. Do not remove existing code or CI as part of this documentation task.
 
 ## Verification and delivery
 

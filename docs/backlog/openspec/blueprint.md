@@ -1,13 +1,13 @@
 # OpenSpec adoption blueprint
 
-Status: proposed backlog, not an enabled policy. Tracker: [#617](https://github.com/petarnenov/ultra-factory/issues/617).
+Status: proposed backlog, not an enabled policy. Owner decision interview in progress; see [owner decisions](decisions.md). Implementation must wait for the completed decision record. Tracker: [#617](https://github.com/petarnenov/ultra-factory/issues/617).
 Audit baseline: `060dd3cdb` on `origin/dev`, 2026-10-23.
 
 ## Outcome and scope
 
 Adopt specification driven development across AO's SDLC using repository-local OpenSpec. Every behavior change should connect a reviewed requirement and scenario to its implementation, test evidence, integration commit and release. This initiative plans the migration; it does not claim that creating Markdown or passing OpenSpec validation proves runtime correctness.
 
-Cover the Go daemon and CLI, Electron desktop and web renderer, mobile, public cloud control plane, shared packages, Railway deployments, agent workflows, documentation, security, distribution, support and retirement. The optional `private/ao-cloud` submodule is a separate ownership boundary: its internals were not inspected and its implementation requires an authorized owner. Public contracts and consumers are included here.
+Cover the Go daemon and CLI, Electron desktop and web renderer, mobile, shared packages used by those surfaces, Railway/self-hosted hub/BFF and remote workers, agent workflows, documentation, security, distribution, support and retirement. AO Cloud is excluded by owner decision D00: no public cloud control-plane, private submodule, tenant/billing/PostgreSQL baseline, cloud-only client/contracts or AO Cloud deployment work. Shared code remains in scope only for supported consumers. This planning exclusion does not delete code or remove existing CI. D01 explicitly retains Railway/self-hosted.
 
 ## Existing system and adoption gaps
 
@@ -22,12 +22,11 @@ This is a static architecture and SDLC audit: repository inventory, contract sou
 | Agent execution | `backend/internal/session_manager/prompt.go`, `backend/internal/skillassets/`, `docs/coordinators/operating-contract.md`, `backend/internal/daemon/tracker_intake_wiring.go` | Use repository-local assignment guidance; agents read relevant specs and report evidence for the actual head. Global AO prompts and embedded skills remain outside this adoption task; intake does not imply issue write-back support. |
 | Desktop and web | `frontend/src/{main,renderer,shared}/`, `frontend/e2e/`, `frontend/playwright.config.ts`, `DESIGN.md` | Scenario coverage for IPC, permissions, accessibility, error/loading states and web capability differences; real desktop evidence where mocks cannot prove behavior. |
 | Mobile | `packages/mobile/{app,lib}/`, package scripts, `.github/workflows/mobile.yml` | Mobile already has typecheck and unit CI. Add device acceptance mapping for pairing, compatibility, reconnect, push and Chat/TUI; do not confuse unit coverage with device validation. |
-| Public cloud | `cloud/internal/{httpapi,auth,billing,worker,workertransport,workerexec,reconcile,postgres}/`, `contracts/cloud/openapi.yaml`, `docs/cloud-development.md` | Tenant/auth, billing, reconciliation, worker lifecycle and PostgreSQL migration scenarios; distinguish the cloud OpenAPI source from daemon code-first generation. |
-| Shared packages and Railway | `packages/{cloud-client,product-ui,hub-bff}/`, `deploy/railway/`, `docs/railway/threat-model.md` | Consumer compatibility, cookies/CSRF, REST/SSE/mux proxying, bearer handling, backup/restore and drain acceptance. |
+| Shared packages and Railway | `packages/{product-ui,hub-bff}/`, `deploy/railway/`, `docs/railway/threat-model.md` | Consumer compatibility, cookies/CSRF, REST/SSE/mux proxying, bearer handling, backup/restore and drain acceptance. |
 | Security and privacy | `docs/agents/network-boundaries.md`, `.github/workflows/gitleaks.yml`, `docs/telemetry.md`, `backend/internal/remotehost/` | Negative auth and isolation scenarios, secret redaction, telemetry boundaries; preserve loopback unauthenticated primary listener and sole remote identity exemption. |
 | CI and review | `.github/workflows/{go,frontend,mobile,issue-policy,comment-policy,e2e-gate-tests,cli-e2e,railway-e2e}.yml`, `scripts/ci-check.mjs` | Add deterministic spec/trace checks, retain full applicable suites and generated drift checks. Draft skipped/neutral jobs are not successful verification. |
 | Distribution | `.github/workflows/{build-artifacts,version-bump,daemon-channel,release-latest-guard,version-floor-guard,hub-image,worker-image}.yml`, `docs/agents/distribution.md` | Link requirements to release artifacts, platform smoke, rollback and compatibility; dev integration is distinct from main publication. |
-| Operations and maintenance | `deploy/railway/README.md`, `cloud/docs/deployment.md`, `docs/runbooks/`, `backend/internal/sessionhealth/`, `backend/internal/knowledgegraph/` | Incident regressions become scenarios, operational evidence has environment/time/commit, obsolete behavior gets explicit removal deltas. |
+| Operations and maintenance | `deploy/railway/README.md`, `docs/runbooks/`, `backend/internal/sessionhealth/`, `backend/internal/knowledgegraph/` | Incident regressions become scenarios, operational evidence has environment/time/commit, obsolete behavior gets explicit removal deltas. |
 | Documentation and knowledge | `docs/documentation-map.md`, `frontend/src/docs/content/`, `docs/superpowers/`, `docs/backlog/knowledge-graph/` | Preserve useful historical designs with links, publish user-facing behavior in the manual, and keep learned hints subordinate to approved specs and current code evidence. |
 
 No `openspec/` setup or OpenSpec package dependency was found at the baseline. Existing designs, ADRs and generated contracts provide valuable inputs but no common requirement-to-release traceability contract. The backlog addresses this gap incrementally.
@@ -49,7 +48,7 @@ Sources: [OpenSpec repository](https://github.com/Fission-AI/OpenSpec), [concept
 | OpenSpec change proposal and delta | Intended behavior under review; implementation discoveries can revise it with review. |
 | ADR and AGENTS guidance | Architectural decisions and working constraints; spec conflicts must be reconciled explicitly. |
 | Code-first daemon DTOs and registry | Daemon wire shape; regenerate YAML and frontend schema, never hand-edit outputs. |
-| Cloud OpenAPI and SQLite sources | Preserve their documented generation and migration authority; specs reference them. |
+| SQLite sources and supported shared contracts | Preserve documented generation and migration authority; specs reference them. AO Cloud contracts are excluded. |
 | Test and release evidence | Proof for a named scenario, exact revision and environment, with failures/skips retained. |
 | Manual, runbooks and historical plans | Usage and operational guidance; archived plans do not override accepted current contracts. |
 
@@ -71,7 +70,7 @@ flowchart LR
 ```
 
 1. Intake owner records user problem, scope, observable acceptance, type/priority and dependencies. Classify behavior change, behavior-preserving maintenance, documentation-only, or emergency fix; classification has a rationale, not a magic bypass label.
-2. Author explores current specs, code, tests and ADRs. Draft proposal and delta scenarios before behavioral implementation. Include non-goals, risks, compatibility, security, operations and rollback where relevant. A reviewer confirms testable intent; revise artifacts when implementation changes the design.
+2. Author explores current specs, code, tests and ADRs. Draft proposal and delta scenarios before behavioral implementation. Include non-goals, risks, compatibility, security, operations and rollback where relevant. The geo.architect council ratifies the proposal under owner decision D02, with all three required consuls, at least two approvals per decision and no unresolved hard-requirement violation. Archive evidence for the exact evaluated proposal/revision; invalidate affected approvals when the design or constraints change. Unresolved escalation policy remains pending D03.
 3. Author creates tasks with one accountable role and non-overlapping file responsibility. Each independently mergeable implementation issue/PR owns one OpenSpec change. An umbrella GitHub tracker links the child issues and changes but owns no shared delta. If a change cannot be completed in one PR, split it into independently valid changes with explicit dependencies before implementation; do not partially apply one change across PRs.
 4. Implementer builds tests tied to scenario IDs, then implementation. Code-preserving tasks may cite existing requirements and explain why no delta is needed. A docs typo does not need a fictional behavior spec. An emergency fix records the regression scenario in the same PR where feasible; any deferred artifact has a named owner and dated follow-up tracked to closure.
 5. Reviewer checks semantics, boundary preservation and evidence on the current head. OpenSpec validation checks structure only. Run the existing complete applicable CI jobs; a focused test or a green skipped draft aggregate cannot substitute for them. Honor the per-changed-Go-package 75% bar and explicitly report frontend coverage as unmeasured under current policy.
@@ -81,7 +80,7 @@ flowchart LR
 
 ## Capability migration and verification
 
-First run SDD-15 on one small capability using a minimal seed, repository-local instructions and manual review after setup and initial policy. Refine the conventions before expanding the baseline. Seed specs by coherent behavior, not one file per package. Then cover session lifecycle and workspaces; daemon API and CLI; persistence and events. Then desktop/web and mobile; cloud and shared contracts; security and operations. Each seed requirement needs code and test evidence, or an explicit gap issue. Existing bugs stay labeled as gaps rather than becoming desirable requirements.
+First run SDD-15 on one small capability using a minimal seed, repository-local instructions, geo.architect proposal approval and reviewer-led evidence checks after setup and initial policy. Refine the conventions before expanding the baseline. Seed specs by coherent behavior, not one file per package. Then cover session lifecycle and workspaces; daemon API and CLI; persistence and events. Then desktop/web and mobile; Railway/self-hosted and supported shared contracts; security and operations. Each seed requirement needs code and test evidence, or an explicit gap issue. Existing bugs stay labeled as gaps rather than becoming desirable requirements.
 
 Use added/modified/removed/renamed deltas only after testing their semantics with the pinned CLI. For simultaneous changes to the same capability, serialize acceptance or reconcile the combined delta after rebase and rerun validation. Never let archive completion alone close implementation issues. SDD-16 implements AO archival enforcement rather than relying on upstream confirmation prompts or task warnings; the selected CLI version must be tested for override behavior. There is no shared umbrella delta to reapply when child work completes.
 
