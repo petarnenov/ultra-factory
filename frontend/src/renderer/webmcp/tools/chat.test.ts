@@ -114,7 +114,19 @@ describe("chat.send", () => {
 });
 
 describe("chat.retry", () => {
-	const failed = snapshotWith({ turns: [failedTurn("turn-1")] as ConversationSnapshot["turns"] });
+	const humanPrompt = {
+		kind: "message",
+		id: "prompt-1",
+		turnId: "turn-1",
+		role: "user",
+		origin: "human",
+		text: "Fix the reconnect test",
+		streaming: false,
+	};
+	const failed = snapshotWith({
+		turns: [failedTurn("turn-1")] as ConversationSnapshot["turns"],
+		items: [humanPrompt] as ConversationSnapshot["items"],
+	});
 
 	it("surfaces the daemon's rejection message", async () => {
 		const retry = vi.fn(async () => {
@@ -126,6 +138,20 @@ describe("chat.retry", () => {
 			retryError: "Turn turn-1 is no longer retryable",
 		});
 		expect(retry).toHaveBeenCalledWith("turn-1");
+	});
+
+	it("does not retry a failed turn that has no human prompt", async () => {
+		const retry = vi.fn(async () => {});
+		const automated = snapshotWith({
+			turns: [failedTurn("turn-1")] as ConversationSnapshot["turns"],
+			items: [
+				{ kind: "message", id: "m1", turnId: "turn-1", role: "user", origin: "automation", text: "Run checks", streaming: false },
+			] as ConversationSnapshot["items"],
+		});
+		const { call } = setup({ snapshot: automated, retry: { retry } });
+
+		await expect(call("chat.retry", { turnId: "turn-1" })).rejects.toMatchObject({ code: "precondition" });
+		expect(retry).not.toHaveBeenCalled();
 	});
 
 	it("does not retry a turn that is not failed", async () => {
@@ -140,6 +166,7 @@ describe("chat.retry", () => {
 		const retry = vi.fn(async () => {});
 		const running = snapshotWith({
 			turns: [failedTurn("turn-1"), { id: "turn-2", state: "running" }] as ConversationSnapshot["turns"],
+			items: [humanPrompt] as ConversationSnapshot["items"],
 		});
 		const { call } = setup({ snapshot: running, retry: { retry } });
 

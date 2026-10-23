@@ -3836,8 +3836,7 @@ export function Timeline({
 						const retry =
 							group.turnId &&
 							retryControl &&
-							retryableTurns.has(group.turnId) &&
-							groupHasHumanPrompt(group)
+							retryableTurns.has(group.turnId)
 								? {
 										onRetry: () => {
 											void Promise.resolve(retryTurn(group.turnId as string)).catch(

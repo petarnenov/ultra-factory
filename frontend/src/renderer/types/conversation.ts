@@ -898,11 +898,29 @@ export function activeTurn(snapshot: ConversationSnapshot): ConversationTurn | u
 // the affordance, and ids are matched within this snapshot.
 export function retryableTurnIds(snapshot: ConversationSnapshot): Set<string> {
 	const consumed = retrySourceTurnIds(snapshot);
+	const withHumanPrompt = humanPromptTurnIds(snapshot);
 	return new Set(
 		snapshot.turns
-			.filter((turn) => turn.state === "failed" && Boolean(turn.providerTurnId) && !consumed.has(turn.id))
+			.filter((turn) =>
+				turn.state === "failed" &&
+				Boolean(turn.providerTurnId) &&
+				!consumed.has(turn.id) &&
+				withHumanPrompt.has(turn.id),
+			)
 			.map((turn) => turn.id),
 	);
+}
+
+// Retry is offered only for turns the user started; agent- or system-originated
+// turns have no prompt to resend.
+function humanPromptTurnIds(snapshot: ConversationSnapshot): Set<string> {
+	const turnIds = new Set<string>();
+	for (const item of snapshot.items) {
+		if (item.kind === "message" && item.role === "user" && item.origin === "human" && item.turnId) {
+			turnIds.add(item.turnId);
+		}
+	}
+	return turnIds;
 }
 
 function retrySourceTurnIds(snapshot: ConversationSnapshot): Set<string> {
