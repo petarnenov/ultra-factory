@@ -17198,6 +17198,8 @@ components:
       type: object
     ListAgentSwitchesResponse:
       properties:
+        operation:
+          $ref: '#/components/schemas/SessionAgentOperation'
         switches:
           items:
             $ref: '#/components/schemas/AgentSwitch'
@@ -18969,6 +18971,8 @@ components:
     SessionAgentOperation:
       properties:
         kind:
+          type: string
+        requestId:
           type: string
         startedAt:
           format: date-time

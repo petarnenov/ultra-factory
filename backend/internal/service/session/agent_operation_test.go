@@ -28,7 +28,7 @@ func (c *agentOperationCommander) AgentOperationInProgress(domain.SessionID) (se
 func TestGetReportsInFlightAgentOperation(t *testing.T) {
 	started := time.Now().Add(-42 * time.Second).Truncate(time.Second)
 	manager := &agentOperationCommander{
-		op:   sessionmanager.AgentOperationStatus{Kind: "resume", StartedAt: started},
+		op:   sessionmanager.AgentOperationStatus{Kind: "resume", StartedAt: started, RequestID: "wake-1"},
 		busy: true,
 	}
 	st := newFakeStore()
@@ -39,7 +39,7 @@ func TestGetReportsInFlightAgentOperation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if session.AgentOperation == nil || session.AgentOperation.Kind != "resume" ||
+	if session.AgentOperation == nil || session.AgentOperation.Kind != "resume" || session.AgentOperation.RequestID != "wake-1" ||
 		!session.AgentOperation.StartedAt.Equal(started) {
 		t.Fatalf("agent operation = %+v, want resume since %s", session.AgentOperation, started)
 	}

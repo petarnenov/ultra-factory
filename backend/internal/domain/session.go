@@ -470,6 +470,7 @@ const (
 type SessionAgentOperation struct {
 	Kind      string    `json:"kind"`
 	StartedAt time.Time `json:"startedAt"`
+	RequestID string    `json:"requestId,omitempty"`
 }
 
 // SessionHealth is the read-time health view for a session. The service layer

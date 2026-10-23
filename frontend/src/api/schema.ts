@@ -5862,6 +5862,7 @@ export interface components {
             plans: components["schemas"]["AgentAuthPlan"][];
         };
         ListAgentSwitchesResponse: {
+            operation?: components["schemas"]["SessionAgentOperation"];
             switches: components["schemas"]["AgentSwitch"][];
         };
         ListAgentsResponse: {
@@ -6549,6 +6550,7 @@ export interface components {
         };
         SessionAgentOperation: {
             kind: string;
+            requestId?: string;
             /** Format: date-time */
             startedAt: string;
         };

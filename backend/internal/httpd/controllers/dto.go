@@ -941,7 +941,8 @@ type AgentSwitchResponse struct {
 // ListAgentSwitchesResponse is the body of
 // GET /api/v1/sessions/{sessionId}/agent-switches.
 type ListAgentSwitchesResponse struct {
-	Switches []AgentSwitchView `json:"switches"`
+	Switches  []AgentSwitchView             `json:"switches"`
+	Operation *domain.SessionAgentOperation `json:"operation,omitempty"`
 }
 
 // SubmitAgentHandoffRequest is the body of
