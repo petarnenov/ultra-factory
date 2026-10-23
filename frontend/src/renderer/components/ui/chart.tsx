@@ -6,9 +6,8 @@ export type ChartConfig = Record<string, { label: ReactNode; color?: string }>;
 
 const ChartConfigContext = createContext<ChartConfig>({});
 
-// Each series color becomes --color-<key> on the wrapper. Recharts marks then
-// reference that variable, so no <style> element is injected and CSP stays
-// limited to the inline style attribute React already sets.
+// Series colors become wrapper variables for Recharts marks. This avoids
+// injecting a <style> element and stays within the existing CSP.
 function colorVariables(config: ChartConfig): CSSProperties {
 	const variables: Record<string, string> = {};
 	for (const [key, { color }] of Object.entries(config)) {
