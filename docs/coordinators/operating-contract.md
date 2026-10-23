@@ -18,7 +18,12 @@ state are marked **(contract rule)**.
 The system prompt is the enforced baseline. This document is the long form: it
 explains the rules, gives the brief template, and defines what the root does.
 If `--prompt` is omitted the daemon sends a generic one-line brief, so a root
-should always send the assignment brief.
+should always send the assignment brief. `ao spawn --kind coordinator` prints a
+warning on stderr when `--prompt` is omitted or still contains a placeholder
+from the template below (for example `<coordinator name>` or `<paths>`), naming
+the first one. The spawn still proceeds; the warning is not a refusal. The
+tokens `<task-id>`, `<number>`, and `<head-sha>` are exempt because the
+coordinator fills them in.
 
 ## Assignment brief template
 
