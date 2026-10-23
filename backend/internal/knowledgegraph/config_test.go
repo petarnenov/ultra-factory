@@ -49,6 +49,8 @@ func TestLoad(t *testing.T) {
 			name: "read-only endpoint and credentials", file: `{"url":"http://kg:7474","user":"writer","password":"write-pw","readOnly":{"url":"https://ro.example:7473/","user":"reader","password":"read-pw"}}`, perm: 0o600,
 			want: Config{URL: "http://kg:7474", User: "writer", Password: "write-pw", Database: "neo4j", ReadOnly: ReadOnlyConfig{URL: "https://ro.example:7473", User: "reader", Password: "read-pw"}, Timeout: 3 * time.Second},
 		},
+		{name: "read-only credentials without endpoint refused", file: `{"url":"http://kg:7474","readOnly":{"user":"reader","password":"secret"}}`, perm: 0o600, wantErr: "readOnly requires url, user, and password"},
+		{name: "read-only endpoint without complete credential refused", file: `{"url":"http://kg:7474","readOnly":{"url":"http://proxy:7474","user":"reader"}}`, perm: 0o600, wantErr: "readOnly requires url, user, and password"},
 		{name: "group readable file refused", file: full, perm: 0o644, wantErr: "chmod 600"},
 		{name: "undecodable file", file: `{`, perm: 0o600, wantErr: "parse"},
 		{

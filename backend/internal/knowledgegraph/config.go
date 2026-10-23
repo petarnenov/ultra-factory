@@ -136,6 +136,11 @@ func Load(getenv func(string) string, dataDir string) (Config, error) {
 		}
 		cfg.Timeout = d
 	}
+	ro := cfg.ReadOnly
+	if (ro.URL != "" || ro.User != "" || ro.Password != "") &&
+		(ro.URL == "" || ro.User == "" || ro.Password == "") {
+		return Config{}, fmt.Errorf("knowledge graph readOnly requires url, user, and password")
+	}
 	if !cfg.Enabled() {
 		return Config{}, nil
 	}
