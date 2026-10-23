@@ -27,7 +27,7 @@ test("downloaded update keeps the full version readable and actions aligned", as
 	await expect(version).toHaveAttribute("aria-label", "Current version - v0.12.7-nightly.202608240525");
 	await expect(page.getByText("0.12.7-nightly.202608240525", { exact: true })).toBeVisible();
 
-	await expect(page.getByRole("button", { name: "Install Update" })).toBeVisible();
+	await expect(page.getByRole("button", { name: "Restart & install", exact: true })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Check for updates" })).toBeVisible();
 	await expect(page.getByRole("switch", { name: "Automatic updates" })).toBeChecked();
 	await expect(page.getByRole("button", { name: "Updates channel", exact: true })).toContainText("Nightly");
@@ -36,7 +36,7 @@ test("downloaded update keeps the full version readable and actions aligned", as
 	const lineCount = await version.evaluate((element) => element.getClientRects().length);
 	expect(lineCount).toBe(1);
 
-	const restartBox = await page.getByRole("button", { name: "Install Update" }).boundingBox();
+	const restartBox = await page.getByRole("button", { name: "Restart & install", exact: true }).boundingBox();
 	const checkBox = await page.getByRole("button", { name: "Check for updates" }).boundingBox();
 	expect(restartBox).not.toBeNull();
 	expect(checkBox).not.toBeNull();

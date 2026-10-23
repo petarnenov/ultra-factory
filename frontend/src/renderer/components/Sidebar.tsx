@@ -98,6 +98,7 @@ import { useLocalSignInDialogStore } from "../stores/local-signin-dialog-store";
 import { useShellMaybe } from "../lib/shell-context";
 import { useSidebarUpdateDismissal } from "../hooks/useSidebarUpdateDismissal";
 import { useUpdateStatus } from "../hooks/useUpdateStatus";
+import { Button } from "./ui/button";
 import { MAX_SESSION_DISPLAY_NAME_LEN, useSessionRename } from "../hooks/useSessionRename";
 import { effectiveShortcutBindings, shortcutBindingKeys } from "../../shared/shortcuts";
 import {
@@ -3099,18 +3100,17 @@ function UpdateInstallSlide({
 
 	const versionNumber = installVersionNumber(action.version);
 	return (
-		<button
+		<Button
 			aria-label={
 				versionNumber
 					? t("shell.restartInstallUpdateVersion", { version: versionNumber })
 					: t("shell.restartInstallUpdate")
 			}
-			className={cn(
-				"mb-1 flex h-9 w-full items-center gap-2.5 rounded-lg bg-muted px-3 text-left text-sm font-normal text-foreground",
-				"hover:bg-interactive-hover",
-			)}
+			className="mb-1 w-full justify-start gap-2.5 rounded-lg bg-muted px-3 text-left text-sm font-normal text-foreground hover:bg-interactive-hover"
 			data-testid="sidebar-update-ready"
 			onClick={onRequestInstall}
+			size="default"
+			variant="secondary"
 			tabIndex={tabIndex}
 			type="button"
 		>
@@ -3124,7 +3124,7 @@ function UpdateInstallSlide({
 					</>
 				) : null}
 			</span>
-		</button>
+		</Button>
 	);
 }
 
