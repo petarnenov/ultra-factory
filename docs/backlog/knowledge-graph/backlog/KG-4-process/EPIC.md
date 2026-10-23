@@ -3,7 +3,7 @@
 **Status:** ⬜ todo — [#562](https://github.com/petarnenov/ultra-factory/issues/562)
 
 **Goal.** Keep the graph precise with a short recurring review, and decide
-on further work (dedup, decay) from measured effect instead of guesses.
+on further work (ranking by confirmations, decay) from measured effect instead of guesses.
 
 **Estimate:** 0.75 pd. **Stage:** process. **Dependencies:** KG-3.1.1.
 
@@ -15,4 +15,4 @@ on further work (dedup, decay) from measured effect instead of guesses.
 **Acceptance criteria**
 
 - [ ] The runbook exists and its queries run against the live graph.
-- [ ] A measurement note with a dedup/decay decision is committed.
+- [ ] A measurement note with a decay decision is committed.
