@@ -24,7 +24,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 - [ ] Verify maintainer-enabled required checks and current-head semantic review on dev/main; demonstrate rejection of missing declarations and invalid archive entries plus acceptance of a compliant change.
 - [ ] Complete capability ownership and documentation migration index; retain historical designs as linked history.
 - [ ] Measure PR declaration completeness, declared-requirement mapping completeness, semantic-review gaps, escaped regressions and cycle time over the first ten subsequent changes. Record denominators and review evidence; do not claim automated discovery of undeclared behavior.
-- [ ] Require all PRs classified, 100% of declared changed requirements mapped, semantic review accepted and all high-priority blockers resolved before declaring adoption complete. Document rollback to reporting mode.
+- [ ] Require all PRs covered by full proposals and council decisions as well as classified, 100% of declared changed requirements mapped, semantic review accepted and all high-priority blockers resolved before declaring adoption complete. Document rollback to reporting mode.
 
 ## Verification and delivery
 

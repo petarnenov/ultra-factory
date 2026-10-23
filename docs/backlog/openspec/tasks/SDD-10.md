@@ -21,7 +21,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
-- [ ] Run pinned noninteractive OpenSpec, PR declaration/trace validation and the SDD-16 archive check, including changes to validators and direct archive moves. Evaluate every PR declaration; a code-only diff with no openspec path change must not bypass the check.
+- [ ] Run pinned noninteractive OpenSpec, PR declaration/trace validation and the SDD-16 archive check, including changes to validators and direct archive moves. Require full-proposal and council-approval references for every change type under D05, including automated and promotion PRs. Evaluate every PR declaration; a code-only diff with no openspec path change must not bypass the check.
 - [ ] Preserve API/sqlc drift, issue/comment policy, complete applicable backend/frontend/mobile/cloud suites and secret checks.
 - [ ] Test draft-to-ready, changed heads, empty/deleted specs, forks, promotion and automated PR declarations, and unavailable credentials. Never count skipped/cancelled jobs or unavailable evidence as verified.
 - [ ] Keep semantic review approval for the current head separate from structural CI. Require readiness/merge evidence on that head; avoid a check waiting for its own success or its own PR to be merged.

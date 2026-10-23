@@ -14,7 +14,7 @@ Owner answer: Yes to retaining Railway/self-hosted, hub/BFF and remote workers w
 
 ### D02 Proposal approval by geo.architect
 
-Owner answer: Ask geo.architect. Behavioral proposals use the repository's `.agents/skills/geo.architect/SKILL.md` before implementation. Use its independent analysis, mutual critique, proposal identity and archived evidence. Normal council ratification uses its voting rules; D03 overrides its requirement for all three successful ballots and unresolved-decision escalation when the council cannot decide or a consul is unavailable. A completed consultation does not grant merge, release, spending or deployment authority. Documentation-only/no-behavior handling is pending D05.
+Owner answer: Ask geo.architect. All change proposals use the repository's `.agents/skills/geo.architect/SKILL.md` before implementation. Use its independent analysis, mutual critique, proposal identity and archived evidence. Normal council ratification uses its voting rules; D03 overrides its requirement for all three successful ballots and unresolved-decision escalation when the council cannot decide or a consul is unavailable. A completed consultation does not grant merge, release, spending or deployment authority. D05 requires the full proposal process for every change, including documentation and formatting.
 
 Changed constraints or proposal content invalidate affected approvals and require review of the new version. This selects the future approval mechanism; no council has been launched or approval claimed during this interview.
 
@@ -34,14 +34,22 @@ This owner-approved project policy overrides the skill's all-three-ballots requi
 
 Owner answer: All. Include macOS, Windows, Linux, iOS, Android and Railway web. Each supported surface needs capability specifications and evidence from its actual platform where native behavior is involved. Renderer mocks, typechecks or another operating system are not substitutes for native acceptance. An unavailable platform check is not a pass; treatment of missing hardware/access is pending D09. Platform support is not deferred out of the initiative.
 
+### D05 Full proposal for every change
+
+Owner answer: Full proposal for everything. Every future implementation change, including documentation, formatting, dependencies, tooling, CI, maintenance, automation, promotion and emergency fixes, requires a full proposal and geo.architect review under D02/D03 before execution. A no-behavior classification explains impact; it never exempts the change from proposal, review or required artifacts. No emergency bypass or deferred proposal is authorized.
+
+Each change records why, scope/non-goals, impact, affected capabilities or a justified no-runtime-behavior statement, acceptance scenarios, technical approach, tasks, verification and rollback/applicability. For a text-only change, scenarios can verify documentation correctness; do not invent a runtime behavior change to satisfy the process. The pinned schema may represent no runtime delta explicitly, but the proposal and council decision are still mandatory. Record human policy choices during this planning interview without treating that recording as authorization to implement the initiative.
+
+### D06 Resolve existing contradictions through geo.architect
+
+Owner answer: geo.architect. When code, tests and documentation disagree, the council evaluates the evidence and establishes the intended in-scope behavior, using D03 final arbitration if needed. Neither existing code nor prose wins automatically. Record the contradiction, evidence, decision and any corrective implementation in the proposal; retain known defects as explicit gaps until resolved. Do not silently weaken hard requirements or expand the fork scope. Spec changes and implementation fixes follow the same full proposal and verification process.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D05 | Proportional review and emergency exceptions | Council for behavior only, ordinary review for justified no-behavior work, no emergency bypass; same with owner-approved emergency deferral; council for every change | SDD-02, SDD-09, SDD-16 |
-| D06 | Existing code/spec conflicts and missing tests | Agents record gaps and preserve evidenced behavior within hard constraints; owner resolves every discrepancy; council resolves technical discrepancies with owner deciding intended product changes | SDD-03 to SDD-07 |
 | D07 | Pilot selection and go/no-go authority | Agents choose bounded cases and council ratifies evidence; owner chooses and accepts each pilot; agents propose cases and owner approves selection only | SDD-15, SDD-13 |
 | D08 | Performance/reliability acceptance | Council sets evidence-based thresholds from reproducible baseline; owner supplies numerical targets; observational first phase with no unsupported performance claims | SDD-07, SDD-13 |
 | D09 | Missing native hardware, credentials or external evidence | Block affected acceptance and continue independent work; explicitly defer unsupported acceptance from first rollout; owner supplies prerequisites before execution | SDD-05, SDD-11 to SDD-14 |

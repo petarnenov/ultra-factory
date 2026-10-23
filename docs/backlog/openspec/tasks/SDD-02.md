@@ -22,12 +22,12 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 ## Acceptance criteria
 
 - [ ] Reconcile the completed owner decision record into enforceable instructions before implementing policy; pending options are not authorization.
-- [ ] Require geo.architect review for behavioral proposals under D02 and the D03 final-arbiter order: Fable 5.1 → Codex Astra → OpenCode DeepSeek Flash 4.1. Link explicit rulings to the evaluated proposal/revision and archive; test all fallback cases and the all-unavailable blocked outcome. Never infer approval from missing votes.
+- [ ] Require geo.architect review for every full change proposal under D02 and the D03 final-arbiter order: Fable 5.1 → Codex Astra → OpenCode DeepSeek Flash 4.1. Link explicit rulings to the evaluated proposal/revision and archive; test all fallback cases and the all-unavailable blocked outcome. Never infer approval from missing votes.
 - [ ] Define readiness/completion, roles, stable requirement/scenario IDs and one OpenSpec change per independently mergeable implementation issue/PR. Keep umbrella planning in GitHub; do not retain an umbrella delta that is reapplied across child PRs.
-- [ ] Require each PR to declare affected capabilities and change IDs or a justified no-behavior classification. Require a reviewer to check the declaration against the diff and record the reviewed head; machine validation cannot discover undeclared semantics.
+- [ ] Require each PR to reference a full proposal/change ID and declare affected capabilities with a justified no-runtime-behavior classification where applicable. Require a reviewer to check the declaration against the diff and record the reviewed head; machine validation cannot discover undeclared semantics.
 - [ ] Preserve one issue per PR and exactly one type/priority; distinguish accepted dev specs from released behavior. Describe promotion, automation and docs-only declarations explicitly rather than adding silent exemptions.
-- [ ] Define proportional handling for documentation and behavior-preserving maintenance plus owned, dated emergency follow-up. A deferred artifact must remain visibly incomplete and cannot qualify for archival.
-- [ ] Document conflict resolution with ADRs/generated contracts, final-PR synchronization/archive and source evidence. Walk through feature, bugfix and maintenance examples; SDD-15 must refine these conventions before broad baselining.
+- [ ] Require full proposals and council review for all changes under D05, including documentation, formatting, automated changes and emergencies. No-behavior classifications never bypass approval; define meaningful non-runtime acceptance rather than inventing behavior. No deferred-proposal exception is authorized.
+- [ ] Delegate code/test/documentation contradictions to geo.architect under D06/D03 and record evidence-based intended behavior without weakening hard requirements. Document conflict resolution with ADRs/generated contracts, final-PR synchronization/archive and source evidence. Walk through feature, bugfix and maintenance examples; SDD-15 must refine these conventions before broad baselining.
 
 ## Verification and delivery
 

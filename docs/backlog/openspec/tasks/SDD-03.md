@@ -21,6 +21,7 @@ Responsible role: Backend owner; named assignee to be set when scheduled. Status
 
 ## Acceptance criteria
 
+- [ ] Resolve code/test/documentation contradictions via geo.architect under D06/D03, record evidence and decisions, and keep unresolved defects visible rather than blessing current behavior automatically.
 - [ ] Map session/workspace lifecycle, Chat/TUI recovery, API/CLI error contracts, SQLite upgrades and CDC to evidence-backed scenarios.
 - [ ] Preserve derived status, unknown-probe handling, dirty-worktree safety and append-only migrations.
 - [ ] Reference DTO/registry and sqlc sources; map concrete existing test names, recording missing behavior as gap issues.
