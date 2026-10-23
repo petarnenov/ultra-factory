@@ -152,7 +152,7 @@ async function secretScan(records) {
 				throw new Error(`configured key found in tracked file: ${file}`);
 			}
 		} catch (error) {
-			if (error.code !== "ENOENT") throw error;
+			if (error.code !== "ENOENT" && error.code !== "EISDIR") throw error;
 		}
 	}
 	for (const file of [dashboardRecords, reportRecords]) {
