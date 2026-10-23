@@ -23,6 +23,8 @@ type fakeRunner struct {
 	rows  []Row
 	err   error
 	ran   chan runCall
+	// reply, when set, answers per statement instead of rows and err.
+	reply func(statement string) ([]Row, error)
 }
 
 func (f *fakeRunner) Run(_ context.Context, statement string, params map[string]any) ([]Row, error) {
@@ -30,6 +32,9 @@ func (f *fakeRunner) Run(_ context.Context, statement string, params map[string]
 	f.mu.Lock()
 	f.calls = append(f.calls, call)
 	rows, err := f.rows, f.err
+	if f.reply != nil {
+		rows, err = f.reply(statement)
+	}
 	f.mu.Unlock()
 	if f.ran != nil {
 		f.ran <- call
@@ -225,6 +230,12 @@ func TestPriorBuildsSubqueries(t *testing.T) {
 				t.Fatalf("issueKey = %v", p["issueKey"])
 			}
 		})
+	}
+}
+
+func TestPriorAttemptsIncludeConfirmedLessons(t *testing.T) {
+	if !strings.Contains(attemptsCypher, "(t)-[:LEARNED|CONFIRMED]->(l:Lesson)") || !strings.Contains(attemptsCypher, "collect(DISTINCT l.text)") {
+		t.Fatalf("attempts must list lessons a task learned or confirmed:\n%s", attemptsCypher)
 	}
 }
 
@@ -526,5 +537,80 @@ func TestSetEmbeddingsReturnsRunnerError(t *testing.T) {
 
 	if err == nil || err.Error() != "down" {
 		t.Fatalf("SetEmbeddings() error = %v", err)
+	}
+}
+
+func TestSimilarLessons(t *testing.T) {
+	r := &fakeRunner{rows: []Row{{"id": "l1", "text": "run make api", "score": 0.97}}}
+
+	got, err := NewGraph(r).SimilarLessons(context.Background(), "ao", "fix", []float64{0.1, 0.2}, 0.94)
+
+	if err != nil {
+		t.Fatalf("SimilarLessons() error = %v", err)
+	}
+	if want := []LessonMatch{{ID: "l1", Text: "run make api", Score: 0.97}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("matches = %+v, want %+v", got, want)
+	}
+	call := r.snapshot()[0]
+	p := call.params
+	if p["project"] != "ao" || p["kind"] != "fix" || p["minScore"] != 0.94 || !reflect.DeepEqual(p["vector"], []float64{0.1, 0.2}) {
+		t.Fatalf("params = %#v", p)
+	}
+	for _, clause := range []string{"l.project = $project", "l.kind = $kind", "score >= $minScore"} {
+		if !strings.Contains(call.statement, clause) {
+			t.Fatalf("statement lacks %q:\n%s", clause, call.statement)
+		}
+	}
+}
+
+func TestSimilarLessonsReturnsRunnerError(t *testing.T) {
+	_, err := NewGraph(&fakeRunner{err: errors.New("boom")}).SimilarLessons(context.Background(), "ao", "fix", []float64{1}, 0.9)
+
+	if err == nil {
+		t.Fatalf("want runner error")
+	}
+}
+
+func TestConfirmLesson(t *testing.T) {
+	tests := []struct {
+		name      string
+		rows      []Row
+		wantFound bool
+	}{
+		{name: "existing lesson", rows: []Row{{"id": "l1"}}, wantFound: true},
+		{name: "lesson deleted meanwhile", rows: nil, wantFound: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &fakeRunner{rows: tt.rows}
+			l := Lesson{ID: "new", TaskKey: "h/s2", Session: "s2", Host: "h", Project: "ao", Kind: "fix", Text: "regenerate with make api", At: testAt}
+
+			found, err := NewGraph(r).ConfirmLesson(context.Background(), "l1", l)
+
+			if err != nil || found != tt.wantFound {
+				t.Fatalf("ConfirmLesson() = %v, %v, want %v", found, err, tt.wantFound)
+			}
+			p := r.snapshot()[0].params
+			want := map[string]any{
+				"id": "l1", "taskKey": "h/s2", "sessionId": "s2", "host": "h", "project": "ao",
+				"text": "regenerate with make api", "topics": []string{}, "at": "2026-10-23T11:00:00Z",
+			}
+			if !reflect.DeepEqual(p, want) {
+				t.Fatalf("params = %#v, want %#v", p, want)
+			}
+		})
+	}
+}
+
+func TestConfirmLessonCountsEachTaskOnce(t *testing.T) {
+	r := &fakeRunner{}
+
+	_, _ = NewGraph(r).ConfirmLesson(context.Background(), "l1", Lesson{TaskKey: "h/s2", At: testAt})
+
+	stmt := r.snapshot()[0].statement
+	for _, clause := range []string{"MERGE (t)-[c:CONFIRMED]->(l)\nON CREATE SET", "CASE WHEN own THEN 0 ELSE 1 END", "ELSE c.texts + [$text] END"} {
+		if !strings.Contains(stmt, clause) {
+			t.Fatalf("statement lacks %q:\n%s", clause, stmt)
+		}
 	}
 }

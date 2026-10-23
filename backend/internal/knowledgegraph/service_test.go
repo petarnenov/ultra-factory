@@ -106,7 +106,7 @@ func TestAddLessonStoresLesson(t *testing.T) {
 	r := &fakeRunner{}
 	svc := newTestService(r, &fakeSessions{sessions: map[domain.SessionID]domain.Session{"s1": worker("s1", "ao")}}, nil)
 
-	id, err := svc.AddLesson(context.Background(), LessonInput{
+	added, err := svc.AddLesson(context.Background(), LessonInput{
 		SessionID: "s1", Kind: " FIX ", Text: "  Run make sqlc\x00 ",
 		Topics: []string{"SQLite", "sqlite", " ", "ci"},
 	})
@@ -114,8 +114,8 @@ func TestAddLessonStoresLesson(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddLesson() error = %v", err)
 	}
-	if id != "lesson-1" {
-		t.Fatalf("id = %q, want NewID value", id)
+	if added != (AddedLesson{ID: "lesson-1"}) {
+		t.Fatalf("added = %+v, want new NewID lesson", added)
 	}
 	p := r.snapshot()[0].params
 	want := map[string]any{
@@ -481,5 +481,214 @@ func TestKickEmbedNeverBlocks(t *testing.T) {
 	}
 	if cap(svc.embedKick) != 1 || len(svc.embedKick) != 1 {
 		t.Fatalf("embedKick len=%d cap=%d, want 1/1", len(svc.embedKick), cap(svc.embedKick))
+	}
+}
+
+const (
+	storedLesson   = "make ci-check fails while another session runs golangci-lint; wait and rerun."
+	incomingLesson = "If make ci-check reports a parallel golangci-lint run, wait for it and rerun."
+)
+
+// dedupRunner answers the lookup with matches and the confirm with
+// confirmRows; every other statement succeeds empty.
+func dedupRunner(matches []Row, lookupErr error, confirmRows []Row) *fakeRunner {
+	return dedupRunnerWithConfirmErr(matches, lookupErr, confirmRows, nil)
+}
+
+func dedupRunnerWithConfirmErr(matches []Row, lookupErr error, confirmRows []Row, confirmErr error) *fakeRunner {
+	return &fakeRunner{reply: func(statement string) ([]Row, error) {
+		switch {
+		case strings.Contains(statement, "RETURN l.id AS id, l.text AS text, score"):
+			return matches, lookupErr
+		case statement == confirmLessonCypher:
+			return confirmRows, confirmErr
+		}
+		return nil, nil
+	}}
+}
+
+func newDedupService(r Runner, e Embedder, logs *syncBuffer) *Service {
+	svc := newSemanticService(r, e, logs)
+	svc.mergeScore = 0.94
+	return svc
+}
+
+func statements(r *fakeRunner) []string {
+	var out []string
+	for _, c := range r.snapshot() {
+		switch {
+		case strings.Contains(c.statement, "RETURN l.id AS id, l.text AS text, score"):
+			out = append(out, "lookup")
+		case c.statement == confirmLessonCypher:
+			out = append(out, "confirm")
+		case c.statement == addLessonCypher:
+			out = append(out, "add")
+		case strings.Contains(c.statement, "setNodeVectorProperty"):
+			out = append(out, "embed")
+		default:
+			out = append(out, "other")
+		}
+	}
+	return out
+}
+
+func TestAddLessonMergesIntoSameClaim(t *testing.T) {
+	r := dedupRunner([]Row{{"id": "old-1", "text": storedLesson, "score": 0.95}}, nil, []Row{{"id": "old-1"}})
+	e := &fakeEmbedder{vec: []float64{0.6, 0.8}}
+	svc := newDedupService(r, e, &syncBuffer{})
+
+	added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Kind: "pitfall", Text: incomingLesson, Topics: []string{"lint"}})
+
+	if err != nil {
+		t.Fatalf("AddLesson() error = %v", err)
+	}
+	if added != (AddedLesson{ID: "old-1", Merged: true}) {
+		t.Fatalf("added = %+v, want merged into old-1", added)
+	}
+	if got := statements(r); !reflect.DeepEqual(got, []string{"lookup", "confirm"}) {
+		t.Fatalf("statements = %v, want lookup then confirm only", got)
+	}
+	lookup, confirm := r.snapshot()[0].params, r.snapshot()[1].params
+	if lookup["project"] != "ao" || lookup["kind"] != "pitfall" || lookup["minScore"] != 0.94 {
+		t.Fatalf("lookup params = %#v", lookup)
+	}
+	if confirm["id"] != "old-1" || confirm["text"] != incomingLesson || confirm["taskKey"] != "host1/s1" ||
+		!reflect.DeepEqual(confirm["topics"], []string{"lint"}) {
+		t.Fatalf("confirm params = %#v, want the new wording kept on the edge", confirm)
+	}
+	if got := e.docCalls(); !reflect.DeepEqual(got, [][]string{{incomingLesson}}) {
+		t.Fatalf("embedded = %v, want the lesson as a document", got)
+	}
+}
+
+func TestAddLessonSkipsContradictingMatch(t *testing.T) {
+	r := dedupRunner([]Row{
+		{"id": "contra", "text": "Never rebase onto dev before opening the PR.", "score": 0.97},
+		{"id": "same", "text": "Rebase onto dev first, then open the PR.", "score": 0.95},
+	}, nil, []Row{{"id": "same"}})
+	svc := newDedupService(r, &fakeEmbedder{vec: []float64{1}}, &syncBuffer{})
+
+	added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "Always rebase onto dev before opening the PR."})
+
+	if err != nil || added != (AddedLesson{ID: "same", Merged: true}) {
+		t.Fatalf("AddLesson() = %+v, %v, want merged into the non-contradicting match", added, err)
+	}
+	if id := r.snapshot()[1].params["id"]; id != "same" {
+		t.Fatalf("confirmed %v, want same", id)
+	}
+}
+
+func TestAddLessonStoresNewWhenNoMatchMakesTheSameClaim(t *testing.T) {
+	r := dedupRunner([]Row{{"id": "old", "text": "Set minScore to 0.70.", "score": 0.99}}, nil, nil)
+	e := &fakeEmbedder{vec: []float64{0.6, 0.8}}
+	svc := newDedupService(r, e, &syncBuffer{})
+
+	added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "Set minScore to 0.90."})
+
+	if err != nil || added != (AddedLesson{ID: "lesson-1"}) {
+		t.Fatalf("AddLesson() = %+v, %v, want a new lesson", added, err)
+	}
+	if got := statements(r); !reflect.DeepEqual(got, []string{"lookup", "add", "embed"}) {
+		t.Fatalf("statements = %v, want lookup, add, embed", got)
+	}
+	embed := r.snapshot()[2].params["lessons"].([]map[string]any)
+	if len(embed) != 1 || embed[0]["id"] != "lesson-1" || !reflect.DeepEqual(embed[0]["v"], []float64{0.6, 0.8}) {
+		t.Fatalf("stored vectors = %#v", embed)
+	}
+	if len(svc.embedKick) != 0 {
+		t.Fatalf("embed loop kicked although the vector was stored")
+	}
+}
+
+func TestAddLessonCreatesWhenMatchVanished(t *testing.T) {
+	r := dedupRunner([]Row{{"id": "gone", "text": storedLesson, "score": 0.96}}, nil, nil)
+	svc := newDedupService(r, &fakeEmbedder{vec: []float64{1}}, &syncBuffer{})
+
+	added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: incomingLesson})
+
+	if err != nil || added != (AddedLesson{ID: "lesson-1"}) {
+		t.Fatalf("AddLesson() = %+v, %v, want a new lesson", added, err)
+	}
+	if got := statements(r); !reflect.DeepEqual(got, []string{"lookup", "confirm", "add", "embed"}) {
+		t.Fatalf("statements = %v", got)
+	}
+}
+
+func TestAddLessonDegradesToPlainCreate(t *testing.T) {
+	tests := []struct {
+		name       string
+		embedder   *fakeEmbedder
+		lookupErr  error
+		mergeScore float64
+		wantStmts  []string
+		wantLog    string
+		wantKick   int
+	}{
+		{name: "embedding fails", embedder: &fakeEmbedder{docErr: errors.New("ollama down")}, mergeScore: 0.94, wantStmts: []string{"add"}, wantLog: "lesson embedding failed", wantKick: 1},
+		{name: "lookup fails", embedder: &fakeEmbedder{vec: []float64{1}}, lookupErr: errors.New("dims mismatch"), mergeScore: 0.94, wantStmts: []string{"lookup", "add", "embed"}, wantLog: "duplicate lesson lookup failed"},
+		{name: "merging disabled", embedder: &fakeEmbedder{vec: []float64{1}}, mergeScore: 0, wantStmts: []string{"add", "embed"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := dedupRunner([]Row{{"id": "old", "text": storedLesson, "score": 0.99}}, tt.lookupErr, []Row{{"id": "old"}})
+			logs := &syncBuffer{}
+			svc := newSemanticService(r, tt.embedder, logs)
+			svc.mergeScore = tt.mergeScore
+
+			added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: incomingLesson})
+
+			if err != nil || added != (AddedLesson{ID: "lesson-1"}) {
+				t.Fatalf("AddLesson() = %+v, %v, want the lesson stored", added, err)
+			}
+			if got := statements(r); !reflect.DeepEqual(got, tt.wantStmts) {
+				t.Fatalf("statements = %v, want %v", got, tt.wantStmts)
+			}
+			if !strings.Contains(logs.String(), tt.wantLog) {
+				t.Fatalf("logs = %q, want %q", logs.String(), tt.wantLog)
+			}
+			if len(svc.embedKick) != tt.wantKick {
+				t.Fatalf("embedKick len = %d, want %d", len(svc.embedKick), tt.wantKick)
+			}
+		})
+	}
+}
+
+func TestAddLessonKicksEmbedLoopWhenStoringVectorFails(t *testing.T) {
+	r := &fakeRunner{reply: func(statement string) ([]Row, error) {
+		if strings.Contains(statement, "setNodeVectorProperty") {
+			return nil, errors.New("dims mismatch")
+		}
+		return nil, nil
+	}}
+	logs := &syncBuffer{}
+	svc := newDedupService(r, &fakeEmbedder{vec: []float64{1}}, logs)
+
+	if _, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: "x"}); err != nil {
+		t.Fatalf("AddLesson() error = %v", err)
+	}
+
+	if len(svc.embedKick) != 1 || !strings.Contains(logs.String(), "store lesson embedding failed") {
+		t.Fatalf("embedKick len = %d logs = %q", len(svc.embedKick), logs.String())
+	}
+}
+
+func TestAddLessonCreatesWhenConfirmFails(t *testing.T) {
+	r := dedupRunnerWithConfirmErr([]Row{
+		{"id": "old", "text": storedLesson, "score": 0.97},
+		{"id": "other", "text": storedLesson, "score": 0.95},
+	}, nil, []Row{{"id": "old"}}, errors.New("timeout"))
+	logs := &syncBuffer{}
+	svc := newDedupService(r, &fakeEmbedder{vec: []float64{1}}, logs)
+
+	added, err := svc.AddLesson(context.Background(), LessonInput{SessionID: "s1", Text: incomingLesson})
+
+	if err != nil || added != (AddedLesson{ID: "lesson-1"}) {
+		t.Fatalf("AddLesson() = %+v, %v, want a new lesson", added, err)
+	}
+	if got := statements(r); !reflect.DeepEqual(got, []string{"lookup", "confirm", "add", "embed"}) {
+		t.Fatalf("statements = %v, want one confirm attempt then create", got)
+	}
+	if !strings.Contains(logs.String(), "confirm lesson failed") {
+		t.Fatalf("logs = %q", logs.String())
 	}
 }

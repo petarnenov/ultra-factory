@@ -156,9 +156,9 @@ func TestLoadIgnoresHomeConfigForScratchDataDir(t *testing.T) {
 func TestLoadSemantic(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.json")
 	base := Config{URL: "http://kg:7474", User: "neo4j", Database: "neo4j", Timeout: 3 * time.Second}
-	with := func(url, model string, minScore float64) Config {
+	with := func(url, model string, minScore, mergeScore float64) Config {
 		c := base
-		c.EmbeddingURL, c.EmbeddingModel, c.MinScore = url, model, minScore
+		c.EmbeddingURL, c.EmbeddingModel, c.MinScore, c.MergeScore = url, model, minScore, mergeScore
 		return c
 	}
 	tests := []struct {
@@ -170,13 +170,13 @@ func TestLoadSemantic(t *testing.T) {
 	}{
 		{
 			name: "file values and trailing slash trimmed",
-			file: `{"url":"http://kg:7474","embeddingUrl":"http://ollama:11434/","embeddingModel":"nomic-embed-text","minScore":0.8}`,
-			want: with("http://ollama:11434", "nomic-embed-text", 0.8),
+			file: `{"url":"http://kg:7474","embeddingUrl":"http://ollama:11434/","embeddingModel":"nomic-embed-text","minScore":0.8,"mergeScore":0.97}`,
+			want: with("http://ollama:11434", "nomic-embed-text", 0.8, 0.97),
 		},
 		{
 			name: "defaults when semantic is on",
 			file: `{"url":"http://kg:7474","embeddingUrl":"https://ollama"}`,
-			want: with("https://ollama", DefaultEmbeddingModel, 0.70),
+			want: with("https://ollama", DefaultEmbeddingModel, 0.70, 0.94),
 		},
 		{
 			name: "no defaults when semantic is off",
@@ -185,13 +185,14 @@ func TestLoadSemantic(t *testing.T) {
 		},
 		{
 			name: "env overlays file",
-			file: `{"url":"http://kg:7474","embeddingUrl":"http://file:1","embeddingModel":"f","minScore":0.9}`,
+			file: `{"url":"http://kg:7474","embeddingUrl":"http://file:1","embeddingModel":"f","minScore":0.9,"mergeScore":0.99}`,
 			env: map[string]string{
 				"AO_KNOWLEDGE_GRAPH_EMBEDDING_URL":   " http://env:11434/ ",
 				"AO_KNOWLEDGE_GRAPH_EMBEDDING_MODEL": " bge-m3 ",
 				"AO_KNOWLEDGE_GRAPH_MIN_SCORE":       "0.5",
+				"AO_KNOWLEDGE_GRAPH_MERGE_SCORE":     "0.96",
 			},
-			want: with("http://env:11434", "bge-m3", 0.5),
+			want: with("http://env:11434", "bge-m3", 0.5, 0.96),
 		},
 		{
 			name: "min score upper bound accepted",
@@ -199,11 +200,13 @@ func TestLoadSemantic(t *testing.T) {
 				"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_URL": "http://kg:7474",
 				"AO_KNOWLEDGE_GRAPH_EMBEDDING_URL": "http://o:1", "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "1",
 			},
-			want: with("http://o:1", DefaultEmbeddingModel, 1),
+			want: with("http://o:1", DefaultEmbeddingModel, 1, 0.94),
 		},
 		{name: "unparsable min score", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "high"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE"},
 		{name: "negative min score", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "-0.1"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE"},
 		{name: "min score above one", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MIN_SCORE": "1.5"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MIN_SCORE"},
+		{name: "unparsable merge score", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MERGE_SCORE": "high"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MERGE_SCORE"},
+		{name: "merge score above one", env: map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": missing, "AO_KNOWLEDGE_GRAPH_MERGE_SCORE": "1.5"}, wantErr: "invalid AO_KNOWLEDGE_GRAPH_MERGE_SCORE"},
 		{name: "embedding url bad scheme", file: `{"url":"http://kg:7474","embeddingUrl":"ftp://ollama"}`, wantErr: "embeddingUrl"},
 		{name: "embedding url without host", file: `{"url":"http://kg:7474","embeddingUrl":"http://"}`, wantErr: "must be http(s)"},
 	}

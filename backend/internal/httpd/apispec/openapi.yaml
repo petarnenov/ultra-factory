@@ -16201,9 +16201,15 @@ components:
     CreateLessonResponse:
       properties:
         id:
+          description: The new lesson, or the existing lesson it merged into.
           type: string
+        merged:
+          description: True when a near-identical lesson of the same kind absorbed
+            this one.
+          type: boolean
       required:
       - id
+      - merged
       type: object
     CreateRemoteWorkerLinkRequest:
       properties:

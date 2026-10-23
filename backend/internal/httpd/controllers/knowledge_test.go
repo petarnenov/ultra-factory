@@ -19,15 +19,16 @@ type fakeKnowledge struct {
 	lessons  []knowledgegraph.LessonInput
 	searches []knowledgegraph.SearchInput
 	items    []knowledgegraph.Item
+	merged   bool
 	err      error
 }
 
-func (f *fakeKnowledge) AddLesson(_ context.Context, in knowledgegraph.LessonInput) (string, error) {
+func (f *fakeKnowledge) AddLesson(_ context.Context, in knowledgegraph.LessonInput) (knowledgegraph.AddedLesson, error) {
 	f.lessons = append(f.lessons, in)
 	if f.err != nil {
-		return "", f.err
+		return knowledgegraph.AddedLesson{}, f.err
 	}
-	return "lesson-1", nil
+	return knowledgegraph.AddedLesson{ID: "lesson-1", Merged: f.merged}, nil
 }
 
 func (f *fakeKnowledge) Search(_ context.Context, in knowledgegraph.SearchInput) ([]knowledgegraph.Item, error) {
@@ -136,12 +137,22 @@ func TestKnowledgeAddLessonCreated(t *testing.T) {
 	if err := json.Unmarshal(raw, &created); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusCreated || created.ID != "lesson-1" {
+	if resp.StatusCode != http.StatusCreated || created != (controllers.CreateLessonResponse{ID: "lesson-1"}) {
 		t.Fatalf("status = %d body = %s", resp.StatusCode, raw)
 	}
 	want := knowledgegraph.LessonInput{SessionID: "s1", Kind: "fix", Text: "run make sqlc", Topics: []string{"sqlite"}}
 	if len(svc.lessons) != 1 || !reflect.DeepEqual(svc.lessons[0], want) {
 		t.Fatalf("lessons = %+v, want %+v", svc.lessons, want)
+	}
+}
+
+func TestKnowledgeAddLessonMerged(t *testing.T) {
+	srv := newRouterServer(t, httpd.APIDeps{Knowledge: &fakeKnowledge{merged: true}})
+
+	resp, raw := doKnowledge(t, http.MethodPost, srv.URL+"/api/v1/knowledge/lessons", `{"sessionId":"s1","text":"run make sqlc"}`)
+
+	if resp.StatusCode != http.StatusCreated || string(raw) != `{"id":"lesson-1","merged":true}` {
+		t.Fatalf("status = %d body = %s", resp.StatusCode, raw)
 	}
 }
 

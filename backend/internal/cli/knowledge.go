@@ -21,7 +21,8 @@ type knowledgeLessonRequest struct {
 }
 
 type knowledgeLessonResponse struct {
-	ID string `json:"id"`
+	ID     string `json:"id"`
+	Merged bool   `json:"merged"`
 }
 
 type knowledgeItem struct {
@@ -86,7 +87,11 @@ func (c *commandContext) knowledgeAdd(ctx context.Context, text, kind string, to
 	if err := c.postJSON(ctx, "knowledge/lessons", req, &resp); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(c.deps.Out, "Recorded lesson %s\n", resp.ID)
+	format := "Recorded lesson %s\n"
+	if resp.Merged {
+		format = "Confirmed existing lesson %s\n"
+	}
+	_, err := fmt.Fprintf(c.deps.Out, format, resp.ID)
 	return err
 }
 

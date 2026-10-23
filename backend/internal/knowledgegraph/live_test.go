@@ -6,9 +6,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
 // TestLiveGraph runs the queries against a real graph configured in
@@ -114,5 +117,91 @@ func TestLiveSemantic(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "kgsem-1" {
 		t.Fatalf("semantic match = %v, want only kgsem-1", got)
+	}
+}
+
+// TestLiveDedupe proves paraphrases merge, a task confirms once, and a
+// contradiction or another kind stays a separate lesson.
+func TestLiveDedupe(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	cfg, err := Load(os.Getenv, filepath.Join(home, ".ao", "data"))
+	if err != nil || !cfg.SemanticEnabled() {
+		t.Skipf("no embeddings configured: %v", err)
+	}
+	cfg.Timeout = 30 * time.Second
+	c := NewClient(cfg, nil)
+	ctx := context.Background()
+	const project = "__kglive_dedup"
+	t.Cleanup(func() {
+		_, _ = c.Run(ctx, "MATCH (n) WHERE n.project = $p OR n.id = $p DETACH DELETE n", map[string]any{"p": project})
+		_, _ = c.Run(ctx, "MATCH (t:Topic) WHERE NOT (t)--() DELETE t", nil)
+	})
+	sessions := &fakeSessions{sessions: map[domain.SessionID]domain.Session{}}
+	for _, id := range []domain.SessionID{"s1", "s2", "s3"} {
+		sessions.sessions[id] = worker(id, project)
+	}
+	svc := New(Deps{
+		Graph: NewGraph(c), Embedder: NewOllamaEmbedder(cfg, nil),
+		MinScore: cfg.MinScore, MergeScore: cfg.MergeScore, Sessions: sessions, HostID: "h",
+	})
+	add := func(session domain.SessionID, kind, text string) AddedLesson {
+		t.Helper()
+		added, err := svc.AddLesson(ctx, LessonInput{SessionID: session, Kind: kind, Text: text})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return added
+	}
+	const (
+		original   = "Electron does not respawn a daemon killed from outside; use the Restart daemon button in DaemonFailureBanner."
+		paraphrase = "A daemon killed externally is not restarted by Electron. Click Restart daemon in the DaemonFailureBanner."
+		contra     = "Electron does respawn a daemon killed from outside; use the Restart daemon button in DaemonFailureBanner."
+	)
+	first := add("s1", "pitfall", original)
+	if first.Merged {
+		t.Fatalf("first lesson merged: %+v", first)
+	}
+	for i := 0; i < 2; i++ {
+		if got := add("s2", "pitfall", paraphrase); got != (AddedLesson{ID: first.ID, Merged: true}) {
+			t.Fatalf("paraphrase #%d = %+v, want merged into %s", i+1, got, first.ID)
+		}
+	}
+	const refined = "Electron does not respawn a daemon killed from outside; click the Restart daemon button in the DaemonFailureBanner."
+	if got := add("s1", "pitfall", refined); got != (AddedLesson{ID: first.ID, Merged: true}) {
+		t.Fatalf("own refinement = %+v, want merged into %s", got, first.ID)
+	}
+	if got := add("s3", "pitfall", contra); got.Merged {
+		t.Fatalf("contradiction merged into %s", got.ID)
+	}
+	if got := add("s3", "tip", paraphrase); got.Merged {
+		t.Fatalf("other kind merged into %s", got.ID)
+	}
+	rows, err := c.Run(ctx, `
+MATCH (l:Lesson {id: $id})
+MATCH (:Task {id: 'h/s2'})-[other:CONFIRMED]->(l)
+MATCH (:Task {id: 'h/s1'})-[own:CONFIRMED]->(l)
+RETURN l.confirmations AS confirmations, l.text AS text, other.texts AS other, own.texts AS own,
+       COUNT { MATCH (x:Lesson {project: $p}) } AS lessons`, map[string]any{"id": first.ID, "p": project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("want one CONFIRMED edge per task, rows = %v", rows)
+	}
+	r := rows[0]
+	if r.Float("confirmations") != 1 || r.String("text") != original || r.Float("lessons") != 3 ||
+		!reflect.DeepEqual(r.Strings("other"), []string{paraphrase}) || !reflect.DeepEqual(r.Strings("own"), []string{refined}) {
+		t.Fatalf("graph state = %v", r)
+	}
+	g := svc.graph
+	if err := g.RecordTask(ctx, TaskFact{Key: "h/s2", SessionID: "s2", Host: "h", Project: project, Title: "Restart flow", Issue: "77", Outcome: "closed", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := g.Prior(ctx, Query{Project: project, Issue: "77", ExcludeTask: "h/none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || !reflect.DeepEqual(items[0].Lessons, []string{original}) {
+		t.Fatalf("attempt lessons = %+v, want the confirmed lesson", items)
 	}
 }
