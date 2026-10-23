@@ -5,7 +5,7 @@ import type { HostState, Scenario } from "../scenarios";
 export type StepTiming = BenchStep;
 
 // A failed run keeps its elapsed time and completed steps; never zeroed.
-export type DriverResult = { pass: boolean; totalMs: number; assertMs: number; steps: StepTiming[]; error?: string };
+export type DriverResult = { pass: boolean; totalMs: number; assertMs: number; steps: StepTiming[]; error?: string; jev?: BenchRecord["jev"] };
 
 // A catalog scenario, or a bench-only series such as the overhead one.
 export type BenchScenario = Omit<Scenario, "page"> & { page: BenchRecord["page"] };

@@ -14,6 +14,7 @@ import { installFakeAgent } from "./support/fake-bridge";
 import { waitForTools } from "./webmcp/assert";
 import { playwright } from "./webmcp/drivers/playwright";
 import { scripted } from "./webmcp/drivers/scripted";
+import { jev, jevAvailable, jevSkipReason } from "./webmcp/drivers/jev";
 import type { BenchScenario, Driver, DriverResult } from "./webmcp/drivers/types";
 import { createHostState, scenarios, type PhaseAction } from "./webmcp/scenarios";
 
@@ -127,6 +128,8 @@ async function writeRecord(record: BenchRecord): Promise<void> {
 // ── Bench ────────────────────────────────────────────────────────────────────
 
 const drivers: Partial<Record<DriverName, Driver>> = { playwright, "webmcp-scripted": scripted };
+if (jevAvailable) drivers["webmcp-jev"] = jev;
+else if (process.env.AO_WEBMCP_BENCH === "1") console.info(`Skipping webmcp-jev: ${jevSkipReason}`);
 
 test.describe("WebMCP benchmark", () => {
 	test.skip(process.env.AO_WEBMCP_BENCH !== "1", "Opt-in benchmark; set AO_WEBMCP_BENCH=1");
