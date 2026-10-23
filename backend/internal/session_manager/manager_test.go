@@ -12340,13 +12340,34 @@ func TestSystemPrompt_WorkerEscalationResolvesOwnerAtSendTime(t *testing.T) {
 	}
 }
 
-func TestWorkerEscalationPromptResolvesLinkedRemoteOwnerThroughRootDaemon(t *testing.T) {
+func TestWorkerEscalationPromptResolvesRootHostByExactIDAcrossSameProjectHosts(t *testing.T) {
 	sp := workerEscalationPrompt()
+	rootSessionID := "project-root-b"
+	hostSessions := map[string][]struct {
+		projectID string
+		sessionID string
+	}{
+		"host-a": {{projectID: "project", sessionID: "project-root-a"}},
+		"host-b": {{projectID: "project", sessionID: rootSessionID}},
+	}
+	matchedHost := ""
+	for host, sessions := range hostSessions {
+		for _, session := range sessions {
+			if session.projectID == "project" && session.sessionID == rootSessionID {
+				matchedHost = host
+			}
+		}
+	}
+	if matchedHost != "host-b" {
+		t.Fatalf("matched host = %q, want host-b for exact root ID %q", matchedHost, rootSessionID)
+	}
+
 	for _, want := range []string{
 		"ao host ls",
 		"ao session ls --host <host> --json",
-		"matching the session ID to that `rootSessionId`",
-		"Do not identify the daemon by project or orchestrator listing",
+		"matching the session ID exactly to that `rootSessionId`",
+		"if two hosts both list this project but only one lists the returned root session ID, use that host",
+		"Never choose a host just because its project or orchestrator listing matches",
 		"ao remote-worker ls --project $AO_PROJECT_ID --json",
 		"remoteSessionId",
 		"ownerSessionId",
