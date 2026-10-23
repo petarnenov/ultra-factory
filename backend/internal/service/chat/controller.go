@@ -221,6 +221,7 @@ type Controller struct {
 	onAccountChanged       func(domain.SessionID, string, domain.AgentHarness)
 	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error
 	onQuotaObserved        func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error
+	reviewNudges           ports.ReviewNudgeGate
 
 	// sendMu serializes command dispatch so only one operation mutates the
 	// provider conversation at a time.
@@ -380,6 +381,7 @@ func newController(
 	onAccountChanged func(domain.SessionID, string, domain.AgentHarness),
 	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error,
 	onQuotaObserved func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error,
+	reviewNudges ports.ReviewNudgeGate,
 ) *Controller {
 	c := &Controller{
 		sessionID:              sessionID,
@@ -397,6 +399,7 @@ func newController(
 		onAccountChanged:       onAccountChanged,
 		onCodexCapacityChanged: onCodexCapacityChanged,
 		onQuotaObserved:        onQuotaObserved,
+		reviewNudges:           reviewNudges,
 		state:                  ports.ChatControllerReady,
 		settings:               conversation.Settings,
 		mcpServers:             map[string]domain.ConversationMCPServer{},
@@ -1457,10 +1460,14 @@ func (c *Controller) sendLocked(
 		return domain.ConversationTurn{}, nil, ErrControllerHandoff
 	}
 
+	queuing := queueWhenBusy && c.busy()
+	if !queuing && c.reviewNudgeResolved(ctx, msg.ClientMessageID) {
+		return domain.ConversationTurn{}, nil, nil
+	}
 	now := c.now()
 	turnID := c.newID()
 	markedSending := false
-	if !queueWhenBusy || !c.busy() {
+	if !queuing {
 		c.setSendingTurn(turnID)
 		markedSending = true
 	}
@@ -1540,6 +1547,26 @@ func (c *Controller) sendLocked(
 	turn, err := c.dispatch(ctx, turnID, msg, now)
 	dispatched = err == nil
 	return turn, nil, err
+}
+
+// reviewNudgeResolved reports a review nudge whose thread has resolved.
+func (c *Controller) reviewNudgeResolved(ctx context.Context, clientMessageID string) bool {
+	token, ok := domain.ParseReviewNudgeClientMessageID(clientMessageID)
+	return ok && c.reviewThreadResolved(ctx, token)
+}
+
+// reviewThreadResolved delivers on a failed read; the lifecycle checked first.
+func (c *Controller) reviewThreadResolved(ctx context.Context, token domain.ReviewNudgeToken) bool {
+	if c.reviewNudges == nil {
+		return false
+	}
+	resolved, err := c.reviewNudges.ReviewNudgeResolved(ctx, token)
+	if err != nil {
+		c.log.Warn("review nudge freshness check failed; delivering",
+			"session", c.sessionID, "thread", token.ThreadID, "error", err)
+		return false
+	}
+	return resolved
 }
 
 // RetryTurn re-dispatches a failed turn's durable prompt as a new turn.
@@ -1996,6 +2023,13 @@ func (c *Controller) drainLocked(ctx context.Context, allowDispatch bool) error 
 					"session", c.sessionID, "turn", queued.TurnID, "error", err)
 				return err
 			}
+		}
+		if c.reviewNudgeResolved(ctx, queued.ClientMessageID) {
+			if err := c.store.SettleTurnByID(ctx, queued.TurnID, domain.TurnStateCancelled,
+				"review thread resolved while queued", c.now()); err != nil {
+				return err
+			}
+			continue
 		}
 		queuedMessage := ports.ChatUserMessage{
 			Text:            queued.Text,

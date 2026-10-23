@@ -436,6 +436,7 @@ func Run() error {
 		Renders:             attachmentstore.New(cfg.DataDir),
 		DataDir:             cfg.DataDir,
 		ReconcileOutputType: lcStack.LCM.ReconcileSessionOutputType,
+		ReviewNudges:        lcStack.LCM,
 		HibernationEnabled:  settingsSvc.ChatHibernationEnabled,
 		AppRunID:            cfg.AppRunID,
 		StopProviderHost: func(ctx context.Context, id domain.SessionID) error {

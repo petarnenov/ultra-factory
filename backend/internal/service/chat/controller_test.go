@@ -3125,6 +3125,8 @@ type harness struct {
 	// reconcileErr is what that update returns.
 	reconciled   []domain.SessionID
 	reconcileErr error
+	// nudges answers the review-nudge freshness check; unresolved by default.
+	nudges scriptedNudgeGate
 
 	clockMu sync.Mutex
 	clock   time.Time
@@ -3219,9 +3221,10 @@ func newHarnessWithConversationAndStoreForHarness(
 			counter++
 			return fmt.Sprintf("id-%03d", counter)
 		},
-		Now:     h.now,
-		Renders: h.renders,
-		DataDir: h.rendersDir,
+		Now:          h.now,
+		Renders:      h.renders,
+		DataDir:      h.rendersDir,
+		ReviewNudges: &h.nudges,
 		ReconcileOutputType: func(_ context.Context, id domain.SessionID) error {
 			h.reconciled = append(h.reconciled, id)
 			return h.reconcileErr

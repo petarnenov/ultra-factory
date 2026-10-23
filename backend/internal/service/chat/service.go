@@ -67,6 +67,7 @@ type Service struct {
 	onAccountChanged       func(domain.SessionID, string, domain.AgentHarness)
 	onCodexCapacityChanged func(domain.SessionID, string, ports.CodexCapacityObservation) error
 	onQuotaObserved        func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error
+	reviewNudges           ports.ReviewNudgeGate
 	// onModelChanged syncs ChatUI's model override (including clearing it) to
 	// session metadata before the next prompt routes or a later TUI rebuild.
 	onModelChanged   func(domain.SessionID, string)
@@ -164,6 +165,8 @@ type Options struct {
 	// OnQuotaObserved receives exact provider window percentages transiently;
 	// the callback is never used to persist provider account details.
 	OnQuotaObserved func(domain.SessionID, string, domain.AgentHarness, float64, time.Time) error
+	// ReviewNudges re-checks a queued review nudge before dispatch.
+	ReviewNudges ports.ReviewNudgeGate
 	// OnModelChanged syncs ChatUI's model override to session metadata before
 	// the next prompt routes. Nil leaves session metadata unchanged.
 	OnModelChanged func(domain.SessionID, string)
@@ -207,6 +210,7 @@ func New(opts Options) *Service {
 		onAccountChanged:       opts.OnAccountChanged,
 		onCodexCapacityChanged: opts.OnCodexCapacityChanged,
 		onQuotaObserved:        opts.OnQuotaObserved,
+		reviewNudges:           opts.ReviewNudges,
 		onModelChanged:         opts.OnModelChanged,
 		stopProviderHost:       opts.StopProviderHost,
 		renders:                opts.Renders,
@@ -901,7 +905,7 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 	// A fresh generation per launch, so events from the controller this one
 	// replaced can be told apart from the current one's.
 	controller := newController(
-		cfg.SessionID, owner, conversation, generation, cfg.Harness, conv, s.store, s.activity, s.progress, s.log, s.newID, s.now, s.onAccountChanged, s.onCodexCapacityChanged, s.onQuotaObserved)
+		cfg.SessionID, owner, conversation, generation, cfg.Harness, conv, s.store, s.activity, s.progress, s.log, s.newID, s.now, s.onAccountChanged, s.onCodexCapacityChanged, s.onQuotaObserved, s.reviewNudges)
 	var commitProviderHistory func(context.Context) error
 	if liveReconnect {
 		providerTurnID := controller.restoreLiveTurnOwnership(liveRows.Turns)
