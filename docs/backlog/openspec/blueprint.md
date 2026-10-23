@@ -90,7 +90,7 @@ Verification layers remain distinct: requirement/scenario validation; unit/servi
 
 ## Rollout gates and completion
 
-Setup and learning: SDD-01 → SDD-02 → SDD-15 ([#633](https://github.com/petarnenov/ultra-factory/issues/633)). This early pilot seeds only one capability and does not wait for the full baseline, new CI or product integration. Its accepted report and convention corrections unblock SDD-03. The pilot issue owns the evaluation; its selected real implementation gets a separate issue/change/PR.
+Setup and learning: SDD-01 → SDD-02 → SDD-15 ([#633](https://github.com/petarnenov/ultra-factory/issues/633)). This early pilot seeds only one capability and does not wait for the full baseline, new CI or product integration. Under D07, agents select and execute the pilot cases through the full proposal process, and geo.architect makes the evidence-based final go/no-go decision using D03 arbitration. Its accepted report and convention corrections unblock SDD-03. The pilot issue owns the evaluation; its selected real implementation gets a separate issue/change/PR.
 
 Expansion: SDD-03 → SDD-04 to SDD-09. SDD-08 changes only this repository's instructions and assignment templates. Any future product-level OpenSpec support requires a separate proposal with explicit per-project opt-in, default-off behavior and non-OpenSpec regression coverage.
 

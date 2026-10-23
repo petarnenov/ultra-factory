@@ -21,6 +21,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
+- [ ] Under D07, agents select and execute the pilot cases without a separate owner selection gate; each change still requires its full proposal and council approval under D05. geo.architect decides final go/no-go from actual evidence using D03 arbitration.
 - [ ] Select one small real behavior change after SDD-01 and SDD-02; seed only its capability from current code and tests. Do not require the repository-wide baseline, new CI gates or global agent integration.
 - [ ] Use one child implementation issue, one OpenSpec change and one implementation PR; this pilot issue owns the evaluation report, not a second implementation of that change.
 - [ ] Exercise proposal ratification through geo.architect under D02, declared impact, scenarios, implementation, semantic review, manual evidence checks, spec synchronization and archive on the pinned version. Manually reject incomplete artifacts until SDD-16 supplies enforcement.

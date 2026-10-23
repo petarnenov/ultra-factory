@@ -44,13 +44,16 @@ Each change records why, scope/non-goals, impact, affected capabilities or a jus
 
 Owner answer: geo.architect. When code, tests and documentation disagree, the council evaluates the evidence and establishes the intended in-scope behavior, using D03 final arbitration if needed. Neither existing code nor prose wins automatically. Record the contradiction, evidence, decision and any corrective implementation in the proposal; retain known defects as explicit gaps until resolved. Do not silently weaken hard requirements or expand the fork scope. Spec changes and implementation fixes follow the same full proposal and verification process.
 
+### D07 Agents select and execute pilots
+
+Owner answer: Agents select and execute (option 3). Agents choose bounded real tasks for the early and broad pilots and execute within approved scope. Every selected change still requires its full proposal and council approval under D05 before implementation. No additional owner approval of pilot selection is required. geo.architect assesses the final evidence and decides go/no-go under D02/D03; selection authority is not permission to skip required validation or declare success without evidence.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D07 | Pilot selection and go/no-go authority | Agents choose bounded cases and council ratifies evidence; owner chooses and accepts each pilot; agents propose cases and owner approves selection only | SDD-15, SDD-13 |
 | D08 | Performance/reliability acceptance | Council sets evidence-based thresholds from reproducible baseline; owner supplies numerical targets; observational first phase with no unsupported performance claims | SDD-07, SDD-13 |
 | D09 | Missing native hardware, credentials or external evidence | Block affected acceptance and continue independent work; explicitly defer unsupported acceptance from first rollout; owner supplies prerequisites before execution | SDD-05, SDD-11 to SDD-14 |
 | D10 | Integration into dev | Root may merge after current-head council/review/CI criteria; owner approves each merge; implementation stops at ready PRs | SDD-02, SDD-08, SDD-16 |

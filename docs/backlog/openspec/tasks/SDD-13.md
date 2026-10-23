@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Under D07, agents select and execute the pilot cases without a separate owner selection gate; each change still requires its full proposal and council approval under D05. geo.architect decides final go/no-go from actual evidence using D03 arbitration.
 - [ ] Include all D04 platforms in broad-pilot applicability and evidence accounting. Unrun native checks stay explicitly unverified and cannot be silently dropped to pass the pilot.
 - [ ] Build on SDD-15 early pilot evidence and select bounded real feature, bugfix and operational changes with individual issues, changes and implementation PRs. This issue owns their cross-surface evaluation report.
 - [ ] Capture declaration-to-review-to-dev evidence and release readiness, including rejection/recovery scenarios and current-head CI.
