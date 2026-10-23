@@ -32,8 +32,10 @@ INSERT INTO remote_worker_links (
 ON CONFLICT(host_id, remote_session_id) DO NOTHING;
 
 -- name: UpdateRemoteWorkerLinkLiveness :exec
-UPDATE remote_worker_links SET last_seen_at = ?, last_state = ?
-WHERE host_id = ? AND remote_session_id = ?;
+UPDATE remote_worker_links SET last_seen_at = sqlc.arg(last_seen_at), last_state = sqlc.arg(last_state),
+    terminated_at = CASE WHEN sqlc.arg(last_state) = 'terminated'
+        THEN COALESCE(terminated_at, sqlc.arg(last_seen_at)) ELSE NULL END
+WHERE host_id = sqlc.arg(host_id) AND remote_session_id = sqlc.arg(remote_session_id);
 
 -- name: InsertRemoteWorkerLinkRemoval :exec
 INSERT INTO remote_worker_link_removals (host_id, remote_session_id, removed_at)

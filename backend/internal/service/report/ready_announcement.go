@@ -84,7 +84,7 @@ func (a *ReadyAnnouncer) announcePR(ctx context.Context, worker domain.SessionRe
 	if err != nil || !won {
 		return err
 	}
-	if _, err := a.reports.createLifecycleReport(ctx, worker, note); err != nil {
+	if err := a.reports.createLifecycleReport(ctx, worker, note); err != nil {
 		return errors.Join(err, a.releaseClaim(ctx, claimKey))
 	}
 	return nil

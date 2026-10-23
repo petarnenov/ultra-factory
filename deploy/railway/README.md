@@ -242,9 +242,8 @@ from [hub/Dockerfile](hub/Dockerfile),
 | `ANTHROPIC_API_KEY` | Optional. Claude Code credential for an orchestrator in the hub, read by `claude` from the environment. See [Orchestrator agent credentials](#orchestrator-agent-credentials). |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Optional alternative to `ANTHROPIC_API_KEY` for Claude Code. Set at most one of the two. |
 | `OPENAI_API_KEY` | Optional. Codex API key; used only for the one-time `codex login --with-api-key` below, not read by AO's readiness probe. |
-| `AO_HUB_ORCHESTRATOR_TICK` | Optional. `1` starts the orchestrator wake-up loop (`ao orchestrator tick loop`) under the supervisor; default off. It is configured by the `RW_TICK_*` variables; see [Orchestrator wake-up loop](#orchestrator-wake-up-loop). |
 | `AO_SUPERVISED` | Set by the image supervisor to `1` for the daemon. The daemon then refuses loopback `POST /shutdown`, so `ao stop` cannot take the hub down from an agent session; restart the service from Railway instead. |
-| `TS_AUTHKEY` | Optional. A pre-approved, non-reusable, non-ephemeral auth key tagged `tag:ao-hub`. When present, the supervisor joins the tailnet in userspace mode and passes `AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055` only to the daemon, the BFF and the orchestrator tick loop (whose `ao session ls --host` calls reach the remote hosts) after `tailscale up` succeeds. The key is read from the supervisor environment, sent to `tailscale up` over stdin, and is not logged, passed in a child environment or argv, or written to `/data`. |
+| `TS_AUTHKEY` | Optional. A pre-approved, non-reusable, non-ephemeral auth key tagged `tag:ao-hub`. When present, the supervisor joins the tailnet in userspace mode and passes `AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055` only to the daemon and the BFF after `tailscale up` succeeds. The key is read from the supervisor environment, sent to `tailscale up` over stdin, and is not logged, passed in a child environment or argv, or written to `/data`. |
 | `TS_HOSTNAME` | Optional Tailscale node name; defaults to `ao-hub`. |
 | `TS_DEBUG_MTU` | Optional Tailscale tunnel MTU for the hub; defaults to `1232`. Railway's `railnet0` has MTU 1316, and Tailscale's default 1280 makes full-size WireGuard packets 1340 bytes, so large responses from some tailnet hosts are lost (`ao session ls --host` times out while `ao host ls` shows them online). |
 | `GH_TOKEN` | Required for an orchestrator in the hub. Fine-grained token limited to this repository; read by `gh` and, through `gh auth token`, by the daemon's GitHub adapters. |
@@ -312,7 +311,7 @@ volume, so never use **Remove** as a redeploy.
 The user agreed this process on 2026-10-19. It decides where work may run.
 
 - **The hub runs only the orchestrator.** The hub service runs the
-  orchestrator session with the daemon, the BFF and the wake-up loop. Do not
+  orchestrator session with the daemon and the BFF. Do not
   start implementation, fixes, tests or reviews on the hub. It is not a build
   machine: it has no Go toolchain, no Docker, no python3 and no actionlint, so
   a Go change cannot be validated there. Start work on a worker machine with
@@ -448,136 +447,23 @@ the hub answers a prompt and runs
 `gh issue view 119 --repo petarnenov/ultra-factory`. Record only the result
 and the date, never `gh auth status -t` output or environment dumps.
 
-### Orchestrator wake-up loop
+### Worker lifecycle reports
 
-Worker reports reach a hub orchestrator through the ADR 0005 pull, but no
-report covers PR and CI state (a PR that turns green, a merge conflict). The
-wake-up loop covers it: `ao orchestrator tick loop` runs as a third child of
-the supervisor when the `hub` service has `AO_HUB_ORCHESTRATOR_TICK=1`. It is
-part of the `ao` binary (package `backend/internal/orchestratortick`), so it
-ships, is versioned and is tested with the rest of AO.
+Worker reports reach a hub orchestrator through the ADR 0005 pull. In
+addition, the daemon delivers worker lifecycle reports to the owning
+coordinator, or to the root orchestrator for root-owned workers,
+automatically: a PR merged, a PR closed without merge, and a worker session
+that ended. Remote ownership is resolved from the hub's worker link, never
+from the remote worker's session owner. Each outcome is announced once; a
+delivery that fails is retried on the next observation.
 
-- **What one tick does.** It finds the single live orchestrator of
-  `RW_TICK_PROJECT` (default `ultra-factory`), or the session in
-  `RW_TICK_SESSION`. Zero or several live orchestrators, or a daemon that is
-  not ready, are logged as errors and nothing is sent. An orchestrator in an
-  active turn is never interrupted. Otherwise it reads, concurrently, the
-  `rw/` worker sessions of `RW_TICK_HOSTS` (default `Linux IMac Z600`) and, in
-  one GitHub GraphQL query, the open and merged PRs to `dev`
-  with their checks, the open `rw` issues, and how far the branch is behind
-  `main`. It checks five invariants (branch contains `main`, no green
-  mergeable PR left open, no merged PR with an open task issue, no idle
-  worker without a PR, the claude-code + codex worker mix) and sends one
-  `TICK` message when the state changed, or when nothing changed for 30
-  minutes while work is in flight (10 with a violation). A violation that only
-  grows older ("green for 35 min") is the same state, not a change.
-- **GitHub.** Read with `AO_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` or
-  `gh auth token`, in that order (see
-  [Orchestrator agent credentials](#orchestrator-agent-credentials)). A missing
-  or rejected token is reported to the orchestrator as a violation.
-- **Configuration.** `RW_TICK_*` variables: `PROJECT`, `SESSION`, `HOSTS`,
-  `REPO`, `BASE`, `MAIN`, `ISSUE_LABEL`, `BRANCH_PREFIX`, `INTERVAL` and
-  `TIMEOUT` (seconds), `RENUDGE_MINUTES`, `VIOLATION_RENUDGE_MINUTES`,
-  `GREEN_PR_MAX_MINUTES`, `IDLE_WORKER_MAX_MINUTES`, `AGENT_MIX_SINCE`
-  (RFC 3339), `PAUSED`, `HOLD_LABELS`, `MERGE_AUTHORIZED`, `CLOSE_COMPLETED`.
-  `RW_TICK_INTERVAL` defaults to 180 seconds (3 minutes); an explicit value
-  overrides it. An invalid value stops the command with an error.
-- **Completion reconciliation.** Two explicit durable opt-ins extend the same
-  cadence. `RW_TICK_MERGE_AUTHORIZED=1` permits a normal squash merge only when
-  the fresh provider observation proves the exact current head has passing
-  required checks, a current-head AO native review verdict of `up_to_date` for
-  the exact head, `MERGEABLE`, no unresolved review threads, and no hold label
-  (`RW_TICK_HOLD_LABELS`, default `needs-human do-not-merge status:blocked`).
-  A GitHub `APPROVED` rollup or an approval comment is not a substitute for
-  the native verdict; provider `CHANGES_REQUESTED`/`REVIEW_REQUIRED` still
-  block. The merge request carries the evaluated head SHA, so a head change
-  between the check and the mutation is refused rather than merged. Without
-  the flag the exact missing authorization is reported in the tick message
-  and `status`.
-  `RW_TICK_CLOSE_COMPLETED=1` permits terminating a worker after at least one
-  owned PR merged and every owned PR is terminal, the agent is not active, the
-  branch push state is known and has no unpublished commits, and no durable
-  obligation remains. The lifecycle kill preserves worktrees, branches, and
-  artifacts; it never force-cleans. A worker that must deploy or verify live
-  stays open through an obligation recorded with
-  `ao orchestrator tick hold <session> --host <H> --reason <why> --until
-  <condition>`, and `ao orchestrator tick release <session> --host <H>` clears
-  it. Merge and close actions are recorded in
-  `$AO_DATA_DIR/orchestrator-tick/completion.json`; completed actions are not
-  replayed, and a failed close or merge remains actionable for the next tick.
-  Pause is checked before any action, so a stopped campaign never merges,
-  closes, or restarts work from an older queued tick.
-- **Logs and state.** Each tick writes one structured (logfmt) line to stderr,
-  which is the service log; violations are logged as warnings. State lives in
-  `$AO_DATA_DIR/orchestrator-tick/` (`/data/ao/orchestrator-tick/`, mode
-  0700): the maintenance flag, the last tick's outcome, and the fingerprint of
-  the last state sent. Files are replaced atomically. The `TICK` message itself
-  is not logged.
-- **Start and failure.** The first tick runs 60 seconds after the container
-  starts (`AO_HUB_TICK_START_DELAY`). Each tick is bounded by
-  `RW_TICK_TIMEOUT` (default 240 s); a failed or panicking tick is logged and
-  the loop continues. SIGTERM stops the loop at once. If the process exits,
-  the supervisor restarts it after 60 seconds; the daemon and the BFF keep
-  running.
-
-#### Merge queue
-
-The tick's gated squash merge into `dev` is the single non-root merge path,
-acting under the root's authority. An operator enables it explicitly with
-`RW_TICK_MERGE_AUTHORIZED=1` on the hub service; it is off by default. This
-change does not set Railway variables. `RW_TICK_BASE` selects the target
-branch and must remain `dev` for this queue.
-
-The existing gates all apply: a known current head, a non-draft PR,
-`MERGEABLE`, passing required checks, a current-head AO native `up_to_date`
-review, no `CHANGES_REQUESTED` or `REVIEW_REQUIRED`, no unresolved threads,
-and no hold label. The provider refuses a merge if the evaluated head moves.
-A coordinator's `readyPRs` hand-off is advisory; it cannot authorize a merge
+No external wake-up loop or extra configuration is needed. The hub image no
+longer runs a separate wake-up child, and there is no automated merge queue:
+a PR into `dev` is merged by the root orchestrator or an operator after the
+usual gates (current head, passing required checks, a current-head AO native
+`up_to_date` review, no unresolved threads, and no hold label). A
+coordinator's `readyPRs` hand-off is advisory; it cannot authorize a merge
 or replace fresh provider and native review facts.
-
-Set `RW_TICK_PAUSED=1` or run `ao orchestrator tick pause "maintenance"` to
-stop the queue, including previously queued actions. Apply `needs-human`,
-`do-not-merge`, or `status:blocked` to hold one PR (or configure
-`RW_TICK_HOLD_LABELS`). Remove the authorization flag to disable merging.
-
-Only workers are merge and close candidates: coordinators and orchestrators
-are excluded even if their host is configured. After a merge or completed
-worker closure, the live owning coordinator receives system context through
-the report delivery path, naming the worker, PR numbers and merge commits.
-Remote ownership is resolved from the hub's worker link, never from the
-remote worker's session owner. Root-owned workers need no additional message.
-The root's tick message still lists the completion. The local owner is
-saved before a merge or close, so removing a terminated worker's link
-cannot lose its notification. Completed actions are saved before delivery;
-notification retries use the same semantic acceptance key and do not
-repeat the merge or notify twice.
-
-`ao orchestrator tick status` lists queued (`pending`), completed, blocked,
-and superseded merge actions with their head, merge commit and latest
-blocker. PRs blocked before queueing, including missing authorization, appear
-in the worker's remaining reasons. The tick message also names blockers.
-
-**Inspect and pause.** In a hub terminal (uid `10001`, `HOME=/data/home`):
-
-```bash
-ao orchestrator tick status             # maintenance flag, last tick, last message sent
-ao orchestrator tick snapshot           # the state a tick would report; sends nothing
-ao orchestrator tick run --dry-run      # a whole tick that prints the message instead of sending it
-ao orchestrator tick pause "redeploy"   # sets the maintenance flag
-ao orchestrator tick resume             # clears it
-ao orchestrator tick hold uf-41 --host Linux --reason "deployment pending" --until "live check passes"
-ao orchestrator tick release uf-41 --host Linux
-```
-
-The flag is on the volume, so it survives a redeploy; resume after the hub is
-verified. While it is set every tick logs `outcome=paused` and sends nothing.
-Setting `RW_TICK_PAUSED=1` on the service pauses as well, but changing a
-variable restarts the hub. To turn the loop off for good, remove
-`AO_HUB_ORCHESTRATOR_TICK`. Run only one loop per orchestrator.
-
-**Tests.** `go test ./internal/orchestratortick/ ./internal/cli/ -run Tick`
-(from `backend/`) covers the invariants, the send decision, pause, the loop's
-shutdown and panic recovery, and the GitHub and daemon adapters.
 
 ### Cutover to the hub orchestrator
 
@@ -589,11 +475,10 @@ shutdown and panic recovery, and the GitHub and daemon adapters.
    confirm it is online with `ao host ls` in the hub.
 3. Stop the Mac orchestrator from creating workers. Wait for its existing
    remote workers to finish and for every remote report link to be removed.
-4. Stop the Mac orchestrator and any wake-up loop that targets it.
-5. Start the hub orchestrator, set `AO_HUB_ORCHESTRATOR_TICK=1`, and verify that
-   only the hub orchestrator and tick are active. Before every planned hub
-   redeploy, pause the tick as described above and resume it only after the hub
-   checks pass.
+4. Stop the Mac orchestrator.
+5. Start the hub orchestrator and verify that only the hub orchestrator is
+   active. Before every planned hub redeploy, pause hub work and resume it only
+   after the hub checks pass.
 
 ### Rollback to the Mac orchestrator
 
@@ -602,15 +487,11 @@ hub orchestrator on 2026-10-20. The Mac orchestrator is the single live
 orchestrator again, and the hub stays stopped until a new cutover. Workers
 that the hub spawned are not linked to the Mac daemon, so their `ao report`
 does not reach it; inspect them with `ao session ls --host` and
-`ao session get --host`, and message them with `ao send --host`. Replacing the
-tick with daemon lifecycle reports is tracked in #537.
+`ao session get --host`, and message them with `ao send --host`.
 
-Steps, as performed: pause the hub tick, stop the hub orchestrator, and remove
-`AO_HUB_ORCHESTRATOR_TICK` if the hub must remain without a wake-up loop.
-Restart the Mac orchestrator with its orchestrator prompt, then run
-`ao orchestrator tick loop` on the Mac under a process supervisor (launchd or
-systemd) with the same `RW_TICK_*` settings. Verify that exactly one
-orchestrator and one loop are active before allowing new work.
+Steps: stop the hub orchestrator. Restart the Mac orchestrator with its
+orchestrator prompt; its daemon delivers worker lifecycle reports the same
+way. Verify that exactly one orchestrator is active before allowing new work.
 
 ### Updating the hub's Tailscale version
 
@@ -888,9 +769,7 @@ Coordinate a hub maintenance window and pause hub work before merging such a
 PR; worker drain does not protect sessions executing on the hub itself.
 
 For a planned update: confirm no active hub sessions, stop new work, and record
-pending work before redeploying. With the wake-up loop on, pause it first and
-resume it after the checks below (see
-[Orchestrator wake-up loop](#orchestrator-wake-up-loop)). Select the intended
+pending work before redeploying. Select the intended
 image revision and reattach the same `/data` volume; after startup, verify
 `/healthz`, login, the board, `/hub/hosts`, and a new terminal session. Do not
 infer recovery of active work from persisted session records.
@@ -1663,9 +1542,7 @@ were not verified and must not be reported as passed.
 | Persistence and restart | Pass, limited | The host registry, GitHub and Claude sign-ins under `/data`, and the agent CLIs in `/data/home/.npm-global` were kept across several image updates. Database contents were not compared. |
 | Image update and rollback | Update: pass; rollback pending | Updates are published and deployed by `hub-image.yml` (see [Automated image publish and deploy](#automated-image-publish-and-deploy)), with a 60 s post-`SUCCESS` re-check added after a crash loop (#128). A rollback was not exercised. |
 | Backup and restore | Pending human validation | Record the approved backup/snapshot and restore test; API spike did not verify it. |
-| Orchestrator credentials (RW-5.4.1) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | In the hub, `ao agent ls` listed `claude-code` and `codex` as `authorized`; the hub orchestrator session answered prompts and ran `gh issue view 119 --repo petarnenov/ultra-factory`. With `AO_HUB_ORCHESTRATOR_TICK=1` the hub tick loop delivered TICKs to it (for example for PR #155) with nothing running on the Mac. No credential output recorded. |
-| Orchestrator wake-up loop (RW-5.4.2) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | With `AO_HUB_ORCHESTRATOR_TICK=1` on the hub, the tick loop delivered TICKs to the hub orchestrator (for example for PR #155) with nothing running on the Mac. Recorded from the operator's live check; no dry-run output. |
-| Tick merge authorization (#420) | Unknown; needs-human operator check | No live hub variable read was performed for this change. An operator must record whether `RW_TICK_MERGE_AUTHORIZED` is set (value `1` enables merging). Enabling it remains an operator decision; this issue does not change Railway variables. |
+| Orchestrator credentials (RW-5.4.1) | Pass (2026-10-17, [#134](https://github.com/petarnenov/ultra-factory/issues/134)) | In the hub, `ao agent ls` listed `claude-code` and `codex` as `authorized`; the hub orchestrator session answered prompts and ran `gh issue view 119 --repo petarnenov/ultra-factory`. No credential output recorded. |
 
 The spike in [`packages/hub-bff/docs/railway-api-notes.md`](../../packages/hub-bff/docs/railway-api-notes.md)
 confirmed only selected Railway GraphQL create/configuration operations with a

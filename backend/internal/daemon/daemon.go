@@ -725,14 +725,14 @@ func Run() error {
 		defer knowledge.Stop()
 	}
 	var reportCoordinator *reportsvc.Coordinator
-	reportSvc := reportsvc.New(reportsvc.Deps{Store: store, Artifacts: chatSvc, OnCreated: func(rec domain.ReportRecord) {
+	reportSvc := newReportService(store, chatSvc, func(rec domain.ReportRecord) {
 		if reportCoordinator != nil {
 			reportCoordinator.Wake()
 		}
 		if knowledge != nil {
 			knowledge.ReportCreated(rec)
 		}
-	}})
+	})
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
 		Store:     store,
 		Delivery:  reportSemanticDelivery{chat: chatSvc, sessions: reportSessions, store: store},
@@ -749,7 +749,7 @@ func Run() error {
 	} else {
 		log.Warn("ready to merge: review service cannot announce approvals")
 	}
-	defer wakeOnCoordinatorTermination(ctx, cdcPipe.Broadcaster, store, log, reportCoordinator.Wake)()
+	defer wakeOnTermination(ctx, cdcPipe.Broadcaster, store, log, reportCoordinator.Wake)()
 	reportDeliveryDone := reportCoordinator.Start(ctx)
 	defer func() {
 		stop()
@@ -944,7 +944,7 @@ func Run() error {
 		}()
 		lcStack.LCM.SetUsageFinalizer(usageCollector)
 	}
-	lcStack.scmDone = startSCMObserver(ctx, store, lcStack.LCM, sessionSvc, reportCoordinator, cfg.DataDir, cfg.GitLab, log)
+	lcStack.scmDone = startSCMObserver(ctx, store, lcStack.LCM, sessionSvc, reportSvc, cfg.DataDir, cfg.GitLab, log)
 	var prActions prsvc.ActionManager
 	prReader := newMultiSCMProvider(cfg.GitLab, cfg.DataDir, log)
 	prMerger := newMultiSCMMerger(cfg.GitLab, cfg.DataDir, log)
@@ -1122,7 +1122,6 @@ func Run() error {
 		Reviews:            reviewSvc,
 		Notifications:      notifier,
 		Reports:            reportSvc,
-		CompletionReports:  reportCoordinator,
 		Summaries:          summarySvc,
 		RemoteWorkerLinks:  remoteWorkerSvc,
 		RemoteWorkerSync:   remoteReports,

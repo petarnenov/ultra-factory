@@ -192,7 +192,7 @@ Run this loop at the end of every turn and whenever a coordinator summary or esc
 4. **Cross-coordinator dependencies you own:** WM-2.2.1 waits for WM-3.1.1; WM-3.1.2 waits for WM-2.2.2; WM-4.1.3 waits for WM-3.1.2 and WM-4.1.2. Announce each merge to the coordinator that waits on it.
 5. **Host changes:** if a host goes offline or a new one is registered, re-run the Phase 1 allocation for the remaining tasks, apply it with `ao coordinator set-limits`, and announce it.
 6. **Silence:** a coordinator with workers but no summary for over 45 min, or a worker idle without a PR for over 30 min, gets an `ao send` asking for status. Do not kill a remote worker to "fix" a stall; its commits may exist only there.
-7. **Wake-up:** nothing ticks you locally. If the user runs `ao orchestrator tick loop` (with `RW_TICK_BRANCH_PREFIX=wm/ RW_TICK_ISSUE_LABEL=wm RW_TICK_HOSTS="<allocated hosts>"`), treat `TICK` messages as state, not as user input; merge authorisation stays with this loop.
+7. **Lifecycle reports:** the daemon delivers worker lifecycle reports (PR merged, PR closed without merge, worker session ended) to the owning coordinator or root orchestrator automatically; treat them as state, not as user input. Merge authorisation stays with this loop.
 8. **Do not end a turn** while a verified ready PR is unmerged, an escalation is unanswered, or a merge is unannounced.
 
 ## Phase 5: End of initiative

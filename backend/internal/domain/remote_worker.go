@@ -30,7 +30,14 @@ type RemoteWorkerLink struct {
 	// LastState is the worker state of the last successful read: 'live',
 	// 'terminated', or empty before the first read.
 	LastState string
+	// TerminatedAt is when a read first saw the worker terminated. Nil while
+	// the worker is live or not yet read.
+	TerminatedAt *time.Time
 }
+
+// TerminatedPRRefreshWindow bounds how long a terminated worker's PRs are
+// still refreshed: a merge often arrives after the worker exited.
+const TerminatedPRRefreshWindow = 14 * 24 * time.Hour
 
 // RemoteWorkerLinkStaleAfter is how long an unreachable host's link keeps
 // counting toward capacity after its last successful read.

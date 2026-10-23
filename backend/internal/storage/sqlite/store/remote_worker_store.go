@@ -75,6 +75,10 @@ func remoteLinkFromRow(row gen.RemoteWorkerLink) domain.RemoteWorkerLink {
 		seen := row.LastSeenAt.Time
 		link.LastSeenAt = &seen
 	}
+	if row.TerminatedAt.Valid {
+		ended := row.TerminatedAt.Time
+		link.TerminatedAt = &ended
+	}
 	return link
 }
 

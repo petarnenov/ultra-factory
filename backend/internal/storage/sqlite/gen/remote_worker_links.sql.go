@@ -42,7 +42,7 @@ func (q *Queries) DeleteRemoteWorkerLinkRemoval(ctx context.Context, arg DeleteR
 }
 
 const getRemoteWorkerLink = `-- name: GetRemoteWorkerLink :one
-SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id, source, last_seen_at, last_state FROM remote_worker_links WHERE host_id = ? AND remote_session_id = ?
+SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id, source, last_seen_at, last_state, terminated_at FROM remote_worker_links WHERE host_id = ? AND remote_session_id = ?
 `
 
 type GetRemoteWorkerLinkParams struct {
@@ -65,6 +65,7 @@ func (q *Queries) GetRemoteWorkerLink(ctx context.Context, arg GetRemoteWorkerLi
 		&i.Source,
 		&i.LastSeenAt,
 		&i.LastState,
+		&i.TerminatedAt,
 	)
 	return i, err
 }
@@ -170,7 +171,7 @@ func (q *Queries) ListRemoteWorkerLinkRemovals(ctx context.Context) ([]RemoteWor
 }
 
 const listRemoteWorkerLinks = `-- name: ListRemoteWorkerLinks :many
-SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id, source, last_seen_at, last_state FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id
+SELECT host_id, remote_session_id, remote_project_id, project_id, host_label, display_name, created_at, owner_session_id, source, last_seen_at, last_state, terminated_at FROM remote_worker_links ORDER BY host_id, created_at, remote_session_id
 `
 
 func (q *Queries) ListRemoteWorkerLinks(ctx context.Context) ([]RemoteWorkerLink, error) {
@@ -194,6 +195,7 @@ func (q *Queries) ListRemoteWorkerLinks(ctx context.Context) ([]RemoteWorkerLink
 			&i.Source,
 			&i.LastSeenAt,
 			&i.LastState,
+			&i.TerminatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -242,8 +244,10 @@ func (q *Queries) ListRemoteWorkerReportDeliveries(ctx context.Context, arg List
 }
 
 const updateRemoteWorkerLinkLiveness = `-- name: UpdateRemoteWorkerLinkLiveness :exec
-UPDATE remote_worker_links SET last_seen_at = ?, last_state = ?
-WHERE host_id = ? AND remote_session_id = ?
+UPDATE remote_worker_links SET last_seen_at = ?1, last_state = ?2,
+    terminated_at = CASE WHEN ?2 = 'terminated'
+        THEN COALESCE(terminated_at, ?1) ELSE NULL END
+WHERE host_id = ?3 AND remote_session_id = ?4
 `
 
 type UpdateRemoteWorkerLinkLivenessParams struct {

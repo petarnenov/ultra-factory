@@ -193,34 +193,6 @@ test_sigterm_stops_both() {
 	[[ $status == 0 ]] && ! pgrep -a -x sleep | grep -q ' 6130$'
 }
 
-# With AO_HUB_ORCHESTRATOR_TICK=1 a tick loop that exits is restarted and the
-# daemon and BFF keep running; SIGTERM then stops all three.
-test_tick_loop_restarts_without_stopping_the_hub() {
-	local pid status=0
-	printf '#!/usr/bin/env bash\necho run >>"%s"\nexit 3\n' "$work/tick-runs" >"$work/tick.sh"
-	AO_HUB_SUPERVISOR_DRY_RUN=0 AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
-		AO_HUB_DAEMON_COMMAND="sleep 6131" AO_HUB_BFF_MAIN="$work/sleep.js" \
-		AO_HUB_ORCHESTRATOR_TICK=1 AO_HUB_TICK_COMMAND="bash $work/tick.sh" AO_HUB_TICK_START_DELAY=0 AO_HUB_TICK_RESTART_DELAY=1 \
-		bash "$supervisor" 2>"$work/tick.log" &
-	pid=$!
-	sleep 3.5
-	kill -0 "$pid" && pgrep -a -x sleep | grep -q ' 6131$' &&
-		(($(wc -l <"$work/tick-runs") >= 2)) &&
-		grep -q 'orchestrator tick loop exited with status 3; restarting in 1s' "$work/tick.log" || {
-		kill -TERM "$pid"
-		return 1
-	}
-	kill -TERM "$pid"
-	wait "$pid" || status=$?
-	[[ $status == 0 ]] && ! pgrep -a -x sleep | grep -q ' 6131$'
-}
-
-# The tick loop is opt-in.
-test_tick_loop_is_off_by_default() {
-	seed && ! grep -q 'tick loop' "$work/seed.log" &&
-		AO_HUB_ORCHESTRATOR_TICK=1 seed && grep -q 'would start the tick loop: ao orchestrator tick loop' "$work/seed.log"
-}
-
 test_tailnet_dry_run_is_opt_in() {
 	seed && ! grep -q 'Tailscale' "$work/seed.log" &&
 		TS_AUTHKEY=test-key AO_HUB_SUPERVISOR_DRY_RUN=1 AO_HUB_NPM_SEED= AO_DATA_DIR="$work/ao" AO_HUB_DATA_DIR="$work/hub" HOME="$work/home" \
@@ -230,7 +202,7 @@ test_tailnet_dry_run_is_opt_in() {
 		! grep -e 'tailscale' -e 'TS_AUTHKEY' "$config"
 }
 
-test_tailnet_passes_gate_to_daemon_bff_and_tick() {
+test_tailnet_passes_gate_to_daemon_and_bff() {
 	local authkey="fixture-$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \\n')" pid status=0
 	cat >"$work/fake-tailscaled.js" <<'EOF'
 const net = require('node:net');
@@ -267,24 +239,18 @@ EOF
 require('node:fs').writeFileSync(process.env.AO_HUB_TEST_DIR + '/bff.env', Object.entries(process.env).map(([k,v]) => k+'='+v).join('\n'));
 setInterval(() => {}, 1000);
 EOF
-	cat >"$work/tick-env.sh" <<'EOF'
-#!/usr/bin/env bash
-env >"$AO_HUB_TEST_DIR/tick.env"
-exec sleep 6135
-EOF
-	chmod +x "$work/fake-tailscaled" "$work/fake-tailscale" "$work/daemon-env.sh" "$work/tick-env.sh"
+	chmod +x "$work/fake-tailscaled" "$work/fake-tailscale" "$work/daemon-env.sh"
 	mkdir -p "$work/data"
 	TS_AUTHKEY="$authkey" TS_HOSTNAME=test-hub AO_HUB_TAILSCALED="$work/fake-tailscaled" AO_HUB_TAILSCALE="$work/fake-tailscale" \
 		AO_HUB_TEST_DIR="$work" AO_HUB_TAILSCALE_DIR="$work/data/tailscale" AO_DATA_DIR="$work/data/ao" AO_HUB_DATA_DIR="$work/data/hub" HOME="$work/data/home" \
 		AO_HUB_DAEMON_COMMAND="bash $work/daemon-env.sh" AO_HUB_BFF_MAIN="$work/bff-env.js" \
-		AO_HUB_ORCHESTRATOR_TICK=1 AO_HUB_TICK_COMMAND="bash $work/tick-env.sh" AO_HUB_TICK_START_DELAY=0 \
 		bash "$supervisor" 2>"$work/tailnet-supervisor.log" &
 	pid=$!
 	for _ in {1..100}; do
-		[[ -s $work/daemon.env && -s $work/bff.env && -s $work/tick.env && -s $work/tailscale-up.log ]] && break
+		[[ -s $work/daemon.env && -s $work/bff.env && -s $work/tailscale-up.log ]] && break
 		sleep 0.1
 	done
-	if ! [[ -s $work/daemon.env && -s $work/bff.env && -s $work/tick.env && -s $work/tailscale-up.log ]]; then
+	if ! [[ -s $work/daemon.env && -s $work/bff.env && -s $work/tailscale-up.log ]]; then
 		kill -TERM "$pid" 2>/dev/null || true
 		wait "$pid" || true
 		return 1
@@ -297,9 +263,8 @@ EOF
 		grep -q -- '--advertise-tags=tag:ao-hub' "$work/tailscale-up.log" && \
 		grep -q '^AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055$' "$work/daemon.env" && \
 		grep -q '^AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055$' "$work/bff.env" && \
-		grep -q '^AO_REMOTE_TAILNET_SOCKS=127.0.0.1:1055$' "$work/tick.env" && \
 		[[ $(cat "$work/tailscaled.mtu") == 1232 ]] && \
-		! grep -q '^TS_AUTHKEY=' "$work/daemon.env" "$work/bff.env" "$work/tick.env" && \
+		! grep -q '^TS_AUTHKEY=' "$work/daemon.env" "$work/bff.env" && \
 		[[ $(stat -c %a "$work/data/tailscale") == 700 ]] && \
 		! grep -R -F -q "$authkey" "$work/data" "$work/tailnet-supervisor.log" "$work/tailscale-up.log"
 }
@@ -349,10 +314,8 @@ check "a clean BFF exit is reported as a failure" test_clean_bff_exit_is_a_failu
 check "a clean daemon exit is reported as a failure" test_clean_daemon_exit_is_a_failure
 check "only the daemon runs with AO_SUPERVISED=1" test_marks_only_the_daemon_as_supervised
 check "SIGTERM stops both processes and exits 0" test_sigterm_stops_both
-check "a tick loop that exits is restarted without stopping the hub" test_tick_loop_restarts_without_stopping_the_hub
-check "the tick loop is opt-in (AO_HUB_ORCHESTRATOR_TICK=1)" test_tick_loop_is_off_by_default
 check "Tailscale remains opt-in and does not log the key" test_tailnet_dry_run_is_opt_in
-check "Tailscale key travels over stdin and the SOCKS dial gate reaches only the daemon, BFF and tick loop" test_tailnet_passes_gate_to_daemon_bff_and_tick
+check "Tailscale key travels over stdin and the SOCKS dial gate reaches only the daemon and BFF" test_tailnet_passes_gate_to_daemon_and_bff
 check "tailscaled exit stops the hub" test_tailscaled_exit_stops_hub
 
 if ((failures > 0)); then

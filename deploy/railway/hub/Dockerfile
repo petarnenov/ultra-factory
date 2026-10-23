@@ -107,10 +107,6 @@ ENV AO_HUB_NPM_SEED=/opt/ao/npm-global \
     PATH=/data/home/.npm-global/bin:/opt/ao/npm-global/bin:$PATH \
     AO_HARNESS_UPDATE_CHECKS=on
 
-# The orchestrator wake-up loop (AO_HUB_ORCHESTRATOR_TICK=1) is
-# `ao orchestrator tick loop`, part of the ao binary this image inherits.
-ENV RW_TICK_INTERVAL=180
-
 # Railway sets PORT; the BFF listens on it. The daemon's remote-host listener
 # is on 3011 and loopback-only (see hub-supervisor.sh), so it is not exposed.
 EXPOSE $PORT

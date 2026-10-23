@@ -95,6 +95,10 @@ type Observer struct {
 	entries           func() ([]remotehost.Entry, error)
 	discoveryInterval time.Duration
 
+	// retainedMu guards when each ended worker's link was last pulled.
+	retainedMu       sync.Mutex
+	lastRetainedPull map[linkRef]time.Time
+
 	// discoverMu serialises discovery passes and guards their state.
 	discoverMu    sync.Mutex
 	lastDiscovery time.Time
@@ -144,7 +148,7 @@ func New(d Deps) *Observer {
 		httpClient: d.HTTPClient, interval: d.Interval, hostBudget: d.HostBudget, reqTimeout: d.RequestTimeout, now: d.Now, log: d.Logger,
 		linker: d.Linker, entries: d.Entries, discoveryInterval: d.DiscoveryInterval,
 		wake: make(chan struct{}, 1), failures: map[string]string{}, refused: map[string]string{}, unrecorded: map[linkRef]map[string]bool{},
-		legacyWarned: map[string]bool{}, expiredSeen: map[linkRef]int{},
+		legacyWarned: map[string]bool{}, expiredSeen: map[linkRef]int{}, lastRetainedPull: map[linkRef]time.Time{},
 	}
 }
 
@@ -252,7 +256,7 @@ func (o *Observer) Poll(ctx context.Context) error {
 	for _, hostID := range hosts {
 		// One connection per host serves the liveness read and the pulls, so
 		// the credential only ever goes over the connection that answered.
-		client, links, err := o.liveHost(ctx, hostID, byHost[hostID])
+		client, links, err := o.liveHost(ctx, hostID, o.schedule(hostID, byHost[hostID]))
 		var items []*pulled
 		if client != nil {
 			clients = append(clients, client)
@@ -346,7 +350,7 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 	o.noteExpired(ref, client.label, result.unseen, result.total)
 	o.noteLegacyHost(client)
 	if len(result.reports) == 0 && len(result.rejected) == 0 {
-		if result.more {
+		if result.more || (retained(link) && !o.retentionOver(link)) {
 			return nil, nil
 		}
 		terminated, err := client.terminated(ctx, link.RemoteSessionID)
@@ -365,7 +369,8 @@ func (o *Observer) pull(ctx context.Context, client *hostClient, link domain.Rem
 		if err == nil && (len(again.reports) > 0 || len(again.rejected) > 0 || again.more) {
 			return nil, nil
 		}
-		return nil, o.drop(ctx, client, link, "remote session terminated")
+		_, err = o.dropEnded(ctx, client, link)
+		return nil, err
 	}
 	delivered, err := o.store.ListDeliveredRemoteReports(ctx, link.HostID, link.RemoteSessionID)
 	if err != nil {
@@ -514,6 +519,9 @@ func (o *Observer) drop(ctx context.Context, client *hostClient, link domain.Rem
 	if err := o.store.DeleteRemoteWorkerLink(ctx, link.HostID, link.RemoteSessionID); err != nil {
 		return err
 	}
+	o.retainedMu.Lock()
+	delete(o.lastRetainedPull, linkRef{hostID: link.HostID, session: link.RemoteSessionID})
+	o.retainedMu.Unlock()
 	o.log.Info("remote reports: link removed", "host", client.label, "session", link.RemoteSessionID, "reason", reason)
 	return nil
 }

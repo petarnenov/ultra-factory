@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,12 +17,49 @@ import (
 func TestLivenessDropsTerminatedWorkerWithNothingPending(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	host.terminated["w-1"] = true
-	store := newMemStore(link("host-build", "w-1"), link("host-build", "w-2"))
+	store := newMemStore(endedLongAgo(link("host-build", "w-1")), link("host-build", "w-2"))
 	if err := newTestObserver(store, &fakeDeliverer{}, host).Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if store.linkCount() != 1 || store.links[0].RemoteSessionID != "w-2" {
 		t.Fatalf("links = %+v, want only w-2 kept", store.links)
+	}
+}
+
+func TestLivenessKeepsARecentlyEndedWorkerForLatePROutcomes(t *testing.T) {
+	host := newFakeHost(t, "host-build", "pw")
+	host.terminated["w-1"] = true
+	store := newMemStore(link("host-build", "w-1"))
+	observer := newTestObserver(store, &fakeDeliverer{}, host)
+	for range 2 {
+		if err := observer.Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if store.linkCount() != 1 || store.links[0].TerminatedAt == nil {
+		t.Fatalf("links = %+v, want the ended worker kept with its end time", store.links)
+	}
+
+	observer.now = func() time.Time { return time.Now().Add(domain.TerminatedPRRefreshWindow + time.Hour) }
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.linkCount() != 0 {
+		t.Fatalf("links = %+v, want the link dropped after the PR refresh window", store.links)
+	}
+}
+
+func TestLivenessInitializesLegacyTerminatedAt(t *testing.T) {
+	host := newFakeHost(t, "host-build", "pw")
+	host.terminated["w-1"] = true
+	legacy := link("host-build", "w-1")
+	legacy.LastState = domain.RemoteLinkTerminated
+	store := newMemStore(legacy)
+	if err := newTestObserver(store, &fakeDeliverer{}, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.linkCount() != 1 || store.links[0].TerminatedAt == nil {
+		t.Fatalf("links = %+v, want legacy termination time initialized", store.links)
 	}
 }
 
@@ -197,5 +235,36 @@ func TestEndedWithNothingPendingChecksThePolicyOnTheClient(t *testing.T) {
 	}
 	if store.linkCount() != 1 {
 		t.Fatal("link dropped on a blocked client")
+	}
+}
+
+func TestPollPullsLiveLinksFirstAndEndedLinksOnASlowCadence(t *testing.T) {
+	host := newFakeHost(t, "host-build", "pw")
+	host.terminated["ended"] = true
+	ended := link("host-build", "ended")
+	ended.LastState = domain.RemoteLinkTerminated
+	endedAt := time.Now().Add(-time.Hour)
+	ended.TerminatedAt = &endedAt
+	store := newMemStore(ended, link("host-build", "live"))
+	observer := newTestObserver(store, &fakeDeliverer{}, host)
+	for range 3 {
+		if err := observer.Poll(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var order []string
+	for _, r := range host.seen() {
+		for _, id := range []string{"live", "ended"} {
+			if strings.HasSuffix(r.path, "/reports/pending") && strings.Contains("&"+r.query+"&", "&sessionId="+id+"&") {
+				order = append(order, id)
+			}
+		}
+	}
+	if strings.Join(order, ",") != "live,ended,live,live" {
+		t.Fatalf("pending pulls = %v, want the ended link once and after the live one", order)
+	}
+	if store.linkCount() != 2 {
+		t.Fatalf("links = %+v, want the recently ended link kept", store.links)
 	}
 }

@@ -324,10 +324,8 @@ type coordinatorStore struct {
 	ownerEvents []coordinatorOwnerEvent
 	links       map[string]domain.RemoteWorkerLink
 	// merges holds merge commit SHAs already claimed for announcement.
-	merges map[string]bool
-	// claimErrSHA makes the claim for that merge commit fail with claimErr.
-	claimErrSHA string
-	claimErr    error
+	merges    map[string]bool
+	createErr error
 	// beforeRemoteClear runs before a remote compare-and-clear reads the link.
 	beforeRemoteClear func()
 	// claims counts batch claims so a regression can bound a spin instead of
@@ -533,9 +531,6 @@ func (s *coordinatorStore) ClaimPRMergeAnnouncement(_ context.Context, sha, _ st
 	defer s.mu.Unlock()
 	if s.merges == nil {
 		s.merges = map[string]bool{}
-	}
-	if s.claimErr != nil && sha == s.claimErrSHA {
-		return false, s.claimErr
 	}
 	if s.merges[sha] {
 		return false, nil

@@ -19,7 +19,6 @@ require a deployment or a configuration change.
 | Hub daemon | `GET /api/v1/usage/sessions/memory` on the hub's loopback listener (`127.0.0.1:3001`) | Returns per-session RSS, process count, CPU percent, sample time, the per-process tree, host `system` memory, and `app` memory (daemon plus sessions plus reviewer panes). |
 | Hub BFF | `ps` inside the hub container | The BFF is a separate `node .../hub/bff/src/main.ts` process; it is **not** part of the daemon's `app` reading. |
 | Hub orchestrator | The same usage route, read with the session list | The orchestrator is a session, so it appears in `sessions[]` (use `--all` with `ao session top`, or read the route without a project filter). Its harness children are in `sessions[].processes`. |
-| Hub tick loop | `ps` inside the hub container | `ao orchestrator tick loop` is a separate child of the hub supervisor, not a session. It exists only when `AO_HUB_ORCHESTRATOR_TICK=1`. |
 | Worker sessions on `Linux`, `IMac`, `Z600` | That host's own daemon route (`http://127.0.0.1:<port>/api/v1/usage/sessions/memory`), or `ao session top --host <host>` from the hub | The hub daemon has no process-level view of a remote worker. `--host` reads the worker host's daemon over its authenticated listener, but `ao session top` prints only RSS and process counts; CPU and the per-process tree still require the host's own route, so run the sampler there. |
 | Railway service CPU and memory | `railway usage projects --project <project>` and each service's **Metrics** tab | Service-level readings include container and platform overhead; they are not process readings. |
 
@@ -54,9 +53,7 @@ three paired machines.
   windows are comparable. Each task must run at least one build and one test
   command so the sample covers the harness plus its build/test child tree, where
   the additional processes appear.
-- The hub runs one orchestrator session with its normal wake-up setting. Record
-  whether `AO_HUB_ORCHESTRATOR_TICK` is `1` or `0`; do not change it for the
-  capture.
+- The hub runs one orchestrator session.
 - No implementation worker runs on the hub. A session started there must be
   stopped and moved before the window starts.
 
@@ -108,9 +105,8 @@ ao orchestrator ls --host Z600
 - A host with an active local orchestrator refuses a worker from the hub
   (`LOCAL_ORCHESTRATOR_ACTIVE`). Stop that orchestrator or choose another
   machine before the window.
-- Confirm the hub's tick setting and the current worker cap in the hub service's
-  **Variables** tab: record `AO_HUB_ORCHESTRATOR_TICK` (unset means off) and
-  `AO_HUB_MAX_WORKERS` (default `5`). Do not edit them.
+- Confirm the current worker cap in the hub service's **Variables** tab:
+  record `AO_HUB_MAX_WORKERS` (default `5`). Do not edit it.
 - Record the workspace compute limits:
 
 ```sh
@@ -140,7 +136,7 @@ worker samplers and the hub sampler within the same minute. If a host clock is
 more than five seconds off, record the skew; do not change the clock as part of
 this capture.
 
-### 4.1 Hub daemon, BFF, orchestrator, tick loop
+### 4.1 Hub daemon, BFF, orchestrator
 
 Run the sampler inside the hub container through `railway ssh`. The command
 copies `scripts/railway/resource-sample.mjs` from this checkout over stdin,
@@ -149,7 +145,7 @@ starts it for the window, and writes JSONL to `/tmp` inside the container:
 ```sh
 railway ssh --project <project> --environment <environment> \
   --service <hub-service> -- \
-  sh -c 'mkdir -p /tmp/ao-baseline && cat > /tmp/ao-baseline/resource-sample.mjs && node /tmp/ao-baseline/resource-sample.mjs --label hub --base-url http://127.0.0.1:3001 --interval 60 --duration 3600 --ps "ao-hub-supervisor|bff/src/main.ts|orchestrator tick loop|tailscaled|ao daemon" --out /tmp/ao-baseline/hub.jsonl' \
+  sh -c 'mkdir -p /tmp/ao-baseline && cat > /tmp/ao-baseline/resource-sample.mjs && node /tmp/ao-baseline/resource-sample.mjs --label hub --base-url http://127.0.0.1:3001 --interval 60 --duration 3600 --ps "ao-hub-supervisor|bff/src/main.ts|tailscaled|ao daemon" --out /tmp/ao-baseline/hub.jsonl' \
   < scripts/railway/resource-sample.mjs
 ```
 
@@ -170,7 +166,7 @@ wc -l "$RUN_DIR/hub.jsonl"
 
 The hub route covers the daemon, every live session (including the
 orchestrator) and reviewer panes. The `ps` patterns add the BFF, the supervisor,
-the tick loop and `tailscaled` where enabled. The sampler drops its own PID and
+and `tailscaled` where enabled. The sampler drops its own PID and
 its parent shell PID before applying those filters, so the pattern text in its
 own command line cannot appear as a sample. The route's `app.own` excludes
 session trees; do not add `app.own` and `sessions[]` together without first
@@ -278,7 +274,6 @@ cell is not allowed; write `not measured` and say why.
 | Window length | |
 | Sample interval | 60 s |
 | Repeat window (UTC start–end) | |
-| Hub orchestrator tick | on / off |
 | Hub service memory limit at capture | |
 | AO version and commit | |
 | Railway deployment IDs (hub and each worker) | |
@@ -292,7 +287,6 @@ cell is not allowed; write `not measured` and say why.
 | Hub daemon (non-session) | hub | usage route `app.own` | | | | | | measured |
 | Hub orchestrator session | hub | usage route `sessions[]` | | | | | | measured |
 | Hub BFF | hub | `ps` | | | | | | measured |
-| Hub tick loop | hub | `ps` | | | | | | measured |
 | `Linux` worker 1 (`claude-code`) | Linux | host usage route | | | | | | measured |
 | `Linux` worker 2 (`codex`) | Linux | host usage route | | | | | | measured |
 | `IMac` worker 1 (`claude-code`) | IMac | host usage route | | | | | | measured |
@@ -315,7 +309,7 @@ a coarse Metrics-tab point into minutes without stating the point interval.
 ### Processes that could not be measured
 
 Every process not covered above must appear here, including any of: a BFF not
-reachable through `railway ssh`, a tick loop that exited between samples,
+reachable through `railway ssh`,
 `tailscaled` when enabled, harness grandchildren that detached from the session
 tree, processes shorter than the sampling interval, platform or container
 overhead that has no process, and AO processes on a host that was offline.
@@ -367,7 +361,7 @@ reading, say by how much and why the remainder is not attributable.
 - **The hub cannot see worker process memory.** The orchestrator's remote
   session records carry status, not the remote daemon's process table. Each
   worker host's own route is the only process-level source.
-- **The BFF, tick loop and optional tailscaled are outside the daemon's `app`
+- **The BFF and optional tailscaled are outside the daemon's `app`
   reading.** Missing `ps` coverage for any of them is an explicit gap, not a
   zero.
 - **Railway service memory includes the container and platform.** A process sum

@@ -40,19 +40,12 @@ const MaxCreateReportBytes = 256 << 10
 
 // ReportsController owns the /reports routes.
 type ReportsController struct {
-	Svc        ReportService
-	Completion CompletionReportDelivery
-}
-
-// CompletionReportDelivery is the tick's owner notification boundary.
-type CompletionReportDelivery interface {
-	DeliverCompletion(context.Context, reportsvc.CompletionInput) error
+	Svc ReportService
 }
 
 // Register mounts report routes on r.
 func (c *ReportsController) Register(r chi.Router) {
 	r.Post("/reports", c.create)
-	r.Post("/reports/completion", c.completion)
 	r.Get("/reports", c.list)
 	r.Get("/reports/pending", c.pending)
 	r.Post("/reports/acknowledge", c.acknowledge)
@@ -221,23 +214,4 @@ func (c *ReportsController) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envelope.WriteJSON(w, http.StatusCreated, CreateReportResponse{ID: rec.ID})
-}
-
-func (c *ReportsController) completion(w http.ResponseWriter, r *http.Request) {
-	if c.Completion == nil {
-		apispec.NotImplemented(w, r, "POST", "/api/v1/reports/completion")
-		return
-	}
-	var req CompletionReportRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
-		return
-	}
-	if err := c.Completion.DeliverCompletion(r.Context(), req); err != nil {
-		envelope.WriteError(w, r, err)
-		return
-	}
-	envelope.WriteJSON(w, http.StatusOK, CompletionReportResponse{Accepted: true})
 }

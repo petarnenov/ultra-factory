@@ -41,8 +41,6 @@ Browser ──HTTPS──▶ Railway edge (TLS, HSTS)
 │   ├─ 127.0.0.1:3001  primary listener, unauthenticated, never proxied    │
 │   └─ 127.0.0.1:3011  remote-host listener, bearer, loopback only         │
 │                                                                          │
-│  ao orchestrator tick loop (optional, AO_HUB_ORCHESTRATOR_TICK=1)        │
-│                                                                          │
 │  volume /data: ao/ (DB, worktrees, mobile/config.json), hub/hosts.json,  │
 │                hub/audit.jsonl, home/ (agent logins, npm prefix)         │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -66,8 +64,8 @@ GitHub Actions hub-image.yml ──▶ GHCR ao-hub image ──▶ Railway "hub"
 - **Hub.** One Railway service built from
   [`deploy/railway/hub/Dockerfile`](../../deploy/railway/hub/Dockerfile). It
   extends the worker image, so the hub daemon can also run agent sessions
-  (for example a hub orchestrator). The supervisor starts the daemon, the BFF,
-  and the optional orchestrator wake-up loop, and seeds the hub daemon's
+  (for example a hub orchestrator). The supervisor starts the daemon and the
+  BFF, and seeds the hub daemon's
   remote-host listener as loopback-only on port `3011`.
 - **BFF.** [`packages/hub-bff`](../../packages/hub-bff/README.md), a
   dependency-free `node:http` server. It is the hub's only public surface. It
@@ -206,9 +204,9 @@ then pulls each linked worker's pending `ao report` deliveries (ADR 0005,
 daemon pulls), probing identity before sending the bearer. Traffic is always
 hub → worker; workers never call the hub. A worker's report is delivered to its
 durable owner (the project root when it has none), and a helper coordinator's
-summaries and escalations go to the root. PR and CI changes are not reports, so
-the optional wake-up loop (`AO_HUB_ORCHESTRATOR_TICK=1`) nudges the orchestrator
-when they change.
+summaries and escalations go to the root. The daemon also delivers worker
+lifecycle reports (PR merged, PR closed without merge, worker session ended)
+to the owning coordinator or root orchestrator automatically.
 
 #### Coordinator hierarchy (pilot)
 

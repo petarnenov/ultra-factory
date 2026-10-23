@@ -14,7 +14,7 @@ workers, before adding helper coordinators.
 - Railway reported a 23.84 GB service-level memory maximum against a 24 GB
   limit during the observed 24-hour window. This does not identify the process
   responsible.
-- The hub runs the daemon, BFF, optional orchestrator tick loop, and agent
+- The hub runs the daemon, BFF, and agent
   sessions. Agent harnesses may start additional child processes.
 - The topology changed after this baseline was drafted: the hub now runs only
   the orchestrator and implementation workers run on separate hosts or Railway

@@ -38,6 +38,19 @@ func (f *fakeStore) RemoveRemoteWorkerLink(_ context.Context, hostID string, rem
 	return nil
 }
 
+func (f *fakeStore) UpdateRemoteWorkerLinkLiveness(_ context.Context, hostID string, remoteSessionID domain.SessionID, at time.Time, state string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.stored {
+		if f.stored[i].HostID == hostID && f.stored[i].RemoteSessionID == remoteSessionID {
+			seen := at
+			f.stored[i].LastSeenAt = &seen
+			f.stored[i].LastState = state
+		}
+	}
+	return nil
+}
+
 // DeleteRemoteWorkerLink drops the link without remembering a removal.
 func (f *fakeStore) DeleteRemoteWorkerLink(_ context.Context, hostID string, remoteSessionID domain.SessionID) error {
 	f.mu.Lock()
@@ -230,6 +243,18 @@ func TestRegisterRefusals(t *testing.T) {
 				t.Fatal("a refused link was stored")
 			}
 		})
+	}
+}
+
+func TestRegisterDoesNotCountFinishedLinksAgainstTheCap(t *testing.T) {
+	store := &fakeStore{sessions: map[domain.SessionID]domain.SessionRecord{"ao-1": {ID: "ao-1", ProjectID: "ultra-factory"}}}
+	for i := 0; i < MaxLinks; i++ {
+		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("w-%d", i)),
+			ProjectID: "ultra-factory", LastState: domain.RemoteLinkTerminated})
+	}
+	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
+	if _, err := svc.Register(context.Background(), validInput()); err != nil {
+		t.Fatalf("finished links blocked a new link: %v", err)
 	}
 }
 
