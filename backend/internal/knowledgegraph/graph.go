@@ -34,6 +34,7 @@ type TaskFact struct {
 	Model          string
 	Effort         string
 	PRs            []string
+	Branch         string
 	ElapsedSeconds int64
 	InputTokens    int64
 	OutputTokens   int64
@@ -84,6 +85,7 @@ func (g *Graph) RecordTask(ctx context.Context, f TaskFact) error {
 	setIf("model", f.Model)
 	setIf("effort", f.Effort)
 	setIf("stages", f.Stages)
+	setIf("branch", f.Branch)
 	if len(f.PRs) > 0 {
 		props["prs"] = f.PRs
 	}
@@ -247,7 +249,10 @@ type Item struct {
 	Outcome string
 	Text    string
 	Lessons []string
-	Score   float64
+	// PRs and Branch are set on attempts only.
+	PRs    []string
+	Branch string
+	Score  float64
 	// similarity is the raw match score before outcome weighting.
 	similarity float64
 }
@@ -260,7 +265,8 @@ OPTIONAL MATCH (t)-[:LEARNED|CONFIRMED]->(l:Lesson)
 WITH t, collect(DISTINCT l.text)[..5] AS lessons
 RETURN 'attempt' AS section, t.id AS id, '' AS kind, t.title AS title,
        coalesce(t.outcome, 'in_progress') AS outcome,
-       coalesce(t.summary, '') AS text, lessons, 1.0 AS score, 1.0 AS similarity
+       coalesce(t.summary, '') AS text, lessons,
+       coalesce(t.prs, []) AS prs, coalesce(t.branch, '') AS branch, 1.0 AS score, 1.0 AS similarity
 ORDER BY t.updatedAt DESC LIMIT $limit`
 	lessonsCypher = `
 CALL db.index.fulltext.queryNodes('lesson_text', $q) YIELD node AS l, score
@@ -271,7 +277,7 @@ ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
        coalesce(t.title, '') AS title, coalesce(t.outcome, '') AS outcome,
-       l.text AS text, [] AS lessons, rank AS score, similarity`
+       l.text AS text, [] AS lessons, [] AS prs, '' AS branch, rank AS score, similarity`
 	lessonsVectorCypher = `
 CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
 WHERE l.project = $project AND score >= $minScore
@@ -281,13 +287,13 @@ ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
        coalesce(t.title, '') AS title, coalesce(t.outcome, '') AS outcome,
-       l.text AS text, [] AS lessons, rank AS score, similarity`
+       l.text AS text, [] AS lessons, [] AS prs, '' AS branch, rank AS score, similarity`
 	tasksVectorCypher = `
 CALL db.index.vector.queryNodes('task_embedding', $k, $vector) YIELD node AS t, score
 WHERE t.project = $project AND t.outcome IS NOT NULL AND t.id <> $exclude
   AND ($issue = '' OR coalesce(t.issue, '') <> $issue) AND score >= $minScore
 RETURN 'task' AS section, t.id AS id, '' AS kind, t.title AS title,
-       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons,
+       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons, [] AS prs, '' AS branch,
        score, score AS similarity
 ORDER BY score DESC LIMIT $limit`
 	tasksCypher = `
@@ -295,7 +301,7 @@ CALL db.index.fulltext.queryNodes('task_text', $q) YIELD node AS t, score
 WHERE t.project = $project AND t.outcome IS NOT NULL AND t.id <> $exclude
   AND ($issue = '' OR coalesce(t.issue, '') <> $issue)
 RETURN 'task' AS section, t.id AS id, '' AS kind, t.title AS title,
-       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons,
+       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons, [] AS prs, '' AS branch,
        score, score AS similarity
 ORDER BY score DESC LIMIT $limit`
 )
@@ -325,7 +331,7 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 		if i > 0 {
 			b.WriteString("\nUNION ALL\n")
 		}
-		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, score, similarity")
+		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, prs, branch, score, similarity")
 	}
 	rows, err := g.run.Run(ctx, b.String(), map[string]any{
 		"issueKey": issueKey(q.Project, q.Issue), "issue": q.Issue, "project": q.Project,
@@ -342,7 +348,7 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 		items = append(items, Item{
 			Section: r.String("section"), ID: r.String("id"), Kind: r.String("kind"),
 			Title: r.String("title"), Outcome: r.String("outcome"), Text: r.String("text"),
-			Lessons: r.Strings("lessons"), Score: r.Float("score"),
+			Lessons: r.Strings("lessons"), PRs: r.Strings("prs"), Branch: r.String("branch"), Score: r.Float("score"),
 			similarity: r.Float("similarity"),
 		})
 	}

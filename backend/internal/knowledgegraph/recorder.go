@@ -190,7 +190,7 @@ func (s *Service) factFor(ctx context.Context, sess domain.Session) TaskFact {
 		Key: s.taskKey(sess.ID), SessionID: string(sess.ID), Host: s.hostID,
 		Project: string(sess.ProjectID), Title: sess.DisplayName, Issue: string(sess.IssueID),
 		Outcome: outcomeInProgress, Harness: string(sess.Harness),
-		Model: sess.Metadata.Model, Effort: sess.Metadata.Effort, At: s.now(),
+		Model: sess.Metadata.Model, Effort: sess.Metadata.Effort, Branch: sess.Metadata.Branch, At: s.now(),
 	}
 	if sess.IsTerminated {
 		f.Outcome = outcomeTerminated

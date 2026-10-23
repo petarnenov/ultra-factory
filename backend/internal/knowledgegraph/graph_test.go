@@ -66,13 +66,13 @@ func TestRecordTask(t *testing.T) {
 			name: "all fields set",
 			fact: TaskFact{
 				Key: "h/s1", SessionID: "s1", Host: "h", Project: "ao", Title: "Fix", Issue: "#42",
-				Outcome: "merged", Harness: "claude-code", Model: "m", Effort: "high",
+				Outcome: "merged", Harness: "claude-code", Model: "m", Effort: "high", Branch: "ao/s1-fix",
 				PRs: []string{"https://x/pr/1"}, ElapsedSeconds: 60, InputTokens: 10, OutputTokens: 5,
 				Stages: "building 60s x1", Report: "done: ok", At: testAt,
 			},
 			wantProps: map[string]any{
 				"title": "Fix", "issue": "#42", "outcome": "merged", "harness": "claude-code",
-				"model": "m", "effort": "high", "stages": "building 60s x1",
+				"model": "m", "effort": "high", "branch": "ao/s1-fix", "stages": "building 60s x1",
 				"prs": []string{"https://x/pr/1"}, "elapsedSeconds": int64(60),
 				"inputTokens": int64(10), "outputTokens": int64(5),
 			},
@@ -239,10 +239,19 @@ func TestPriorAttemptsIncludeConfirmedLessons(t *testing.T) {
 	}
 }
 
+func TestPriorAttemptsReturnPRsAndBranch(t *testing.T) {
+	for _, want := range []string{"coalesce(t.prs, []) AS prs", "coalesce(t.branch, '') AS branch"} {
+		if !strings.Contains(attemptsCypher, want) {
+			t.Fatalf("attempts query lacks %q:\n%s", want, attemptsCypher)
+		}
+	}
+}
+
 func TestPriorMapsRows(t *testing.T) {
 	r := &fakeRunner{rows: []Row{{
 		"section": "attempt", "id": "h/s0", "kind": "", "title": "Old try", "outcome": "closed",
 		"text": "done: gave up", "lessons": []any{"use -race"}, "score": float64(1),
+		"prs": []any{"https://x/pr/1", "https://x/pr/2"}, "branch": "ao/s0-fix",
 	}}}
 
 	items, err := NewGraph(r).Prior(context.Background(), Query{Project: "ao", Issue: "7", ExcludeTask: "h/s1"})
@@ -250,7 +259,8 @@ func TestPriorMapsRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prior() error = %v", err)
 	}
-	want := []Item{{Section: "attempt", ID: "h/s0", Title: "Old try", Outcome: "closed", Text: "done: gave up", Lessons: []string{"use -race"}, Score: 1}}
+	want := []Item{{Section: "attempt", ID: "h/s0", Title: "Old try", Outcome: "closed", Text: "done: gave up", Lessons: []string{"use -race"},
+		PRs: []string{"https://x/pr/1", "https://x/pr/2"}, Branch: "ao/s0-fix", Score: 1}}
 	if !reflect.DeepEqual(items, want) {
 		t.Fatalf("items = %#v, want %#v", items, want)
 	}

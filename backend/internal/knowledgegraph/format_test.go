@@ -34,6 +34,29 @@ func TestFormatSection(t *testing.T) {
 			notWant: []string{"No earlier task"},
 		},
 		{
+			name:  "attempt with PRs and branch",
+			items: []Item{{Section: "attempt", Title: "Try", PRs: []string{"https://x/pr/1", "https://x/pr/2"}, Branch: "ao/s1-fix", Lessons: []string{"l"}}},
+			want:  []string{"- [unknown] Try\n  PR: https://x/pr/1, https://x/pr/2 · branch: ao/s1-fix\n  - lesson: l"},
+		},
+		{
+			name:    "attempt with only a branch",
+			items:   []Item{{Section: "attempt", Title: "Try", Branch: "ao/s1-fix"}},
+			want:    []string{"- [unknown] Try\n  branch: ao/s1-fix"},
+			notWant: []string{"PR:"},
+		},
+		{
+			name:    "attempt with only PRs",
+			items:   []Item{{Section: "attempt", Title: "Try", PRs: []string{"https://x/pr/1"}}},
+			want:    []string{"- [unknown] Try\n  PR: https://x/pr/1"},
+			notWant: []string{"branch:"},
+		},
+		{
+			name:    "attempt without PRs or branch",
+			items:   []Item{{Section: "attempt", Title: "Try"}},
+			want:    []string{"- [unknown] Try"},
+			notWant: []string{"PR:", "branch:"},
+		},
+		{
 			name:  "lesson without kind or source title",
 			items: []Item{{Section: "lesson", Text: "plain"}},
 			want:  []string{"- [tip] plain"},
