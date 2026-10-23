@@ -355,6 +355,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate OpenSpec bootstrap
+        run: npm run openspec:check
+
       - name: Regenerate API spec and TS types
         run: npm run api
 

@@ -9,6 +9,8 @@
 		"comment:test": "node --test scripts/comment-policy/check.test.mjs && cd backend && go test ./cmd/commentpolicy",
 		"issue:check": "node scripts/issue-policy/check.mjs",
 		"issue:test": "node --test scripts/issue-policy/check.test.mjs",
+		"openspec": "openspec",
+		"openspec:check": "node scripts/openspec/check.mjs",
 		"ai-actual": "node --disable-warning=ExperimentalWarning scripts/ai-actual/report.mjs",
 		"ai-actual:test": "node --disable-warning=ExperimentalWarning --test scripts/ai-actual/lib.test.mjs scripts/ai-actual/sessions.test.mjs scripts/ai-actual/record.test.mjs",
 		"version:bump": "node scripts/version-bump.mjs",
