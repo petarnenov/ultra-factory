@@ -19,6 +19,13 @@ and its branch.
   (`backend/internal/domain/pr.go`) carry it.
 - `attemptsCypher` (`graph.go`) returns title, outcome, summary and lessons;
   `Item` has no PR or branch field; `format.go` `formatItem` renders attempts.
+- Since #568 (ADR [0014](../../../../../adr/0014-merge-near-identical-lessons.md)),
+  `attemptsCypher` collects lessons over `[:LEARNED|CONFIRMED]` with
+  `collect(DISTINCT l.text)[..5]`. An attempt therefore also lists the lessons
+  its task confirmed, i.e. lessons it tried to add that merged into a stored
+  one. Keep both relationship types and `DISTINCT` when adding the PR and
+  branch fields. Read `t.prs` and `t.branch` from `t`, which the
+  `WITH t, …` aggregation already carries. Start from current `dev`.
 
 ## Subtasks
 
@@ -34,6 +41,8 @@ and its branch.
 
 - [ ] An attempt with a PR renders `PR: <url> · branch: <branch>`.
 - [ ] Attempts without either render as today.
+- [ ] An attempt still lists both learned and confirmed lessons, without
+  duplicates (`graph_test.go` covers the query text).
 - [ ] Lesson and similar-task sections are unchanged.
 
 ## Verification
