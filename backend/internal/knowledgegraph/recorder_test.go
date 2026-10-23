@@ -184,6 +184,7 @@ func TestStartEnrichesFromTaskReport(t *testing.T) {
 	sess.IsTerminated = true
 	sess.Metadata.Model = "opus"
 	sess.Metadata.Effort = "high"
+	sess.Metadata.Branch = "ao/s1-fix"
 	sess.PRs = []domain.PRFacts{{URL: "https://gh/pr/1"}, {URL: ""}}
 	elapsed, in, out := int64(90), int64(1000), int64(200)
 	var rep taskreport.Report
@@ -206,7 +207,7 @@ func TestStartEnrichesFromTaskReport(t *testing.T) {
 	p := waitRun(t, r).params
 	want := map[string]any{
 		"title": "Report title", "issue": "#42", "outcome": "merged", "harness": "claude-code",
-		"model": "opus", "effort": "high", "stages": "building 60s x1, validating 30s x2",
+		"model": "opus", "effort": "high", "branch": "ao/s1-fix", "stages": "building 60s x1, validating 30s x2",
 		"prs": []string{"https://gh/pr/1"}, "elapsedSeconds": int64(90),
 		"inputTokens": int64(1000), "outputTokens": int64(200),
 	}

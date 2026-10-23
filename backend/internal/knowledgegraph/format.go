@@ -66,11 +66,26 @@ func formatItem(it Item) string {
 		if t := strings.TrimSpace(it.Text); t != "" {
 			line += " — " + clip(t, maxItemText)
 		}
+		if ref := attemptRef(it); ref != "" {
+			line += "\n  " + ref
+		}
 		for _, l := range it.Lessons {
 			line += "\n  - lesson: " + clip(l, maxItemText)
 		}
 		return line
 	}
+}
+
+// attemptRef renders "PR: <urls> · branch: <name>", leaving out what is empty.
+func attemptRef(it Item) string {
+	var parts []string
+	if len(it.PRs) > 0 {
+		parts = append(parts, "PR: "+clip(strings.Join(it.PRs, ", "), maxItemText))
+	}
+	if it.Branch != "" {
+		parts = append(parts, "branch: "+clip(it.Branch, 120))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func outcomeLabel(o string) string {

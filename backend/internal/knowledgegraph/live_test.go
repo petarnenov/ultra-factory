@@ -194,7 +194,7 @@ RETURN l.confirmations AS confirmations, l.text AS text, other.texts AS other, o
 		t.Fatalf("graph state = %v", r)
 	}
 	g := svc.graph
-	if err := g.RecordTask(ctx, TaskFact{Key: "h/s2", SessionID: "s2", Host: "h", Project: project, Title: "Restart flow", Issue: "77", Outcome: "closed", At: time.Now()}); err != nil {
+	if err := g.RecordTask(ctx, TaskFact{Key: "h/s2", SessionID: "s2", Host: "h", Project: project, Title: "Restart flow", Issue: "77", Outcome: "closed", PRs: []string{"https://x/pr/9"}, Branch: "ao/s2-fix", At: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	items, err := g.Prior(ctx, Query{Project: project, Issue: "77", ExcludeTask: "h/none"})
@@ -203,5 +203,8 @@ RETURN l.confirmations AS confirmations, l.text AS text, other.texts AS other, o
 	}
 	if len(items) != 1 || !reflect.DeepEqual(items[0].Lessons, []string{original}) {
 		t.Fatalf("attempt lessons = %+v, want the confirmed lesson", items)
+	}
+	if !reflect.DeepEqual(items[0].PRs, []string{"https://x/pr/9"}) || items[0].Branch != "ao/s2-fix" {
+		t.Fatalf("attempt PRs/branch = %v / %q", items[0].PRs, items[0].Branch)
 	}
 }
