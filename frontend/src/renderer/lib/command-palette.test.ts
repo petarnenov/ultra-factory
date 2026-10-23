@@ -185,6 +185,11 @@ describe("buildCommands global", () => {
 		const home = buildCommands({ workspaces: [] }).find((item) => item.id === "global-home");
 		expect(home).toMatchObject({ group: "global", action: { kind: "navigate", target: { to: "/" } } });
 	});
+
+	it("offers the benchmarks route from the global palette", () => {
+		const benchmarks = buildCommands({ workspaces: [] }).find((item) => item.id === "global-benchmarks");
+		expect(benchmarks).toMatchObject({ group: "global", action: { kind: "navigate", target: { to: "/benchmarks" } } });
+	});
 });
 
 describe("buildCommands attention", () => {

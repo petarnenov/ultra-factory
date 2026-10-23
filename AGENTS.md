@@ -14,6 +14,7 @@ This file holds what every task needs. Load the page for your task when it appli
 | Change install paths, release workflows, or macOS artifacts | [`docs/agents/distribution.md`](docs/agents/distribution.md) |
 | File an issue or check its labels | [`docs/issue-policy.md`](docs/issue-policy.md) |
 | Write a PR description | [`.agents/skills/pr-description/SKILL.md`](.agents/skills/pr-description/SKILL.md) |
+| Resolve a complex architecture decision through the consul workflow | [`.agents/skills/geo.architect/SKILL.md`](.agents/skills/geo.architect/SKILL.md) |
 | Make a visual or UI decision | [`DESIGN.md`](DESIGN.md) |
 
 ## Language

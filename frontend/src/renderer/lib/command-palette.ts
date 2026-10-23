@@ -25,6 +25,7 @@ export type CommandGroupId = "current" | "attention" | "files" | "projects" | "s
 
 export type NavigateTarget =
 	| { to: "/" }
+	| { to: "/benchmarks" }
 	| { to: "/settings" }
 	| { to: "/projects/$projectId"; params: { projectId: string } }
 	| { to: "/projects/$projectId/settings"; params: { projectId: string } }
@@ -487,6 +488,13 @@ export function buildCommands(ctx: CommandPaletteContext, t: TFunction = appI18n
 		title: t("command.globalSettings"),
 		keywords: ["settings", "preferences", "config"],
 		action: { kind: "navigate", target: { to: "/settings" } },
+	});
+	items.push({
+		id: "global-benchmarks",
+		group: "global",
+		title: t("benchmarks.title"),
+		keywords: ["benchmark", "benchmarks", "performance", "webmcp", "playwright"],
+		action: { kind: "navigate", target: { to: "/benchmarks" } },
 	});
 	items.push({
 		id: "global-theme",
