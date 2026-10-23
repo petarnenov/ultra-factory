@@ -76,6 +76,21 @@ current head and for green CI. Report a PR with
 approved that head, CI is green, and no review thread is unresolved.
 ```
 
+## Draft pull requests and CI
+
+Workers open pull requests as drafts and keep them draft while AO review runs.
+The workflow jobs that require a ready pull request skip draft runs. Their
+aggregate checks treat those skips or cancellations as neutral, so converting a
+pull request to draft does not make CI fail. Draft status is not evidence that
+the change passed CI.
+
+After AO approves the current head, the worker or root marks the pull request
+ready for review. The `ready_for_review` event starts the required jobs even
+when those jobs were skipped while draft. Wait for a complete green CI run on
+that same head before reporting the pull request ready for integration. If the
+head changes or the pull request returns to draft, wait for review of the new
+head and repeat the ready transition and CI wait.
+
 The root checks before sending: scope is non-empty and bounded, every task has
 acceptance criteria, task file sets do not overlap with another coordinator's,
 and the number of tasks that can run at once is at most the worker cap.

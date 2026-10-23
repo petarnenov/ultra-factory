@@ -21,6 +21,18 @@ type fakeKnowledge struct {
 	items    []knowledgegraph.Item
 	merged   bool
 	err      error
+	ratings  []knowledgegraph.RatingInput
+	retired  []string
+}
+
+func (f *fakeKnowledge) RateLesson(_ context.Context, in knowledgegraph.RatingInput) error {
+	f.ratings = append(f.ratings, in)
+	return f.err
+}
+
+func (f *fakeKnowledge) RetireLesson(_ context.Context, id, reason string) error {
+	f.retired = append(f.retired, id+":"+reason)
+	return f.err
 }
 
 func (f *fakeKnowledge) AddLesson(_ context.Context, in knowledgegraph.LessonInput) (knowledgegraph.AddedLesson, error) {
@@ -153,6 +165,26 @@ func TestKnowledgeAddLessonMerged(t *testing.T) {
 
 	if resp.StatusCode != http.StatusCreated || string(raw) != `{"id":"lesson-1","merged":true}` {
 		t.Fatalf("status = %d body = %s", resp.StatusCode, raw)
+	}
+}
+
+func TestKnowledgeRateAndRetireLesson(t *testing.T) {
+	svc := &fakeKnowledge{}
+	srv := newRouterServer(t, httpd.APIDeps{Knowledge: svc})
+	resp, raw := doKnowledge(t, http.MethodPost, srv.URL+"/api/v1/knowledge/lessons/lesson-1/rating", `{"sessionId":"s1","rating":"wrong"}`)
+	if resp.StatusCode != http.StatusOK || string(raw) != `{"rated":true}` {
+		t.Fatalf("rate status=%d body=%s", resp.StatusCode, raw)
+	}
+	wantRating := knowledgegraph.RatingInput{SessionID: "s1", LessonID: "lesson-1", Rating: "wrong"}
+	if len(svc.ratings) != 1 || svc.ratings[0] != wantRating {
+		t.Fatalf("ratings = %+v", svc.ratings)
+	}
+	resp, raw = doKnowledge(t, http.MethodPost, srv.URL+"/api/v1/knowledge/lessons/lesson-1/retire", `{"reason":"obsolete"}`)
+	if resp.StatusCode != http.StatusOK || string(raw) != `{"retired":true}` {
+		t.Fatalf("retire status=%d body=%s", resp.StatusCode, raw)
+	}
+	if len(svc.retired) != 1 || svc.retired[0] != "lesson-1:obsolete" {
+		t.Fatalf("retired = %+v", svc.retired)
 	}
 }
 

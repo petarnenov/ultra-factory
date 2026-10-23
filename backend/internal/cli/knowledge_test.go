@@ -16,6 +16,7 @@ type knowledgeCapture struct {
 	path   string
 	query  url.Values
 	lesson knowledgeLessonRequest
+	body   map[string]string
 }
 
 // knowledgeServer answers every request with status and body and records
@@ -27,7 +28,9 @@ func knowledgeServer(t *testing.T, status int, body string) *knowledgeCapture {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got.method, got.path, got.query = r.Method, r.URL.Path, r.URL.Query()
 		if r.Method == http.MethodPost {
-			_ = json.NewDecoder(r.Body).Decode(&got.lesson)
+			raw, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(raw, &got.body)
+			_ = json.Unmarshal(raw, &got.lesson)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -57,6 +60,9 @@ func TestKnowledgeValidation(t *testing.T) {
 		{name: "limit zero", session: "worker-1", args: []string{"knowledge", "search", "--limit", "0", "x"}},
 		{name: "limit above 50", session: "worker-1", args: []string{"knowledge", "search", "--limit", "51", "x"}},
 		{name: "search without project or session", args: []string{"knowledge", "search", "flaky"}},
+		{name: "rate without session", args: []string{"knowledge", "rate", "l1", "wrong"}},
+		{name: "rate invalid value", session: "worker-1", args: []string{"knowledge", "rate", "l1", "other"}},
+		{name: "retire without reason", args: []string{"knowledge", "retire", "l1"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -68,6 +74,26 @@ func TestKnowledgeValidation(t *testing.T) {
 				t.Fatalf("err=%v exit=%d", err, ExitCode(err))
 			}
 		})
+	}
+}
+
+func TestKnowledgeRateAndRetire(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "worker-1")
+	got := knowledgeServer(t, http.StatusOK, `{"rated":true}`)
+	out, _, err := executeCLI(t, aliveDeps(), "knowledge", "rate", "lesson-12345678", "wrong")
+	if err != nil || got.method != http.MethodPost || got.path != "/api/v1/knowledge/lessons/lesson-12345678/rating" || out != "Rated lesson lesson-1 wrong\n" {
+		t.Fatalf("rate: %s %s %q %v", got.method, got.path, out, err)
+	}
+	if got.body["sessionId"] != "worker-1" || got.body["rating"] != "wrong" {
+		t.Fatalf("rate body = %#v", got.body)
+	}
+	got = knowledgeServer(t, http.StatusOK, `{"retired":true}`)
+	out, _, err = executeCLI(t, aliveDeps(), "knowledge", "retire", "lesson-12345678", "--reason", "obsolete")
+	if err != nil || got.method != http.MethodPost || got.path != "/api/v1/knowledge/lessons/lesson-12345678/retire" || out != "Retired lesson lesson-1\n" {
+		t.Fatalf("retire: %s %s %q %v", got.method, got.path, out, err)
+	}
+	if got.body["reason"] != "obsolete" {
+		t.Fatalf("retire body = %#v", got.body)
 	}
 }
 
@@ -185,7 +211,7 @@ func TestKnowledgeSearchTextOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "lesson   [fix] run make sqlc\n" +
+	want := "lesson   [fix] (l1) run make sqlc\n" +
 		"attempt  [closed] Old try — done: gave up\n" +
 		"         lesson: use -race\n" +
 		"task     [merged] Similar\n"

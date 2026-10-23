@@ -336,6 +336,59 @@ func (s *Service) MarkServed(ctx context.Context, id domain.SessionID, lessonIDs
 	return s.graph.MarkServed(ctx, s.taskKey(id), lessonIDs, s.now())
 }
 
+// RateLesson rates a lesson previously served to this session.
+func (s *Service) RateLesson(ctx context.Context, in RatingInput) error {
+	if in.SessionID == "" {
+		return apierr.Invalid("SESSION_ID_REQUIRED", "sessionId is required", nil)
+	}
+	id := strings.TrimSpace(in.LessonID)
+	if id == "" {
+		return apierr.Invalid("LESSON_ID_REQUIRED", "lessonId is required", nil)
+	}
+	rating := strings.ToLower(strings.TrimSpace(in.Rating))
+	if rating != "wrong" && rating != "useful" {
+		return apierr.Invalid("INVALID_RATING", "rating must be wrong or useful", nil)
+	}
+	sess, err := s.sessions.Get(ctx, in.SessionID)
+	if err != nil {
+		return err
+	}
+	found, err := s.graph.RateLesson(ctx, s.taskKey(sess.ID), id, rating, s.now())
+	if err != nil {
+		return unavailable(err)
+	}
+	if !found {
+		return apierr.NotFound("LESSON_NOT_RECEIVED", "lesson was not served to this session")
+	}
+	return nil
+}
+
+// RatingInput identifies a lesson rating from one worker session.
+type RatingInput struct {
+	SessionID domain.SessionID
+	LessonID  string
+	Rating    string
+}
+
+// RetireLesson validates and retires a lesson for future retrieval.
+func (s *Service) RetireLesson(ctx context.Context, id, reason string) error {
+	id, reason = strings.TrimSpace(id), strings.TrimSpace(domain.SanitizeControlChars(reason))
+	if id == "" {
+		return apierr.Invalid("LESSON_ID_REQUIRED", "lessonId is required", nil)
+	}
+	if reason == "" {
+		return apierr.Invalid("RETIRE_REASON_REQUIRED", "reason is required", nil)
+	}
+	found, err := s.graph.RetireLesson(ctx, id, reason, s.now())
+	if err != nil {
+		return unavailable(err)
+	}
+	if !found {
+		return apierr.NotFound("LESSON_NOT_FOUND", "lesson was not found")
+	}
+	return nil
+}
+
 // prior searches by meaning when an embedder is configured. An embedding
 // failure falls back to full-text search instead of failing the lookup.
 func (s *Service) prior(ctx context.Context, q Query) ([]Item, error) {
