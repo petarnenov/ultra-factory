@@ -83,9 +83,14 @@ func TestPendingACPApprovalSurvivesDaemonSIGKILL(t *testing.T) {
 	t.Setenv("AO_E2E_FAKE_APPROVAL_ACP", "1")
 	callsPath := filepath.Join(t.TempDir(), "provider-calls.log")
 	t.Setenv("AO_E2E_ACP_CALLS", callsPath)
+	testAOEnv := map[string]string{
+		"AO_E2E_TEST_BINARY":       testBinary,
+		"AO_E2E_FAKE_APPROVAL_ACP": "1",
+		"AO_E2E_ACP_CALLS":         callsPath,
+	}
 
 	dataDir := t.TempDir()
-	d := startDaemon(t, dataDir)
+	d := startDaemon(t, dataDir, testAOEnv)
 	project := seedProject(t, d, "fake-approval-restart")
 	setPermissions(t, d, project, "default")
 	session := spawn(t, d, map[string]any{
@@ -114,7 +119,7 @@ func TestPendingACPApprovalSurvivesDaemonSIGKILL(t *testing.T) {
 	if !processAlive(hostPID) {
 		t.Fatalf("detached ACP host %d died with daemon", hostPID)
 	}
-	restarted := startDaemon(t, dataDir)
+	restarted := startDaemon(t, dataDir, testAOEnv)
 	restarted.awaitLiveController(session, 30*time.Second)
 	after := restarted.conversation(session)
 	replayed, pending := after.pendingApproval()
@@ -170,9 +175,14 @@ func TestFirstTaskStartupRetryAfterDaemonSIGKILL(t *testing.T) {
 	t.Setenv("AO_E2E_FAKE_APPROVAL_ACP", "1")
 	callsPath := filepath.Join(t.TempDir(), "provider-calls.log")
 	t.Setenv("AO_E2E_ACP_CALLS", callsPath)
+	testAOEnv := map[string]string{
+		"AO_E2E_TEST_BINARY":       testBinary,
+		"AO_E2E_FAKE_APPROVAL_ACP": "1",
+		"AO_E2E_ACP_CALLS":         callsPath,
+	}
 
 	dataDir := t.TempDir()
-	d := startDaemon(t, dataDir)
+	d := startDaemon(t, dataDir, testAOEnv)
 	project := seedProject(t, d, "first-task-kill")
 	marker := filepath.Join(t.TempDir(), "provisioning")
 	release := filepath.Join(t.TempDir(), "release")
@@ -208,7 +218,7 @@ func TestFirstTaskStartupRetryAfterDaemonSIGKILL(t *testing.T) {
 	if err := os.WriteFile(release, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	restarted := startDaemon(t, dataDir)
+	restarted := startDaemon(t, dataDir, testAOEnv)
 	var sessions struct {
 		Sessions []struct {
 			ID string `json:"id"`
