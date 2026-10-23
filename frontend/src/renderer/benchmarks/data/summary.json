@@ -1,0 +1,13 @@
+[
+	{"scenario":"board.card-ready","page":"board","driver":"playwright","n":1,"passRate":1,"medianMs":142,"minMs":142,"maxMs":142,"ratioToPlaywright":1},
+	{"scenario":"board.card-ready","page":"board","driver":"webmcp-scripted","n":1,"passRate":1,"medianMs":112,"minMs":112,"maxMs":112,"ratioToPlaywright":0.7887323943661971},
+	{"scenario":"board.card-ready","page":"board","driver":"webmcp-jev","n":1,"passRate":1,"medianMs":308,"minMs":308,"maxMs":308,"ratioToPlaywright":2.1690140845070425,"jev":{"medianDecisionMs":160,"medianExecMs":4,"medianAssertMs":9,"medianSteps":1,"matchRate":1}},
+	{"scenario":"settings.global","page":"settings","driver":"playwright","n":1,"passRate":1,"medianMs":188,"minMs":188,"maxMs":188,"ratioToPlaywright":1},
+	{"scenario":"settings.global","page":"settings","driver":"webmcp-scripted","n":1,"passRate":1,"medianMs":136,"minMs":136,"maxMs":136,"ratioToPlaywright":0.723404255319149},
+	{"scenario":"settings.global","page":"settings","driver":"webmcp-jev","n":1,"passRate":1,"medianMs":342,"minMs":342,"maxMs":342,"ratioToPlaywright":1.8191489361702127,"jev":{"medianDecisionMs":202,"medianExecMs":5,"medianAssertMs":11,"medianSteps":1,"matchRate":0}},
+	{"scenario":"chat.message-send","page":"chat","driver":"playwright","n":1,"passRate":1,"medianMs":210,"minMs":210,"maxMs":210,"ratioToPlaywright":1},
+	{"scenario":"chat.message-send","page":"chat","driver":"webmcp-scripted","n":1,"passRate":1,"medianMs":154,"minMs":154,"maxMs":154,"ratioToPlaywright":0.7333333333333333},
+	{"scenario":"chat.message-send","page":"chat","driver":"webmcp-jev","n":1,"passRate":0,"medianMs":null,"minMs":null,"maxMs":null,"ratioToPlaywright":null,"jev":{"medianDecisionMs":null,"medianExecMs":null,"medianAssertMs":null,"medianSteps":null,"matchRate":null}},
+	{"scenario":"overhead.evaluate-noop","page":"overhead","driver":"webmcp-scripted","n":1,"passRate":1,"medianMs":27,"minMs":27,"maxMs":27,"ratioToPlaywright":null},
+	{"scenario":"overhead.evaluate-noop","page":"overhead","driver":"webmcp-jev","n":1,"passRate":1,"medianMs":38,"minMs":38,"maxMs":38,"ratioToPlaywright":null,"jev":{"medianDecisionMs":14,"medianExecMs":1,"medianAssertMs":2,"medianSteps":1,"matchRate":0}}
+]
