@@ -399,9 +399,8 @@ func dueForLocalPuller(ctx context.Context, t *testing.T, store *sqlite.Store, s
 	return false
 }
 
-// TestTwoInstancesEachReceiveEveryReportOnceWhateverTheirPullOrder runs two
-// daemons that pull the same host, alternating polls between worker reports.
-// The host keeps acknowledgements per puller, so neither starves the other.
+// Two daemons pull one host, alternating polls between worker reports;
+// per-puller acknowledgements keep either from starving the other.
 func TestTwoInstancesEachReceiveEveryReportOnceWhateverTheirPullOrder(t *testing.T) {
 	ctx := context.Background()
 
