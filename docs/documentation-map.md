@@ -57,6 +57,7 @@ records those limits and any post-release differences.
 | `backend/internal/storage/sqlite/gen/`                                 | Query/DTO code for SQLite storage                                       | `backend/internal/storage/sqlite/queries/*` + migrations via `npm run sqlc`                                            | `sqlc-drift` job in `.github/workflows/go.yml`                                                                                                                           |
 | [AGENTS.md](../AGENTS.md)                                              | Agent operating contract: what every task needs, plus an on-demand table   | Hand-written; `CLAUDE.md` is a pointer to it                                                                           | Not machine-checked. The hard rules it names are enforced by tests (for example loopback-only routing, status derivation) rather than by a doc gate.                     |
 | [docs/agents/](agents/)                                                | On-demand agent pages: commands, API contract, git flow, network boundaries, orchestration, distribution | Hand-written; moved out of `AGENTS.md` and linked from its on-demand table | Not machine-checked. |
+| [docs/agents/sdd-policy.md](agents/sdd-policy.md)                       | Repository-local SDD intake, proposal approval, impact declarations, semantic review, readiness, and source conflict policy | Hand-written translation of confirmed D00–D13 and the approved OpenSpec change for #619 | Not machine-checked; reviewers compare declarations and source claims against the final diff and authoritative evidence. |
 | `backend/internal/skillassets/using-ao/`                               | The `ao` CLI catalog installed into agent workspaces                    | Hand-written Markdown with YAML frontmatter, embedded in the binary                                                    | `TestEmbeddedSkillFrontmatterIsValidYAML` and sibling tests in `backend/internal/skillassets`                                                                            |
 | `MobileAPIVersion` in `backend/internal/httpd/controllers/identity.go` | Contract version negotiated by the mobile client                        | Go constant                                                                                                            | Bump rule documented in the constant's comment and `docs/adr/0003-unauthenticated-identity-probe.md`                                                                     |
 | `ao <command> --help`                                                  | Authoritative flag list for every CLI command                           | Cobra command definitions in `backend/internal/cli/`                                                                   | Table tests in `backend/internal/cli/*_test.go`                                                                                                                          |
@@ -65,6 +66,19 @@ The CLI's hand-mirrored DTOs (`backend/internal/cli/`) are a deliberate manual
 boundary: they are not generated from `openapi.yaml`, and wire compatibility is
 covered by tests rather than a generator. See "API contract changes" in
 [AGENTS.md](../AGENTS.md).
+
+For SDD intake and review, the repository-local process contract is
+[`docs/agents/sdd-policy.md`](agents/sdd-policy.md), derived from owner decisions
+D00–D13. GitHub issues remain authoritative for live task status; each child
+issue and its single OpenSpec change/PR own their implementation delta. An
+accepted OpenSpec requirement on `dev` records intended development behavior,
+not proof that a release contains it. For implemented API and storage
+contracts, the generated contract and its named source govern; ADRs preserve
+architectural rationale, while code/tests are revision-specific implementation
+evidence. Human-facing prose must be checked against those concern-specific
+sources. Conflicts are recorded with source revisions and referred to
+geo.architect under D06/D03; no artifact wins automatically across every
+concern.
 
 ## How to keep the layers in sync
 
@@ -78,6 +92,11 @@ covered by tests rather than a generator. See "API contract changes" in
   matching page under `backend/internal/skillassets/using-ao/commands/`.
 - **Changing prose only**: fine, but if the prose describes a contract artifact,
   re-read that artifact first. Prose follows the contract, not the reverse.
+- **Changing an SDD policy or an approved change**: require a full proposal and
+  geo.architect ruling before work, even for documentation, formatting,
+  automation, or emergencies. Synchronize the approved change and its affected
+  evidence in the final PR; do not treat a no-runtime declaration as an
+  exemption.
 
 ## Where to add new documentation
 

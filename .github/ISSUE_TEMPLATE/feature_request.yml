@@ -8,6 +8,7 @@ body:
       value: |
         Lead with the **problem**, not only the solution.
         For larger ideas, confirm scope on [Discord](https://discord.com/invite/UZv7JjxbwG) or the daily sync (10:00 PM IST) before building.
+        Every implementation issue must have exactly one type label and one priority label. This form applies only its static `enhancement` label; use the bug form for bugs, and a blank issue for documentation, accessibility, or maintenance work so the matching type can be applied. The priority answer below is intent for triage and does not apply a label; see the [issue policy](https://github.com/petarnenov/ultra-factory/blob/dev/docs/issue-policy.md) for priority criteria. Maintainers must set the matching labels, which remain enforced by the issue-policy workflow. Before implementation, the assigned change needs one full proposal and an explicit geo.architect ruling under [the SDD policy](https://github.com/petarnenov/ultra-factory/blob/dev/docs/agents/sdd-policy.md).
 
   - type: textarea
     id: problem
@@ -31,6 +32,37 @@ body:
     attributes:
       label: Alternatives considered
       description: Workarounds or other approaches you already tried.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Intended priority
+      description: Triage intent only; a maintainer must apply the corresponding priority label.
+      options:
+        - priority:low
+        - priority:medium
+        - priority:high
+        - priority:critical
+    validations:
+      required: true
+
+  - type: input
+    id: capability
+    attributes:
+      label: Affected capability or surface
+      description: Name the capability or supported surface if known; the owner will confirm scope.
+      placeholder: daemon session lifecycle, desktop, mobile, Railway
+    validations:
+      required: false
+
+  - type: input
+    id: openspec_change
+    attributes:
+      label: OpenSpec change / approved proposal
+      description: Fill this in when an approved change exists. Intake itself does not imply approval to implement.
+      placeholder: change-id and proposal revision/hash
     validations:
       required: false
 
