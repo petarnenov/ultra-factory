@@ -51,7 +51,7 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	}
 	svc := knowledgegraph.New(knowledgegraph.Deps{
 		Graph:    knowledgegraph.NewGraph(knowledgegraph.NewClient(cfg, nil)),
-		Embedder: embedder, MinScore: cfg.MinScore,
+		Embedder: embedder, MinScore: cfg.MinScore, MergeScore: cfg.MergeScore,
 		Sessions: d.Sessions, Tasks: d.Tasks, HostID: d.HostID, Logger: d.Log,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
@@ -59,6 +59,6 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	k.unsubscribe = svc.Subscribe(d.Events)
 	k.done = svc.Start(runCtx)
 	d.Log.Info("knowledge graph: enabled", "url", cfg.URL, "database", cfg.Database,
-		"semantic", cfg.SemanticEnabled(), "embeddingModel", cfg.EmbeddingModel)
+		"semantic", cfg.SemanticEnabled(), "embeddingModel", cfg.EmbeddingModel, "mergeScore", cfg.MergeScore)
 	return k, svc
 }

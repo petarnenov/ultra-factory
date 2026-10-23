@@ -27,6 +27,11 @@ Write each lesson so it stands alone: name the files, commands, or error
 messages involved. Do not record secrets, credentials, or facts that only
 matter to this one task.
 
+If a lesson already exists in other words, `ao knowledge add` prints
+`Confirmed existing lesson <id>`: your wording is kept and your task counts
+once as a confirmation (unless it recorded that lesson itself), so there is
+nothing to retry.
+
 Lessons served to a task that later merges rank higher; lessons served to
 closed or failed tasks rank lower.
 

@@ -4146,7 +4146,8 @@ type CreateLessonRequest struct {
 
 // CreateLessonResponse identifies the stored lesson.
 type CreateLessonResponse struct {
-	ID string `json:"id"`
+	ID     string `json:"id" description:"The new lesson, or the existing lesson it merged into."`
+	Merged bool   `json:"merged" description:"True when a near-identical lesson of the same kind absorbed this one."`
 }
 
 // KnowledgeSearchQuery scopes a knowledge search to a session's project or

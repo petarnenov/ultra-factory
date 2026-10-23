@@ -16,7 +16,7 @@ import (
 
 // KnowledgeService records lessons and searches the knowledge graph.
 type KnowledgeService interface {
-	AddLesson(context.Context, knowledgegraph.LessonInput) (string, error)
+	AddLesson(context.Context, knowledgegraph.LessonInput) (knowledgegraph.AddedLesson, error)
 	Search(context.Context, knowledgegraph.SearchInput) ([]knowledgegraph.Item, error)
 }
 
@@ -47,14 +47,14 @@ func (c *KnowledgeController) addLesson(w http.ResponseWriter, r *http.Request) 
 		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
 		return
 	}
-	id, err := c.Svc.AddLesson(r.Context(), knowledgegraph.LessonInput{
+	added, err := c.Svc.AddLesson(r.Context(), knowledgegraph.LessonInput{
 		SessionID: domain.SessionID(req.SessionID), Kind: req.Kind, Text: req.Text, Topics: req.Topics,
 	})
 	if err != nil {
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusCreated, CreateLessonResponse{ID: id})
+	envelope.WriteJSON(w, http.StatusCreated, CreateLessonResponse{ID: added.ID, Merged: added.Merged})
 }
 
 func (c *KnowledgeController) search(w http.ResponseWriter, r *http.Request) {

@@ -116,6 +116,20 @@ func TestKnowledgeAdd(t *testing.T) {
 	}
 }
 
+func TestKnowledgeAddReportsMerge(t *testing.T) {
+	t.Setenv("AO_SESSION_ID", "worker-1")
+	knowledgeServer(t, http.StatusCreated, `{"id":"lesson-3","merged":true}`)
+
+	out, _, err := executeCLI(t, aliveDeps(), "knowledge", "add", "run", "make", "sqlc")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "Confirmed existing lesson lesson-3\n" {
+		t.Fatalf("out = %q", out)
+	}
+}
+
 func TestKnowledgeSearchQuery(t *testing.T) {
 	tests := []struct {
 		name    string

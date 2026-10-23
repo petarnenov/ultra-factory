@@ -32,8 +32,11 @@ with mode 600 and restart the daemon:
 ```
 
 Without `embeddingUrl` the daemon uses full-text search. `minScore` (default
-`0.70`) sets the vector match floor; `AO_KNOWLEDGE_GRAPH_EMBEDDING_URL`,
-`_EMBEDDING_MODEL` and `_MIN_SCORE` override the file.
+`0.70`) sets the vector match floor. `mergeScore` (default `0.94`) is the
+score at which a new lesson merges into a stored one of the same kind
+(ADR 0014). As with `minScore`, `0` means the default; `1` merges only
+identical vectors. `AO_KNOWLEDGE_GRAPH_EMBEDDING_URL`,
+`_EMBEDDING_MODEL`, `_MIN_SCORE` and `_MERGE_SCORE` override the file.
 
 The daemon reads `knowledge-graph.json` next to its data dir, so the default
 `~/.ao/data` reads `~/.ao/knowledge-graph.json`, an isolated dev daemon
@@ -59,7 +62,7 @@ ao knowledge search "sqlite migration"
 | --- | --- |
 | `ao report --done/--stuck/--needs-input` | `Task` upsert with the report text appended to `reports` |
 | Session turns terminated | `Task` outcome, elapsed seconds, tokens, stage totals, PR URLs |
-| `ao knowledge add` | `Lesson` linked to its `Task` and `Topic`s |
+| `ao knowledge add` | `Lesson` linked to its `Task` and `Topic`s, with its embedding; a near-identical lesson of the same kind gains `confirmations` and a `CONFIRMED {texts}` edge instead (ADR 0014) |
 | Spawn | `RECEIVED` links from the new task to the lessons it was shown |
 | After any write, and every 5 minutes | `embedding` on lessons and tasks that lack one |
 

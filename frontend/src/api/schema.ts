@@ -5495,7 +5495,10 @@ export interface components {
             topics?: string[];
         };
         CreateLessonResponse: {
+            /** @description The new lesson, or the existing lesson it merged into. */
             id: string;
+            /** @description True when a near-identical lesson of the same kind absorbed this one. */
+            merged: boolean;
         };
         CreateRemoteWorkerLinkRequest: {
             displayName?: string;

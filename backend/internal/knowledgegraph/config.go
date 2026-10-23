@@ -29,6 +29,9 @@ type Config struct {
 	// MinScore drops vector matches below it; Neo4j cosine scores are
 	// (1 + cos) / 2, so 0.70 keeps cos >= 0.40.
 	MinScore float64 `json:"minScore"`
+	// MergeScore merges a new lesson into a stored one of the same kind
+	// scoring at least this (ADR 0014); 0.94 keeps cos >= 0.88.
+	MergeScore float64 `json:"mergeScore"`
 }
 
 // SemanticEnabled reports whether embeddings are configured.
@@ -45,6 +48,7 @@ const (
 	// it ranked best on AO lessons and also embeds non-English text.
 	DefaultEmbeddingModel = "bge-m3"
 	defaultMinScore       = 0.70
+	defaultMergeScore     = 0.94
 	// DefaultConfigFile sits next to the daemon's data dir, so ~/.ao/data
 	// reads ~/.ao/knowledge-graph.json and a scratch data dir reads none.
 	DefaultConfigFile = "knowledge-graph.json"
@@ -92,6 +96,13 @@ func Load(getenv func(string) string, dataDir string) (Config, error) {
 		}
 		cfg.MinScore = f
 	}
+	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_MERGE_SCORE")); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 || f > 1 {
+			return Config{}, fmt.Errorf("invalid AO_KNOWLEDGE_GRAPH_MERGE_SCORE %q", v)
+		}
+		cfg.MergeScore = f
+	}
 	if v := strings.TrimSpace(getenv("AO_KNOWLEDGE_GRAPH_TIMEOUT")); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil || d <= 0 {
@@ -127,6 +138,9 @@ func Load(getenv func(string) string, dataDir string) (Config, error) {
 		}
 		if cfg.MinScore == 0 {
 			cfg.MinScore = defaultMinScore
+		}
+		if cfg.MergeScore == 0 {
+			cfg.MergeScore = defaultMergeScore
 		}
 	}
 	return cfg, nil

@@ -122,7 +122,7 @@ MERGE (t:Task {id: $taskKey})
 ON CREATE SET t.createdAt = datetime($at), t.sessionId = $sessionId,
               t.host = $host, t.project = $project
 CREATE (l:Lesson {id: $id, kind: $kind, text: $text, project: $project,
-                  createdAt: datetime($at), helped: 0, hurt: 0})
+                  createdAt: datetime($at), helped: 0, hurt: 0, confirmations: 0})
 MERGE (t)-[:LEARNED]->(l)
 FOREACH (name IN $topics |
   MERGE (tp:Topic {name: name})
@@ -131,16 +131,79 @@ RETURN l.id AS id`
 
 // AddLesson stores l and links it to its task and topics.
 func (g *Graph) AddLesson(ctx context.Context, l Lesson) error {
-	topics := l.Topics
-	if topics == nil {
-		topics = []string{}
-	}
 	_, err := g.run.Run(ctx, addLessonCypher, map[string]any{
 		"taskKey": l.TaskKey, "sessionId": l.Session, "host": l.Host,
 		"project": l.Project, "id": l.ID, "kind": l.Kind, "text": l.Text,
-		"topics": topics, "at": l.At.UTC().Format(time.RFC3339Nano),
+		"topics": topicsParam(l.Topics), "at": l.At.UTC().Format(time.RFC3339Nano),
 	})
 	return err
+}
+
+// LessonMatch is a stored lesson close to a new one.
+type LessonMatch struct {
+	ID    string
+	Text  string
+	Score float64
+}
+
+// SimilarLessons returns lessons of the same project and kind scoring at
+// least minScore against vector, best first.
+func (g *Graph) SimilarLessons(ctx context.Context, project, kind string, vector []float64, minScore float64) ([]LessonMatch, error) {
+	rows, err := g.run.Run(ctx, `
+CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
+WHERE l.project = $project AND l.kind = $kind AND score >= $minScore
+RETURN l.id AS id, l.text AS text, score
+ORDER BY score DESC LIMIT $limit`, map[string]any{
+		"project": project, "kind": kind, "vector": vectorParam(vector), "minScore": minScore,
+		"limit": similarLessonLimit, "k": similarLessonLimit * vectorOversample,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LessonMatch, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, LessonMatch{ID: r.String("id"), Text: r.String("text"), Score: r.Float("score")})
+	}
+	return out, nil
+}
+
+const similarLessonLimit = 5
+
+// Another task confirms a lesson once; every new wording is kept on the
+// edge, including a re-add by the task that learned the lesson.
+const confirmLessonCypher = `
+MATCH (l:Lesson {id: $id})
+MERGE (t:Task {id: $taskKey})
+ON CREATE SET t.createdAt = datetime($at), t.sessionId = $sessionId,
+              t.host = $host, t.project = $project
+WITH t, l, EXISTS { (t)-[:LEARNED]->(l) } AS own
+MERGE (t)-[c:CONFIRMED]->(l)
+ON CREATE SET c.at = datetime($at), c.texts = [],
+  l.confirmations = coalesce(l.confirmations, 0) + CASE WHEN own THEN 0 ELSE 1 END,
+  l.confirmedAt = CASE WHEN own THEN l.confirmedAt ELSE datetime($at) END
+SET c.texts = CASE WHEN $text = l.text OR $text IN c.texts THEN c.texts
+                   ELSE c.texts + [$text] END
+FOREACH (name IN $topics |
+  MERGE (tp:Topic {name: name})
+  MERGE (l)-[:ABOUT]->(tp))
+RETURN l.id AS id`
+
+// ConfirmLesson records that l's task found the lesson stored as id. It
+// reports false when that lesson no longer exists.
+func (g *Graph) ConfirmLesson(ctx context.Context, id string, l Lesson) (bool, error) {
+	rows, err := g.run.Run(ctx, confirmLessonCypher, map[string]any{
+		"id": id, "taskKey": l.TaskKey, "sessionId": l.Session, "host": l.Host,
+		"project": l.Project, "text": l.Text, "topics": topicsParam(l.Topics),
+		"at": l.At.UTC().Format(time.RFC3339Nano),
+	})
+	return len(rows) > 0, err
+}
+
+func topicsParam(topics []string) []string {
+	if topics == nil {
+		return []string{}
+	}
+	return topics
 }
 
 // MarkServed links a task to the lessons its prompt carried, so the task's
@@ -193,8 +256,8 @@ const (
 	attemptsCypher = `
 MATCH (i:Issue {key: $issueKey})<-[:FOR_ISSUE]-(t:Task)
 WHERE t.id <> $exclude
-OPTIONAL MATCH (t)-[:LEARNED]->(l:Lesson)
-WITH t, collect(l.text)[..5] AS lessons
+OPTIONAL MATCH (t)-[:LEARNED|CONFIRMED]->(l:Lesson)
+WITH t, collect(DISTINCT l.text)[..5] AS lessons
 RETURN 'attempt' AS section, t.id AS id, '' AS kind, t.title AS title,
        coalesce(t.outcome, 'in_progress') AS outcome,
        coalesce(t.summary, '') AS text, lessons, 1.0 AS score, 1.0 AS similarity
