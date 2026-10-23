@@ -63,8 +63,10 @@ func TestRemoteWorkerLinkReleaseAfterAKillIsIdempotent(t *testing.T) {
 			t.Fatalf("release %d status = %d, want 204", i, status)
 		}
 	}
-	if _, ok, _ := store.GetRemoteWorkerLink(ctx, "host-build", "widgets-4"); ok {
-		t.Fatal("release kept the link")
+	// The link stays as ended so late reports are pulled; it holds no slot.
+	got, ok, _ := store.GetRemoteWorkerLink(ctx, "host-build", "widgets-4")
+	if !ok || got.LastState != domain.RemoteLinkTerminated || got.TerminatedAt == nil {
+		t.Fatalf("release left link = %+v ok=%v, want it kept as ended", got, ok)
 	}
 	// A kill leaves no removal memory: the worker is terminated anyway.
 	removals, err := store.ListRemoteWorkerLinkRemovals(ctx)

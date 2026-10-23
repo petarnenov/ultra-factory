@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Supervisor of the AO hub image. It runs under tini and starts two required
-# processes plus the optional Tailscale daemon and orchestrator tick:
+# processes plus the optional Tailscale daemon:
 
 #   - `ao daemon`, the orchestrator. Its remote-host listener is enabled and
 #     bound to 127.0.0.1:3011 (loopbackOnly), reachable only by the BFF here;
@@ -12,10 +12,6 @@
 #     loopback-only SOCKS5 listener. Its auth key is piped to `tailscale up`;
 
 #     it is not passed to any child environment or command line.
-#   - optionally, with AO_HUB_ORCHESTRATOR_TICK=1, the orchestrator wake-up
-
-#     loop (`ao orchestrator tick loop`). It wakes the idle hub orchestrator
-#     with worker, PR and CI state every 5 minutes.
 
 # If the daemon, the BFF, or an enabled tailscaled exits, the other processes
 # are stopped and this script exits non-zero, even when the child exited with
@@ -24,12 +20,7 @@
 # the platform (issue #247), so a critical child exit is always a failure. The
 
 # daemon runs with AO_SUPERVISED=1, which makes its loopback /shutdown refuse
-# to stop the host. The tick loop starts after AO_HUB_TICK_START_DELAY seconds
-
-# and is not critical: when it exits it is logged and restarted after
-# AO_HUB_TICK_RESTART_DELAY seconds, and the hub keeps running. SIGTERM or
-
-# SIGINT stops every child and exits 0.
+# to stop the host. SIGTERM or SIGINT stops every child and exits 0.
 
 #   1. As root (RAILWAY_RUN_UID=0): hand the root-owned volume to uid 10001 and
 #      re-run this script as that user, as the worker entrypoint does.
@@ -46,7 +37,7 @@
 #   5. exec-style supervision of the two processes above.
 
 # AO_HUB_SUPERVISOR_DRY_RUN=1 runs steps 2-4 and exits without starting the
-# processes; the AO_HUB_DAEMON_COMMAND, AO_HUB_BFF_MAIN and AO_HUB_TICK_COMMAND
+# processes; the AO_HUB_DAEMON_COMMAND and AO_HUB_BFF_MAIN
 
 # overrides select the test commands (see supervisor_test.sh).
 set -euo pipefail
@@ -76,11 +67,6 @@ readonly daemon_port=3011
 readonly dry_run=${AO_HUB_SUPERVISOR_DRY_RUN:-0}
 readonly bff_main=${AO_HUB_BFF_MAIN:-/opt/ao/hub/bff/src/main.ts}
 read -r -a daemon_command <<<"${AO_HUB_DAEMON_COMMAND:-ao daemon}"
-readonly tick_enabled=${AO_HUB_ORCHESTRATOR_TICK:-0}
-# The first tick waits for the daemon to become ready.
-readonly tick_start_delay=${AO_HUB_TICK_START_DELAY:-60}
-readonly tick_restart_delay=${AO_HUB_TICK_RESTART_DELAY:-60}
-read -r -a tick_command <<<"${AO_HUB_TICK_COMMAND:-ao orchestrator tick loop}"
 
 log() { printf 'ao-hub: %s\n' "$*" >&2; }
 die() {
@@ -231,10 +217,9 @@ opencode_v2_prefix() {
 stopping=0
 daemon_pid=
 bff_pid=
-tick_pid=
 tailscale_pid=
 
-# Services and the tick loop get the tailnet dial gate only after tailscale
+# Services get the tailnet dial gate only after tailscale
 # up succeeds; in disabled mode inherited copies of both variables are removed.
 run_child() {
 	if [[ $tailscale_enabled == 1 ]]; then
@@ -248,7 +233,6 @@ stop_children() {
 	stopping=1
 	[[ -n $daemon_pid ]] && kill -TERM "$daemon_pid" 2>/dev/null || true
 	[[ -n $bff_pid ]] && kill -TERM "$bff_pid" 2>/dev/null || true
-	[[ -n $tick_pid ]] && kill -TERM "$tick_pid" 2>/dev/null || true
 	[[ -n $tailscale_pid ]] && kill -TERM "$tailscale_pid" 2>/dev/null || true
 }
 
@@ -279,20 +263,6 @@ start_tailnet() {
 	log "tailnet is up; loopback SOCKS5 proxy ready"
 }
 
-# start_tick starts the tick loop after $1 seconds. The delay runs in the same
-# child, so the supervisor never blocks on it and SIGTERM ends it at once.
-start_tick() {
-	(
-		trap 'exit 0' TERM
-		if (($1 > 0)); then
-			sleep "$1" &
-			wait $!
-		fi
-		run_child "${tick_command[@]}"
-	) &
-	tick_pid=$!
-}
-
 supervise() {
 	local status=0 exited
 	trap stop_children TERM INT
@@ -304,29 +274,16 @@ supervise() {
 	run_child node "$bff_main" &
 	bff_pid=$!
 	log "started ao daemon (pid $daemon_pid) and the hub BFF (pid $bff_pid)"
-	if [[ $tick_enabled == 1 ]]; then
-		start_tick "$tick_start_delay"
-		log "started the orchestrator tick loop (pid $tick_pid, first tick in ${tick_start_delay}s)"
-	fi
 
 	# wait -n returns when the first child exits; a trapped signal interrupts it
-	# and SIGTERMs every child, while an exiting tick loop is only restarted.
-	while :; do
-		status=0
-		exited=
-		wait -n -p exited || status=$?
-		if ((stopping)) || { [[ -z $tick_pid || $exited != "$tick_pid" ]] && [[ -z $tailscale_pid || $exited != "$tailscale_pid" ]]; }; then
-			break
-		fi
-		if [[ -n $tailscale_pid && $exited == "$tailscale_pid" ]]; then
-			local tailscale_status=$status
-			((status != 0)) || status=1
-			log "tailscaled exited with status $tailscale_status; stopping the hub"
-			break
-		fi
-		log "orchestrator tick loop exited with status $status; restarting in ${tick_restart_delay}s"
-		start_tick "$tick_restart_delay"
-	done
+	# and SIGTERMs every child.
+	exited=
+	wait -n -p exited || status=$?
+	if ((!stopping)) && [[ -n $tailscale_pid && $exited == "$tailscale_pid" ]]; then
+		local tailscale_status=$status
+		((status != 0)) || status=1
+		log "tailscaled exited with status $tailscale_status; stopping the hub"
+	fi
 	if ((stopping)); then
 		status=0
 	else
@@ -345,7 +302,6 @@ supervise() {
 	stop_children
 	wait "$daemon_pid" 2>/dev/null || true
 	wait "$bff_pid" 2>/dev/null || true
-	[[ -n $tick_pid ]] && wait "$tick_pid" 2>/dev/null || true
 	[[ -n $tailscale_pid ]] && wait "$tailscale_pid" 2>/dev/null || true
 	exit "$status"
 }
@@ -358,7 +314,6 @@ sync_agent_prefix "${AO_HUB_OPENCODE_V2_SEED:-}" "$(opencode_v2_prefix)/npm"
 if [[ $dry_run == 1 ]]; then
 	log "dry run; would start: ${daemon_command[*]} and node $bff_main"
 	[[ $tailscale_enabled == 0 ]] || log "dry run; would start Tailscale userspace SOCKS5 on $tailscale_socks"
-	[[ $tick_enabled == 1 ]] && log "dry run; would start the tick loop: ${tick_command[*]}"
 	exit 0
 fi
 supervise

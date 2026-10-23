@@ -144,9 +144,10 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 		}
 		return remotehost.Entry{}, false, nil
 	}
+	localNow := time.Now()
 	observer := remotereports.New(remotereports.Deps{
 		Store: localStore, Deliverer: coordinator, SelfHostID: "host-local", Lookup: lookup,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return localNow },
 	})
 	links := remoteworker.New(remoteworker.Deps{Store: localStore, SelfHostID: "host-local", Lookup: lookup})
 
@@ -206,7 +207,25 @@ func TestRemoteWorkerReportReachesTheLocalOrchestratorEndToEnd(t *testing.T) {
 		t.Fatal("link retired in the pass that still delivered its report")
 	}
 
-	// Nothing is left: the next pass retires the link.
+	// Nothing is left, but the host still watches the worker's PRs: a merge
+	// that lands after the worker ended still reaches the orchestrator.
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	remoteClaims := reportsvc.New(reportsvc.Deps{Store: remoteStore, Claims: remoteStore, Now: remoteClock})
+	if err := remoteClaims.AnnounceMerged(ctx, worker.ID, "https://example/pr/9", 9, "late-merge"); err != nil {
+		t.Fatal(err)
+	}
+	localNow = localNow.Add(6 * time.Minute) // past the ended links' pull cadence
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if last := delivery.submissions[len(delivery.submissions)-1]; !strings.Contains(last, "AO: PR #9 merged (merge commit late-merge)") {
+		t.Fatalf("late merge after the worker ended was not delivered: %v", delivery.submissions)
+	}
+
+	// Past the PR refresh window with nothing left, the pass retires the link.
+	localNow = localNow.Add(domain.TerminatedPRRefreshWindow + time.Hour)
 	if err := observer.Poll(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -467,5 +486,56 @@ func TestTwoInstancesEachReceiveEveryReportOnceWhateverTheirPullOrder(t *testing
 				t.Errorf("%s instance received %q %d times, want once; deliveries: %q", name, note, got, in.delivery.submissions)
 			}
 		}
+	}
+}
+
+func TestRemoteWorkerLifecycleReachesTheLocalOrchestrator(t *testing.T) {
+	ctx := context.Background()
+
+	// Worker host: no orchestrator, so its lifecycle reports wait for a pull.
+	remoteStore := openStore(t, "widgets")
+	remoteReports := reportsvc.New(reportsvc.Deps{Store: remoteStore, Claims: remoteStore})
+	worker := createSession(t, remoteStore, "widgets", domain.KindWorker)
+	remote := startRemoteDaemon(t, remoteStore, remoteReports, "host-build", "s3cret")
+
+	localStore := openStore(t, "ultra-factory")
+	orchestrator := createSession(t, localStore, "ultra-factory", domain.KindOrchestrator)
+	delivery := &recordedDelivery{}
+	coordinator := reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{Store: localStore, Delivery: delivery})
+	lookup := func(id string) (remotehost.Entry, bool, error) {
+		if id == "host-build" {
+			return remotehost.Entry{Label: "build-box", URL: remote.URL, Password: "s3cret", HostID: "host-build"}, true, nil
+		}
+		return remotehost.Entry{}, false, nil
+	}
+	observer := remotereports.New(remotereports.Deps{
+		Store: localStore, Deliverer: coordinator, SelfHostID: "host-local", Lookup: lookup,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	links := remoteworker.New(remoteworker.Deps{Store: localStore, SelfHostID: "host-local", Lookup: lookup})
+	if _, err := links.Register(ctx, remoteworker.RegisterInput{
+		ParentSessionID: orchestrator.ID, HostID: "host-build", RemoteSessionID: worker.ID, RemoteProjectID: "widgets", DisplayName: "auth refactor",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The worker host's SCM observer sees the merge, then the worker is closed.
+	if err := remoteReports.AnnounceMerged(ctx, worker.ID, "https://example/pr/7", 7, "abc123"); err != nil {
+		t.Fatal(err)
+	}
+	worker.IsTerminated = true
+	worker.UpdatedAt = time.Now().UTC()
+	if err := remoteStore.UpdateSession(ctx, worker); err != nil {
+		t.Fatal(err)
+	}
+	if err := observer.Poll(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(delivery.submissions, "\n")
+	if len(delivery.targets) == 0 || delivery.targets[0] != orchestrator.ID ||
+		!strings.Contains(got, "AO: PR #7 merged (merge commit abc123)") ||
+		!strings.Contains(got, "AO: the worker session ended.") {
+		t.Fatalf("targets = %v delivered = %q", delivery.targets, got)
 	}
 }

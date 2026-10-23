@@ -78,6 +78,18 @@ func TestLinkDiscoveredRefusesUnregisteredProjectsAndUnsavedHosts(t *testing.T) 
 	}
 }
 
+func TestLinkDiscoveredIgnoresFinishedLinksAtTheLimit(t *testing.T) {
+	store := &fakeStore{project: domain.ProjectRecord{ID: "widgets"}}
+	for i := 0; i < MaxLinks; i++ {
+		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("old-%d", i)),
+			LastState: domain.RemoteLinkTerminated})
+	}
+	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
+	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); err != nil {
+		t.Fatalf("finished links blocked discovery: %v", err)
+	}
+}
+
 func TestLinkDiscoveredStopsAtTheLimit(t *testing.T) {
 	store := &fakeStore{project: domain.ProjectRecord{ID: "widgets"}}
 	for i := 0; i < MaxLinks; i++ {

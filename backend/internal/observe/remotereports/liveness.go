@@ -3,6 +3,7 @@ package remotereports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/remotehost"
@@ -13,6 +14,10 @@ import (
 func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, links []domain.RemoteWorkerLink) []domain.RemoteWorkerLink {
 	var kept []domain.RemoteWorkerLink
 	for i, link := range links {
+		if retained(link) {
+			kept = append(kept, link)
+			continue
+		}
 		terminated, err := client.terminated(ctx, link.RemoteSessionID)
 		switch {
 		case errors.Is(err, errSessionGone):
@@ -29,6 +34,11 @@ func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, li
 			o.recordLiveness(ctx, link, domain.RemoteLinkLive)
 			kept = append(kept, link)
 		default:
+			if link.TerminatedAt == nil {
+				endedAt := o.now()
+				link.TerminatedAt = &endedAt
+			}
+			link.LastState = domain.RemoteLinkTerminated
 			o.recordLiveness(ctx, link, domain.RemoteLinkTerminated)
 			if !o.endedWithNothingPending(ctx, client, link) {
 				kept = append(kept, link)
@@ -54,7 +64,52 @@ func (o *Observer) endedWithNothingPending(ctx context.Context, client *hostClie
 	if err != nil || len(result.reports) > 0 || len(result.rejected) > 0 || result.more {
 		return false
 	}
-	return o.drop(ctx, client, link, "remote session terminated") == nil
+	dropped, err := o.dropEnded(ctx, client, link)
+	return dropped && err == nil
+}
+
+// dropEnded drops an ended worker's link once its host stops refreshing the
+// worker's PRs, so a later merge or close report is still pulled.
+func (o *Observer) dropEnded(ctx context.Context, client *hostClient, link domain.RemoteWorkerLink) (bool, error) {
+	if !o.retentionOver(link) {
+		return false, nil
+	}
+	return true, o.drop(ctx, client, link, "remote session terminated")
+}
+
+func (o *Observer) retentionOver(link domain.RemoteWorkerLink) bool {
+	return link.TerminatedAt != nil && o.now().Sub(*link.TerminatedAt) >= domain.TerminatedPRRefreshWindow
+}
+
+// retainedPullInterval spaces pulls of ended workers' links; they only wait
+// for a late PR outcome, so live links go first and on every pass.
+const retainedPullInterval = 5 * time.Minute
+
+// retained reports a link whose worker an earlier pass already read as ended.
+func retained(link domain.RemoteWorkerLink) bool {
+	return link.LastState == domain.RemoteLinkTerminated && link.TerminatedAt != nil
+}
+
+// schedule orders one host's links for a pass: live links first, then the
+// ended links whose slow cadence is due. It records those as pulled now.
+func (o *Observer) schedule(hostID string, links []domain.RemoteWorkerLink) []domain.RemoteWorkerLink {
+	now := o.now()
+	var live, ended []domain.RemoteWorkerLink
+	o.retainedMu.Lock()
+	defer o.retainedMu.Unlock()
+	for _, link := range links {
+		if !retained(link) {
+			live = append(live, link)
+			continue
+		}
+		ref := linkRef{hostID: hostID, session: link.RemoteSessionID}
+		if last, ok := o.lastRetainedPull[ref]; ok && now.Sub(last) < retainedPullInterval {
+			continue
+		}
+		o.lastRetainedPull[ref] = now
+		ended = append(ended, link)
+	}
+	return append(live, ended...)
 }
 
 func (o *Observer) recordLiveness(ctx context.Context, link domain.RemoteWorkerLink, state string) {

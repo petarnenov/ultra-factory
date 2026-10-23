@@ -35,7 +35,7 @@ export type PhaseAction = ToolStep & { id: string };
 // own their args: one tool can take different args in different phases.
 export type Phase = { id: string; bridge?: BridgeStep; actions: PhaseAction[]; checks: ExpectStep[] };
 
-export type JevAction = { id: string; phase: string; tool: string; args: Record<string, unknown> };
+export type JevAction = { id: string; phase: string; tool: string; args: Record<string, unknown>; rejects?: ToolErrorCode };
 
 // totalMs covers actions and assertions; only bridge pushes are excluded.
 export type PlaywrightTiming = { totalMs: number; bridgeMs: number; assertMs: number };
@@ -105,7 +105,7 @@ function defineScenario(definition: Omit<Scenario, "tools" | "jevActions">): Sce
 		...definition,
 		tools: definition.phases.flatMap((phase) => [...(phase.bridge ? [phase.bridge] : []), ...phase.actions, ...phase.checks]),
 		jevActions: definition.phases.flatMap((phase) =>
-			phase.actions.map((step) => ({ id: step.id, phase: phase.id, tool: step.name, args: step.args ?? {} })),
+			phase.actions.map((step) => ({ id: step.id, phase: phase.id, tool: step.name, args: step.args ?? {}, ...(step.rejects ? { rejects: step.rejects } : {}) })),
 		),
 	};
 }

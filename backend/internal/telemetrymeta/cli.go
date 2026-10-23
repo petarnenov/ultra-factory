@@ -31,8 +31,6 @@ var routineInternalCLICommands = []string{
 	"ao project get",
 	"ao project aggregate",
 	"ao orchestrator ls",
-	// The orchestrator wake-up loop is unattended automation.
-	"ao orchestrator tick",
 	"ao hooks",
 	"ao pty-host",
 	"ao unreal-provider",

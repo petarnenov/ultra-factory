@@ -29,14 +29,14 @@ type Store interface {
 	InsertDiscoveredRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) (bool, error)
 	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
 	RemoveRemoteWorkerLink(context.Context, string, domain.SessionID, time.Time) error
-	DeleteRemoteWorkerLink(context.Context, string, domain.SessionID) error
+	UpdateRemoteWorkerLinkLiveness(context.Context, string, domain.SessionID, time.Time, string) error
 }
 
-// MaxLinks bounds how many remote workers this daemon polls; every link costs
-// authenticated requests to its host on each pass.
+// MaxLinks bounds how many unfinished remote workers this daemon polls; every
+// such link costs authenticated requests to its host on each pass.
 const MaxLinks = 200
 
-// ErrLinkLimit reports that MaxLinks links already exist.
+// ErrLinkLimit reports that MaxLinks unfinished links already exist.
 var ErrLinkLimit = errors.New("remote worker link limit reached")
 
 // ErrProjectNotRegistered reports a remote worker whose project this daemon
@@ -183,8 +183,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 				map[string]any{"hostId": in.HostID, "remoteSessionId": string(in.RemoteSessionID), "projectId": string(link.ProjectID)})
 		}
 	}
-	if len(existing) >= MaxLinks && !hasLink(existing, link) {
-		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many remote workers are linked; finished workers are unlinked automatically", nil)
+	if unfinishedLinks(existing) >= MaxLinks && !hasLink(existing, link) {
+		return Registration{}, apierr.Conflict("REMOTE_WORKER_LINK_LIMIT", "Too many unfinished remote workers are linked; finished workers do not count", nil)
 	}
 	if !hasLink(existing, link) {
 		if err := s.checkCapacity(ctx, link.ProjectID, link.OwnerSessionID, link.HostID); err != nil {
@@ -249,7 +249,7 @@ func (s *Service) LinkDiscovered(ctx context.Context, link domain.RemoteWorkerLi
 	if hasLink(existing, link) {
 		return false, nil
 	}
-	if len(existing) >= MaxLinks {
+	if unfinishedLinks(existing) >= MaxLinks {
 		return false, ErrLinkLimit
 	}
 	link.HostLabel = strings.TrimSpace(entry.Label)
@@ -313,6 +313,18 @@ func (s *Service) checkCapacity(ctx context.Context, projectID domain.ProjectID,
 		return counts.CheckNewWorker(projectID, owner, gate.Limits())
 	}
 	return counts.CheckNewRemoteWorker(projectID, owner, hostID, gate)
+}
+
+// unfinishedLinks counts links whose worker was not read as terminated; ended
+// links stay only to pull late reports and cost a slow, separate cadence.
+func unfinishedLinks(links []domain.RemoteWorkerLink) int {
+	n := 0
+	for _, link := range links {
+		if link.LastState != domain.RemoteLinkTerminated {
+			n++
+		}
+	}
+	return n
 }
 
 func hasLink(links []domain.RemoteWorkerLink, link domain.RemoteWorkerLink) bool {

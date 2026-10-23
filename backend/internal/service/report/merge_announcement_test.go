@@ -2,6 +2,8 @@ package report
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,131 +11,201 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 )
 
-func mergeAnnouncementFixture(t *testing.T, ownerSet bool) (*Coordinator, *coordinatorStore, *coordinatorDelivery) {
+func (s *coordinatorStore) CreateReport(_ context.Context, rec domain.ReportRecord) (domain.ReportRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.createErr != nil {
+		return domain.ReportRecord{}, s.createErr
+	}
+	s.reports = append(s.reports, rec)
+	return rec, nil
+}
+
+type prOutcomeFixture struct {
+	reports  *Service
+	delivery *Coordinator
+	store    *coordinatorStore
+	sent     *coordinatorDelivery
+	now      time.Time
+}
+
+// newPROutcomeFixture seeds a root, a coordinator, and a worker owned by
+// owner (nil means root-owned).
+func newPROutcomeFixture(t *testing.T, owner *domain.SessionID) prOutcomeFixture {
 	t.Helper()
-	store := newCoordinatorStore(time.Now())
-	owner := domain.SessionID("coordinator")
-	var ownerPtr *domain.SessionID
-	if ownerSet {
-		ownerPtr = &owner
-	}
+	now := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+	store := newCoordinatorStore(now)
 	store.sessions = []domain.SessionRecord{
-		{ID: owner, ProjectID: "p", Kind: domain.KindCoordinator},
-		{ID: "worker", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: ownerPtr},
+		{ID: "root", ProjectID: "p", Kind: domain.KindOrchestrator},
+		{ID: "coordinator", ProjectID: "p", Kind: domain.KindCoordinator},
+		{ID: "worker", ProjectID: "p", Kind: domain.KindWorker, OwnerSessionID: owner},
 	}
-	delivery := &coordinatorDelivery{}
-	return NewCoordinator(CoordinatorDeps{Store: store, Delivery: delivery}), store, delivery
+	sent := &coordinatorDelivery{}
+	clock := func() time.Time { return now }
+	ids := 0
+	reports := New(Deps{Store: store, Claims: store, Now: clock, NewID: func() string {
+		ids++
+		return fmt.Sprintf("rpt_%d", ids)
+	}})
+	delivery := NewCoordinator(CoordinatorDeps{Store: store, Delivery: sent, Now: clock})
+	return prOutcomeFixture{reports: reports, delivery: delivery, store: store, sent: sent, now: now}
 }
 
-func TestAnnounceMergedNoticesTheOwnerOnce(t *testing.T) {
-	c, _, delivery := mergeAnnouncementFixture(t, true)
-	ctx := context.Background()
-
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
-		t.Fatal(err)
-	}
-	if len(delivery.submissions) != 1 {
-		t.Fatalf("submissions = %+v, want one", delivery.submissions)
-	}
-	got := delivery.submissions[0]
-	if got.target != "coordinator" || !strings.Contains(got.message, "PR #201") ||
-		!strings.Contains(got.message, "merge-commit") || !strings.Contains(got.message, "worker") {
-		t.Fatalf("notice = %+v", got)
+func (f prOutcomeFixture) deliverDue(t *testing.T) {
+	t.Helper()
+	if _, err := f.delivery.RunDue(context.Background()); err != nil {
+		t.Fatalf("run due: %v", err)
 	}
 }
 
-func TestTickCompletionAfterObserverNoticeIsNotDuplicated(t *testing.T) {
-	c, _, delivery := mergeAnnouncementFixture(t, true)
+func (f prOutcomeFixture) submissionsTo(target domain.SessionID, needle string) int {
+	n := 0
+	for _, s := range f.sent.submissions {
+		if s.target == target && strings.Contains(s.message, needle) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestAnnounceMergedReachesTheRootForARootOwnedWorker(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
 	ctx := context.Background()
 
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
-		t.Fatal(err)
+	for range 2 {
+		if err := f.reports.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
+			t.Fatal(err)
+		}
 	}
-	tick := CompletionInput{SessionID: "worker", ActionKey: "merge:201@head", Kind: "merge",
-		PRs: []CompletionPR{{Number: 201, MergeCommitSHA: "merge-commit"}}}
-	if err := c.DeliverCompletion(ctx, tick); err != nil {
-		t.Fatal(err)
-	}
-	if len(delivery.submissions) != 1 {
-		t.Fatalf("tick repeated the observer notice: %+v", delivery.submissions)
+	f.deliverDue(t)
+
+	if got := f.submissionsTo("root", "PR #201 merged (merge commit merge-commit)"); got != 1 {
+		t.Fatalf("root notices = %d, want 1; sent = %+v", got, f.sent.submissions)
 	}
 }
 
-func TestObserverNoticeAfterTickCompletionIsNotDuplicated(t *testing.T) {
-	c, _, delivery := mergeAnnouncementFixture(t, true)
-	ctx := context.Background()
-
-	tick := CompletionInput{SessionID: "worker", ActionKey: "merge:201@head", Kind: "merge",
-		PRs: []CompletionPR{{Number: 201, MergeCommitSHA: "merge-commit"}}}
-	if err := c.DeliverCompletion(ctx, tick); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
-		t.Fatal(err)
-	}
-	if len(delivery.submissions) != 1 {
-		t.Fatalf("observer repeated the tick notice: %+v", delivery.submissions)
-	}
-}
-
-func TestAnnounceMergedSkipsRootOwnedAndTerminatedOwners(t *testing.T) {
-	c, store, delivery := mergeAnnouncementFixture(t, false)
-	ctx := context.Background()
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
-		t.Fatal(err)
-	}
-	if len(delivery.submissions) != 0 {
-		t.Fatalf("root-owned worker notified: %+v", delivery.submissions)
-	}
-
+func TestAnnounceMergedReachesTheOwningCoordinator(t *testing.T) {
 	owner := domain.SessionID("coordinator")
-	store.sessions[1].OwnerSessionID = &owner
-	store.sessions[0].IsTerminated = true
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/202", 202, "merge-commit-2"); err != nil {
+	f := newPROutcomeFixture(t, &owner)
+
+	if err := f.reports.AnnounceMerged(context.Background(), "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivery.submissions) != 0 {
-		t.Fatalf("terminated owner notified: %+v", delivery.submissions)
+	f.deliverDue(t)
+
+	if f.submissionsTo("coordinator", "PR #201 merged") != 1 || f.submissionsTo("root", "PR #201") != 0 {
+		t.Fatalf("sent = %+v, want one notice to the coordinator only", f.sent.submissions)
 	}
 }
 
-func TestAnnounceMergedReleasesClaimOnFailureSoItRetries(t *testing.T) {
-	c, _, delivery := mergeAnnouncementFixture(t, true)
-	ctx := context.Background()
-	delivery.submitErr = ErrRecipientUnavailable
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err == nil {
-		t.Fatal("delivery failure was not returned")
-	}
-	delivery.submitErr = nil
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
+func TestAnnounceMergedIsDueImmediately(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
+
+	if err := f.reports.AnnounceMerged(context.Background(), "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivery.submissions) != 1 {
-		t.Fatalf("released claim did not retry: %+v", delivery.submissions)
+
+	if len(f.store.reports) != 1 || !f.store.reports[0].AvailableAt.Equal(f.now) {
+		t.Fatalf("reports = %+v, want one due at %v, not after the batch window", f.store.reports, f.now)
+	}
+}
+
+func TestAnnounceMergedStillReportsATerminatedWorker(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
+	f.store.sessions[2].IsTerminated = true
+
+	if err := f.reports.AnnounceMerged(context.Background(), "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
+		t.Fatal(err)
+	}
+	f.deliverDue(t)
+
+	if f.submissionsTo("root", "PR #201 merged") != 1 {
+		t.Fatalf("merge after termination not reported; sent = %+v", f.sent.submissions)
 	}
 }
 
 func TestAnnounceMergedWithoutAMergeCommitIsNotDropped(t *testing.T) {
-	c, _, delivery := mergeAnnouncementFixture(t, true)
+	f := newPROutcomeFixture(t, nil)
 	ctx := context.Background()
 
-	// A fast-forward or null mergeCommit reports no SHA; still notify.
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/203", 203, ""); err != nil {
+	// A fast-forward or null mergeCommit reports no SHA; the PR identity dedupes.
+	for range 2 {
+		if err := f.reports.AnnounceMerged(ctx, "worker", "https://example/pr/203", 203, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.deliverDue(t)
+
+	if f.submissionsTo("root", "PR #203 merged (no merge commit reported)") != 1 {
+		t.Fatalf("sent = %+v, want one notice", f.sent.submissions)
+	}
+}
+
+func TestAnnounceClosedReportsOnceAndApartFromMerge(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
+	ctx := context.Background()
+	closedAt := f.now.Add(-time.Minute)
+
+	for range 2 {
+		if err := f.reports.AnnounceClosed(ctx, "worker", "https://example/pr/204", 204, closedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.reports.AnnounceMerged(ctx, "worker", "https://example/pr/204", 204, ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivery.submissions) != 1 {
-		t.Fatalf("empty-SHA merge dropped: %+v", delivery.submissions)
+	f.deliverDue(t)
+
+	if f.submissionsTo("root", "PR #204 closed without merge") != 1 || f.submissionsTo("root", "PR #204 merged") != 1 {
+		t.Fatalf("sent = %+v, want one closed and one merged notice", f.sent.submissions)
 	}
-	if got := delivery.submissions[0].message; !strings.Contains(got, "PR #203") || !strings.Contains(got, "no merge commit reported") {
-		t.Fatalf("notice = %q", got)
+}
+
+func TestAnnounceMergedReleasesTheClaimWhenTheReportIsNotStored(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
+	ctx := context.Background()
+	f.store.createErr = errors.New("disk full")
+
+	if err := f.reports.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err == nil {
+		t.Fatal("store failure was not returned")
 	}
-	if err := c.AnnounceMerged(ctx, "worker", "https://example/pr/203", 203, ""); err != nil {
+	f.store.createErr = nil
+	if err := f.reports.AnnounceMerged(ctx, "worker", "https://example/pr/201", 201, "merge-commit"); err != nil {
 		t.Fatal(err)
 	}
-	if len(delivery.submissions) != 1 {
-		t.Fatalf("empty-SHA merge announced twice: %+v", delivery.submissions)
+
+	if len(f.store.reports) != 1 {
+		t.Fatalf("reports = %+v, want the retry to store one", f.store.reports)
+	}
+}
+
+func TestAnnounceMergedIgnoresNonWorkersAndStandaloneSessions(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
+	ctx := context.Background()
+	f.store.sessions = append(f.store.sessions, domain.SessionRecord{ID: "standalone", Kind: domain.KindWorker})
+
+	for _, id := range []domain.SessionID{"coordinator", "standalone", "missing"} {
+		if err := f.reports.AnnounceMerged(ctx, id, "https://example/pr/9", 9, "sha-"+string(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(f.store.reports) != 0 {
+		t.Fatalf("reports = %+v, want none", f.store.reports)
+	}
+}
+
+func TestAnnounceClosedReportsAReopenedPRThatClosesAgain(t *testing.T) {
+	f := newPROutcomeFixture(t, nil)
+	ctx := context.Background()
+
+	for _, closedAt := range []time.Time{f.now.Add(-time.Hour), f.now} {
+		if err := f.reports.AnnounceClosed(ctx, "worker", "https://example/pr/205", 205, closedAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if len(f.store.reports) != 2 {
+		t.Fatalf("reports = %+v, want one per close", f.store.reports)
 	}
 }

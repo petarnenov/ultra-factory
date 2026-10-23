@@ -653,6 +653,7 @@ type RemoteWorkerLink struct {
 	Source          string
 	LastSeenAt      sql.NullTime
 	LastState       string
+	TerminatedAt    sql.NullTime
 }
 
 type RemoteWorkerLinkRemoval struct {

@@ -278,7 +278,9 @@ Built on the branch:
 - **Worker management** through the Railway GraphQL API (create, reconcile,
   remove), worker limit, volume-size limit, idle warning, and worker drain.
 - **Orchestration across hosts**: report pull from remote workers (ADR 0005)
-  and an optional orchestrator wake-up loop in the hub.
+  and worker lifecycle reports (PR merged, PR closed without merge, worker
+  session ended) that the daemon delivers to the owning coordinator or root
+  orchestrator automatically.
 - **Operations**: hub database/registry backup script, rotation procedures, and
   a local Compose + Playwright e2e (`deploy/railway/compose.e2e.sh`, run in CI
   by `railway-e2e.yml`).
@@ -286,7 +288,7 @@ Built on the branch:
 Verified live: hub public domain and TLS, login and board, hub → worker over
 Railway private networking (IPv4 and IPv6), live worker terminal in the
 browser, persistence of `/data` across hub image updates, automated hub
-deploys, and hub orchestrator credentials with the wake-up loop (2026-10-17,
+deploys, and hub orchestrator credentials (2026-10-17,
 [#134](https://github.com/petarnenov/ultra-factory/issues/134)).
 
 Pending live checks (not to be reported as passed): board load time and SSE and

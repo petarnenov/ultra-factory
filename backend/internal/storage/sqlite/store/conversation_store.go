@@ -733,6 +733,9 @@ func (s *Store) commitChatSpawn(
 				return err
 			}
 		}
+		// Fork after the sequence seen here, not at reservation, so input
+		// queued while the provider connected stays in this lineage.
+		branch.ForkAfterSequence = conversation.LatestSequence
 		if err := insertConversationBranchTx(ctx, q, branch, branch.CreatedAt); err != nil {
 			return err
 		}
