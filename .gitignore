@@ -95,6 +95,9 @@ frontend/agent-browser/
 !.agents/skills/bug-triage/**
 !.agents/skills/pr-description/
 !.agents/skills/pr-description/**
+!.agents/skills/openspec-*/
+!.agents/skills/openspec-*/**
+!.agents/skills/.openspec-target
 skills-lock.json
 
 # e2e pod gate: downloaded pod logs/traces (uploaded as CI artifacts, not committed)
