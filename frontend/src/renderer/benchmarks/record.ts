@@ -11,6 +11,7 @@ export type BenchStep = {
 	decisionMs?: number;
 	choice?: string;
 	confidence?: number;
+	probabilities?: Record<string, number>;
 	matchedScripted?: boolean;
 };
 
@@ -113,6 +114,7 @@ function isStep(v: unknown): boolean {
 		isOptional(v.decisionMs, isNumber) &&
 		isOptional(v.choice, isString) &&
 		isOptional(v.confidence, isNumber) &&
+		isOptional(v.probabilities, (probabilities) => isObject(probabilities) && Object.values(probabilities).every(isNumber)) &&
 		isOptional(v.matchedScripted, isBoolean)
 	);
 }
