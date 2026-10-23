@@ -77,6 +77,7 @@ func (s *Scanner) open() error {
 	return err
 }
 
+// Scan performs one bounded pass and preserves discovery cursors.
 func (s *Scanner) Scan(parent context.Context) {
 	started := time.Now()
 	status := ScanStatus{Enabled: true, LastScan: started.UTC().Format(time.RFC3339Nano)}

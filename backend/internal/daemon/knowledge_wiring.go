@@ -2,11 +2,11 @@ package daemon
 
 import (
 	"context"
-	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"log/slog"
 	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"

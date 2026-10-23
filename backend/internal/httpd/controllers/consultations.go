@@ -6,19 +6,23 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/apispec"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/envelope"
-	"github.com/go-chi/chi/v5"
 )
 
+// ConsultationService exposes bounded read-only index queries.
 type ConsultationService interface {
 	List(context.Context, int, string) (consultations.Page, error)
 	Detail(context.Context, string) (consultations.Detail, error)
 }
 
+// ConsultationController serves archived consultation evidence.
 type ConsultationController struct{ Svc ConsultationService }
 
+// Register mounts consultation reads inside the existing API boundary.
 func (c *ConsultationController) Register(r chi.Router) {
 	r.Get("/knowledge/consultations", c.list)
 	r.Get("/knowledge/consultations/{id}", c.detail)

@@ -100,3 +100,31 @@ file to clear absence on the next successful scan. Restarting scanning resets
 directory cursors and backfills again safely. Existing Neo4j backup/restore
 covers the index; retain host archives separately. There is no global sync,
 Cloud service, deployment, mutation endpoint or automatic retention policy.
+
+## Validation
+
+Normal tests require no network or user archives:
+
+```bash
+cd backend
+go test -cover ./internal/consultations
+go test ./internal/httpd/...
+```
+
+Opt-in `kglive` tests use the configured graph and delete only uniquely named
+test consultation records. `consultarchive_live` reads the approved local #639
+archive without changing it. Run both tags to verify that original archive
+through the real graph and the HTTP detail endpoint:
+
+```bash
+go test -tags=kglive -run TestLiveIndex -v ./internal/consultations
+go test -tags=consultarchive_live -run TestRealArchiveScanner -v ./internal/consultations
+go test -tags=kglive,consultarchive_live -run TestRealArchiveGraphAPI -v ./internal/consultations
+```
+
+The renderer review fixture at
+`frontend/test/fixtures/consultations/index.html` uses the actual page and typed
+client with synthetic API responses. It covers list/detail navigation, complete
+and fallback evidence, safe Markdown, empty, 501 and 503 states and both themes.
+It complements the real archive/graph/API integration; it is not a live daemon.
+The corresponding Playwright regression is `frontend/e2e/consultations.spec.ts`.

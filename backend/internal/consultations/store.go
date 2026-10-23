@@ -21,6 +21,7 @@ type Store struct {
 	status      ScanStatus
 }
 
+// Status returns the latest local scanner observation.
 func (s *Store) Status() ScanStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -36,7 +37,7 @@ func (s *Store) Schema(ctx context.Context) error {
 		"CREATE CONSTRAINT consultation_key IF NOT EXISTS FOR (c:ArchitectureConsultation) REQUIRE c.key IS UNIQUE",
 		"CREATE CONSTRAINT consultation_artifact_key IF NOT EXISTS FOR (a:ConsultationArtifact) REQUIRE a.key IS UNIQUE",
 		"CREATE INDEX consultation_created IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.createdAt)",
-		"CREATE INDEX consultation_host IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.hostId)",
+		"CREATE INDEX consultation_host_id IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.hostId)",
 		"CREATE CONSTRAINT consultation_scan_host IF NOT EXISTS FOR (s:ArchitectureConsultationScan) REQUIRE s.hostId IS UNIQUE",
 	} {
 		if _, err := s.Write.Run(ctx, q, nil); err != nil {
@@ -65,6 +66,7 @@ FOREACH (_ IN CASE WHEN NOT item.missing THEN [1] ELSE [] END |
  SET a.observed = true)
 RETURN count(a) AS n`
 
+// Import atomically upserts changed evidence and preserves vanished artifacts.
 func (s *Store) Import(ctx context.Context, d Detail) error {
 	key, err := DecodeID(d.ID)
 	if err != nil {
@@ -103,6 +105,7 @@ func (s *Store) Import(ctx context.Context, d Detail) error {
 	return err
 }
 
+// List reads one bounded page through the graph read credentials.
 func (s *Store) List(ctx context.Context, limit int, cursor string) (Page, error) {
 	page := Page{Items: []Summary{}, Scan: s.Status()}
 	if limit < 1 || limit > 50 {
@@ -138,6 +141,7 @@ RETURN c.key AS key, c.summary AS summary ORDER BY c.date DESC, c.key DESC LIMIT
 	return page, nil
 }
 
+// Detail reads a consultation and retained evidence in process order.
 func (s *Store) Detail(ctx context.Context, id string) (Detail, error) {
 	key, err := DecodeID(id)
 	if err != nil {
@@ -200,7 +204,10 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 		if !ok || (a.Round > 0 && !groups[a.Round]) {
 			continue
 		}
-		if a.Phase == "arbitration" && stored.Missing && stored.AbsentSince == "" && d.Arbitration.Status == "" {
+		if a.Phase == "ballot" && !ballots[a.Round] {
+			continue
+		}
+		if a.Phase == "arbitration" && stored.Missing && stored.AbsentSince == "" && d.Arbitration.Status == "" && d.Mode != "d03_fallback" && d.Mode != "fallback_arbitration" {
 			continue
 		}
 		d.Artifacts = append(d.Artifacts, stored)

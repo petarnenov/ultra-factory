@@ -31,7 +31,7 @@ func TestConsultationRoutes(t *testing.T) {
 	for _, path := range []string{"/knowledge/consultations", "/knowledge/consultations/id"} {
 		srv := newRouterServer(t, httpd.APIDeps{})
 		resp, _ := doKnowledge(t, "GET", srv.URL+"/api/v1"+path, "")
-		if resp.StatusCode != 501 {
+		if resp.StatusCode != http.StatusNotImplemented {
 			t.Fatal(resp.StatusCode)
 		}
 	}

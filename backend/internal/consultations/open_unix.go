@@ -3,8 +3,9 @@
 package consultations
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 func openNonblocking(root *os.Root, path string) (*os.File, error) {

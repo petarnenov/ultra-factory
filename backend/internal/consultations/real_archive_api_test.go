@@ -12,10 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"
-	"github.com/go-chi/chi/v5"
 )
 
 // TestRealArchiveGraphAPI checks canonical evidence through the real graph/API.
@@ -80,6 +81,9 @@ func TestRealArchiveGraphAPI(t *testing.T) {
 	}
 	found := false
 	for _, a := range got.Artifacts {
+		if a.Phase == "ballot" {
+			t.Fatal("arbitration manufactured a council ballot round")
+		}
 		if a.Name == "fallback-arbitration/fable.md" {
 			found = a.Phase == "arbitration" && a.Hash != "" && a.Content != "" && len(a.Ballots) == 0
 		}

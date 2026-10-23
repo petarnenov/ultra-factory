@@ -68,7 +68,7 @@ func TestArchiveEvidence(t *testing.T) {
 func TestArchivePartialUnsafeAndTruncation(t *testing.T) {
 	dir, root := archive(t)
 	put(t, dir, "state.json", `{"requester":"/secret/path","unknown":"secret","decision_status":{}}`)
-	text := strings.Repeat("x", ContentCap+100)
+	text := strings.Repeat("x", contentCap+100)
 	put(t, dir, "final.md", text)
 	put(t, dir, "proposal-2.md", "second")
 	put(t, dir, "logs/secret.log", "secret")
@@ -87,7 +87,7 @@ func TestArchivePartialUnsafeAndTruncation(t *testing.T) {
 		if strings.Contains(a.Name, "logs") {
 			t.Fatal("log imported")
 		}
-		if a.Name == "final.md" && (!a.Truncated || len(a.Content) != ContentCap || a.Hash != hex.EncodeToString(sum[:])) {
+		if a.Name == "final.md" && (!a.Truncated || len(a.Content) != contentCap || a.Hash != hex.EncodeToString(sum[:])) {
 			t.Fatal("bad truncation")
 		}
 	}
@@ -134,7 +134,7 @@ func TestIDs(t *testing.T) {
 func TestContentBudgetAndInvalidUTF8(t *testing.T) {
 	dir, root := archive(t)
 	for _, a := range artifactLayout() {
-		put(t, dir, a.Name, strings.Repeat("\x01", ContentCap))
+		put(t, dir, a.Name, strings.Repeat("\x01", contentCap))
 	}
 	put(t, dir, "request.md", "prefix\xffinvalid")
 	d, err := ReadArchive(context.Background(), root, "host", "2026-10-23", "case", time.Now())
@@ -149,7 +149,7 @@ func TestContentBudgetAndInvalidUTF8(t *testing.T) {
 		raw, _ := json.Marshal(a.Content)
 		total += len(raw)
 	}
-	if total > TotalContentCap+64 {
+	if total > totalContentCap+64 {
 		t.Fatalf("encoded content exceeded budget: %d", total)
 	}
 }
@@ -184,6 +184,11 @@ func TestProposalDoesNotManufactureVotingRound(t *testing.T) {
 	d, _ := ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
 	if d.Rounds != 0 || d.ProposalVersions != 1 {
 		t.Fatal("proposal became a voting round")
+	}
+	for _, a := range d.Artifacts {
+		if a.Phase == "ballot" {
+			t.Fatal("proposal manufactured ballot artifacts")
+		}
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "2026-10-23/case/ballots/round-1"), 0700); err != nil {
 		t.Fatal(err)

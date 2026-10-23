@@ -29,7 +29,7 @@ func ParseBallot(text string, round int) []Ballot {
 	seen := map[string]bool{}
 	for _, line := range lines[1:] {
 		match := voteLine.FindStringSubmatch(line)
-		if match == nil || seen[match[1]] {
+		if len(match) != 3 || seen[match[1]] {
 			return []Ballot{}
 		}
 		seen[match[1]] = true
@@ -51,8 +51,9 @@ func artifactLayout() []Artifact {
 			out = append(out, Artifact{Name: fmt.Sprintf("ballots/round-%d/%s.md", round, name), Phase: "ballot", Round: round, Consul: name})
 		}
 	}
-	out = append(out, Artifact{Name: "fallback-arbitration/fable.md", Phase: "arbitration", Consul: "fable"})
-	out = append(out, Artifact{Name: "final.md", Phase: "final"})
+	out = append(out,
+		Artifact{Name: "fallback-arbitration/fable.md", Phase: "arbitration", Consul: "fable"},
+		Artifact{Name: "final.md", Phase: "final"})
 	for _, name := range consulNames {
 		out = append(out, Artifact{Name: name + ".md", Phase: "collected", Consul: name})
 	}
@@ -149,7 +150,7 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 		}
 	}
 
-	remaining := TotalContentCap
+	remaining := totalContentCap
 	observed := map[int]bool{}
 	ballots := map[int]bool{}
 	proposals := map[int]bool{}
@@ -173,7 +174,7 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 	d.RatificationRounds = []int{}
 	for _, a := range artifactLayout() {
 		a.Ballots = []Ballot{}
-		text, digest, trunc, err := readArtifact(ctx, root, base+a.Name, min(ContentCap, remaining))
+		text, digest, trunc, err := readArtifact(ctx, root, base+a.Name, min(contentCap, remaining))
 		if err != nil {
 			a.Missing = true
 			if !os.IsNotExist(err) {
@@ -184,7 +185,7 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 			encoded, _ := json.Marshal(text)
 			for len(encoded) > remaining {
 				text = text[:len(text)*remaining/len(encoded)]
-				for len(text) > 0 && !utf8.ValidString(text) {
+				for text != "" && !utf8.ValidString(text) {
 					text = text[:len(text)-1]
 				}
 				trunc = true
@@ -234,7 +235,10 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 			continue
 		}
 
-		if a.Phase == "arbitration" && a.Missing && d.Arbitration.Status == "" {
+		if a.Phase == "ballot" && !ballots[a.Round] {
+			continue
+		}
+		if a.Phase == "arbitration" && a.Missing && d.Arbitration.Status == "" && d.Mode != "d03_fallback" && d.Mode != "fallback_arbitration" {
 			continue
 		}
 		if a.Missing || (a.Phase == "ballot" && len(a.Ballots) == 0) || a.Truncated {

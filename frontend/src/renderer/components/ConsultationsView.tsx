@@ -22,11 +22,12 @@ function Metadata({ item }: { item: Summary }) {
   ["Created", item.createdAt || item.date], ["Verified", item.verifiedAt], ["Phase", item.phase], ["Decision", item.decision],
   ["Archive", item.archive], ["Delivery", item.delivery], ["Closure", item.closure],
   ["Escalation", item.escalation], ["Decision process", item.mode], ["Last sync", item.syncedAt],
+  ...[["Input patch digest", item.patchDigest], ["Escalated", item.escalatedAt], ["Response deadline", item.escalationDeadline], ["Responded", item.respondedAt]].filter(([, value]) => Boolean(value)),
  ];
  return <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm @lg:grid-cols-2">
   {values.map(([label, value]) => <div key={label} className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{value || "Unknown"}</dd></div>)}
   {item.consulClosure?.map((closure) => <div key={closure.consul} className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">{closure.consul} closure</dt><dd className="break-words">{closure.status}</dd></div>)}
-  {item.arbitration?.status && <div className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">Fallback arbitration</dt><dd className="break-words">{item.arbitration.status} · {item.arbitration.model || "Model unknown"} · {item.arbitration.effort || "Effort unknown"}</dd></div>}
+  {item.arbitration?.status && <div className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">Fallback arbitration</dt><dd className="break-words">{item.arbitration.status} · {item.arbitration.model || "Model unknown"} · {item.arbitration.effort || "Effort unknown"} · {item.arbitration.host || "Host unknown"}</dd></div>}
  </dl>;
 }
 
