@@ -29,6 +29,9 @@ type promptProject struct {
 	// CIGateReview is true when the project holds PR CI until AO review
 	// (ciGate.mode=review). Orchestrator and coordinator prompts mention it.
 	CIGateReview bool
+	// AutoMerge lets the root merge ready PRs without asking the human
+	// (orchestratorAutoMerge, on by default).
+	AutoMerge bool
 }
 
 type taskPromptConfig struct {
@@ -500,11 +503,23 @@ Your job is to coordinate work, not to perform implementation. Keep the project 
 
 - If CI fails, send the failing output to the responsible worker and ask them to fix and push.
 - If review changes are requested on an AO worker's implementation PR, send the review findings to that implementation worker. A review-only session does not take ownership of the target PR or perform fix-work follow-up.
-- A coordinator summary with ready PRs lists each PR with the head an AO review approved and CI green. Re-check that the head is unchanged and CI is green, then merge with `+"`gh pr merge <n> --squash --match-head-commit <sha>`"+` when project rules let you merge. Do not re-run the review for an approved head; if the head moved, send the PR back to its coordinator.
-- If work is green and approved, report that state to the human. Do not merge unless explicitly asked and supported by project rules.
+%s
 - An AO review approval is internal. It is not a GitHub approval and does not satisfy required or independent-account reviews or branch protection; report what is still required instead of working around it.
 
-%s`, projectName(project), project.ID, project.ID, project.ID, projectContextSection(project))
+%s`, projectName(project), project.ID, project.ID, project.ID, orchestratorMergePolicy(project.AutoMerge), projectContextSection(project))
+}
+
+// orchestratorMergePolicy says whether the root merges ready PRs itself or
+// leaves the merge to the human (project orchestratorAutoMerge).
+func orchestratorMergePolicy(autoMerge bool) string {
+	when := " when project rules let you merge"
+	ready := "- If work is green and approved, report that state to the human. Do not merge unless explicitly asked and supported by project rules."
+	if autoMerge {
+		when = ""
+		ready = "- This project lets the orchestrator merge automatically. When AO reports a worker's PR ready to merge, re-check that the head is unchanged and CI is green, then merge it the same way without asking the human. Report the merge to the human afterwards."
+	}
+	return "- A coordinator summary with ready PRs lists each PR with the head an AO review approved and CI green. Re-check that the head is unchanged and CI is green, then merge with `gh pr merge <n> --squash --match-head-commit <sha>`" +
+		when + ". Do not re-run the review for an approved head; if the head moved, send the PR back to its coordinator.\n" + ready
 }
 
 func workerSystemPrompt(project promptProject, hasOrchestrator bool) string {

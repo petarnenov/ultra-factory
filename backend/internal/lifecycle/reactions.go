@@ -498,6 +498,11 @@ func (m *Manager) ApplySCMObservation(ctx context.Context, id domain.SessionID, 
 	}
 	m.emitNotification(ctx, intent)
 	m.resolveNotifications(ctx, readyToMergeResolutions(id, o, ready, m.clock())...)
+	if announcer := m.readyToMergeAnnouncer(); ready && announcer != nil {
+		if err := announcer.AnnounceReadyToMerge(ctx, id); err != nil {
+			return errors.Join(prErr, err)
+		}
+	}
 	return prErr
 }
 

@@ -94,6 +94,7 @@ type Service struct {
 	prRefresher        PRRefresher
 	checkouts          reviewcore.CheckoutReleaser
 	ciGate             CIGateReconciler
+	readyAnnouncer     ReadyToMergeAnnouncer
 	// engineTrigger indirects the engine's source-tagged trigger so the
 	// instrumented path can be exercised without standing up a full engine and
 	// its eighteen-method store. Defaulted in New; only tests replace it.
@@ -140,6 +141,18 @@ type CIGateReconciler interface {
 // recorded. Failures are logged; the periodic sweep retries them.
 func WithCIGate(r CIGateReconciler) Option {
 	return func(s *Service) { s.ciGate = r }
+}
+
+// ReadyToMergeAnnouncer wakes a worker's owner once an approved review
+// leaves its PR ready to merge.
+type ReadyToMergeAnnouncer interface {
+	AnnounceReadyToMerge(ctx context.Context, worker domain.SessionID) error
+}
+
+// SetReadyToMergeAnnouncer is late-bound: report delivery is wired after the
+// review service. Call it before the daemon serves review submissions.
+func (s *Service) SetReadyToMergeAnnouncer(a ReadyToMergeAnnouncer) {
+	s.readyAnnouncer = a
 }
 
 // PRRefresher fetches one pull request fresh from its provider and records it
@@ -821,7 +834,19 @@ func (s *Service) SubmitMany(ctx context.Context, workerID domain.SessionID, rev
 		s.releasePanes(ctx, workerID)
 	}
 	s.reconcileCIGate(ctx, workerID)
+	s.announceReadyToMerge(ctx, workerID)
 	return runs, nil
+}
+
+// announceReadyToMerge lets an approval that completes a ready PR wake the
+// worker's owner. It runs after the verdict is durable.
+func (s *Service) announceReadyToMerge(ctx context.Context, workerID domain.SessionID) {
+	if s.readyAnnouncer == nil {
+		return
+	}
+	if err := s.readyAnnouncer.AnnounceReadyToMerge(ctx, workerID); err != nil {
+		slog.Warn("ready to merge: announce after review failed", "session", workerID, "error", err)
+	}
 }
 
 // reconcileCIGate applies the verdict to the PR draft flag. It runs after the

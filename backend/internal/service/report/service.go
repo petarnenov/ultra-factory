@@ -561,6 +561,24 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	return created, nil
 }
 
+// createLifecycleReport files an AO-authored checkpoint that is due now. It
+// accepts a terminated worker, because a PR can close after its worker ends.
+func (s *Service) createLifecycleReport(ctx context.Context, worker domain.SessionRecord, note string) (domain.ReportRecord, error) {
+	now := s.now().UTC()
+	created, err := s.store.CreateReport(ctx, domain.ReportRecord{
+		ID: s.newID(), SessionID: worker.ID, ProjectID: worker.ProjectID,
+		State: domain.ReportCheckpoint, Note: note,
+		CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: now, RepeatCount: 1,
+	})
+	if err != nil {
+		return created, err
+	}
+	if s.onCreated != nil {
+		s.onCreated(created)
+	}
+	return created, nil
+}
+
 // MaxAcknowledgeReports bounds one acknowledgement request.
 const MaxAcknowledgeReports = 200
 

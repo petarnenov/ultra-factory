@@ -250,6 +250,8 @@ type Manager struct {
 	// completionTerminator is late-bound because Session Manager itself depends
 	// on this lifecycle reducer. It is required before the SCM observer starts.
 	completionTerminator sessionTerminator
+	// readyAnnouncer is late-bound: report delivery is wired after lifecycle.
+	readyAnnouncer ReadyToMergeAnnouncer
 	// reviewThreads re-reads a PR's review threads before a review-comment
 	// nudge is written. Own lock: delivery re-enters it under react.mu.
 	reviewThreadsMu sync.Mutex
@@ -338,6 +340,25 @@ func (m *Manager) SetCompletionTerminator(terminator sessionTerminator) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.completionTerminator = terminator
+}
+
+// ReadyToMergeAnnouncer wakes a worker's owner once its PR is ready to merge.
+type ReadyToMergeAnnouncer interface {
+	AnnounceReadyToMerge(ctx context.Context, worker domain.SessionID) error
+}
+
+// SetReadyToMergeAnnouncer wires ready-to-merge observations to the owner
+// report that lets the coordinator or root act on them.
+func (m *Manager) SetReadyToMergeAnnouncer(announcer ReadyToMergeAnnouncer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readyAnnouncer = announcer
+}
+
+func (m *Manager) readyToMergeAnnouncer() ReadyToMergeAnnouncer {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.readyAnnouncer
 }
 
 // SetReviewThreadFetcher wires the provider read that confirms a review-comment

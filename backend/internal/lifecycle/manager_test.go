@@ -4734,6 +4734,68 @@ func TestSCMObservation_ResolvesReadyToMergeWhenNoLongerReady(t *testing.T) {
 	}
 }
 
+type recordingReadyAnnouncer struct {
+	workers []domain.SessionID
+	err     error
+}
+
+func (r *recordingReadyAnnouncer) AnnounceReadyToMerge(_ context.Context, worker domain.SessionID) error {
+	r.workers = append(r.workers, worker)
+	return r.err
+}
+
+func TestSCMObservation_AnnouncesReadyToMergeToTheOwner(t *testing.T) {
+	ready := ports.SCMObservation{
+		Fetched:      true,
+		PR:           ports.SCMPRObservation{URL: "https://github.com/o/r/pull/1", Number: 1},
+		CI:           ports.SCMCIObservation{Summary: string(domain.CIPassing)},
+		Mergeability: ports.SCMMergeabilityObservation{State: string(domain.MergeMergeable)},
+	}
+	pending := ready
+	pending.CI.Summary = string(domain.CIPending)
+
+	for _, tt := range []struct {
+		name string
+		obs  ports.SCMObservation
+		want int
+	}{
+		{name: "ready", obs: ready, want: 1},
+		{name: "ci pending", obs: pending, want: 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			st := newFakeStore()
+			m := New(st, nil)
+			announcer := &recordingReadyAnnouncer{}
+			m.SetReadyToMergeAnnouncer(announcer)
+			st.sessions["mer-1"] = working("mer-1")
+
+			if err := m.ApplySCMObservation(ctx, "mer-1", tt.obs); err != nil {
+				t.Fatal(err)
+			}
+			if len(announcer.workers) != tt.want {
+				t.Fatalf("announced %v, want %d", announcer.workers, tt.want)
+			}
+		})
+	}
+}
+
+func TestSCMObservation_ReturnsReadyToMergeAnnouncementFailures(t *testing.T) {
+	st := newFakeStore()
+	m := New(st, nil)
+	m.SetReadyToMergeAnnouncer(&recordingReadyAnnouncer{err: errors.New("store down")})
+	st.sessions["mer-1"] = working("mer-1")
+	obs := ports.SCMObservation{
+		Fetched:      true,
+		PR:           ports.SCMPRObservation{URL: "https://github.com/o/r/pull/1", Number: 1},
+		CI:           ports.SCMCIObservation{Summary: string(domain.CIPassing)},
+		Mergeability: ports.SCMMergeabilityObservation{State: string(domain.MergeMergeable)},
+	}
+
+	if err := m.ApplySCMObservation(ctx, "mer-1", obs); err == nil {
+		t.Fatal("want the announcement error so the observer retries")
+	}
+}
+
 func TestSCMObservation_NotReadyWhenCIOrReviewBlocks(t *testing.T) {
 	for _, obs := range []ports.SCMObservation{
 		{Fetched: true, PR: ports.SCMPRObservation{URL: "https://github.com/o/r/pull/1", Number: 1}, CI: ports.SCMCIObservation{Summary: string(domain.CIFailing)}, Mergeability: ports.SCMMergeabilityObservation{State: string(domain.MergeMergeable)}},

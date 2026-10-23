@@ -43,6 +43,7 @@ ao project rm <project-id>
 | `autoReview` | Default automatic-review setting copied to new worker sessions. |
 | `terminateOnPrMerge` | Default auto-teardown for new worker sessions after all their PRs are terminal with at least one merged and the agent has quiesced. `ao spawn --terminate-on-pr-merge[=false]` overrides it per spawn. |
 | `workersRequestReview` | When `true`, new workers request an Orchestrator review of their own PR once it is ready, and again after each fix. When unset, workers ask the user or orchestrator before starting one. |
+| `orchestratorAutoMerge` | On unless set to `false`. AO reports a worker's PR to its coordinator or the orchestrator once it is ready to merge (CI green, mergeable, no blocking review, and an AO review approval of its head when the worker uses AO review). When on, the orchestrator merges it without asking; when `false`, it tells you the PR is ready instead. |
 | `ciGate` | Holds expensive pull request CI until AO review approves. `{ "mode": "off" \| "review", "withoutAutoReview": "ready" \| "manual" }`; a missing block means `off` / `ready`. See [CI gate](#ci-gate). |
 | `defaultBranch` | Base branch for new Git worktrees. Defaults to `auto`. |
 | `sessionPrefix` | Prefix for generated session identifiers. |
@@ -64,6 +65,8 @@ ao project rm <project-id>
 `symlinks` and `agentRulesFile` must stay inside the repository. Orchestrator rejects absolute paths and paths that traverse outside it. Scratch projects do not support Git-only fields such as `defaultBranch` or `symlinks`.
 
 `terminateOnPrMerge` sets the default auto-teardown for new workers. Override it for one spawn with `ao spawn --terminate-on-pr-merge` or `--terminate-on-pr-merge=false`; the flag also travels with `ao spawn --host`. The session inspector toggle changes the stored value for a live session. Teardown waits until every PR of the session is merged or closed, at least one is merged, and the agent is not active. A dirty worktree is preserved.
+
+`orchestratorAutoMerge` is read into the orchestrator's standing instructions when it starts. Each ready-to-merge report also states the current setting, so a change applies to the next ready PR without restarting the orchestrator.
 
 ### Choose a base branch
 

@@ -6233,6 +6233,7 @@ export interface components {
                 [key: string]: string;
             };
             orchestrator?: components["schemas"]["RoleOverride"];
+            orchestratorAutoMerge?: null | boolean;
             orchestratorRules?: string;
             postCreate?: string[];
             preRemove?: string[];

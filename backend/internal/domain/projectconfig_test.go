@@ -132,6 +132,19 @@ func TestProjectConfigValidateAggregateExcludesAndDiscovery(t *testing.T) {
 	}
 }
 
+func TestOrchestratorAutoMergeEnabledDefaultsOn(t *testing.T) {
+	off, on := false, true
+	if !(ProjectConfig{}).OrchestratorAutoMergeEnabled() {
+		t.Fatal("nil orchestratorAutoMerge must mean on")
+	}
+	if (ProjectConfig{OrchestratorAutoMerge: &off}).OrchestratorAutoMergeEnabled() {
+		t.Fatal("explicit false must turn orchestrator auto-merge off")
+	}
+	if !(ProjectConfig{OrchestratorAutoMerge: &on}).OrchestratorAutoMergeEnabled() {
+		t.Fatal("explicit true must keep orchestrator auto-merge on")
+	}
+}
+
 func TestAggregateDiscoveryEnabledDefaultsOn(t *testing.T) {
 	off := false
 	on := true

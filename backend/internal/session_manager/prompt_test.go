@@ -475,6 +475,28 @@ func TestBuildSystemPrompt_RootHandlesReadyPRsFromSummaries(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_RootMergePolicyFollowsOrchestratorAutoMerge(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		autoMerge bool
+		want      string
+		forbidden string
+	}{
+		{name: "on", autoMerge: true, want: "merge it the same way without asking the human", forbidden: "Do not merge unless explicitly asked"},
+		{name: "off", autoMerge: false, want: "Do not merge unless explicitly asked", forbidden: "without asking the human"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildSystemPromptText(systemPromptConfig{
+				Role:    sessionPromptRoleOrchestrator,
+				Project: promptProject{ID: "mer", Name: "Mercury", AutoMerge: tt.autoMerge},
+			})
+			if !strings.Contains(got, tt.want) || strings.Contains(got, tt.forbidden) {
+				t.Fatalf("orchestrator prompt wants %q without %q:\n%s", tt.want, tt.forbidden, got)
+			}
+		})
+	}
+}
+
 func TestBuildSystemPrompt_CoordinatorStatesSlotsAndHostRefusals(t *testing.T) {
 	got := buildSystemPromptText(systemPromptConfig{
 		Role:                   sessionPromptRoleCoordinator,
@@ -743,5 +765,24 @@ func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
 		if strings.Contains(disabled, absent) {
 			t.Fatalf("disabled root prompt must omit %q:\n%s", absent, disabled)
 		}
+	}
+}
+
+func TestPromptProjectContext_OrchestratorAutoMergeDefaultsOn(t *testing.T) {
+	off := false
+	for _, tt := range []struct {
+		name   string
+		config domain.ProjectConfig
+		want   bool
+	}{
+		{name: "unset", config: domain.ProjectConfig{}, want: true},
+		{name: "off", config: domain.ProjectConfig{OrchestratorAutoMerge: &off}, want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := promptProjectContext("mer", domain.ProjectRecord{ID: "mer", Config: tt.config})
+			if got.AutoMerge != tt.want {
+				t.Fatalf("AutoMerge = %v, want %v", got.AutoMerge, tt.want)
+			}
+		})
 	}
 }

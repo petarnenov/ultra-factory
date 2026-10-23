@@ -164,10 +164,13 @@ type projectConfig struct {
 	TerminateOnPRMerge bool `json:"terminateOnPrMerge,omitempty"`
 	// WorkersRequestReview must round-trip through set-config so a CLI edit
 	// of another field never silently turns it off.
-	WorkersRequestReview bool               `json:"workersRequestReview,omitempty"`
-	Reviewers            []reviewerConfig   `json:"reviewers,omitempty"`
-	Coordinators         coordinatorsConfig `json:"coordinators,omitempty"`
-	CIGate               ciGateConfig       `json:"ciGate,omitempty"`
+	WorkersRequestReview bool `json:"workersRequestReview,omitempty"`
+	// OrchestratorAutoMerge must round-trip so --config-json can switch the
+	// default-on root auto-merge off.
+	OrchestratorAutoMerge *bool              `json:"orchestratorAutoMerge,omitempty"`
+	Reviewers             []reviewerConfig   `json:"reviewers,omitempty"`
+	Coordinators          coordinatorsConfig `json:"coordinators,omitempty"`
+	CIGate                ciGateConfig       `json:"ciGate,omitempty"`
 }
 
 // setConfigRequest mirrors the daemon's SetConfigInput body for

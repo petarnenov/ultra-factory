@@ -2713,6 +2713,8 @@
   "settings.project.autoReviewToggle": "Auto review PRs",
   "settings.project.workersRequestReviewDescription": "When enabled, new workers start an AO review of their own PR once it is ready, and again after each fix. When disabled, workers ask before starting one.",
   "settings.project.workersRequestReviewToggle": "Workers request AO review",
+  "settings.project.orchestratorAutoMergeDescription": "Si activé, l’orchestrateur fusionne une PR dès qu’AO la signale prête à fusionner (CI au vert, fusionnable, revue AO approuvée). Si désactivé, il vous indique que la PR est prête et attend.",
+  "settings.project.orchestratorAutoMergeToggle": "L’orchestrateur fusionne les PR prêtes",
   "settings.project.ciGate": "CI gate",
   "settings.project.ciGateDescription": "Off runs CI on every pull request as usual. After AO review keeps new workers' pull requests as drafts, so the expensive CI jobs wait until AO approves the head. It applies to workers started after you change it, and needs auto review on or the setting below to have any effect.",
   "settings.project.ciGateOff": "Off",

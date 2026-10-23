@@ -2655,6 +2655,8 @@
   "settings.project.autoReviewToggle": "Auto review PRs",
   "settings.project.workersRequestReviewDescription": "When enabled, new workers start an AO review of their own PR once it is ready, and again after each fix. When disabled, workers ask before starting one.",
   "settings.project.workersRequestReviewToggle": "Workers request AO review",
+  "settings.project.orchestratorAutoMergeDescription": "启用后，一旦 AO 报告 PR 可以合并（CI 通过、可合并、AO 审查已批准），编排器就会合并它。禁用后，编排器会告诉你 PR 已就绪并等待。",
+  "settings.project.orchestratorAutoMergeToggle": "编排器合并就绪的 PR",
   "settings.project.ciGate": "CI gate",
   "settings.project.ciGateDescription": "Off runs CI on every pull request as usual. After AO review keeps new workers' pull requests as drafts, so the expensive CI jobs wait until AO approves the head. It applies to workers started after you change it, and needs auto review on or the setting below to have any effect.",
   "settings.project.ciGateOff": "Off",
