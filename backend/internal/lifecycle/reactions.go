@@ -1048,34 +1048,52 @@ func (m *Manager) sendCommentNudge(ctx context.Context, id domain.SessionID, prU
 		}
 		return sendOnceAccounted, nil
 	}
-	msg := n.build(fresh, checkedAt)
+	msg := domain.WrapReviewNudge(
+		domain.ReviewNudgeToken{PRURL: prURL, ThreadID: n.comment.ThreadID}, n.build(fresh, checkedAt))
 	return m.deliverNudgeLocked(ctx, id, prURL, n.key, n.sig, msg, n.maxAttempts, false)
 }
 
 // freshReviewComments re-reads the comment's thread and returns it when still
 // unresolved. A thread outside the fetched window keeps the stored state.
 func (m *Manager) freshReviewComments(ctx context.Context, prURL string, c ports.PRCommentObservation) ([]ports.PRCommentObservation, time.Time, error) {
-	if m.reviewThreads == nil {
-		return nil, time.Time{}, errReviewFreshnessUnavailable
+	resolved, checkedAt, err := m.reviewThreadResolved(ctx, m.reviewThreads, domain.ReviewNudgeToken{PRURL: prURL, ThreadID: c.ThreadID})
+	if err != nil || resolved {
+		return nil, checkedAt, err
 	}
-	pr, ok, err := m.store.GetPR(ctx, prURL)
+	return []ports.PRCommentObservation{c}, checkedAt, nil
+}
+
+// ReviewNudgeResolved reports whether a queued nudge's thread has resolved.
+func (m *Manager) ReviewNudgeResolved(ctx context.Context, token domain.ReviewNudgeToken) (bool, error) {
+	m.react.mu.Lock()
+	fetcher := m.reviewThreads
+	m.react.mu.Unlock()
+	resolved, _, err := m.reviewThreadResolved(ctx, fetcher, token)
+	return resolved, err
+}
+
+func (m *Manager) reviewThreadResolved(ctx context.Context, fetcher ReviewThreadFetcher, token domain.ReviewNudgeToken) (bool, time.Time, error) {
+	if fetcher == nil {
+		return false, time.Time{}, errReviewFreshnessUnavailable
+	}
+	pr, ok, err := m.store.GetPR(ctx, token.PRURL)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("load PR %s for review freshness: %w", prURL, err)
+		return false, time.Time{}, fmt.Errorf("load PR %s for review freshness: %w", token.PRURL, err)
 	}
 	if !ok {
-		pr = domain.PullRequest{URL: prURL}
+		pr = domain.PullRequest{URL: token.PRURL}
 	}
-	obs, err := m.reviewThreads.FetchPRReviewThreads(ctx, pr)
+	obs, err := fetcher.FetchPRReviewThreads(ctx, pr)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("fetch review threads for %s: %w", prURL, err)
+		return false, time.Time{}, fmt.Errorf("fetch review threads for %s: %w", token.PRURL, err)
 	}
 	checkedAt := m.clock()
 	for _, thread := range obs.Threads {
-		if thread.ID == c.ThreadID && thread.Resolved {
-			return nil, checkedAt, nil
+		if thread.ID == token.ThreadID && thread.Resolved {
+			return true, checkedAt, nil
 		}
 	}
-	return []ports.PRCommentObservation{c}, checkedAt, nil
+	return false, checkedAt, nil
 }
 
 // deliverNudgeLocked is sendOnce's dedup, guarded write, and persist steps.

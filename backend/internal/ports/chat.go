@@ -1257,3 +1257,8 @@ type ChatDriverRegistry interface {
 	// all, without probing the local install.
 	SupportsChat(harness domain.AgentHarness) bool
 }
+
+// ReviewNudgeGate lets a queue re-check a held nudge before delivery.
+type ReviewNudgeGate interface {
+	ReviewNudgeResolved(ctx context.Context, token domain.ReviewNudgeToken) (bool, error)
+}

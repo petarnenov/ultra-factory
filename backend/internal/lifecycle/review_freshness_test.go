@@ -195,3 +195,32 @@ func TestReviewCommentNudge_FetchErrorDoesNotHoldOtherNudges(t *testing.T) {
 		t.Fatalf("freshness failure suppressed other nudges (review=%v conflict=%v): %v", sawReview, sawConflict, msg.msgs)
 	}
 }
+
+func TestReviewCommentNudge_CarriesFreshnessTokenForQueues(t *testing.T) {
+	m, _, msg, _ := reviewFreshnessFixture(t, idle("mer-1"))
+
+	if err := m.ApplyPRObservation(ctx, "mer-1", reviewFreshnessObservation); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(msg.msgs) != 1 {
+		t.Fatalf("messages = %d, want 1", len(msg.msgs))
+	}
+	token, _, ok := domain.ParseReviewNudge(msg.msgs[0])
+	if !ok || token != (domain.ReviewNudgeToken{PRURL: "pr1", ThreadID: "T1"}) {
+		t.Fatalf("nudge token = %+v ok=%v, want pr1/T1", token, ok)
+	}
+}
+
+func TestReviewNudgeResolved_ReadsTheProviderAtDeliveryTime(t *testing.T) {
+	m, _, _, fetcher := reviewFreshnessFixture(t, idle("mer-1"))
+	token := domain.ReviewNudgeToken{PRURL: "pr1", ThreadID: "T1"}
+
+	if resolved, err := m.ReviewNudgeResolved(ctx, token); err != nil || resolved {
+		t.Fatalf("unresolved thread: resolved=%v err=%v", resolved, err)
+	}
+	fetcher.threads = []ports.SCMReviewThreadObservation{{ID: "T1", Resolved: true}}
+	if resolved, err := m.ReviewNudgeResolved(ctx, token); err != nil || !resolved {
+		t.Fatalf("resolved thread: resolved=%v err=%v", resolved, err)
+	}
+}

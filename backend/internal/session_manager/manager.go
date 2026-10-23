@@ -426,6 +426,7 @@ type Manager struct {
 	// without it behaves exactly as before.
 	defaults     SessionModeDefaults
 	chat         ChatLauncher
+	reviewNudges ports.ReviewNudgeGate
 	modelCatalog interface {
 		Models(context.Context, string, string, bool) (ports.AgentModelCatalog, error)
 	}
@@ -791,6 +792,8 @@ const (
 
 // Deps are the collaborators a Session Manager needs; New wires them together.
 type Deps struct {
+	// ReviewNudges re-checks a held review nudge before a terminal write.
+	ReviewNudges    ports.ReviewNudgeGate
 	Runtime         runtimeController
 	Agents          ports.AgentResolver
 	Workspace       ports.Workspace
@@ -862,6 +865,7 @@ func New(d Deps) *Manager {
 		daemonRunID:                    strings.TrimSpace(d.DaemonRunID),
 		defaults:                       d.Defaults,
 		chat:                           d.Chat,
+		reviewNudges:                   d.ReviewNudges,
 		lcm:                            d.Lifecycle,
 		preview:                        d.Preview,
 		browser:                        d.Browser,
@@ -4682,10 +4686,36 @@ func (m *Manager) InterruptTUI(ctx context.Context, id domain.SessionID) error {
 	return interrupter.Interrupt(ctx, ports.RuntimeHandle{ID: rec.Metadata.RuntimeHandleID})
 }
 
+// openReviewNudge moves a nudge's thread token from its text to its id.
+func (m *Manager) openReviewNudge(message, clientMessageID string) (string, string) {
+	token, body, ok := domain.ParseReviewNudge(message)
+	if !ok || clientMessageID != "" {
+		return message, clientMessageID
+	}
+	return body, domain.ReviewNudgeClientMessageID(token, m.newLaunchID())
+}
+
+// reviewNudgeResolved reports a held nudge whose thread has since resolved.
+// A failed read delivers; the lifecycle checked when it built the nudge.
+func (m *Manager) reviewNudgeResolved(ctx context.Context, id domain.SessionID, clientMessageID string) bool {
+	token, ok := domain.ParseReviewNudgeClientMessageID(clientMessageID)
+	if !ok || m.reviewNudges == nil {
+		return false
+	}
+	resolved, err := m.reviewNudges.ReviewNudgeResolved(ctx, token)
+	if err != nil {
+		m.logger.Warn("review nudge freshness check failed; delivering",
+			"session", id, "thread", token.ThreadID, "error", err)
+		return false
+	}
+	return resolved
+}
+
 // send carries an optional idempotency key used by durable transition-message
 // retries. Ordinary callers leave it empty; the outbox preserves the key across
 // restart, rollback, and even a second overlapping handoff.
 func (m *Manager) send(ctx context.Context, id domain.SessionID, message, clientMessageID string, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
+	message, clientMessageID = m.openReviewNudge(message, clientMessageID)
 	// A controller transition deliberately has a short interval with no writer.
 	// Queue internal/lifecycle sends durably instead of racing either controller
 	// or dropping coordination work; the transition worker drains this outbox
@@ -4704,9 +4734,14 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 		return delivery, err
 	}
 
+	if m.reviewNudgeResolved(ctx, id, clientMessageID) {
+		return ports.MessageDelivery{}, nil
+	}
+
 	if _, coordination := domain.CoordinationDeliveryID(domain.UnwrapPastedContent(message)); !coordination && !options.AuthoredByUser && strings.TrimSpace(message) != "" {
 		deliveryID := clientMessageID
-		if deliveryID == "" {
+		// A nudge id embeds the PR URL, too long for a delivery id.
+		if _, nudge := domain.ParseReviewNudgeClientMessageID(deliveryID); deliveryID == "" || nudge {
 			deliveryID = "session-send:" + m.newLaunchID()
 		}
 		message = domain.WrapSessionDelivery(deliveryID, message)

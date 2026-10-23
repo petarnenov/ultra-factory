@@ -324,6 +324,7 @@ func startSession(ctx context.Context, cfg config.Config, runtime runtimeselect.
 	})
 	scmIdentity := scmidentity.New(scmsecret.New(cfg.DataDir), nil)
 	mgr := sessionmanager.New(sessionmanager.Deps{
+		ReviewNudges:        lcm,
 		Runtime:             runtime,
 		Agents:              agents,
 		Workspace:           ws,
