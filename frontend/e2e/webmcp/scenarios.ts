@@ -363,15 +363,15 @@ const updateDownloadedScenario = defineScenario({
 		const clock = new PlaywrightClock();
 		await page.getByRole("button", { name: "Updates" }).click();
 		await clock.assert(async () => {
-			await expect(page.getByTestId("update-status-line")).toContainText("Ready to install.");
+			await expect(page.getByTestId("update-status-line")).toContainText("Downloaded. Restart to finish updating.");
 			const version = page.getByTestId("app-version");
 			await expect(version).toHaveText("v0.12.7");
-			await expect(version).toHaveAttribute("aria-label", `Current version: v${nightlyAppVersion}`);
+			await expect(version).toHaveAttribute("aria-label", `Current version - v${nightlyAppVersion}`);
 			await expect(page.getByText(nightlyAppVersion, { exact: true })).toBeVisible();
 			await expect(page.getByRole("button", { name: "Install Update" })).toBeVisible();
 			await expect(page.getByRole("button", { name: "Check for updates" })).toBeVisible();
 			await expect(page.getByRole("switch", { name: "Automatic updates" })).toBeChecked();
-			await expect(page.getByRole("button", { name: "Channel", exact: true })).toContainText("Nightly");
+			await expect(page.getByRole("button", { name: "Updates channel", exact: true })).toContainText("Nightly");
 			await expect(page.locator(".nightly-warning")).toBeVisible();
 		});
 		return clock.timing();

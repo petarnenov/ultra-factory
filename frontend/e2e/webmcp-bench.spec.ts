@@ -128,12 +128,6 @@ async function writeRecord(record: BenchRecord): Promise<void> {
 
 const drivers: Partial<Record<DriverName, Driver>> = { playwright, "webmcp-scripted": scripted };
 
-// Still run and recorded as failures; the annotation names the cause.
-const knownFailures: Record<string, string> = {
-	"settings.update-downloaded · playwright":
-		"Copies updates-settings.spec.ts test 1, which fails on dev: stale status-line copy",
-};
-
 test.describe("WebMCP benchmark", () => {
 	test.skip(process.env.AO_WEBMCP_BENCH !== "1", "Opt-in benchmark; set AO_WEBMCP_BENCH=1");
 	// Independent tests, not a serial group: a failure must not skip the rest.
@@ -144,8 +138,6 @@ test.describe("WebMCP benchmark", () => {
 			for (let repeat = 0; repeat < repeats; repeat++) {
 				test(`${scenario.id} · ${driver} · ${repeat}`, async ({ page, browser }, testInfo) => {
 					test.setTimeout(120_000);
-					const knownFailure = knownFailures[`${scenario.id} · ${driver}`];
-					if (knownFailure) testInfo.annotations.push({ type: "known-failure", description: knownFailure });
 					const timestamp = new Date().toISOString();
 					const host = createHostState();
 					await scenario.setup(page, host);
