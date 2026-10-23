@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Apply D09 when hardware/access/evidence is unavailable: record the exact affected acceptance and owned follow-up, continue independent approved work, and distinguish verified delivery from outstanding checks. Do not claim full verification from missing evidence.
 - [ ] Define evidence-backed backup/restore, drain, recovery, observability and rollback acceptance with environment/commit/date.
 - [ ] Convert a representative incident into a regression scenario, test link and follow-up issue.
 - [ ] Define removal/deprecation deltas, migration/retention impact and runbook/manual updates.

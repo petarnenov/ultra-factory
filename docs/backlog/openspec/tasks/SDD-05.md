@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Apply D09 when hardware/access/evidence is unavailable: record the exact affected acceptance and owned follow-up, continue independent approved work, and distinguish verified delivery from outstanding checks. Do not claim full verification from missing evidence.
 - [ ] Cover both iOS and Android under D04; collect actual-platform evidence for native pairing, push and lifecycle scenarios. Missing devices or credentials are unverified, never a pass.
 - [ ] Capture pairing, identity/version negotiation, authenticated transport, reconnect, push and Chat/TUI compatibility.
 - [ ] Map current typecheck/unit checks and distinguish them from iOS/Android device acceptance.

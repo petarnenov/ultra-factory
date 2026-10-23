@@ -32,7 +32,7 @@ This owner-approved project policy overrides the skill's all-three-ballots requi
 
 ### D04 All supported platforms
 
-Owner answer: All. Include macOS, Windows, Linux, iOS, Android and Railway web. Each supported surface needs capability specifications and evidence from its actual platform where native behavior is involved. Renderer mocks, typechecks or another operating system are not substitutes for native acceptance. An unavailable platform check is not a pass; treatment of missing hardware/access is pending D09. Platform support is not deferred out of the initiative.
+Owner answer: All. Include macOS, Windows, Linux, iOS, Android and Railway web. Each supported surface needs capability specifications and evidence from its actual platform where native behavior is involved. Renderer mocks, typechecks or another operating system are not substitutes for native acceptance. An unavailable platform check is not a pass; D09 governs missing hardware/access without treating an unrun check as successful. Platform support is not deferred out of the initiative.
 
 ### D05 Full proposal for every change
 
@@ -54,13 +54,18 @@ Owner answer: In the first stage, measure and accumulate results. During the pil
 
 Threshold selection is later work based on the collected evidence and a new fully reviewed proposal; it is not a prerequisite for this initiative's first rollout. Report distributions and sample counts without inventing an acceptance SLO or claiming an unmeasured target was achieved.
 
+### D09 Continue executable work when evidence is unavailable
+
+Owner answer: Continue (repeated after clarification). Missing hardware, credentials or external services must not stop unrelated implementation or the executable portions of rollout. Record the exact missing prerequisite, affected platform/scenario and an owned follow-up issue with verification steps. Continue independent approved work; mark only the affected acceptance as blocked/unverified.
+
+Do not fabricate a pass, remove a platform from scope, weaken security/functional gates or declare full verified adoption while required evidence remains missing. Report delivered/verified portions separately from outstanding platform checks. This policy permits continued execution, not certification of unavailable evidence; no separate waiver of full-coverage acceptance was given. The first-stage performance observation policy D08 is independent of missing native or functional verification.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D09 | Missing native hardware, credentials or external evidence | Block affected acceptance and continue independent work; explicitly defer unsupported acceptance from first rollout; owner supplies prerequisites before execution | SDD-05, SDD-11 to SDD-14 |
 | D10 | Integration into dev | Root may merge after current-head council/review/CI criteria; owner approves each merge; implementation stops at ready PRs | SDD-02, SDD-08, SDD-16 |
 | D11 | Promotion, release and deployment | No automation beyond dev, owner handles production; agents prepare promotion/release artifacts for owner approval; explicit automatic promotion policy within existing publisher rules | SDD-11, SDD-12 |
 | D12 | Enabling mandatory checks and process rollback | Owner approves activation and rollback; agent activates after agreed evidence and reports, rollback needs approval; council ratifies activation/rollback within explicit criteria | SDD-10, SDD-14 |
