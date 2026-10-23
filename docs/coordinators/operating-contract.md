@@ -211,6 +211,28 @@ Spawning coordinators also requires `coordinators.enabled` in the project
 configuration (`COORDINATORS_DISABLED` otherwise). Reassigning to the root
 never changes the project total.
 
+### Delegating an initiative
+
+The root's daemon-injected prompt carries this procedure (`prompt.go`, root
+sections gated on `coordinators.enabled`). For a multi-task initiative with two
+or more bounded areas that can run independently, spawn one coordinator per
+area instead of spawning every worker:
+
+- `ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>`, where the brief follows the five-section template above.
+- Check coordinators with `ao coordinator ls`; change limits with `ao coordinator set-limits <coordinator-id>`.
+- Keep single tasks as direct workers. Root-owned workers still count toward the project's workers-per-project limit.
+- Do not announce merges or slot changes by hand: the daemon notifies a coordinator when its worker's pull request merges and when you change its host slots.
+
+### Host allocation
+
+Choose coordinator hosts from the registry at run time; never copy a label from
+an earlier prompt or brief.
+
+1. List registered hosts with `ao host ls` and keep only reachable ones.
+2. Drop any host that already runs an orchestrator or a coordinator: a spawn there is refused with `LOCAL_ORCHESTRATOR_ACTIVE`. Check with `ao orchestrator ls --host <label>`.
+3. Probe each remaining host with one short worker that reports its toolchain and required secrets, then end it.
+4. Pass each coordinator `--hosts <label>:<slots>` from the hosts that passed, keeping the total within the workers-per-project limit.
+
 ### Reassigning a worker
 
 - Reassignment is one durable owner write plus audit rows. The worker, its

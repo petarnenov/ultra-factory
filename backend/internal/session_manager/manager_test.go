@@ -5959,15 +5959,15 @@ func TestSpawnWorker_AppendsActiveOrchestratorContact(t *testing.T) {
 	// Coordination instructions must be in the system prompt, not the user prompt.
 	systemPrompt := agent.lastLaunch.SystemPrompt
 	for _, want := range []string{
-		"## Orchestrator Coordination",
-		`ao send --session mer-1 --message "<your message>"`,
-		"Message it only for true blockers, cross-session coordination",
+		"## Escalation Target",
+		"ao session owner $AO_SESSION_ID --json",
+		"Message the owner only for true blockers, cross-session coordination",
 	} {
 		if !strings.Contains(systemPrompt, want) {
 			t.Fatalf("system prompt missing %q:\n%s", want, systemPrompt)
 		}
 	}
-	if strings.Contains(agent.lastLaunch.Prompt, "## Orchestrator Coordination") {
+	if strings.Contains(agent.lastLaunch.Prompt, "## Escalation Target") {
 		t.Fatalf("orchestrator coordination must not be in the user prompt:\n%s", agent.lastLaunch.Prompt)
 	}
 }
@@ -7244,8 +7244,11 @@ func TestRestore_WorkerPointsAtCurrentOrchestrator(t *testing.T) {
 	if _, err := m.RestoreWithMode(ctx, "mer-1"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(agent.lastRestore.SystemPrompt, `ao send --session mer-9`) {
-		t.Fatalf("restore system prompt missing current orchestrator contact:\n%s", agent.lastRestore.SystemPrompt)
+	// The contact is resolved at send time, so the restored prompt names the
+	// resolver and never the orchestrator ID.
+	if !strings.Contains(agent.lastRestore.SystemPrompt, "ao session owner $AO_SESSION_ID --json") ||
+		strings.Contains(agent.lastRestore.SystemPrompt, "mer-9") {
+		t.Fatalf("restore system prompt must resolve the owner at send time:\n%s", agent.lastRestore.SystemPrompt)
 	}
 }
 
@@ -12298,27 +12301,42 @@ func TestSystemPrompt_CoordinatorShowsConfiguredWorkerLimit(t *testing.T) {
 	}
 }
 
-func TestSystemPrompt_WorkerEscalatesToLiveCoordinatorOwner(t *testing.T) {
+func TestSystemPrompt_WorkerEscalationResolvesOwnerAtSendTime(t *testing.T) {
 	m, st := newPromptHierarchyManager(t, domain.ProjectConfig{})
 	st.sessions["mer-1"] = domain.SessionRecord{ID: "mer-1", ProjectID: "mer", Kind: domain.KindOrchestrator}
 	st.sessions["mer-2"] = domain.SessionRecord{ID: "mer-2", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "auth"}
-	st.sessions["mer-8"] = domain.SessionRecord{ID: "mer-8", ProjectID: "mer", Kind: domain.KindCoordinator, CoordinatorScope: "old", IsTerminated: true}
-	st.sessions["oth-2"] = domain.SessionRecord{ID: "oth-2", ProjectID: "oth", Kind: domain.KindCoordinator, CoordinatorScope: "x"}
-	coord, root, dead, other := domain.SessionID("mer-2"), domain.SessionID("mer-1"), domain.SessionID("mer-8"), domain.SessionID("oth-2")
-	for id, owner := range map[domain.SessionID]*domain.SessionID{"mer-3": &coord, "mer-4": &root, "mer-5": nil, "mer-6": &dead, "mer-9": &other} {
-		st.sessions[id] = domain.SessionRecord{ID: id, ProjectID: "mer", Kind: domain.KindWorker, OwnerSessionID: owner}
-	}
-	for id, wantTarget := range map[domain.SessionID]string{"mer-3": "mer-2", "mer-4": "mer-1", "mer-5": "mer-1", "mer-6": "mer-1", "mer-9": "mer-1"} {
+	coord, root := domain.SessionID("mer-2"), domain.SessionID("mer-1")
+	st.sessions["mer-3"] = domain.SessionRecord{ID: "mer-3", ProjectID: "mer", Kind: domain.KindWorker, OwnerSessionID: &coord}
+	st.sessions["mer-4"] = domain.SessionRecord{ID: "mer-4", ProjectID: "mer", Kind: domain.KindWorker, OwnerSessionID: &root}
+
+	build := func(id domain.SessionID) string {
+		t.Helper()
 		sp, err := m.buildSystemPrompt(ctx, domain.KindWorker, "mer", id, "", false)
 		if err != nil {
 			t.Fatalf("buildSystemPrompt(%s): %v", id, err)
 		}
-		if !strings.Contains(sp, "ao send --session "+wantTarget+" ") {
-			t.Fatalf("worker %s must message %s:\n%s", id, wantTarget, sp)
+		return sp
+	}
+	for _, id := range []domain.SessionID{"mer-3", "mer-4"} {
+		sp := build(id)
+		if !strings.Contains(sp, "ao session owner $AO_SESSION_ID --json") {
+			t.Fatalf("worker %s must resolve its owner at send time:\n%s", id, sp)
 		}
-		if wantTarget == "mer-2" && (strings.Contains(sp, "mer-1") || !strings.Contains(sp, "Escalate to that coordinator")) {
-			t.Fatalf("coordinator-owned worker must not be pointed at the root:\n%s", sp)
+		for _, baked := range []string{"mer-1", "mer-2"} {
+			if strings.Contains(sp, baked) {
+				t.Fatalf("worker %s must not bake owner %s into its prompt:\n%s", id, baked, sp)
+			}
 		}
+	}
+
+	// A reassignment changes the durable owner, not the prompt: the worker
+	// resolves the new owner on its next escalation.
+	before := build("mer-3")
+	rec := st.sessions["mer-3"]
+	rec.OwnerSessionID = &root
+	st.sessions["mer-3"] = rec
+	if after := build("mer-3"); after != before {
+		t.Fatalf("reassignment must not change the escalation prompt:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
 
