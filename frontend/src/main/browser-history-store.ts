@@ -99,13 +99,23 @@ function compact(entries: BrowserHistoryEntry[]): BrowserHistoryEntry[] {
 }
 
 function fittedHistory(entries: BrowserHistoryEntry[]): { entries: BrowserHistoryEntry[]; serialized: string } {
-	const retained = [...entries];
-	while (retained.length > 0) {
-		const serialized = `${JSON.stringify({ version: HISTORY_VERSION, entries: retained }, null, 2)}\n`;
-		if (Buffer.byteLength(serialized) <= HISTORY_MAX_FILE_BYTES) return { entries: retained, serialized };
-		retained.pop();
+	let low = 0;
+	let high = entries.length;
+	let retainedCount = 0;
+	let serialized = `${JSON.stringify({ version: HISTORY_VERSION, entries: [] }, null, 2)}\n`;
+	while (low <= high) {
+		const candidateCount = Math.floor((low + high) / 2);
+		const candidate = entries.slice(0, candidateCount);
+		const candidateSerialized = `${JSON.stringify({ version: HISTORY_VERSION, entries: candidate }, null, 2)}\n`;
+		if (Buffer.byteLength(candidateSerialized) <= HISTORY_MAX_FILE_BYTES) {
+			retainedCount = candidateCount;
+			serialized = candidateSerialized;
+			low = candidateCount + 1;
+		} else {
+			high = candidateCount - 1;
+		}
 	}
-	return { entries: [], serialized: `${JSON.stringify({ version: HISTORY_VERSION, entries: [] }, null, 2)}\n` };
+	return { entries: entries.slice(0, retainedCount), serialized };
 }
 
 export class BrowserHistoryStore {
