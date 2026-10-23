@@ -83,6 +83,7 @@ type sessionDTO struct {
 type sessionAgentOperationDTO struct {
 	Kind      string    `json:"kind"`
 	StartedAt time.Time `json:"startedAt"`
+	RequestID string    `json:"requestId,omitempty"`
 }
 
 // sessionHealthDTO mirrors the daemon's derived health view. It is deliberately

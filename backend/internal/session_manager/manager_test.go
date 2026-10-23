@@ -651,6 +651,18 @@ type fakeRuntime struct {
 	fencedRefs     []ports.FencedRuntimeRef
 }
 
+type cancellationIgnoringCreateRuntime struct {
+	*fakeRuntime
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *cancellationIgnoringCreateRuntime) Create(_ context.Context, cfg ports.RuntimeConfig) (ports.RuntimeHandle, error) {
+	close(r.entered)
+	<-r.release
+	return r.fakeRuntime.Create(context.Background(), cfg)
+}
+
 func (r *fakeRuntime) Interrupt(_ context.Context, handle ports.RuntimeHandle) error {
 	r.interrupts = append(r.interrupts, handle.ID)
 	if r.onInterrupt != nil {
@@ -2537,6 +2549,47 @@ func TestResumeAgent_RestartsRuntimeWithManagedGeneration(t *testing.T) {
 	}
 	if !reflect.DeepEqual(lcm.cancelled, []string{"mer-1:launch-new"}) {
 		t.Fatalf("launch cleanup = %v, want new generation released", lcm.cancelled)
+	}
+}
+
+func TestAbandonedResumeFencesRuntimeThatIgnoresCancellation(t *testing.T) {
+	runtime := &cancellationIgnoringCreateRuntime{
+		fakeRuntime: &fakeRuntime{},
+		entered:     make(chan struct{}),
+		release:     make(chan struct{}),
+	}
+	agent := supervisedLaunchAgent{launchArgvAgent{argv: []string{"codex", "resume", "agent-x"}}}
+	m, st, _ := newExitedResumeManager(t, runtime, agent)
+	result := make(chan error, 1)
+	go func() {
+		_, err := m.ResumeAgentWithMode(context.Background(), "mer-1")
+		result <- err
+	}()
+	select {
+	case <-runtime.entered:
+	case <-time.After(time.Second):
+		t.Fatal("resume did not reach runtime creation")
+	}
+	if !m.AbandonAgentOperation("mer-1") {
+		t.Fatal("health abandonment did not cancel the wake")
+	}
+	close(runtime.release)
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("resume error = %v, want cancellation fence", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("resume did not settle after runtime creation returned")
+	}
+	if runtime.destroyed != 1 || !reflect.DeepEqual(runtime.destroyedIDs, []string{"h1"}) {
+		t.Fatalf("late runtime was not destroyed: count=%d ids=%v", runtime.destroyed, runtime.destroyedIDs)
+	}
+	if got := st.sessions["mer-1"]; got.Activity.State != domain.ActivityExited || got.Metadata.RuntimeLaunchID != "launch-old" {
+		t.Fatalf("cancelled wake committed a new generation: activity=%s launch=%s", got.Activity.State, got.Metadata.RuntimeLaunchID)
+	}
+	if m.SessionMutationInProgress("mer-1") {
+		t.Fatal("cancelled wake kept the operation fence after unwinding")
 	}
 }
 

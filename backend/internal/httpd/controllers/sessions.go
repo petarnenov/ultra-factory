@@ -1845,7 +1845,12 @@ func (c *SessionsController) listAgentSwitches(w http.ResponseWriter, r *http.Re
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, ListAgentSwitchesResponse{Switches: agentSwitchViews(switches)})
+	sess, err := c.Svc.Get(r.Context(), sessionID(r))
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, ListAgentSwitchesResponse{Switches: agentSwitchViews(switches), Operation: sess.AgentOperation})
 }
 
 func (c *SessionsController) recoverAgentSwitch(w http.ResponseWriter, r *http.Request) {

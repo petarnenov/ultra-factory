@@ -1572,7 +1572,7 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 		AgentOperationInProgress(domain.SessionID) (sessionmanager.AgentOperationStatus, bool)
 	}); ok {
 		if status, busy := reader.AgentOperationInProgress(rec.ID); busy {
-			operation = &domain.SessionAgentOperation{Kind: status.Kind, StartedAt: status.StartedAt}
+			operation = &domain.SessionAgentOperation{Kind: status.Kind, StartedAt: status.StartedAt, RequestID: status.RequestID}
 		}
 	}
 	return domain.Session{
