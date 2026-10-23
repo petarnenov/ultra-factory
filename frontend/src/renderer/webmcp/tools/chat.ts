@@ -125,7 +125,8 @@ function tool<A, R>(descriptor: ToolDescriptor<A, R>): ToolDescriptor {
 	return descriptor as ToolDescriptor;
 }
 
-type WaitArgs = { where: (typeof WAIT_PREDICATES)[number]; value?: string; timeoutMs?: number };
+export type ChatWaitPredicate = (typeof WAIT_PREDICATES)[number];
+export type WaitArgs = { where: ChatWaitPredicate; value?: string; timeoutMs?: number };
 
 function mountedComposer(ctx: ChatToolContext): ChatComposerHandle {
 	const composer = ctx.composer();

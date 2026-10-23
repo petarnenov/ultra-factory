@@ -48,7 +48,7 @@ export type BoardTools = {
 	requestNewTask: ToolDescriptor<unknown, { opened: true }>;
 };
 
-type WaitForCardArgs = { sessionId: string; column: string; timeoutMs?: number };
+export type WaitForCardArgs = { sessionId: string; column: string; timeoutMs?: number };
 
 export function readBoard(context: BoardContext): BoardRead {
 	return {
