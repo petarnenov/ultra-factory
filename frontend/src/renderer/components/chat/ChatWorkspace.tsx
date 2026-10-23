@@ -29,6 +29,7 @@ import {
 	type ComponentProps,
 	type CSSProperties,
 	type MutableRefObject,
+	type RefObject,
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
 	type PointerEvent as ReactPointerEvent,
@@ -131,7 +132,7 @@ import type { ComposerPromptSuggestion } from "./ComposerEditor";
 import { ChatComposer, type ChatComposerHandle, type StoredComposerAttachment } from "./ChatComposer";
 import { ContextMeter } from "./ContextMeter";
 import { stagedAttachmentParts, attachmentName } from "./messageAttachments";
-import type { QueuedMessageEditOptions } from "../../types/conversation";
+import { retryableTurnIds, type QueuedMessageEditOptions } from "../../types/conversation";
 import { QueuedMessageDock, type QueuedMessage } from "./QueuedMessageDock";
 import { SessionStartup } from "./SessionStartup";
 import { ActivityRun } from "./ActivityRun";
@@ -467,6 +468,8 @@ export interface ChatWorkspaceProps {
 	 * boundary and never for a turn that is running or already succeeded.
 	 */
 	retryControl?: ChatRetryControl;
+	/** Lets the owner drive the composer, e.g. WebMCP chat tools. */
+	composerHandleRef?: RefObject<ChatComposerHandle | null>;
 	/** Create a conversation branch by replacing a prior human prompt. */
 	onEditMessage?: (
 		turnId: string,
@@ -683,6 +686,7 @@ function ChatWorkspaceContent({
 	onOpenFiles,
 	onOpenFile,
 	retryControl,
+	composerHandleRef,
 	onEditMessage,
 	editMessagePending,
 	editMessageError,
@@ -1118,7 +1122,8 @@ function ChatWorkspaceContent({
 	// the agent knows, so it is never one click.
 	const [confirming, setConfirming] = useState<string | undefined>(undefined);
 	const surfaceRef = useRef<HTMLElement | null>(null);
-	const composerFocusRef = useRef<ChatComposerHandle>(null);
+	const ownComposerRef = useRef<ChatComposerHandle>(null);
+	const composerFocusRef = composerHandleRef ?? ownComposerRef;
 	const artifactSession = session?.requestedOutput === "artifact";
 	// The sample prompts show only while the composer is empty: picking one hides
 	// them, and clearing the draft brings them back.
@@ -2862,21 +2867,7 @@ export function Timeline({
 			if (currentOpen !== previousOpen) setInspectorOpen(currentOpen);
 		});
 	}, [minimapEnabled, uiSessionId]);
-	const consumedRetrySources = useMemo(() => retrySourceTurnIds(snapshot), [snapshot]);
-	const retryableTurns = useMemo(
-		() =>
-			new Set(
-				snapshot.turns
-					.filter(
-						(turn) =>
-							turn.state === "failed" &&
-							Boolean(turn.providerTurnId) &&
-							!consumedRetrySources.has(turn.id),
-					)
-					.map((turn) => turn.id),
-			),
-		[snapshot.turns, consumedRetrySources],
-	);
+	const retryableTurns = useMemo(() => retryableTurnIds(snapshot), [snapshot]);
 
 	useEffect(() => {
 		pinnedRef.current = pinned;
@@ -3845,8 +3836,7 @@ export function Timeline({
 						const retry =
 							group.turnId &&
 							retryControl &&
-							retryableTurns.has(group.turnId) &&
-							groupHasHumanPrompt(group)
+							retryableTurns.has(group.turnId)
 								? {
 										onRetry: () => {
 											void Promise.resolve(retryTurn(group.turnId as string)).catch(
@@ -4690,19 +4680,6 @@ function settledTurnDuration(turn: ConversationTurn): number | undefined {
 	// Match the live label's start fallback and whole-second minimum so completion
 	// cannot make a visible timer disappear or jump backward.
 	return Math.max(1_000, completedAt - startedAt);
-}
-
-// Retry correlation is daemon-owned rather than inferred from repeated text.
-// Match it against turn ids in this snapshot before consuming an affordance.
-function retrySourceTurnIds(snapshot: ConversationSnapshot): Set<string> {
-	const turnIds = new Set(snapshot.turns.map((turn) => turn.id));
-	const sources = new Set<string>();
-	for (const turn of snapshot.turns) {
-		if (turn.hasRetryAttempt) sources.add(turn.id);
-		const source = turn.retryOfTurnId;
-		if (source && turnIds.has(source)) sources.add(source);
-	}
-	return sources;
 }
 
 /** How tall the trailing spacer must be to park `anchorOffset` near the top when scrolled to the end. */

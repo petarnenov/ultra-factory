@@ -173,6 +173,14 @@ export type ChatComposerHandle = {
 	isEmpty(): boolean;
 	/** Replaces the draft with text, saved like typed input, and focuses the editor. */
 	setDraft(text: string): void;
+	read(): { text: string; focused: boolean; suggestion: string | null };
+	/** Inserts the showing prompt suggestion into an empty draft, as Tab does. */
+	acceptSuggestion(): void;
+	/** Dismisses the showing prompt suggestion, as Escape does. */
+	dismissSuggestion(): void;
+	isDisabled(): boolean;
+	/** Sends the draft through the same path as Enter. */
+	submit(): Promise<void>;
 };
 
 export const ChatComposer = memo(function ChatComposer({
@@ -1063,8 +1071,17 @@ export const ChatComposer = memo(function ChatComposer({
 				if (snapshot) onEditorChange(snapshot);
 				editor.current?.focus();
 			},
+			read: () => ({
+				text: editor.current?.getSnapshot().text ?? "",
+				focused: editor.current?.hasFocus() ?? false,
+				suggestion: editor.current?.getSuggestion() ?? null,
+			}),
+			acceptSuggestion: () => editor.current?.acceptSuggestion(),
+			dismissSuggestion: () => editor.current?.dismissSuggestion(),
+			isDisabled: () => Boolean(disabled),
+			submit: () => submit(),
 		}),
-		[focusEditor, hasDraft, onEditorChange],
+		[disabled, focusEditor, hasDraft, onEditorChange, submit],
 	);
 
 	const pick = useCallback((value: string) => {
