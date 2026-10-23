@@ -713,10 +713,22 @@ func Run() error {
 	if !ok {
 		return errors.New("wire report delivery: session manager lacks semantic send support")
 	}
+	completedTasks := taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store})
+	knowledge, knowledgeAPI := startKnowledgeGraph(ctx, knowledgeGraphDeps{
+		Getenv: os.Getenv, DataDir: cfg.DataDir, Sessions: sessionSvc, Tasks: completedTasks,
+		HostID: hostIdentity.HostID, Events: cdcPipe.Broadcaster, Log: log,
+	})
+	if knowledge != nil {
+		sessionSvc.SetKnowledgeGraph(knowledge)
+		defer knowledge.Stop()
+	}
 	var reportCoordinator *reportsvc.Coordinator
-	reportSvc := reportsvc.New(reportsvc.Deps{Store: store, Artifacts: chatSvc, OnCreated: func(domain.ReportRecord) {
+	reportSvc := reportsvc.New(reportsvc.Deps{Store: store, Artifacts: chatSvc, OnCreated: func(rec domain.ReportRecord) {
 		if reportCoordinator != nil {
 			reportCoordinator.Wake()
+		}
+		if knowledge != nil {
+			knowledge.ReportCreated(rec)
 		}
 	}})
 	reportCoordinator = reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{
@@ -741,8 +753,16 @@ func Run() error {
 		log.Warn("session health: invalid environment, using defaults", "err", healthConfigErr)
 		healthConfig = sessionhealth.DefaultConfig()
 	}
+	var healthOps sessionhealth.OperationSource
+	if manager, ok := wiredSessMgr.(interface {
+		AgentOperationInProgress(domain.SessionID) (sessionmanager.AgentOperationStatus, bool)
+		AbandonAgentOperation(domain.SessionID) bool
+	}); ok {
+		healthOps = healthOperations{manager: manager}
+	}
 	healthObserver := sessionhealth.NewObserver(store, notificationWriter, sessionhealth.ObserverConfig{
 		Health:            healthConfig,
+		Operations:        healthOps,
 		Tick:              sessionhealth.TickInterval(os.Getenv),
 		Logger:            log,
 		Messenger:         lifecycleMessenger,
@@ -1098,7 +1118,8 @@ func Run() error {
 		RemoteWorkerLinks:  remoteWorkerSvc,
 		RemoteWorkerSync:   remoteReports,
 		Tailnet:            tailnetDiscovery,
-		CompletedTasks:     taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store}),
+		CompletedTasks:     completedTasks,
+		Knowledge:          knowledgeAPI,
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,

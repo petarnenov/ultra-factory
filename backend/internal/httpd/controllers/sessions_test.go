@@ -40,6 +40,9 @@ import (
 )
 
 type fakeSessionService struct {
+	projectIssue               domain.Issue
+	projectIssueErr            error
+	projectIssueNumber         int
 	cleanupPending             bool
 	artifactsDeleted           []domain.SessionID
 	deleteArtifactsErr         error
@@ -230,6 +233,12 @@ func (f *fakeManagedPreviewServer) Status(sessionID domain.SessionID) previewser
 		status.Logs = []string{}
 	}
 	return status
+}
+
+// ProjectIssue returns the configured issue and records the requested number.
+func (f *fakeSessionService) ProjectIssue(_ context.Context, _ domain.ProjectID, number int) (domain.Issue, error) {
+	f.projectIssueNumber = number
+	return f.projectIssue, f.projectIssueErr
 }
 
 func newFakeSessionService() *fakeSessionService {
@@ -4027,6 +4036,45 @@ func TestSessionsAPI_SendMessageSizeLimit(t *testing.T) {
 	overLimit := `{"message":"` + strings.Repeat("a", 16*1024+1) + `"}`
 	body, status, _ := doRequest(t, srv, "POST", "/api/v1/sessions/ao-1/send", overLimit)
 	assertErrorCode(t, body, status, http.StatusBadRequest, "MESSAGE_TOO_LONG")
+}
+
+func TestSessionsAPI_ProjectIssue(t *testing.T) {
+	svc := newFakeSessionService()
+	svc.projectIssue = domain.Issue{Title: "Fix generated prompts", Body: "## Acceptance criteria\n- works", URL: "https://github.com/acme/repo/issues/42"}
+	srv := newSessionTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "GET", "/api/v1/projects/ao/issues/42", "")
+	if status != http.StatusOK {
+		t.Fatalf("get issue = %d, want 200; body=%s", status, body)
+	}
+	var got struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		Body   string `json:"body"`
+		URL    string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Number != 42 || got.Title != "Fix generated prompts" || got.Body != svc.projectIssue.Body || got.URL != svc.projectIssue.URL {
+		t.Fatalf("issue = %+v", got)
+	}
+	if svc.projectIssueNumber != 42 {
+		t.Fatalf("service number = %d, want 42", svc.projectIssueNumber)
+	}
+	for _, path := range []string{"/api/v1/projects/ao/issues/0", "/api/v1/projects/ao/issues/abc", "/api/v1/projects/ao/issues/-3"} {
+		body, status, _ := doRequest(t, srv, "GET", path, "")
+		assertErrorCode(t, body, status, http.StatusBadRequest, "INVALID_ISSUE_NUMBER")
+	}
+}
+
+func TestSessionsAPI_ProjectIssueUnavailableTracker(t *testing.T) {
+	svc := newFakeSessionService()
+	svc.projectIssueErr = apierr.Unavailable("TRACKER_UNAVAILABLE", "No issue tracker is configured")
+	srv := newSessionTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, "GET", "/api/v1/projects/ao/issues/7", "")
+	assertErrorCode(t, body, status, http.StatusServiceUnavailable, "TRACKER_UNAVAILABLE")
 }
 
 func TestSessionsAPI_DelegateTask(t *testing.T) {

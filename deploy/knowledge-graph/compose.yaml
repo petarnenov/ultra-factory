@@ -1,0 +1,64 @@
+# Central AO knowledge graph (ADR 0012). Run on one host of the tailnet:
+#   cp .env.example .env && edit it && docker compose up -d
+services:
+  neo4j:
+    image: neo4j:2026.09.0-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${KG_PASSWORD:?set KG_PASSWORD in .env}
+      NEO4J_server_memory_heap_initial__size: ${KG_HEAP:-1G}
+      NEO4J_server_memory_heap_max__size: ${KG_HEAP:-1G}
+      NEO4J_server_memory_pagecache_size: ${KG_PAGECACHE:-1G}
+      NEO4J_dbms_usage__report_enabled: "false"
+    ports:
+      # Loopback for the host itself, plus the host's Tailscale address so
+      # every AO daemon on the tailnet can reach the HTTP Query API.
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+      - "${KG_BIND_ADDR:?set KG_BIND_ADDR to the host tailnet IP}:7474:7474"
+      - "${KG_BIND_ADDR}:7687:7687"
+    volumes:
+      - kg-data:/data
+      - kg-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7474 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  # Local embedding model for semantic search (ADR 0013). CPU is enough
+  # for short lessons and task summaries.
+  ollama:
+    image: ollama/ollama:0.34.2
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+    ports:
+      # 11435 on the host: a system Ollama may already own 11434.
+      - "127.0.0.1:${KG_OLLAMA_PORT:-11435}:11434"
+      - "${KG_BIND_ADDR}:${KG_OLLAMA_PORT:-11435}:11434"
+    volumes:
+      - kg-ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+
+  # One-shot: applies the idempotent schema after every start.
+  schema:
+    image: neo4j:2026.09.0-community
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      KG_PASSWORD: ${KG_PASSWORD}
+    volumes:
+      - ./schema.cypher:/schema.cypher:ro
+    entrypoint: ["sh", "-c", "cypher-shell -a neo4j://neo4j:7687 -u neo4j -p \"$$KG_PASSWORD\" -f /schema.cypher"]
+
+volumes:
+  kg-data:
+  kg-logs:
+  kg-ollama:

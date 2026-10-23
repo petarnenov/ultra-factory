@@ -108,6 +108,48 @@ describe("Settings recovery modal integration", () => {
 		expect(put).not.toHaveBeenCalled();
 	});
 
+	it("never submits the clean Coordinators form on open, Enter, section switch or close", async () => {
+		project = {
+			...defaultProject,
+			config: {
+				...defaultProject.config,
+				coordinators: {
+					enabled: true,
+					maxCoordinators: 3,
+					maxWorkersPerCoordinator: 3,
+					maxWorkers: 9,
+					allowedHosts: ["imac", "linux", "z600"],
+					allowLocalWorkers: false,
+				},
+			},
+		};
+		const put = vi.spyOn(apiClient, "PUT");
+		const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit");
+		const submitted = vi.fn();
+		document.addEventListener("submit", submitted, true);
+		try {
+			useUiStore.getState().openProjectSettings("proj-1", { section: "coordinators" });
+			renderDialogs();
+			await screen.findByRole("switch", { name: "Enable coordinators" });
+			// Enter in a clean form field must not submit it.
+			const workers = screen.getByLabelText("Workers in project");
+			workers.focus();
+			expect(document.getElementById("project-settings-form")).toContainElement(document.activeElement as HTMLElement);
+			await userEvent.keyboard("{Enter}");
+			await userEvent.click(screen.getByRole("button", { name: "General" }));
+			await screen.findByRole("button", { name: "Edit Project name" });
+			await userEvent.click(screen.getByRole("button", { name: "Close settings" }));
+			await waitFor(() => expect(useUiStore.getState().settingsModal).toBeNull());
+
+			expect(requestSubmit).not.toHaveBeenCalled();
+			expect(submitted).not.toHaveBeenCalled();
+			expect(put).not.toHaveBeenCalled();
+			expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+		} finally {
+			document.removeEventListener("submit", submitted, true);
+		}
+	});
+
 	it("closes clean project settings without writing", async () => {
 		const put = vi.spyOn(apiClient, "PUT");
 		useUiStore.getState().openProjectSettings("proj-1");

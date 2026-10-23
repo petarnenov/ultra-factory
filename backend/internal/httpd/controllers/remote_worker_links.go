@@ -62,6 +62,9 @@ type RemoteWorkerRemovalService interface {
 type RemoteWorkerLinksController struct {
 	Svc  RemoteWorkerLinkService
 	Sync RemoteWorkerSyncService
+	// PullerID is this daemon's host ID, the identity hosts acknowledge
+	// worker reports against.
+	PullerID string
 }
 
 // Register mounts the remote worker link routes on r.
@@ -214,7 +217,7 @@ func (c *RemoteWorkerLinksController) list(w http.ResponseWriter, r *http.Reques
 		envelope.WriteError(w, r, err)
 		return
 	}
-	resp := ListRemoteWorkerLinksResponse{Links: make([]RemoteWorkerLinkResponse, 0, len(links))}
+	resp := ListRemoteWorkerLinksResponse{PullerID: c.PullerID, Links: make([]RemoteWorkerLinkResponse, 0, len(links))}
 	for _, link := range links {
 		resp.Links = append(resp.Links, remoteWorkerLinkResponse(link))
 	}

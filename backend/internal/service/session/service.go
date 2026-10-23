@@ -221,6 +221,7 @@ type Service struct {
 	capacityGuardMu    sync.Mutex
 	capacityGuard      *coordownership.Guard
 	hosts              coordownership.HostDirectory
+	knowledge          KnowledgeGraph
 	workspaceCache     *workspaceCache
 	workspaceManifests *workspaceManifestIndex
 	workspaceEditsMu   sync.Mutex
@@ -521,6 +522,7 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.Session{}, 0, 0, fmt.Errorf("count sessions: %w", err)
 	}
 	cfg = s.withIssueContext(ctx, cfg, project)
+	cfg, servedLessons := s.withKnowledgeContext(ctx, cfg, project)
 	cfg.OwnerSessionID, err = s.spawnOwner(ctx, cfg)
 	if err != nil {
 		return domain.Session{}, 0, 0, err
@@ -548,6 +550,7 @@ func (s *Service) spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 			return domain.Session{}, 0, 0, err
 		}
 	}
+	s.markKnowledgeServed(rec.ID, servedLessons)
 	s.emitSpawned(ctx, rec, s.now().Sub(start).Milliseconds())
 	if firstSession {
 		s.emitFirstSessionSpawned(ctx, rec, project)
@@ -1580,7 +1583,7 @@ func (s *Service) toSessionWithFacts(ctx context.Context, rec domain.SessionReco
 		ChatProviderPreserved: rec.Mode == domain.SessionModeChat && !rec.IsTerminated &&
 			s.chatProviderPreserved != nil && s.chatProviderPreserved(rec.ID),
 		Status:           deriveStatus(rec, prs, now, s.harnessSignals(rec.Harness)),
-		Health:           sessionhealth.Derive(rec, rec.Progress, now, s.healthConfig),
+		Health:           sessionhealth.WithOperation(sessionhealth.Derive(rec, rec.Progress, now, s.healthConfig), operation, now, s.healthConfig),
 		SCMStatus:        deriveSCMStatus(prs),
 		KanbanColumn:     presentation.Column,
 		DisplayStatus:    presentation.DisplayStatus,

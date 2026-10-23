@@ -250,7 +250,10 @@ type ListRemoteWorkerLinksQuery struct {
 
 // ListRemoteWorkerLinksResponse is the body of GET /api/v1/remote-worker-links.
 type ListRemoteWorkerLinksResponse struct {
-	Links []RemoteWorkerLinkResponse `json:"links"`
+	// PullerID is the identity this daemon pulls and acknowledges worker
+	// reports under. It is empty until the daemon knows its host ID.
+	PullerID string                     `json:"pullerId,omitempty"`
+	Links    []RemoteWorkerLinkResponse `json:"links"`
 }
 
 // RemoveRemoteWorkerLinkQuery names the live root removing a link.
@@ -4120,4 +4123,57 @@ type CompletionReportRequest = reportsvc.CompletionInput
 // CompletionReportResponse acknowledges accepted completion context.
 type CompletionReportResponse struct {
 	Accepted bool `json:"accepted"`
+}
+
+// ProjectIssueNumberParam is the {number} of
+// GET /projects/{id}/issues/{number}.
+type ProjectIssueNumberParam struct {
+	Number int `path:"number" description:"Issue number in the project's tracker." minimum:"1"`
+}
+
+// ProjectIssueResponse is the body of GET /projects/{id}/issues/{number}.
+type ProjectIssueResponse struct {
+	Number int    `json:"number" description:"Issue number."`
+	Title  string `json:"title" description:"Issue title."`
+	Body   string `json:"body" description:"Issue body as Markdown; may be empty."`
+	URL    string `json:"url" description:"Web URL of the issue."`
+}
+
+// CreateLessonRequest records a worker's lesson in the knowledge graph.
+type CreateLessonRequest struct {
+	SessionID string   `json:"sessionId" description:"Worker session recording the lesson."`
+	Kind      string   `json:"kind,omitempty" enum:"pitfall,fix,tip,context" description:"Defaults to tip."`
+	Text      string   `json:"text" maxLength:"1000"`
+	Topics    []string `json:"topics,omitempty" description:"Up to 5 short topic names."`
+}
+
+// CreateLessonResponse identifies the stored lesson.
+type CreateLessonResponse struct {
+	ID string `json:"id"`
+}
+
+// KnowledgeSearchQuery scopes a knowledge search to a session's project or
+// an explicit project.
+type KnowledgeSearchQuery struct {
+	Q         string `query:"q" required:"true" description:"Free-text query."`
+	SessionID string `query:"sessionId,omitempty" description:"Asking worker; implies its project."`
+	ProjectID string `query:"projectId,omitempty" description:"Project to search when no session is given."`
+	Limit     int    `query:"limit,omitempty" description:"Results per section, 1 to 50. Defaults to 5."`
+}
+
+// KnowledgeItem is one lesson or past task from the knowledge graph.
+type KnowledgeItem struct {
+	Section string   `json:"section" enum:"attempt,lesson,task"`
+	ID      string   `json:"id"`
+	Kind    string   `json:"kind"`
+	Title   string   `json:"title"`
+	Outcome string   `json:"outcome"`
+	Text    string   `json:"text"`
+	Lessons []string `json:"lessons"`
+	Score   float64  `json:"score"`
+}
+
+// KnowledgeSearchResponse lists matching knowledge, best first per section.
+type KnowledgeSearchResponse struct {
+	Items []KnowledgeItem `json:"items"`
 }

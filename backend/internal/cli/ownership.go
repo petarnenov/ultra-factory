@@ -133,7 +133,8 @@ type remoteWorkerHostSyncDTO struct {
 }
 
 type listRemoteWorkerLinksResponse struct {
-	Links []remoteWorkerLinkDTO `json:"links"`
+	PullerID string                `json:"pullerId,omitempty"`
+	Links    []remoteWorkerLinkDTO `json:"links"`
 }
 
 type sessionAssignOptions struct {

@@ -51,7 +51,8 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: Ref
 	enabledRef.current = enabled;
 	const accountRef = useRef(accountId);
 	accountRef.current = accountId;
-	const previousAccount = useRef(accountId);
+	const accountLoading = !isWebBuild && status === "loading";
+	const previousAccount = useRef<string | undefined>(accountLoading ? undefined : accountId);
 	const [hosts, setHosts] = useState<RemoteHost[]>([]);
 	const hostsRef = useRef(hosts);
 	hostsRef.current = hosts;
@@ -64,6 +65,11 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: Ref
 		const generation = ++refreshGeneration.current;
 		const current = () => enabledRef.current && accountRef.current === accountId && refreshGeneration.current === generation;
 		let saved = await aoBridge.remotes.list();
+		if (!current()) return;
+		setHosts((previous) => saved.map((host) => {
+			const known = previous.find((entry) => entry.hostId === host.hostId && entry.url === host.url);
+			return { ...host, status: known?.status ?? "connecting", ...(known?.failureReason ? { failureReason: known.failureReason } : {}) };
+		}));
 		if (cloudBaseUrl) {
 			try {
 				const accountHosts = await listAccountRemoteHosts(cloudBaseUrl);
@@ -114,12 +120,14 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: Ref
 	}, [cloudBaseUrl, accountId]);
 
 	useEffect(() => {
-		if (previousAccount.current !== accountId) {
-			previousAccount.current = accountId;
+		// Mounting another observer must not retire the shell's live proxies.
+		if (accountLoading && remoteHostsEnabled) return;
+		if (!accountLoading && previousAccount.current !== undefined && previousAccount.current !== accountId) {
 			refreshGeneration.current++;
 			setHosts([]);
 			for (const hostId of connectedHosts()) void disconnectHost(hostId);
 		}
+		if (!accountLoading) previousAccount.current = accountId;
 		if (enabled) {
 			void refresh();
 			return;
@@ -129,7 +137,7 @@ export function useRemoteHosts(): { hosts: RemoteHost[]; refresh: (options?: Ref
 		retryableHosts.current.clear();
 		savedHostUrls.current.clear();
 		for (const hostId of connectedHosts()) void disconnectHost(hostId);
-	}, [enabled, refresh]);
+	}, [enabled, refresh, accountLoading, remoteHostsEnabled]);
 	useEffect(() => {
 		if (!enabled) return;
 		const timer = setInterval(() => {

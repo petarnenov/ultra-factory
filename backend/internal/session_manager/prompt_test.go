@@ -46,8 +46,8 @@ func TestBuildSystemPrompt_WorkerIncludesRulesAndOrchestrator(t *testing.T) {
 	})
 	for _, want := range []string{
 		"## AO Worker Role",
-		"## Orchestrator Coordination",
-		`ao send --session mer-orchestrator --message "<your message>"`,
+		"## Escalation Target",
+		`ao session owner $AO_SESSION_ID --json`, "is terminated or belongs to another project, the project root owns you: use `rootSessionId` from the same output", `ao send --session <owner-session-id> --message "<your message>"`,
 		"## Pull Requests for This Session",
 		"For a workspace project whose recorded session branch",
 		"`<session-branch>-<topic>`",
@@ -584,8 +584,12 @@ func TestBuildSystemPrompt_RootCoordinatorSectionFollowsGate(t *testing.T) {
 	})
 	for _, want := range []string{
 		"## Coordinators",
-		"ao spawn --kind coordinator --scope <area>",
-		"It runs with the project's per-coordinator worker limit and allowed hosts.",
+		"ao spawn --kind coordinator --scope <area> --max-workers <n> --hosts <label>:<slots>[,...] --prompt <brief>",
+		"Do not pass `--host` for a coordinator",
+		"ao coordinator set-limits <coordinator-id>",
+		"ao session assign <worker> --owner <coordinator-id>",
+		"ao coordinator report --ready-pr <number>@<head-sha>",
+		"Do not announce merges or slot changes by hand",
 		"Project limits: 3 live coordinators, 4 workers per coordinator and 8 workers per project.",
 		"The hard maximums are 4, 6 and 12.",
 		"five sections",
@@ -598,8 +602,8 @@ func TestBuildSystemPrompt_RootCoordinatorSectionFollowsGate(t *testing.T) {
 	if size := len(rootCoordinatorPrompt(coordinationPromptConfig{
 		Enabled: true,
 		Limits:  domain.HardCoordinatorLimits,
-	})); size >= 1536 {
-		t.Fatalf("root coordinator section is %d bytes, want under 1.5 KB", size)
+	})); size >= 2560 {
+		t.Fatalf("root coordinator section is %d bytes, want under 2.5 KB", size)
 	}
 
 	disabled := buildSystemPromptText(systemPromptConfig{
@@ -699,6 +703,45 @@ func TestBuildSystemPrompt_CIGateCoordinationOnlyInGatedProjects(t *testing.T) {
 		})
 		if strings.Contains(ungated, mention) {
 			t.Fatalf("%s prompt in ungated project mentions the CI gate", role)
+		}
+	}
+}
+
+func TestBuildSystemPrompt_RootDelegationAndHostAllocation(t *testing.T) {
+	enabled := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+		Coordination: coordinationPromptConfig{
+			Enabled: true,
+			Limits:  domain.CoordinatorLimits{Coordinators: 3, WorkersPerCoordinator: 3, Workers: 9},
+		},
+	})
+	for _, want := range []string{
+		"## Host Allocation",
+		"`ao host ls`",
+		"`LOCAL_ORCHESTRATOR_ACTIVE`",
+		"Do not copy a host label from a previous prompt or brief.",
+	} {
+		if !strings.Contains(enabled, want) {
+			t.Fatalf("enabled root prompt missing %q:\n%s", want, enabled)
+		}
+	}
+	for _, label := range []string{"IMac", "Linux", "Z600"} {
+		if strings.Contains(enabled, label) {
+			t.Fatalf("root prompt must not hard-code host label %q:\n%s", label, enabled)
+		}
+	}
+	if size := len(rootHostAllocationPrompt(coordinationPromptConfig{Enabled: true})); size >= 1536 {
+		t.Fatalf("host allocation section is %d bytes, want under 1.5 KB", size)
+	}
+
+	disabled := buildSystemPromptText(systemPromptConfig{
+		Role:    sessionPromptRoleOrchestrator,
+		Project: promptProject{ID: "mer", Name: "Mercury"},
+	})
+	for _, absent := range []string{"## Host Allocation", "Do not announce merges or slot changes by hand"} {
+		if strings.Contains(disabled, absent) {
+			t.Fatalf("disabled root prompt must omit %q:\n%s", absent, disabled)
 		}
 	}
 }

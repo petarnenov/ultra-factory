@@ -512,6 +512,11 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersRemoteWorkerSyncResponse":          "RemoteWorkerSyncResponse",
 	"ControllersRemoteWorkerHostSync":              "RemoteWorkerHostSync",
 	"ControllersCompletedTaskProjectParam":         "CompletedTaskProjectParam",
+	"ControllersCreateLessonRequest":               "CreateLessonRequest",
+	"ControllersCreateLessonResponse":              "CreateLessonResponse",
+	"ControllersKnowledgeSearchQuery":              "KnowledgeSearchQuery",
+	"ControllersKnowledgeItem":                     "KnowledgeItem",
+	"ControllersKnowledgeSearchResponse":           "KnowledgeSearchResponse",
 	"ControllersCompletedTaskParams":               "CompletedTaskParams",
 	"ControllersListCompletedTasksQuery":           "ListCompletedTasksQuery",
 	"ControllersCompletedTaskPR":                   "CompletedTaskPR",
@@ -751,6 +756,7 @@ func operations() []operation {
 	ops = append(ops, reportOperations()...)
 	ops = append(ops, coordinatorSummaryOperations()...)
 	ops = append(ops, completedTaskOperations()...)
+	ops = append(ops, knowledgeOperations()...)
 	ops = append(ops, usageOperations()...)
 	ops = append(ops, pushOperations()...)
 	ops = append(ops, importOperations()...)
@@ -1075,6 +1081,35 @@ func completedTaskOperations() []operation {
 			{http.StatusNotFound, envelope.APIError{}},
 			{http.StatusInternalServerError, envelope.APIError{}},
 			{http.StatusNotImplemented, envelope.APIError{}},
+		},
+	}}
+}
+
+// knowledgeOperations declares the knowledge-graph routes (ADR 0012).
+func knowledgeOperations() []operation {
+	return []operation{{
+		method: http.MethodPost, path: "/api/v1/knowledge/lessons", id: "createLesson", tag: "knowledge",
+		summary: "Record a worker's lesson in the knowledge graph",
+		reqBody: controllers.CreateLessonRequest{},
+		resps: []respUnit{
+			{http.StatusCreated, controllers.CreateLessonResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+			{http.StatusServiceUnavailable, envelope.APIError{}},
+		},
+	}, {
+		method: http.MethodGet, path: "/api/v1/knowledge/search", id: "searchKnowledge", tag: "knowledge",
+		summary:    "Search lessons and past tasks in the knowledge graph",
+		pathParams: []any{controllers.KnowledgeSearchQuery{}},
+		resps: []respUnit{
+			{http.StatusOK, controllers.KnowledgeSearchResponse{}},
+			{http.StatusBadRequest, envelope.APIError{}},
+			{http.StatusNotFound, envelope.APIError{}},
+			{http.StatusInternalServerError, envelope.APIError{}},
+			{http.StatusNotImplemented, envelope.APIError{}},
+			{http.StatusServiceUnavailable, envelope.APIError{}},
 		},
 	}}
 }
@@ -3770,6 +3805,19 @@ func sessionOperations() []operation {
 				{http.StatusOK, controllers.CoordinatorRosterResponse{}},
 				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/projects/{id}/issues/{number}", id: "getProjectIssue", tag: "projects",
+			summary:    "Read one issue from the project's tracker",
+			pathParams: []any{controllers.ProjectIDParam{}, controllers.ProjectIssueNumberParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.ProjectIssueResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusServiceUnavailable, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
 				{http.StatusNotImplemented, envelope.APIError{}},
 			},
