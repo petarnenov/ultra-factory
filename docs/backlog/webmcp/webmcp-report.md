@@ -2,6 +2,13 @@
 
 **Date:** 2026-10-21. **Base:** `dev` @ `8a85844fb`.
 
+## Results
+
+The interim performance report and measured results are in
+[docs/performance/webmcp](../../performance/webmcp/README.md). The dashboard is
+at `/#/benchmarks`. Screenshots and final task status are pending merge of
+dashboard PR #592.
+
 ## Goal
 
 Expose a WebMCP tool surface on three UI pages that already have Playwright
