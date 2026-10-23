@@ -1434,6 +1434,10 @@ type appendedMessageSnapshotter interface {
 	AppendUserMessageSnapshot(ctx context.Context, conversationID string, session domain.SessionID, reviewID, generation string, msg domain.ConversationMessage, turnID string, now time.Time) (bool, []string, error)
 }
 
+type supersedingMessageSnapshotter interface {
+	AppendUserMessageSnapshotSuperseding(ctx context.Context, conversationID string, session domain.SessionID, reviewID, generation string, msg domain.ConversationMessage, turnID, senderSessionID string, now time.Time) (bool, []string, int64, error)
+}
+
 // SendWithDelivery is Send plus the structured questions pending when the
 // message was recorded, captured in the same transaction.
 func (c *Controller) SendWithDelivery(ctx context.Context, msg ports.ChatUserMessage) (domain.ConversationTurn, []string, int, error) {
@@ -1461,26 +1465,6 @@ func (c *Controller) sendLocked(
 	if handoff {
 		return domain.ConversationTurn{}, nil, 0, ErrControllerHandoff
 	}
-	if msg.SupersedeSenderSessionID != "" {
-		alreadyAccepted := false
-		if msg.ClientMessageID != "" {
-			_, found, lookupErr := c.store.ConversationMessageByClientID(
-				ctx, c.conversation.ID, msg.ClientMessageID)
-			if lookupErr != nil {
-				return domain.ConversationTurn{}, nil, 0, lookupErr
-			}
-			alreadyAccepted = found
-		}
-		if !alreadyAccepted {
-			count, cancelErr := c.store.CancelQueuedTurnsBySender(ctx, c.conversation.ID,
-				msg.SupersedeSenderSessionID, c.now())
-			if cancelErr != nil {
-				return domain.ConversationTurn{}, nil, 0, cancelErr
-			}
-			supersededCount = int(count)
-		}
-	}
-
 	queuing := queueWhenBusy && c.busy()
 	if !queuing && c.reviewNudgeResolved(ctx, msg.ClientMessageID) {
 		return domain.ConversationTurn{}, nil, 0, nil
@@ -1529,7 +1513,19 @@ func (c *Controller) sendLocked(
 		pendingInputs []string
 		err           error
 	)
-	if snapshotter, ok := c.store.(appendedMessageSnapshotter); ok {
+	if msg.SupersedeSenderSessionID != "" && queuing {
+		snapshotter, ok := c.store.(supersedingMessageSnapshotter)
+		if !ok {
+			return domain.ConversationTurn{}, nil, 0, errors.New("chat store does not support atomic message superseding")
+		}
+		var count int64
+		created, pendingInputs, count, err = snapshotter.AppendUserMessageSnapshotSuperseding(
+			ctx, c.conversation.ID, c.sessionID, c.reviewID, c.generation,
+			record, turnID, msg.SupersedeSenderSessionID, now)
+		if err == nil && created {
+			supersededCount = int(count)
+		}
+	} else if snapshotter, ok := c.store.(appendedMessageSnapshotter); ok {
 		created, pendingInputs, err = snapshotter.AppendUserMessageSnapshot(
 			ctx, c.conversation.ID, c.sessionID, c.reviewID, c.generation, record, turnID, now)
 	} else if c.reviewID == "" {
@@ -1568,6 +1564,14 @@ func (c *Controller) sendLocked(
 
 	turn, err := c.dispatch(ctx, turnID, msg, now)
 	dispatched = err == nil
+	if err == nil && msg.SupersedeSenderSessionID != "" && !queuing {
+		count, cancelErr := c.store.CancelQueuedTurnsBySender(ctx, c.conversation.ID,
+			msg.SupersedeSenderSessionID, c.now())
+		if cancelErr != nil {
+			return turn, nil, 0, fmt.Errorf("replacement was accepted but earlier queued messages could not be superseded: %w", cancelErr)
+		}
+		supersededCount = int(count)
+	}
 	return turn, nil, supersededCount, err
 }
 

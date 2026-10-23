@@ -1190,14 +1190,14 @@ func (s *Store) AppendUserMessage(
 	turnID string,
 	now time.Time,
 ) (created bool, err error) {
-	created, _, err = s.appendUserMessage(ctx, conversationID, session, "", generation, msg, turnID, "", now)
+	created, _, _, err = s.appendUserMessage(ctx, conversationID, session, "", generation, msg, turnID, "", "", now)
 	return created, err
 }
 
 // AppendReviewUserMessage preserves the worker session needed for lifecycle
 // projection while recording the typed reviewer that owns the turn.
 func (s *Store) AppendReviewUserMessage(ctx context.Context, conversationID string, session domain.SessionID, reviewID, generation string, msg domain.ConversationMessage, turnID string, now time.Time) (bool, error) {
-	created, _, err := s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, "", now)
+	created, _, _, err := s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, "", "", now)
 	return created, err
 }
 
@@ -1212,7 +1212,22 @@ func (s *Store) AppendUserMessageSnapshot(
 	turnID string,
 	now time.Time,
 ) (bool, []string, error) {
-	return s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, "", now)
+	created, pending, _, err := s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, "", "", now)
+	return created, pending, err
+}
+
+// AppendUserMessageSnapshotSuperseding atomically cancels the sender's unread
+// turns and accepts the replacement, rolling both changes back on failure.
+func (s *Store) AppendUserMessageSnapshotSuperseding(
+	ctx context.Context,
+	conversationID string,
+	session domain.SessionID,
+	reviewID, generation string,
+	msg domain.ConversationMessage,
+	turnID, senderSessionID string,
+	now time.Time,
+) (bool, []string, int64, error) {
+	return s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, "", senderSessionID, now)
 }
 
 // AppendRetryUserMessage records a retry and its source as one transaction.
@@ -1228,13 +1243,13 @@ func (s *Store) AppendRetryUserMessage(
 	retryOfTurnID string,
 	now time.Time,
 ) (created bool, err error) {
-	created, _, err = s.appendUserMessage(ctx, conversationID, session, "", generation, msg, turnID, retryOfTurnID, now)
+	created, _, _, err = s.appendUserMessage(ctx, conversationID, session, "", generation, msg, turnID, retryOfTurnID, "", now)
 	return created, err
 }
 
 // AppendReviewRetryUserMessage atomically persists a retry for a reviewer chat.
 func (s *Store) AppendReviewRetryUserMessage(ctx context.Context, conversationID string, session domain.SessionID, reviewID, generation string, msg domain.ConversationMessage, turnID, retryOfTurnID string, now time.Time) (bool, error) {
-	created, _, err := s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, retryOfTurnID, now)
+	created, _, _, err := s.appendUserMessage(ctx, conversationID, session, reviewID, generation, msg, turnID, retryOfTurnID, "", now)
 	return created, err
 }
 
@@ -1247,8 +1262,9 @@ func (s *Store) appendUserMessage(
 	msg domain.ConversationMessage,
 	turnID string,
 	retryOfTurnID string,
+	supersedeSenderSessionID string,
 	now time.Time,
-) (created bool, pendingInputIDs []string, err error) {
+) (created bool, pendingInputIDs []string, supersededCount int64, err error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if generation == "" && reviewID == "" {
@@ -1256,21 +1272,21 @@ func (s *Store) appendUserMessage(
 		// Session writes share writeMu, so this check and the append are atomic.
 		record, readErr := s.qw.GetSession(ctx, session)
 		if readErr != nil {
-			return false, nil, fmt.Errorf("check queued session %s: %w", session, readErr)
+			return false, nil, 0, fmt.Errorf("check queued session %s: %w", session, readErr)
 		}
 		waking := domain.WakeInFlight(ctx)
 		if record.IsTerminated || (!record.ProvisionState.IsProvisioning() && !record.HibernatedAt.Valid && !waking) {
-			return false, nil, domain.ErrSessionNotProvisioning
+			return false, nil, 0, domain.ErrSessionNotProvisioning
 		}
 		// The caller read the conversation before taking writeMu. An orchestrator's
 		// first controller may have moved the queue out of it since then; a turn
 		// appended here would never drain or show.
 		conversation, readErr := s.qw.SelectConversationByID(ctx, conversationID)
 		if readErr != nil {
-			return false, nil, fmt.Errorf("check queued conversation %s: %w", conversationID, readErr)
+			return false, nil, 0, fmt.Errorf("check queued conversation %s: %w", conversationID, readErr)
 		}
 		if conversation.CurrentSessionID == nil || *conversation.CurrentSessionID != session {
-			return false, nil, domain.ErrConversationRebound
+			return false, nil, 0, domain.ErrConversationRebound
 		}
 	}
 
@@ -1281,10 +1297,10 @@ func (s *Store) appendUserMessage(
 				RetryOfTurnID:  sql.NullString{String: retryOfTurnID, Valid: true},
 			})
 		if lookupErr == nil {
-			return false, nil, nil
+			return false, nil, 0, nil
 		}
 		if !errors.Is(lookupErr, sql.ErrNoRows) {
-			return false, nil, fmt.Errorf("lookup retry of turn %s: %w", retryOfTurnID, lookupErr)
+			return false, nil, 0, fmt.Errorf("lookup retry of turn %s: %w", retryOfTurnID, lookupErr)
 		}
 	} else if msg.ClientMessageID != "" {
 		existing, lookupErr := s.qr.SelectConversationMessageByClientID(ctx,
@@ -1297,20 +1313,31 @@ func (s *Store) appendUserMessage(
 			// persisted payload exactly; never guess through AO-added context.
 			if existing.ClientPayloadHash.Valid {
 				if msg.ClientPayloadHash == "" || existing.ClientPayloadHash.String != msg.ClientPayloadHash {
-					return false, nil, domain.ErrClientMessageConflict
+					return false, nil, 0, domain.ErrClientMessageConflict
 				}
 			} else if existing.Text != msg.Text || existing.Origin != msg.Origin ||
 				existing.DeliveryContentJson != msg.DeliveryContentJSON {
-				return false, nil, domain.ErrClientMessageConflict
+				return false, nil, 0, domain.ErrClientMessageConflict
 			}
-			return false, nil, nil
+			return false, nil, 0, nil
 		}
 		if !errors.Is(lookupErr, sql.ErrNoRows) {
-			return false, nil, fmt.Errorf("lookup client message %s: %w", msg.ClientMessageID, lookupErr)
+			return false, nil, 0, fmt.Errorf("lookup client message %s: %w", msg.ClientMessageID, lookupErr)
 		}
 	}
 
 	err = s.inTx(ctx, "append user message", func(q *gen.Queries) error {
+		if supersedeSenderSessionID != "" {
+			supersededCount, err = q.CancelQueuedConversationTurnsBySender(ctx,
+				gen.CancelQueuedConversationTurnsBySenderParams{
+					CompletedAt:     sql.NullTime{Time: now, Valid: true},
+					ConversationID:  conversationID,
+					SenderSessionID: supersedeSenderSessionID,
+				})
+			if err != nil {
+				return fmt.Errorf("cancel queued turns from %s: %w", supersedeSenderSessionID, err)
+			}
+		}
 		sequence, err := q.NextConversationSequence(ctx, gen.NextConversationSequenceParams{
 			UpdatedAt: now,
 			ID:        conversationID,
@@ -1378,9 +1405,9 @@ func (s *Store) appendUserMessage(
 		return nil
 	})
 	if err != nil {
-		return false, nil, err
+		return false, nil, 0, err
 	}
-	return true, pendingInputIDs, nil
+	return true, pendingInputIDs, supersededCount, nil
 }
 
 // ConversationMessageByClientID finds the durable normal-message outcome for an

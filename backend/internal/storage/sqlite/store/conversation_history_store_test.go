@@ -1058,6 +1058,45 @@ func TestCancelQueuedTurnByIDHidesMessageFromSnapshot(t *testing.T) {
 	t.Fatal("cancelled turn row disappeared")
 }
 
+func TestSupersedingAppendRollsBackCancellationWhenReplacementInsertFails(t *testing.T) {
+	s, session, conversation := conversationFixture(t)
+	ctx := context.Background()
+	created, err := s.AppendUserMessage(ctx, conversation, session, "gen-1",
+		domain.ConversationMessage{
+			ID: "queued-old-message", Text: "keep old", Origin: domain.MessageOriginAutomation,
+			SenderSessionID: "sender-a",
+		}, "queued-old", histClock)
+	if err != nil || !created {
+		t.Fatalf("append old queued turn: created=%v err=%v", created, err)
+	}
+
+	created, _, superseded, err := s.AppendUserMessageSnapshotSuperseding(ctx,
+		conversation, session, "", "gen-1", domain.ConversationMessage{
+			ID: "replacement-message", Text: "replacement", Origin: domain.MessageOriginAutomation,
+			SenderSessionID: "sender-a",
+		}, "queued-old", "sender-a", histClock.Add(time.Minute))
+	if err == nil || created || superseded != 0 {
+		t.Fatalf("replacement append: created=%v superseded=%d err=%v, want rolled-back insert failure", created, superseded, err)
+	}
+
+	snapshot, err := s.LoadConversationSnapshot(ctx, conversation)
+	if err != nil {
+		t.Fatalf("load snapshot after failed replacement: %v", err)
+	}
+	if got := texts(snapshot.Messages); len(got) != 1 || got[0] != "keep old" {
+		t.Fatalf("messages after failed replacement = %#v, want old queued prompt", got)
+	}
+	for _, turn := range snapshot.Turns {
+		if turn.ID == "queued-old" {
+			if turn.State != domain.TurnStateQueued {
+				t.Fatalf("old turn state after failed replacement = %q, want queued", turn.State)
+			}
+			return
+		}
+	}
+	t.Fatal("old queued turn disappeared after failed replacement")
+}
+
 // seedTurn records one dispatched turn with a user message and an activity, which is
 // the shape a real turn leaves behind.
 func seedTurn(t *testing.T, s *sqlite.Store, conversationID string, session domain.SessionID, turnID, text string, at time.Time) {
