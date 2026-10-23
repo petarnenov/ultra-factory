@@ -534,6 +534,7 @@ function useSelection() {
 	const goHome = useCallback(() => void navigate({ to: "/" }), [navigate]);
 	const goAutomations = useCallback(() => void navigate({ to: "/automations" }), [navigate]);
 	const goArtifacts = useCallback(() => void navigate({ to: "/artifacts" }), [navigate]);
+	const goConsultations = useCallback(() => void navigate({ to: "/consultations" }), [navigate]);
 	const goBenchmarks = useCallback(() => void navigate({ to: "/benchmarks" }), [navigate]);
 	const goStandaloneBoard = useCallback(() => void navigate({ to: "/sessions" }), [navigate]);
 	const goGlobalSettings = useCallback(() => openGlobalSettings(), [openGlobalSettings]);
@@ -568,6 +569,7 @@ function useSelection() {
 		isHome: pathname === "/",
 		isAutomations: pathname === "/automations",
 		isArtifacts: pathname === "/artifacts",
+		isConsultations: pathname.startsWith("/consultations"),
 		isBenchmarks: pathname === "/benchmarks",
 		activeRemoteHostId: params.hostId,
 		activeRemoteProjectId: params.hostId ? params.projectId : undefined,
@@ -577,6 +579,7 @@ function useSelection() {
 		goHome,
 		goAutomations,
 		goArtifacts,
+		goConsultations,
 		goBenchmarks,
 		goStandaloneBoard,
 		// Settings is a modal — open it in place so the current page (session
@@ -588,7 +591,7 @@ function useSelection() {
 		goAggregateProject,
 		goSession,
 		goCompletedTasks,
-	}), [goArtifacts, goAutomations, goBenchmarks, goCompletedTasks, goConnectMobile, goGlobalSettings, goHome, goProject, goAggregateProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
+	}), [goArtifacts, goAutomations, goConsultations, goBenchmarks, goCompletedTasks, goConnectMobile, goGlobalSettings, goHome, goProject, goAggregateProject, goSession, goSettings, goStandaloneBoard, params.hostId, params.projectId, params.sessionId, pathname]);
 }
 
 // Colour tracks the session's board section, preserving SCM state while the
@@ -1062,6 +1065,12 @@ export function Sidebar({
 							trailing={artifactTotal > 0 ? String(artifactTotal) : undefined}
 						/>
 					</SidebarMenuItem>
+					<SidebarMenuItem>
+                        <SidebarTopNavRow active={selection.isConsultations}
+                            icon={<FileText aria-hidden="true" />} label="Consultations"
+                            onClick={selection.goConsultations}
+                            tooltip={isCollapsed ? "Consultations" : undefined} />
+                    </SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarTopNavRow
 							active={selection.isBenchmarks}

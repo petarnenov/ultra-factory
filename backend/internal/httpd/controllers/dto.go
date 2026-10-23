@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"errors"
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"sort"
 	"time"
 
@@ -4198,4 +4199,17 @@ type KnowledgeItem struct {
 // KnowledgeSearchResponse lists matching knowledge, best first per section.
 type KnowledgeSearchResponse struct {
 	Items []KnowledgeItem `json:"items"`
+}
+
+// Consultation DTOs share the index's allowlisted read model.
+type ConsultationPage = consultations.Page
+type ConsultationDetail = consultations.Detail
+
+type ConsultationQuery struct {
+	Limit  int    `query:"limit" minimum:"1" maximum:"50"`
+	Cursor string `query:"cursor"`
+}
+
+type ConsultationIDParam struct {
+	ID string `path:"id"`
 }

@@ -2215,6 +2215,91 @@ paths:
       summary: Validate a selected folder for project import onboarding
       tags:
       - import
+  /api/v1/knowledge/consultations:
+    get:
+      operationId: listConsultations
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          maximum: 50
+          minimum: 1
+          type: integer
+      - in: query
+        name: cursor
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsultationPage'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: List indexed architecture consultations
+      tags:
+      - knowledge
+  /api/v1/knowledge/consultations/{id}:
+    get:
+      operationId: getConsultation
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsultationDetail'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+        "503":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Service Unavailable
+      summary: Read recorded consultation evidence
+      tags:
+      - knowledge
   /api/v1/knowledge/lessons:
     post:
       operationId: createLesson
@@ -14597,6 +14682,222 @@ components:
       - cachedInputTokens
       - outputTokens
       - completeness
+      type: object
+    ConsultationArtifact:
+      properties:
+        absentSince:
+          type: string
+        ballots:
+          items:
+            $ref: '#/components/schemas/ConsultationBallot'
+          type: array
+        consul:
+          type: string
+        content:
+          type: string
+        hash:
+          type: string
+        missing:
+          type: boolean
+        name:
+          type: string
+        phase:
+          type: string
+        round:
+          type: integer
+        truncated:
+          type: boolean
+      required:
+      - name
+      - phase
+      - consul
+      - round
+      - content
+      - hash
+      - truncated
+      - missing
+      - absentSince
+      - ballots
+      type: object
+    ConsultationBallot:
+      properties:
+        decision:
+          type: string
+        stance:
+          type: string
+      required:
+      - decision
+      - stance
+      type: object
+    ConsultationDetail:
+      properties:
+        archive:
+          type: string
+        artifacts:
+          items:
+            $ref: '#/components/schemas/ConsultationArtifact'
+          type: array
+        case:
+          type: string
+        closure:
+          type: string
+        createdAt:
+          type: string
+        date:
+          type: string
+        decision:
+          type: string
+        delivery:
+          type: string
+        escalation:
+          type: string
+        host:
+          type: string
+        id:
+          type: string
+        mode:
+          type: string
+        name:
+          type: string
+        partial:
+          type: boolean
+        phase:
+          type: string
+        phaseRounds:
+          type: integer
+        recordedHost:
+          type: string
+        requester:
+          type: string
+        rounds:
+          type: integer
+        syncedAt:
+          type: string
+        warnings:
+          items:
+            type: string
+          type: array
+      required:
+      - id
+      - name
+      - date
+      - host
+      - recordedHost
+      - requester
+      - case
+      - phase
+      - decision
+      - archive
+      - delivery
+      - closure
+      - escalation
+      - mode
+      - createdAt
+      - syncedAt
+      - rounds
+      - phaseRounds
+      - partial
+      - artifacts
+      - warnings
+      type: object
+    ConsultationPage:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ConsultationSummary'
+          type: array
+        nextCursor:
+          type: string
+        scan:
+          $ref: '#/components/schemas/ConsultationScanStatus'
+      required:
+      - items
+      - nextCursor
+      - scan
+      type: object
+    ConsultationScanStatus:
+      properties:
+        durationMs:
+          format: int64
+          type: integer
+        enabled:
+          type: boolean
+        error:
+          type: string
+        examined:
+          type: integer
+        imported:
+          type: integer
+        lastScan:
+          type: string
+      required:
+      - enabled
+      - lastScan
+      - durationMs
+      - examined
+      - imported
+      - error
+      type: object
+    ConsultationSummary:
+      properties:
+        archive:
+          type: string
+        case:
+          type: string
+        closure:
+          type: string
+        createdAt:
+          type: string
+        date:
+          type: string
+        decision:
+          type: string
+        delivery:
+          type: string
+        escalation:
+          type: string
+        host:
+          type: string
+        id:
+          type: string
+        mode:
+          type: string
+        name:
+          type: string
+        partial:
+          type: boolean
+        phase:
+          type: string
+        phaseRounds:
+          type: integer
+        recordedHost:
+          type: string
+        requester:
+          type: string
+        rounds:
+          type: integer
+        syncedAt:
+          type: string
+      required:
+      - id
+      - name
+      - date
+      - host
+      - recordedHost
+      - requester
+      - case
+      - phase
+      - decision
+      - archive
+      - delivery
+      - closure
+      - escalation
+      - mode
+      - createdAt
+      - syncedAt
+      - rounds
+      - phaseRounds
+      - partial
       type: object
     ConsumeCodexAccountResetCreditRequest:
       properties:

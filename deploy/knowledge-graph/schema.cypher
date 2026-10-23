@@ -12,3 +12,12 @@ CREATE VECTOR INDEX lesson_embedding IF NOT EXISTS FOR (l:Lesson) ON l.embedding
   OPTIONS {indexConfig: {`vector.dimensions`: 1024, `vector.similarity_function`: 'cosine'}};
 CREATE VECTOR INDEX task_embedding IF NOT EXISTS FOR (t:Task) ON t.embedding
   OPTIONS {indexConfig: {`vector.dimensions`: 1024, `vector.similarity_function`: 'cosine'}};
+
+CREATE CONSTRAINT consultation_key IF NOT EXISTS
+FOR (c:ArchitectureConsultation) REQUIRE c.key IS UNIQUE;
+CREATE CONSTRAINT consultation_artifact_key IF NOT EXISTS
+FOR (a:ConsultationArtifact) REQUIRE a.key IS UNIQUE;
+CREATE INDEX consultation_date IF NOT EXISTS
+FOR (c:ArchitectureConsultation) ON (c.date);
+CREATE INDEX consultation_host IF NOT EXISTS
+FOR (c:ArchitectureConsultation) ON (c.host);

@@ -828,6 +828,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge/consultations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List indexed architecture consultations */
+        get: operations["listConsultations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/consultations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read recorded consultation evidence */
+        get: operations["getConsultation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/knowledge/lessons": {
         parameters: {
             query?: never;
@@ -4904,6 +4938,80 @@ export interface components {
             completeness: "complete" | "partial" | "unavailable";
             inputTokens: null | number;
             outputTokens: null | number;
+        };
+        ConsultationArtifact: {
+            absentSince: string;
+            ballots: components["schemas"]["ConsultationBallot"][];
+            consul: string;
+            content: string;
+            hash: string;
+            missing: boolean;
+            name: string;
+            phase: string;
+            round: number;
+            truncated: boolean;
+        };
+        ConsultationBallot: {
+            decision: string;
+            stance: string;
+        };
+        ConsultationDetail: {
+            archive: string;
+            artifacts: components["schemas"]["ConsultationArtifact"][];
+            case: string;
+            closure: string;
+            createdAt: string;
+            date: string;
+            decision: string;
+            delivery: string;
+            escalation: string;
+            host: string;
+            id: string;
+            mode: string;
+            name: string;
+            partial: boolean;
+            phase: string;
+            phaseRounds: number;
+            recordedHost: string;
+            requester: string;
+            rounds: number;
+            syncedAt: string;
+            warnings: string[];
+        };
+        ConsultationPage: {
+            items: components["schemas"]["ConsultationSummary"][];
+            nextCursor: string;
+            scan: components["schemas"]["ConsultationScanStatus"];
+        };
+        ConsultationScanStatus: {
+            /** Format: int64 */
+            durationMs: number;
+            enabled: boolean;
+            error: string;
+            examined: number;
+            imported: number;
+            lastScan: string;
+        };
+        ConsultationSummary: {
+            archive: string;
+            case: string;
+            closure: string;
+            createdAt: string;
+            date: string;
+            decision: string;
+            delivery: string;
+            escalation: string;
+            host: string;
+            id: string;
+            mode: string;
+            name: string;
+            partial: boolean;
+            phase: string;
+            phaseRounds: number;
+            recordedHost: string;
+            requester: string;
+            rounds: number;
+            syncedAt: string;
         };
         ConsumeCodexAccountResetCreditRequest: {
             idempotencyKey: string;
@@ -10635,6 +10743,114 @@ export interface operations {
             };
             /** @description Not Implemented */
             501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listConsultations: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultationPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getConsultation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsultationDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

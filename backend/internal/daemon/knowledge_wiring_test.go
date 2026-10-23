@@ -110,7 +110,7 @@ func TestStartKnowledgeGraphWithSemanticSearch(t *testing.T) {
 	}))
 	defer srv.Close()
 	path := writeKnowledgeConfig(t, map[string]any{"url": srv.URL, "embeddingUrl": srv.URL + "/"})
-	env := map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": path}
+	env := map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": path, "AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN": "0"}
 	logs := &lockedBuffer{}
 
 	k, svc := startKnowledgeGraph(context.Background(), knowledgeGraphDeps{
@@ -147,7 +147,7 @@ func TestStartKnowledgeGraphWithSemanticSearch(t *testing.T) {
 
 func TestStartKnowledgeGraphRejectsBadEmbeddingURL(t *testing.T) {
 	path := writeKnowledgeConfig(t, map[string]any{"url": "http://kg:7474", "embeddingUrl": "ftp://ollama"})
-	env := map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": path}
+	env := map[string]string{"AO_KNOWLEDGE_GRAPH_CONFIG": path, "AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN": "0"}
 	logs := &lockedBuffer{}
 
 	k, svc := startKnowledgeGraph(context.Background(), knowledgeGraphDeps{
@@ -160,5 +160,11 @@ func TestStartKnowledgeGraphRejectsBadEmbeddingURL(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "invalid configuration") {
 		t.Fatalf("logs = %q, want invalid configuration warning", logs.String())
+	}
+}
+
+func TestConsultationAPIWhenGraphDisabled(t *testing.T) {
+	if consultationAPI(nil) != nil {
+		t.Fatal("disabled graph exposed consultation service")
 	}
 }

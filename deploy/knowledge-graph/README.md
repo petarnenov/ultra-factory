@@ -240,3 +240,6 @@ Restore with `neo4j-admin database load neo4j --from-path=/backups
 Change it with `ALTER CURRENT USER SET PASSWORD FROM '<old>' TO '<new>'` in
 the Browser, update `KG_PASSWORD` in `.env`, and update every daemon's
 `~/.ao/knowledge-graph.json`, then restart those daemons.
+
+Architecture consultation indexing and host catch-up are described in
+[the consultation runbook](consultations.md).

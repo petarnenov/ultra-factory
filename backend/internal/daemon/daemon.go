@@ -1134,6 +1134,7 @@ func Run() error {
 		Tailnet:            tailnetDiscovery,
 		CompletedTasks:     completedTasks,
 		Knowledge:          knowledgeAPI,
+		Consultations:      consultationAPI(knowledge),
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,

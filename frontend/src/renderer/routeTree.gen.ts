@@ -14,12 +14,14 @@ import { Route as ShellIndexRouteImport } from './routes/_shell.index'
 import { Route as ShellTerminalsRouteImport } from './routes/_shell.terminals'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
 import { Route as ShellSessionsRouteImport } from './routes/_shell.sessions'
+import { Route as ShellConsultationsRouteImport } from './routes/_shell.consultations'
 import { Route as ShellBenchmarksRouteImport } from './routes/_shell.benchmarks'
 import { Route as ShellAutomationsRouteImport } from './routes/_shell.automations'
 import { Route as ShellArtifactsRouteImport } from './routes/_shell.artifacts'
 import { Route as ShellSessionsIndexRouteImport } from './routes/_shell.sessions.index'
 import { Route as ShellSessionsSessionIdRouteImport } from './routes/_shell.sessions.$sessionId'
 import { Route as ShellProjectsProjectIdRouteImport } from './routes/_shell.projects.$projectId'
+import { Route as ShellConsultationsIdRouteImport } from './routes/_shell.consultations_.$id'
 import { Route as ShellProjectsProjectIdSettingsRouteImport } from './routes/_shell.projects.$projectId_.settings'
 import { Route as ShellProjectsProjectIdCompletedRouteImport } from './routes/_shell.projects.$projectId_.completed'
 import { Route as ShellProjectsProjectIdAggregateRouteImport } from './routes/_shell.projects.$projectId_.aggregate'
@@ -53,6 +55,11 @@ const ShellSessionsRoute = ShellSessionsRouteImport.update({
   path: '/sessions',
   getParentRoute: () => ShellRoute,
 } as any)
+const ShellConsultationsRoute = ShellConsultationsRouteImport.update({
+  id: '/consultations',
+  path: '/consultations',
+  getParentRoute: () => ShellRoute,
+} as any)
 const ShellBenchmarksRoute = ShellBenchmarksRouteImport.update({
   id: '/benchmarks',
   path: '/benchmarks',
@@ -81,6 +88,11 @@ const ShellSessionsSessionIdRoute = ShellSessionsSessionIdRouteImport.update({
 const ShellProjectsProjectIdRoute = ShellProjectsProjectIdRouteImport.update({
   id: '/projects/$projectId',
   path: '/projects/$projectId',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellConsultationsIdRoute = ShellConsultationsIdRouteImport.update({
+  id: '/consultations_/$id',
+  path: '/consultations/$id',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellProjectsProjectIdSettingsRoute =
@@ -137,9 +149,11 @@ export interface FileRoutesByFullPath {
   '/artifacts': typeof ShellArtifactsRoute
   '/automations': typeof ShellAutomationsRoute
   '/benchmarks': typeof ShellBenchmarksRoute
+  '/consultations': typeof ShellConsultationsRoute
   '/sessions': typeof ShellSessionsRouteWithChildren
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
+  '/consultations/$id': typeof ShellConsultationsIdRoute
   '/projects/$projectId': typeof ShellProjectsProjectIdRoute
   '/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
   '/sessions/': typeof ShellSessionsIndexRoute
@@ -156,9 +170,11 @@ export interface FileRoutesByTo {
   '/artifacts': typeof ShellArtifactsRoute
   '/automations': typeof ShellAutomationsRoute
   '/benchmarks': typeof ShellBenchmarksRoute
+  '/consultations': typeof ShellConsultationsRoute
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
   '/': typeof ShellIndexRoute
+  '/consultations/$id': typeof ShellConsultationsIdRoute
   '/projects/$projectId': typeof ShellProjectsProjectIdRoute
   '/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
   '/sessions': typeof ShellSessionsIndexRoute
@@ -177,10 +193,12 @@ export interface FileRoutesById {
   '/_shell/artifacts': typeof ShellArtifactsRoute
   '/_shell/automations': typeof ShellAutomationsRoute
   '/_shell/benchmarks': typeof ShellBenchmarksRoute
+  '/_shell/consultations': typeof ShellConsultationsRoute
   '/_shell/sessions': typeof ShellSessionsRouteWithChildren
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/terminals': typeof ShellTerminalsRoute
   '/_shell/': typeof ShellIndexRoute
+  '/_shell/consultations_/$id': typeof ShellConsultationsIdRoute
   '/_shell/projects/$projectId': typeof ShellProjectsProjectIdRoute
   '/_shell/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
   '/_shell/sessions/': typeof ShellSessionsIndexRoute
@@ -200,9 +218,11 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/automations'
     | '/benchmarks'
+    | '/consultations'
     | '/sessions'
     | '/settings'
     | '/terminals'
+    | '/consultations/$id'
     | '/projects/$projectId'
     | '/sessions/$sessionId'
     | '/sessions/'
@@ -219,9 +239,11 @@ export interface FileRouteTypes {
     | '/artifacts'
     | '/automations'
     | '/benchmarks'
+    | '/consultations'
     | '/settings'
     | '/terminals'
     | '/'
+    | '/consultations/$id'
     | '/projects/$projectId'
     | '/sessions/$sessionId'
     | '/sessions'
@@ -239,10 +261,12 @@ export interface FileRouteTypes {
     | '/_shell/artifacts'
     | '/_shell/automations'
     | '/_shell/benchmarks'
+    | '/_shell/consultations'
     | '/_shell/sessions'
     | '/_shell/settings'
     | '/_shell/terminals'
     | '/_shell/'
+    | '/_shell/consultations_/$id'
     | '/_shell/projects/$projectId'
     | '/_shell/sessions/$sessionId'
     | '/_shell/sessions/'
@@ -297,6 +321,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSessionsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/consultations': {
+      id: '/_shell/consultations'
+      path: '/consultations'
+      fullPath: '/consultations'
+      preLoaderRoute: typeof ShellConsultationsRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/benchmarks': {
       id: '/_shell/benchmarks'
       path: '/benchmarks'
@@ -337,6 +368,13 @@ declare module '@tanstack/react-router' {
       path: '/projects/$projectId'
       fullPath: '/projects/$projectId'
       preLoaderRoute: typeof ShellProjectsProjectIdRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/consultations_/$id': {
+      id: '/_shell/consultations_/$id'
+      path: '/consultations/$id'
+      fullPath: '/consultations/$id'
+      preLoaderRoute: typeof ShellConsultationsIdRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/projects/$projectId_/settings': {
@@ -416,10 +454,12 @@ interface ShellRouteChildren {
   ShellArtifactsRoute: typeof ShellArtifactsRoute
   ShellAutomationsRoute: typeof ShellAutomationsRoute
   ShellBenchmarksRoute: typeof ShellBenchmarksRoute
+  ShellConsultationsRoute: typeof ShellConsultationsRoute
   ShellSessionsRoute: typeof ShellSessionsRouteWithChildren
   ShellSettingsRoute: typeof ShellSettingsRoute
   ShellTerminalsRoute: typeof ShellTerminalsRoute
   ShellIndexRoute: typeof ShellIndexRoute
+  ShellConsultationsIdRoute: typeof ShellConsultationsIdRoute
   ShellProjectsProjectIdRoute: typeof ShellProjectsProjectIdRoute
   ShellProjectsProjectIdAggregateRoute: typeof ShellProjectsProjectIdAggregateRoute
   ShellProjectsProjectIdCompletedRoute: typeof ShellProjectsProjectIdCompletedRoute
@@ -435,10 +475,12 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellArtifactsRoute: ShellArtifactsRoute,
   ShellAutomationsRoute: ShellAutomationsRoute,
   ShellBenchmarksRoute: ShellBenchmarksRoute,
+  ShellConsultationsRoute: ShellConsultationsRoute,
   ShellSessionsRoute: ShellSessionsRouteWithChildren,
   ShellSettingsRoute: ShellSettingsRoute,
   ShellTerminalsRoute: ShellTerminalsRoute,
   ShellIndexRoute: ShellIndexRoute,
+  ShellConsultationsIdRoute: ShellConsultationsIdRoute,
   ShellProjectsProjectIdRoute: ShellProjectsProjectIdRoute,
   ShellProjectsProjectIdAggregateRoute: ShellProjectsProjectIdAggregateRoute,
   ShellProjectsProjectIdCompletedRoute: ShellProjectsProjectIdCompletedRoute,

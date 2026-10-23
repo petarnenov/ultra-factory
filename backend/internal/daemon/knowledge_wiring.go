@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"log/slog"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
@@ -54,9 +55,11 @@ func (f knowledgeGraphPRFailures) ForPR(ctx context.Context, prURL string) (know
 // runningKnowledgeGraph is the started recorder plus its teardown.
 type runningKnowledgeGraph struct {
 	*knowledgegraph.Service
-	unsubscribe func()
-	cancel      context.CancelFunc
-	done        <-chan struct{}
+	Consultations *consultations.Store
+	scanDone      <-chan struct{}
+	unsubscribe   func()
+	cancel        context.CancelFunc
+	done          <-chan struct{}
 }
 
 // Stop ends the recorder and waits for it.
@@ -64,6 +67,9 @@ func (k *runningKnowledgeGraph) Stop() {
 	k.unsubscribe()
 	k.cancel()
 	<-k.done
+	if k.scanDone != nil {
+		<-k.scanDone
+	}
 }
 
 // startKnowledgeGraph starts the recorder when a graph is configured (ADR
@@ -93,7 +99,21 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	k := &runningKnowledgeGraph{Service: svc, cancel: cancel}
 	k.unsubscribe = svc.Subscribe(d.Events)
 	k.done = svc.Start(runCtx)
+	k.Consultations = &consultations.Store{Write: writeClient, Read: readClient}
+	if d.Getenv("AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN") != "0" {
+		done := make(chan struct{})
+		k.scanDone = done
+		scanner := &consultations.Scanner{Store: k.Consultations, DataDir: d.DataDir, Host: d.HostID}
+		go func() { defer close(done); scanner.Run(runCtx) }()
+	}
 	d.Log.Info("knowledge graph: enabled", "url", cfg.URL, "database", cfg.Database,
 		"semantic", cfg.SemanticEnabled(), "embeddingModel", cfg.EmbeddingModel, "mergeScore", cfg.MergeScore)
 	return k, svc
+}
+
+func consultationAPI(k *runningKnowledgeGraph) controllers.ConsultationService {
+	if k == nil {
+		return nil
+	}
+	return k.Consultations
 }

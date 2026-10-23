@@ -1,10 +1,10 @@
 # Archive and close a consultation
 
-Use this file archive until a store-backed replacement is implemented. Do not add a database or migrate historical consultations as part of ordinary use.
+Use this file archive until a store-backed replacement is implemented. AO may index allowlisted evidence in Neo4j for read-only browsing; that index is not a replacement archive and never authorizes deleting originals. Do not add a database or migrate historical consultations as part of ordinary skill use.
 
 ## Stable archive layout
 
-For AO, use `~/.ao/architecture-consults/archive/`; otherwise use `architecture-consults/archive/` under the applicable agent state root. The date is the UTC creation date; the ID distinguishes consultations on the same day.
+For AO, use `architecture-consults/archive/` under the resolved `AO_DATA_DIR` (default `~/.ao/data`). Otherwise use that relative path under the applicable agent state root. Existing archives at the older `~/.ao/architecture-consults/archive/` location remain canonical at their recorded location; retain originals when explicitly copying them into the index scanner root. The date is the UTC creation date; the ID distinguishes consultations on the same day.
 
 ```text
 archive/
