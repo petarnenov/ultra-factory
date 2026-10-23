@@ -119,7 +119,8 @@ export function chatTools(ctx: ChatToolContext): ToolDescriptor[] {
 	];
 }
 
-// The registry stores descriptors with unknown arguments; each tool narrows its own.
+// The registry stores descriptors with unknown arguments; each tool
+// narrows its own.
 function tool<A, R>(descriptor: ToolDescriptor<A, R>): ToolDescriptor {
 	return descriptor as ToolDescriptor;
 }
@@ -132,8 +133,8 @@ function mountedComposer(ctx: ChatToolContext): ChatComposerHandle {
 	return composer;
 }
 
-// Same eligibility as the Retry button: a retryable failed turn, with no turn in
-// flight, no retry already pending, and new work allowed.
+// Same eligibility as the Retry button: a retryable failed turn, with no
+// turn in flight, no retry already pending, and new work allowed.
 function assertRetryable(ctx: ChatToolContext, turnId: string): void {
 	const snapshot = ctx.snapshot();
 	const retry = ctx.retryControl();
