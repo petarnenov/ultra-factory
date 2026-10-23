@@ -18172,6 +18172,10 @@ components:
           type: object
         orchestrator:
           $ref: '#/components/schemas/RoleOverride'
+        orchestratorAutoMerge:
+          type:
+          - "null"
+          - boolean
         orchestratorRules:
           type: string
         postCreate:

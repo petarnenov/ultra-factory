@@ -70,6 +70,7 @@ import (
 	prsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/pr"
 	projectsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/project"
 	reportsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/report"
+	reviewsvc "github.com/aoagents/agent-orchestrator/backend/internal/service/review"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/scmsecret"
 	settingssvc "github.com/aoagents/agent-orchestrator/backend/internal/service/settings"
 	"github.com/aoagents/agent-orchestrator/backend/internal/service/systemcheck"
@@ -741,6 +742,13 @@ func Run() error {
 		reportCoordinator.Wake()
 	}})
 	chatSvc.SetReportCoordinator(reportCoordinator)
+	readyAnnouncer := reportsvc.NewReadyAnnouncer(store, reportSvc)
+	lcStack.LCM.SetReadyToMergeAnnouncer(readyAnnouncer)
+	if review, ok := reviewSvc.(*reviewsvc.Service); ok {
+		review.SetReadyToMergeAnnouncer(readyAnnouncer)
+	} else {
+		log.Warn("ready to merge: review service cannot announce approvals")
+	}
 	defer wakeOnCoordinatorTermination(ctx, cdcPipe.Broadcaster, store, log, reportCoordinator.Wake)()
 	reportDeliveryDone := reportCoordinator.Start(ctx)
 	defer func() {

@@ -409,6 +409,26 @@ func TestProjectSetConfig_TerminateOnPRMergeConfigJSON(t *testing.T) {
 	}
 }
 
+func TestProjectSetConfig_OrchestratorAutoMergeConfigJSON(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)
+	writeRunFileFor(t, cfg, srv)
+
+	_, errOut, err := executeCLI(t, Deps{
+		ProcessAlive: func(int) bool { return true },
+	}, "project", "set-config", "demo", "--config-json", `{"orchestratorAutoMerge":false}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr=%s", err, errOut)
+	}
+	var got setConfigRequest
+	if err := json.Unmarshal(capture.body, &got); err != nil {
+		t.Fatalf("decode request body: %v\nbody=%s", err, capture.body)
+	}
+	if got.Config.OrchestratorAutoMerge == nil || *got.Config.OrchestratorAutoMerge {
+		t.Fatalf("orchestratorAutoMerge = %v, want explicit false", got.Config.OrchestratorAutoMerge)
+	}
+}
+
 func TestProjectSetConfig_CoordinatorFlags(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, capture := projectServer(t, http.StatusOK, `{"status":"ok","project":{"id":"demo"}}`)

@@ -1307,3 +1307,33 @@ func TestSubmitReconcilesCIGateWithoutFailingOnError(t *testing.T) {
 		t.Fatalf("CI gate reconciled %d times, want 1", gate.calls)
 	}
 }
+
+type fakeReadyAnnouncer struct {
+	workers []domain.SessionID
+	err     error
+}
+
+func (f *fakeReadyAnnouncer) AnnounceReadyToMerge(_ context.Context, worker domain.SessionID) error {
+	f.workers = append(f.workers, worker)
+	return f.err
+}
+
+// An approval can be the last fact a ready PR waits for, so a recorded
+// verdict re-checks readiness; an announcement failure never fails the submit.
+func TestSubmitAnnouncesReadyToMergeWithoutFailingOnError(t *testing.T) {
+	st := &fakeStore{
+		ok:  true,
+		run: domain.ReviewRun{ID: "run-1", SessionID: "mer-1", BatchID: "batch-1", PRURL: "pr1", TargetSHA: "sha1", Status: domain.ReviewRunRunning},
+		prs: []domain.PullRequest{{URL: "pr1", HeadSHA: "sha1"}},
+	}
+	announcer := &fakeReadyAnnouncer{err: errors.New("store down")}
+	svc := New(nil, st)
+	svc.SetReadyToMergeAnnouncer(announcer)
+
+	if _, err := svc.Submit(context.Background(), "mer-1", "run-1", domain.VerdictApproved, "body", "987"); err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if len(announcer.workers) != 1 || announcer.workers[0] != "mer-1" {
+		t.Fatalf("announced %v, want [mer-1]", announcer.workers)
+	}
+}

@@ -5430,6 +5430,7 @@ func promptProjectContext(projectID domain.ProjectID, project domain.ProjectReco
 
 		WorkersRequestReview: cfg.WorkersRequestReview,
 		CIGateReview:         cfg.CIGate.Mode == domain.CIGateReview,
+		AutoMerge:            cfg.OrchestratorAutoMergeEnabled(),
 	}
 }
 

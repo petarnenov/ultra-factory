@@ -105,6 +105,10 @@ type ProjectConfig struct {
 	// Read at spawn, when the worker prompt is built.
 	WorkersRequestReview bool `json:"workersRequestReview,omitempty"`
 
+	// OrchestratorAutoMerge lets the root merge a PR AO reports ready without
+	// asking the human. Nil means on.
+	OrchestratorAutoMerge *bool `json:"orchestratorAutoMerge,omitempty"`
+
 	// Coordinators gates and bounds the coordinator hierarchy (ADR 0010
 	// section 8). The feature is off until Enabled is set.
 	Coordinators CoordinatorsConfig `json:"coordinators,omitempty"`
@@ -155,6 +159,12 @@ type AggregateProjectRef struct {
 // hosts runs for this project. It is on unless explicitly switched off.
 func (c ProjectConfig) AggregateDiscoveryEnabled() bool {
 	return c.AggregateDiscovery == nil || *c.AggregateDiscovery
+}
+
+// OrchestratorAutoMergeEnabled reports whether the root may merge ready PRs
+// on its own. It is on unless explicitly switched off.
+func (c ProjectConfig) OrchestratorAutoMergeEnabled() bool {
+	return c.OrchestratorAutoMerge == nil || *c.OrchestratorAutoMerge
 }
 
 // ContainerReapConfig is the project-level opt-out for #2652's Docker

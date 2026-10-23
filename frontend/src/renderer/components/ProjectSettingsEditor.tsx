@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { ProjectSettingsSaveState, ProjectSettingsSection as SettingsSection } from "./ProjectSettingsForm";
 import { deriveRepoHost, deriveRepoPath, IntakeFields, intakeNeedsRule } from "./IntakeFields";
 import { ProductExternalLink } from "./ProductExternalLink";
-import { AgentModelField, ProjectAutoReviewToggle, ProjectCIGateControls, ProjectTerminateOnPRMergeToggle, ProjectWorkersRequestReviewToggle, type CIGateMode, type CIGateWithoutAutoReview } from "./settings/ProjectAgentRoleControls";
+import { AgentModelField, ProjectAutoReviewToggle, ProjectCIGateControls, ProjectOrchestratorAutoMergeToggle, ProjectTerminateOnPRMergeToggle, ProjectWorkersRequestReviewToggle, type CIGateMode, type CIGateWithoutAutoReview } from "./settings/ProjectAgentRoleControls";
 import { SettingsOptionMenu } from "./settings/SettingsOptionMenu";
 import { ProjectAggregateHostsSettings, type AggregateDiscoveredRow, type AggregateRef } from "./settings/ProjectAggregateHostsSettings";
 import { Button } from "./ui/button";
@@ -38,6 +38,8 @@ export type ProjectSettingsDraft = {
 	terminateOnPrMerge?: boolean;
 	/** Local-only: workers may ask AO to review their own PRs. */
 	workersRequestReview?: boolean;
+	/** Local-only: the orchestrator merges PRs AO reports ready. */
+	orchestratorAutoMerge?: boolean;
 	/** Local-only: hold expensive PR CI until AO review approves. */
 	ciGateMode?: CIGateMode;
 	ciGateWithoutAutoReview?: CIGateWithoutAutoReview;
@@ -63,6 +65,7 @@ type Capabilities = {
 	reviewer: boolean;
 	requiredAgents: boolean;
 	workersRequestReview?: boolean;
+	orchestratorAutoMerge?: boolean;
 	ciGate?: boolean;
 	nameLimit?: number;
 	requiredBranch?: boolean;
@@ -207,6 +210,7 @@ export function ProjectSettingsEditor({ initialValues, section, capabilities, de
 						<ProjectAutoReviewToggle description={autoReviewDescription} checked={draft.autoReview} onCheckedChange={(autoReview) => patch({ autoReview })} />
 						<ProjectTerminateOnPRMergeToggle checked={draft.terminateOnPrMerge ?? false} onCheckedChange={(terminateOnPrMerge) => patch({ terminateOnPrMerge })} />
 						{capabilities.workersRequestReview && <ProjectWorkersRequestReviewToggle checked={draft.workersRequestReview ?? false} onCheckedChange={(workersRequestReview) => patch({ workersRequestReview })} />}
+						{capabilities.orchestratorAutoMerge && <ProjectOrchestratorAutoMergeToggle checked={draft.orchestratorAutoMerge !== false} onCheckedChange={(orchestratorAutoMerge) => patch({ orchestratorAutoMerge })} />}
 						{capabilities.ciGate && <ProjectCIGateControls mode={draft.ciGateMode ?? "off"} withoutAutoReview={draft.ciGateWithoutAutoReview ?? "ready"} onModeChange={(ciGateMode) => patch({ ciGateMode })} onWithoutAutoReviewChange={(ciGateWithoutAutoReview) => patch({ ciGateWithoutAutoReview })} />}
 					</ProjectSettingsSection>
 				</>}
