@@ -58,6 +58,13 @@ LLM summaries; a `Module`/`Decision` ontology; default promotion of lessons
 into `AGENTS.md`; hybrid search; daemon version handshake; repository-based
 project identity. Revisit after KG-4.2.1.
 
+Lesson dedup is no longer open: #568 (ADR
+[0014](../../../adr/0014-merge-near-identical-lessons.md)) merges a
+near-identical lesson of the same project and kind on write into the stored
+one, with a `CONFIRMED` edge and a `confirmations` count. It does not merge
+lessons stored before it, and `confirmations` does not affect ranking yet.
+Time decay is still open (KG-4.2.1).
+
 ## GitHub issue tracking
 
 Issues mirror the Epic → Story → Task hierarchy as sub-issues, with labels
@@ -88,7 +95,7 @@ until the user schedules them.
 | [KG-4.1] Story: Lesson review runbook | [#563](https://github.com/petarnenov/ultra-factory/issues/563) | ⬜ todo |
 | [KG-4.1.1] Task: Review queries and triage rule in the runbook | [#564](https://github.com/petarnenov/ultra-factory/issues/564) | ⬜ todo |
 | [KG-4.2] Story: Effect measurement at about 50 recorded tasks | [#565](https://github.com/petarnenov/ultra-factory/issues/565) | ⬜ todo |
-| [KG-4.2.1] Task: Measurement note and dedup/decay decision | [#566](https://github.com/petarnenov/ultra-factory/issues/566) | ⛔ blocked |
+| [KG-4.2.1] Task: Measurement note and decay decision | [#566](https://github.com/petarnenov/ultra-factory/issues/566) | ⛔ blocked |
 <!-- status:end -->
 
 ## Repo rules every task follows
