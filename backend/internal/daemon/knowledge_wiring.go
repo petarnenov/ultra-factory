@@ -81,8 +81,10 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	if cfg.SemanticEnabled() {
 		embedder = knowledgegraph.NewOllamaEmbedder(cfg, nil)
 	}
+	writeClient := knowledgegraph.NewClient(cfg, nil)
+	readClient := knowledgegraph.NewClient(cfg.ReadConfig(), nil)
 	svc := knowledgegraph.New(knowledgegraph.Deps{
-		Graph:    knowledgegraph.NewGraph(knowledgegraph.NewClient(cfg, nil)),
+		Graph:    knowledgegraph.NewGraphWithReadOnlyRoutes(writeClient, readClient),
 		Embedder: embedder, MinScore: cfg.MinScore, MergeScore: cfg.MergeScore,
 		Sessions: d.Sessions, Tasks: d.Tasks, Failures: knowledgeGraphPRFailures{store: d.PRStore},
 		Paths: knowledgeChangedPaths{}, HostID: d.HostID, Logger: d.Log,

@@ -48,6 +48,24 @@ func (f *fakeRunner) snapshot() []runCall {
 	return append([]runCall(nil), f.calls...)
 }
 
+func TestGraphRoutesReadsToReadOnlyRunnerAndWritesToPrimary(t *testing.T) {
+	primary, readOnly := &fakeRunner{}, &fakeRunner{}
+	g := NewGraphWithReadOnlyRoutes(primary, readOnly)
+	ctx := context.Background()
+	if _, err := g.Prior(ctx, Query{Project: "ao", Text: "sqlite"}); err != nil {
+		t.Fatalf("Prior() error = %v", err)
+	}
+	if err := g.AddLesson(ctx, Lesson{ID: "l1", TaskKey: "h/s1", At: testAt}); err != nil {
+		t.Fatalf("AddLesson() error = %v", err)
+	}
+	if len(readOnly.snapshot()) != 1 || !strings.Contains(readOnly.snapshot()[0].statement, "task_text") {
+		t.Fatalf("read-only calls = %+v", readOnly.snapshot())
+	}
+	if len(primary.snapshot()) != 1 || !strings.Contains(primary.snapshot()[0].statement, "CREATE") {
+		t.Fatalf("primary calls = %+v", primary.snapshot())
+	}
+}
+
 var testAt = time.Date(2026, 10, 23, 12, 0, 0, 0, time.FixedZone("x", 3600))
 
 func TestRecordTask(t *testing.T) {
