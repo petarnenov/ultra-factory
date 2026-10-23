@@ -18,7 +18,7 @@
 		"browser-runtime:prepare": "node ./scripts/prepare-agent-browser.mjs",
 		"build:daemon": "node ./scripts/build-daemon.mjs",
 		"build:host": "node ./scripts/build-host-bundle.mjs",
-		"predev": "npm run build:daemon -- --dev && node ./scripts/ensure-browser-runtime.mjs && npm run build:acp-runtime",
+		"predev": "bash ./scripts/check-dependencies.sh && npm run build:daemon -- --dev && node ./scripts/ensure-browser-runtime.mjs && npm run build:acp-runtime",
 		"dev": "electron-forge start",
 		"dev:web": "node ./scripts/dev-web.mjs",
 		"dev:web:real": "VITE_AO_WEB=1 vite --config vite.renderer.config.ts",
