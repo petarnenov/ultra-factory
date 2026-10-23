@@ -101,7 +101,7 @@ jobs:
           done
 
       - name: Test dev dependency freshness guard
-        run: node --test scripts/check-dependencies.test.mjs
+        run: node --test scripts/check-dependencies.node-test.mjs
 
       - name: Install Cloud client dependencies
         run: npm ci
