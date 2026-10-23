@@ -578,7 +578,7 @@ Use `+"`ao report`"+` to persist meaningful progress for the active project orch
 - When work cannot proceed for another reason, run `+"`ao report --stuck --note <text>`"+`.
 - Use `+"`ao report --done --note <text>`"+` for completed milestones or code work with an open PR or follow-up; it records recoverable progress and does not terminate the session.
 - For a non-code task with no remaining work or follow-up, use `+"`ao report --final-success --note <text>`"+` or `+"`ao report --final-failure --note <text>`"+` to record the terminal outcome. A task with an open PR or another integration obligation is not terminal.
-- Use `+"`--checkpoint`"+``, `+"`--needs-input`"+``, and `+"`--stuck`"+` for recoverable progress or blockers; they do not terminate the session.
+- Use --checkpoint, --needs-input, and --stuck for recoverable progress or blockers; they do not terminate the session.
 - Whenever you produce a reviewable deliverable the orchestrator or the human should be able to open directly — a requested document, a rendered dashboard, or similar durable output — attach it with `+"`--artifact <reference>`"+` on the report for that milestone. Report it as soon as it exists; do not wait for `+"`--done`"+` and do not let it go unreported.
 - Keep routine test logs, command output, scratch notes, and intermediate diagnostics out of report attachments unless requested or needed to explain an actionable failure. Summarize validation in the report note; when a separate deliverable is useful, prefer one consolidated report over individual logs.
 - Saving a local artifact or attaching its reference to an AO report is not external publishing authorization. Publish externally only within the user-authorized scope.
