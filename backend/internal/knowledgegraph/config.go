@@ -20,6 +20,8 @@ type Config struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
 	Database string `json:"database"`
+	// ReadOnly holds credentials for a query-only endpoint when configured.
+	ReadOnly ReadOnlyConfig `json:"readOnly"`
 	// Timeout bounds one query; spawn-time lookups never wait longer.
 	Timeout time.Duration `json:"-"`
 	// EmbeddingURL is an Ollama endpoint for semantic search (ADR 0013).
@@ -32,6 +34,30 @@ type Config struct {
 	// MergeScore merges a new lesson into a stored one of the same kind
 	// scoring at least this (ADR 0014); 0.94 keeps cos >= 0.88.
 	MergeScore float64 `json:"mergeScore"`
+}
+
+// ReadOnlyConfig identifies a query-only Neo4j endpoint and credential.
+type ReadOnlyConfig struct {
+	URL      string `json:"url"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+}
+
+// ReadConfig returns the configured read-only connection, or the primary
+// connection when no separate read-only endpoint is configured.
+func (c Config) ReadConfig() Config {
+	if c.ReadOnly.URL == "" && c.ReadOnly.User == "" && c.ReadOnly.Password == "" {
+		return c
+	}
+	out := c
+	if c.ReadOnly.URL != "" {
+		out.URL = c.ReadOnly.URL
+	}
+	if c.ReadOnly.User != "" {
+		out.User = c.ReadOnly.User
+	}
+	out.Password = c.ReadOnly.Password
+	return out
 }
 
 // SemanticEnabled reports whether embeddings are configured.
@@ -123,6 +149,13 @@ func Load(getenv func(string) string, dataDir string) (Config, error) {
 	}
 	if cfg.Database == "" {
 		cfg.Database = defaultDatabase
+	}
+	if cfg.ReadOnly.URL != "" {
+		ru, err := url.Parse(cfg.ReadOnly.URL)
+		if err != nil || (ru.Scheme != "http" && ru.Scheme != "https") || ru.Host == "" {
+			return Config{}, fmt.Errorf("knowledge graph readOnly.url %q must be http(s)://host[:port]", cfg.ReadOnly.URL)
+		}
+		cfg.ReadOnly.URL = strings.TrimRight(cfg.ReadOnly.URL, "/")
 	}
 	if cfg.Timeout == 0 {
 		cfg.Timeout = defaultTimeout

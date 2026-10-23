@@ -45,6 +45,10 @@ func TestLoad(t *testing.T) {
 			name: "file values and trailing slash trimmed", file: full, perm: 0o600,
 			want: Config{URL: "https://kg.example:7473", User: "ao", Password: "pw", Database: "graph", Timeout: 3 * time.Second},
 		},
+		{
+			name: "read-only endpoint and credentials", file: `{"url":"http://kg:7474","user":"writer","password":"write-pw","readOnly":{"url":"https://ro.example:7473/","user":"reader","password":"read-pw"}}`, perm: 0o600,
+			want: Config{URL: "http://kg:7474", User: "writer", Password: "write-pw", Database: "neo4j", ReadOnly: ReadOnlyConfig{URL: "https://ro.example:7473", User: "reader", Password: "read-pw"}, Timeout: 3 * time.Second},
+		},
 		{name: "group readable file refused", file: full, perm: 0o644, wantErr: "chmod 600"},
 		{name: "undecodable file", file: `{`, perm: 0o600, wantErr: "parse"},
 		{
@@ -110,6 +114,18 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("Enabled() = %v", got.Enabled())
 			}
 		})
+	}
+}
+
+func TestReadConfigSelectsSeparateReadOnlyCredentials(t *testing.T) {
+	cfg := Config{URL: "http://writer", User: "writer", Password: "write", Database: "graph",
+		ReadOnly: ReadOnlyConfig{URL: "http://reader", User: "reader", Password: "read"}}
+	got := cfg.ReadConfig()
+	if got.URL != "http://reader" || got.User != "reader" || got.Password != "read" || got.Database != "graph" {
+		t.Fatalf("ReadConfig() = %+v", got)
+	}
+	if cfg.Password != "write" {
+		t.Fatal("ReadConfig mutated primary credentials")
 	}
 }
 

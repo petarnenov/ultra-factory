@@ -42,6 +42,36 @@ func TestClientRunSendsAuthenticatedQuery(t *testing.T) {
 	}
 }
 
+func TestReadOnlyCredentialRejectsWriteAttempt(t *testing.T) {
+	var gotUser, gotPassword string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPassword, _ = r.BasicAuth()
+		var body queryRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+			return
+		}
+		if !strings.Contains(body.Statement, "CREATE") {
+			t.Errorf("statement = %q, want write attempt", body.Statement)
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"errors":[{"code":"Neo.ClientError.Security.Forbidden","message":"write access denied"}]}`))
+	}))
+	defer srv.Close()
+	cfg := Config{URL: "http://writer.invalid", User: "writer", Password: "writer-secret", Database: "neo4j",
+		ReadOnly: ReadOnlyConfig{URL: srv.URL, User: "reader", Password: "reader-secret"}}
+	client := NewClient(cfg.ReadConfig(), nil)
+
+	_, err := client.Run(context.Background(), "CREATE (:AOReadOnlyProbe)", nil)
+
+	if err == nil || !strings.Contains(err.Error(), "Neo.ClientError.Security.Forbidden") {
+		t.Fatalf("write attempt error = %v, want forbidden", err)
+	}
+	if gotUser != "reader" || gotPassword != "reader-secret" {
+		t.Fatalf("request used unexpected credential identity %q", gotUser)
+	}
+}
+
 func TestClientRunErrors(t *testing.T) {
 	tests := []struct {
 		name    string

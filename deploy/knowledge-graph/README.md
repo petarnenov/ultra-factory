@@ -48,6 +48,42 @@ with scratch data dirs read none and never write to the shared graph.
 `knowledge graph: enabled` at boot; a file readable by group or others is
 refused with a warning.
 
+### Read-only access
+
+The deployed image is Neo4j Community (`neo4j:2026.09.0-community`). Community
+does not provide role-based privileges for a second user, so do not create a
+second Neo4j account and assume it is read-only. The read-only endpoint for
+this deployment must be a separately operated HTTP Query API proxy that
+authenticates its own credential, forwards only read statements, and rejects
+write statements and all other Neo4j endpoints. It must not forward write
+requests to the primary Neo4j listener. A supported upgrade to an edition with
+database RBAC can replace this proxy only after its grants are verified.
+
+Once that proxy is provisioned and its write-denial check passes, add its
+endpoint and credential beside the primary write credential in each daemon's
+private `~/.ao/knowledge-graph.json` (mode 600):
+
+```json
+{
+  "url": "http://<tailnet-ip>:7474",
+  "user": "neo4j",
+  "password": "<primary password>",
+  "database": "neo4j",
+  "readOnly": {
+    "url": "https://<read-only-proxy>:<port>",
+    "user": "<proxy user>",
+    "password": "<proxy password>"
+  }
+}
+```
+
+The daemon uses `readOnly` for prior-context, search, duplicate lookup, and
+embedding-discovery reads. Ingest and explicit graph writes continue to use
+the primary fields. Until the proxy is provisioned, no genuinely read-only
+credential exists for this Community deployment; `ao knowledge` falls back to
+the primary connection when `readOnly` is absent. Keep review queries on the
+read-only proxy endpoint and credential after provisioning.
+
 Check from a worker session:
 
 ```bash
@@ -71,8 +107,9 @@ or `failed` adds `hurt`.
 
 ## Inspect
 
-Open `http://<tailnet-ip>:7474` in a browser on the tailnet and sign in as
-`neo4j`. Useful queries:
+Use the read-only proxy's supported Browser or Query API interface and the
+`readOnly` credential for inspection. Do not run review queries against the
+primary Community endpoint. Useful queries:
 
 ```cypher
 // Most useful lessons per project

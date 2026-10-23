@@ -14,11 +14,27 @@ type Runner interface {
 
 // Graph holds the domain queries over a Runner.
 type Graph struct {
-	run Runner
+	run  Runner
+	read Runner
 }
 
 // NewGraph wraps r.
 func NewGraph(r Runner) *Graph { return &Graph{run: r} }
+
+// NewGraphWithReadOnlyRoutes reads through read and keeps writes on r.
+func NewGraphWithReadOnlyRoutes(r, read Runner) *Graph {
+	if read == nil {
+		read = r
+	}
+	return &Graph{run: r, read: read}
+}
+
+func (g *Graph) readRunner() Runner {
+	if g.read != nil {
+		return g.read
+	}
+	return g.run
+}
 
 // TaskFact is what one host knows about one worker task.
 type TaskFact struct {
@@ -160,7 +176,7 @@ type LessonMatch struct {
 // SimilarLessons returns lessons of the same project and kind scoring at
 // least minScore against vector, best first.
 func (g *Graph) SimilarLessons(ctx context.Context, project, kind string, vector []float64, minScore float64) ([]LessonMatch, error) {
-	rows, err := g.run.Run(ctx, similarLessonsCypher, map[string]any{
+	rows, err := g.readRunner().Run(ctx, similarLessonsCypher, map[string]any{
 		"project": project, "kind": kind, "vector": vectorParam(vector), "minScore": minScore,
 		"limit": similarLessonLimit, "k": similarLessonLimit * vectorOversample,
 	})
@@ -377,7 +393,7 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 		}
 		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, prs, files, branch, failures, score, similarity")
 	}
-	rows, err := g.run.Run(ctx, b.String(), map[string]any{
+	rows, err := g.readRunner().Run(ctx, b.String(), map[string]any{
 		"issueKey": issueKey(q.Project, q.Issue), "issue": q.Issue, "project": q.Project,
 		"q": terms, "exclude": q.ExcludeTask, "limit": q.Limit,
 		"vector": vectorParam(q.Vector), "minScore": q.MinScore,
@@ -443,7 +459,7 @@ type EmbedTarget struct {
 // MissingEmbeddings lists up to limit lessons and tasks without a vector
 // of dims dimensions; a vector from an earlier model counts as missing.
 func (g *Graph) MissingEmbeddings(ctx context.Context, limit, dims int) ([]EmbedTarget, error) {
-	rows, err := g.run.Run(ctx, `
+	rows, err := g.readRunner().Run(ctx, `
 CALL () {
   MATCH (l:Lesson) WHERE l.retiredAt IS NULL AND (l.embedding IS NULL OR size(l.embedding) <> $dims)
   RETURN 'Lesson' AS label, l.id AS id, l.text AS text LIMIT $limit
