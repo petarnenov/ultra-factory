@@ -14,6 +14,7 @@ import { Route as ShellIndexRouteImport } from './routes/_shell.index'
 import { Route as ShellTerminalsRouteImport } from './routes/_shell.terminals'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
 import { Route as ShellSessionsRouteImport } from './routes/_shell.sessions'
+import { Route as ShellBenchmarksRouteImport } from './routes/_shell.benchmarks'
 import { Route as ShellAutomationsRouteImport } from './routes/_shell.automations'
 import { Route as ShellArtifactsRouteImport } from './routes/_shell.artifacts'
 import { Route as ShellSessionsIndexRouteImport } from './routes/_shell.sessions.index'
@@ -50,6 +51,11 @@ const ShellSettingsRoute = ShellSettingsRouteImport.update({
 const ShellSessionsRoute = ShellSessionsRouteImport.update({
   id: '/sessions',
   path: '/sessions',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellBenchmarksRoute = ShellBenchmarksRouteImport.update({
+  id: '/benchmarks',
+  path: '/benchmarks',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellAutomationsRoute = ShellAutomationsRouteImport.update({
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
   '/artifacts': typeof ShellArtifactsRoute
   '/automations': typeof ShellAutomationsRoute
+  '/benchmarks': typeof ShellBenchmarksRoute
   '/sessions': typeof ShellSessionsRouteWithChildren
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
@@ -148,6 +155,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/artifacts': typeof ShellArtifactsRoute
   '/automations': typeof ShellAutomationsRoute
+  '/benchmarks': typeof ShellBenchmarksRoute
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
   '/': typeof ShellIndexRoute
@@ -168,6 +176,7 @@ export interface FileRoutesById {
   '/_shell': typeof ShellRouteWithChildren
   '/_shell/artifacts': typeof ShellArtifactsRoute
   '/_shell/automations': typeof ShellAutomationsRoute
+  '/_shell/benchmarks': typeof ShellBenchmarksRoute
   '/_shell/sessions': typeof ShellSessionsRouteWithChildren
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/terminals': typeof ShellTerminalsRoute
@@ -190,6 +199,7 @@ export interface FileRouteTypes {
     | '/'
     | '/artifacts'
     | '/automations'
+    | '/benchmarks'
     | '/sessions'
     | '/settings'
     | '/terminals'
@@ -208,6 +218,7 @@ export interface FileRouteTypes {
   to:
     | '/artifacts'
     | '/automations'
+    | '/benchmarks'
     | '/settings'
     | '/terminals'
     | '/'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/_shell'
     | '/_shell/artifacts'
     | '/_shell/automations'
+    | '/_shell/benchmarks'
     | '/_shell/sessions'
     | '/_shell/settings'
     | '/_shell/terminals'
@@ -283,6 +295,13 @@ declare module '@tanstack/react-router' {
       path: '/sessions'
       fullPath: '/sessions'
       preLoaderRoute: typeof ShellSessionsRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/benchmarks': {
+      id: '/_shell/benchmarks'
+      path: '/benchmarks'
+      fullPath: '/benchmarks'
+      preLoaderRoute: typeof ShellBenchmarksRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/automations': {
@@ -396,6 +415,7 @@ const ShellSessionsRouteWithChildren = ShellSessionsRoute._addFileChildren(
 interface ShellRouteChildren {
   ShellArtifactsRoute: typeof ShellArtifactsRoute
   ShellAutomationsRoute: typeof ShellAutomationsRoute
+  ShellBenchmarksRoute: typeof ShellBenchmarksRoute
   ShellSessionsRoute: typeof ShellSessionsRouteWithChildren
   ShellSettingsRoute: typeof ShellSettingsRoute
   ShellTerminalsRoute: typeof ShellTerminalsRoute
@@ -414,6 +434,7 @@ interface ShellRouteChildren {
 const ShellRouteChildren: ShellRouteChildren = {
   ShellArtifactsRoute: ShellArtifactsRoute,
   ShellAutomationsRoute: ShellAutomationsRoute,
+  ShellBenchmarksRoute: ShellBenchmarksRoute,
   ShellSessionsRoute: ShellSessionsRouteWithChildren,
   ShellSettingsRoute: ShellSettingsRoute,
   ShellTerminalsRoute: ShellTerminalsRoute,
