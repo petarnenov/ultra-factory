@@ -92,7 +92,7 @@ issue comment. Run these read-only queries against the graph:
 
 ```cypher
 // Most-served lessons, with outcome and rating totals.
-// helped/hurt are available now; useful/wrong require the #560 rollout.
+// Rating totals are populated as workers use the #560 rating command.
 MATCH (l:Lesson)
 OPTIONAL MATCH (:Task)-[r:RECEIVED]->(l)
 WITH l, count(r) AS served
@@ -104,21 +104,22 @@ ORDER BY served DESC LIMIT 50;
 ```
 
 The `useful`, `wrong`, `retiredAt`, and `retiredReason` fields were added by
-#560. Run queries using these fields only after the all-host rollout. The
-separate wrong-rated query is also pending that rollout:
+#560 and are populated as workers rate lessons and the operator retires them.
+Wait for rollout to reach every worker host before treating these counts as
+complete. The separate wrong-rated query uses the same rating data:
 
 ```cypher
-// Pending #560 rollout: lessons workers rated wrong.
+// Lessons workers rated wrong after #560 rollout.
 MATCH (l:Lesson)
 WHERE coalesce(l.wrong, 0) > 0
 RETURN l.project, l.id, l.kind, l.text, l.wrong
 ORDER BY l.wrong DESC LIMIT 50;
 ```
 
-Review retired lessons and their operator-recorded reasons after rollout:
+Review retired lessons and their operator-recorded reasons after #560 rollout:
 
 ```cypher
-// Pending the all-host rollout of #560.
+// Requires operator retirements from #560.
 MATCH (l:Lesson)
 WHERE l.retiredAt IS NOT NULL
 RETURN l.project, l.id, l.kind, l.text, l.retiredAt, l.retiredReason
@@ -164,11 +165,11 @@ Triage findings in this order:
 
 Retiring a lesson writes to the shared graph. Only the operator performs that
 write; workers can identify and report candidates but must not retire lessons.
-Retirement and rating commands, and live validation of queries that use the
-new `useful`, `wrong`, or retirement fields, remain pending until #560 has
-rolled out to every host. Run every query and record its result counts in the
-issue comment once the rollout is available. Do not treat the pending queries
-or final live validation as complete before then.
+The rating and retirement fields from #560 are populated as workers and the
+operator use those operations. Wait until rollout reaches every worker host
+for complete counts, then run each query and record the results in an issue
+comment. These review queries are read-only; retiring a lesson remains an
+operator-only write.
 
 ## Change the embedding model
 
