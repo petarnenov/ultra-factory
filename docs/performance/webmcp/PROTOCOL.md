@@ -8,15 +8,19 @@ record type and validator are in
 `frontend/src/renderer/benchmarks/record.ts`, shared by the e2e bench spec and
 the dashboard.
 
+Protocol version: `1`.
+
 The report and dashboard show only numbers from `summary.json`. Per-attempt
 records are raw evidence; they are never rendered directly.
 
 ## 1. Record
 
-Each measured or warm-up attempt is one `BenchRecord` (`schema: 1`). Fields:
+Each measured or warm-up attempt is one `BenchRecord` (`schema: 1`) with
+`protocolVersion: 1`. Fields:
 
 - `runId`: unique batch identity, generated once per run of the spec. A rerun
   gets a new ID, so records from different runs never merge.
+- `protocolVersion`: protocol version used for the measurement.
 - `label`, `commit`, `timestamp`: from `AO_PERF_LABEL`, `git rev-parse HEAD`,
   and the attempt's start time.
 - `env`: `chromium` from `browser.version()` (always present); `electron` only
