@@ -7,10 +7,10 @@
 ## What Changes
 
 - Add a read-only AO page with a consultation list and a detailed timeline of request, independent analyses, mutual critiques, proposal versions, per-round ballots, escalations, and final answer.
-- Ingest verified `geo.architect` archive artifacts into the existing Neo4j knowledge graph with stable consultation and artifact IDs. Retain the original files as the canonical evidence and make re-ingestion idempotent.
+- Ingest verified `geo.architect` archive artifacts into the existing Neo4j knowledge graph with stable host/date/consultation IDs. Retain the original files as canonical, read-only evidence and make re-ingestion idempotent. Neo4j is the sole query index, not an archive replacement.
 - Expose bounded list and detail reads through authenticated remote-host and existing loopback daemon API routes, including explicit incomplete, unavailable, and unsynced states.
 - Capture requester and archive host from the recorded archive metadata; show unavailable when the archive did not record a field. Preserve original consul text and distinguish factual objections from process/status changes.
-- Provide initial backfill and ongoing catch-up for archives on participating AO hosts. A host may ingest its local archives when its daemon and Neo4j are available; failed ingestion remains retryable.
+- Provide initial backfill and ongoing bounded catch-up for archives on participating AO hosts, with a scanner opt-out. Each consultation host needs graph configuration; failed ingestion remains retryable and observable.
 - Add tests for archive parsing, idempotent graph writes, API behavior, and the UI's complete and incomplete views. Document operation and recovery.
 
 ## Capabilities
@@ -27,5 +27,5 @@ None.
 
 - Backend knowledge graph adapter, a bounded archive importer, daemon lifecycle, HTTP DTOs and routes, generated OpenAPI/client types.
 - Frontend supervisor navigation and consultation list/detail page.
-- Neo4j schema and runbook. No new storage service or database dependency.
+- Neo4j schema, scanner status and runbook. No new storage service or database dependency.
 - `geo.architect` archive contract remains the source of original reports. No AO Cloud integration, production deployment, or `dev` to `main` promotion.

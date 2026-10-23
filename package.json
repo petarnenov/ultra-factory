@@ -30,6 +30,7 @@
 		"api": "npm run api:spec && npm run api:ts"
 	},
 	"devDependencies": {
+		"@fission-ai/openspec": "1.14.3",
 		"openapi-typescript": "7.4.4"
 	}
 }

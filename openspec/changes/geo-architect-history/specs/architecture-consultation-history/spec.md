@@ -18,6 +18,14 @@ The system SHALL ingest allowed original archive artifacts into the configured N
 - **WHEN** Neo4j is unavailable during a scan
 - **THEN** the source archive remains intact and the scan is retryable without losing previously indexed records
 
+#### Scenario: Same consultation ID on two hosts
+- **WHEN** two AO hosts ingest archives with the same UTC date and consultation ID
+- **THEN** the graph keeps separate records keyed by each ingesting daemon host ID
+
+#### Scenario: Large artifact
+- **WHEN** an allowed artifact exceeds the content cap
+- **THEN** the graph stores a bounded prefix, the hash of the full file, and a truncation flag
+
 ### Requirement: Show the recorded requester and process
 
 The system SHALL show the requester, question, creation time, archive host, independent analyses, mutual critiques, proposal versions, ballots, escalation evidence, and final answer when recorded. It SHALL distinguish missing or unparseable data from negative answers or approvals.
@@ -29,6 +37,10 @@ The system SHALL show the requester, question, creation time, archive host, inde
 #### Scenario: Partial consultation
 - **WHEN** a consultation lacks a consul report, ballot, requester field, or final answer
 - **THEN** the page identifies the specific missing evidence and does not manufacture a vote, consensus, requester, or decision
+
+#### Scenario: Ambiguous ballot
+- **WHEN** a ballot does not contain an unambiguous explicit stance for a decision ID
+- **THEN** the page shows its original content and marks that stance unknown
 
 ### Requirement: Count and explain rounds
 
@@ -45,6 +57,14 @@ The daemon SHALL expose paginated list and detail reads through its established 
 #### Scenario: Missing graph configuration
 - **WHEN** the consultation page requests data and Neo4j is not configured
 - **THEN** it shows a clear unavailable state based on the daemon's existing knowledge API error response
+
+#### Scenario: Graph unreachable
+- **WHEN** Neo4j is configured but a list or detail read cannot reach it
+- **THEN** the daemon returns a distinct 503 error and the page shows a retryable unavailable state
+
+#### Scenario: Missing consultation
+- **WHEN** a detail request uses a valid ID with no graph record
+- **THEN** the daemon returns 404
 
 #### Scenario: No indexed consultations
 - **WHEN** Neo4j is configured but contains no consultation records
