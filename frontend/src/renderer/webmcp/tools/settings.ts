@@ -42,8 +42,8 @@ export type SettingsAccess = {
 	subscribe: (listener: () => void) => () => void;
 };
 
-type SelectSectionArgs = { id: string; timeoutMs?: number };
-type WaitForUpdateStateArgs = { state: string; timeoutMs?: number };
+export type SelectSectionArgs = { id: string; timeoutMs?: number };
+export type WaitForUpdateStateArgs = { state: string; timeoutMs?: number };
 
 export function readSettings(context: SettingsContext): SettingsRead {
 	return {

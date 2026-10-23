@@ -1,11 +1,13 @@
 import { expect, type Page } from "@playwright/test";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { KanbanColumn } from "@aoagents/product-ui";
-import type { UpdateState } from "../../src/main/update-settings";
-import type { GlobalSettingsSection } from "../../src/renderer/stores/ui-store";
-import { agentReadiness } from "../../src/renderer/test/agent-readiness-fixtures";
 import type { ToolErrorCode } from "../../src/renderer/webmcp/model-context";
+import type { WaitForCardArgs } from "../../src/renderer/webmcp/tools/board";
+import type { ChatWaitPredicate } from "../../src/renderer/webmcp/tools/chat";
+import type { SelectSectionArgs, WaitForUpdateStateArgs } from "../../src/renderer/webmcp/tools/settings";
 import { installFakeAgent, installFakeBridge } from "../support/fake-bridge";
+import { openChat, projectId as suggestionProjectId, prompt } from "../support/open-chat";
+import { installRetryConversation } from "../support/retry-conversation";
 
 // ── Step grammar ─────────────────────────────────────────────────────────────
 
@@ -63,15 +65,12 @@ export function createHostState(): HostState {
 
 // ── Tool contracts ───────────────────────────────────────────────────────────
 
-// WM-1.2.x page tool arguments. Switch to the exported types once the
-// tool modules land under src/renderer/webmcp/tools/.
 type NoArgs = Record<string, never>;
-type ChatWaitPredicate = "suggestion_visible" | "suggestion_hidden" | "composer_equals" | "retry_error_visible" | "message_sent";
 type ToolArgs = {
-	"board.wait_for_card": { sessionId: string; column: KanbanColumn; timeoutMs?: number };
-	"settings.select_section": { id: GlobalSettingsSection };
+	"board.wait_for_card": WaitForCardArgs;
+	"settings.select_section": SelectSectionArgs;
 	"settings.update.download": NoArgs;
-	"settings.wait_for_update_state": { state: UpdateState; timeoutMs?: number };
+	"settings.wait_for_update_state": WaitForUpdateStateArgs;
 	"chat.type": { text: string };
 	"chat.accept_suggestion": NoArgs;
 	"chat.dismiss_suggestion": NoArgs;
@@ -493,68 +492,13 @@ const updateLiveFlowScenario = defineScenario({
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
-// Mirrors openChat in chat-prompt-suggestion.spec.ts without its goto, so
-// the driver navigates. Move to e2e/support once the WM-1.2.3 extraction lands.
-const suggestionProjectId = "chat-prompt-suggestion";
 const suggestionSessionId = "chat-prompt-suggestion-worker";
-const suggestionTurnId = "completed-turn";
-const suggestedPrompt = "Fix the reconnect test to handle either frame order, then rerun the package race tests.";
+const suggestedPrompt = prompt;
 const editedPrompt = `${suggestedPrompt} Include the fix in this PR.`;
 
 async function installSuggestionChat(page: Page, host: HostState): Promise<void> {
-	await page.emulateMedia({ reducedMotion: "reduce" });
-	await installFakeAgent(page, {
-		projectId: suggestionProjectId,
-		workers: [{ id: suggestionSessionId, provider: "codex", title: "Review reconnect test", mode: "chat" }],
-	});
-	await page.route("http://127.0.0.1:8080/api/v1/**", async (route) => {
-		const pathname = new URL(route.request().url()).pathname;
-		if (pathname === "/api/v1/agents/readiness" || pathname === "/api/v1/agents/readiness/ensure") {
-			await route.fulfill({ json: { agents: [agentReadiness("codex", "Codex")] } });
-		} else if (pathname === `/api/v1/projects/${suggestionProjectId}`) {
-			await route.fulfill({ json: { status: "ok", project: { id: suggestionProjectId, agent: "codex", config: { worker: { agent: "codex" } } } } });
-		} else if (pathname === `/api/v1/sessions/${suggestionSessionId}/conversation`) {
-			await route.fulfill({ json: suggestionConversation() });
-		} else if (pathname.endsWith("/conversation/prompt-suggestion")) {
-			expect(route.request().postDataJSON()).toEqual({ turnId: suggestionTurnId });
-			await route.fulfill({ json: { turnId: suggestionTurnId, prompt: suggestedPrompt } });
-		} else if (pathname.endsWith("/conversation/messages") && route.request().method() === "POST") {
-			host.sent.push(route.request().postDataJSON().text);
-			await route.fulfill({ json: { turnId: "next-turn", state: "running", duplicate: false } });
-		} else if (pathname.endsWith("/conversation/models")) {
-			await route.fulfill({ json: { models: [], selected: {} } });
-		} else if (pathname.endsWith("/conversation/skills")) {
-			await route.fulfill({ json: { skills: [] } });
-		} else if (pathname.endsWith("/workspace/files")) {
-			await route.fulfill({ json: { files: [], truncated: false } });
-		} else if (pathname.endsWith("/interface-transition")) {
-			await route.fulfill({ json: { supported: true, targetMode: "tui" } });
-		} else {
-			await route.fulfill({ json: { status: "ok" } });
-		}
-	});
-}
-
-function suggestionConversation() {
-	const completedAt = "2026-10-12T06:00:00Z";
-	const turnId = suggestionTurnId;
-	return {
-		conversationId: "conversation-prompt-suggestion",
-		sessionId: suggestionSessionId,
-		harness: "codex",
-		mode: "chat",
-		controller: "ready",
-		latestSequence: 2,
-		oldestSequence: 1,
-		hasMoreBefore: false,
-		turns: [{ id: turnId, state: "completed", requestedAt: completedAt, startedAt: completedAt, completedAt }],
-		messages: [
-			{ id: "user-message", turnId, sequence: 1, revision: 0, role: "user", origin: "human", text: "Review the reconnect test.", streaming: false, createdAt: completedAt },
-			{ id: "assistant-message", turnId, sequence: 2, revision: 0, role: "assistant", origin: "provider", text: "The first frame can be an acknowledgment or a command. Handle either order, then rerun the race tests.", streaming: false, createdAt: completedAt },
-		],
-		activities: [],
-		settings: {},
-	};
+	const { sent } = await openChat(page, Promise.resolve(), prompt, false);
+	host.sent = sent;
 }
 
 const suggestionRoute = `/#/projects/${suggestionProjectId}/sessions/${suggestionSessionId}`;
@@ -661,72 +605,11 @@ const suggestionDismissScenario = defineScenario({
 	jevGoal: "Dismiss the prompt suggestion without sending anything.",
 });
 
-// Mirrors installRetryConversation(page, false) in chat-retry.spec.ts without
-// its goto. Move to e2e/support once that helper is extracted.
 const retrySessionId = "chat-retry";
 const retryRefusal = "stop the current turn before retrying this one";
 
 async function installRefusedRetry(page: Page): Promise<void> {
-	await installFakeAgent(page, { workers: [{ id: retrySessionId, title: "Retry evidence", mode: "chat" }] });
-	await page.route(`**/api/v1/sessions/${retrySessionId}/**`, async (route) => {
-		const path = new URL(route.request().url()).pathname;
-		if (path.endsWith("/conversation") && route.request().method() === "GET") {
-			await route.fulfill({ json: failedTurnConversation() });
-		} else if (path.endsWith("/turn-failed/retry")) {
-			await route.fulfill({ status: 409, json: { error: { code: "CHAT_RETRY_BUSY", message: retryRefusal } } });
-		} else if (path.endsWith("/conversation/models")) {
-			await route.fulfill({ json: { models: [], selected: {} } });
-		} else if (path.endsWith("/conversation/skills")) {
-			await route.fulfill({ json: { skills: [] } });
-		} else if (path.endsWith("/workspace/files")) {
-			await route.fulfill({ json: { files: [], truncated: false } });
-		} else if (path.endsWith("/interface-transition")) {
-			await route.fulfill({ json: { supported: true, targetMode: "tui" } });
-		} else {
-			await route.fulfill({ status: 404, json: { error: { code: "NOT_FOUND", message: "not found" } } });
-		}
-	});
-}
-
-function failedTurnConversation() {
-	const now = "2026-08-24T12:00:00Z";
-	return {
-		conversationId: "conversation-chat-retry",
-		sessionId: retrySessionId,
-		harness: "codex",
-		mode: "chat",
-		controller: "ready",
-		latestSequence: 1,
-		oldestSequence: 1,
-		hasMoreBefore: false,
-		turns: [
-			{
-				id: "turn-failed",
-				state: "failed",
-				providerTurnId: "provider-failed",
-				requestedAt: now,
-				startedAt: now,
-				completedAt: now,
-				errorMessage: "stream disconnected before completion",
-			},
-		],
-		messages: [
-			{
-				kind: "message",
-				id: "user-failed",
-				turnId: "turn-failed",
-				sequence: 1,
-				revision: 0,
-				role: "user",
-				origin: "human",
-				text: "Fix the failing tests",
-				streaming: false,
-				createdAt: now,
-			},
-		],
-		activities: [],
-		settings: {},
-	};
+	await installRetryConversation(page, false, false);
 }
 
 const retryRefusedScenario = defineScenario({
