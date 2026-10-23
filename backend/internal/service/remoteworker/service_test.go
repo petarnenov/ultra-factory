@@ -46,6 +46,9 @@ func (f *fakeStore) UpdateRemoteWorkerLinkLiveness(_ context.Context, hostID str
 			seen := at
 			f.stored[i].LastSeenAt = &seen
 			f.stored[i].LastState = state
+			if state == domain.RemoteLinkLive {
+				f.stored[i].TerminatedAt = nil
+			}
 		}
 	}
 	return nil

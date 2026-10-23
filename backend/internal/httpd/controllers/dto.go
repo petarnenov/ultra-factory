@@ -237,6 +237,7 @@ type RemoteWorkerHostSync struct {
 	HostID    string `json:"hostId"`
 	HostLabel string `json:"hostLabel"`
 	Linked    int    `json:"linked"`
+	Revived   int    `json:"revived"`
 	Skipped   int    `json:"skipped"`
 	Blocked   string `json:"blocked,omitempty"`
 	Error     string `json:"error,omitempty"`

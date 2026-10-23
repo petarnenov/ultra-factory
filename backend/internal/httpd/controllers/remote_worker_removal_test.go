@@ -75,6 +75,20 @@ func TestRemoteWorkerLinkReleaseAfterAKillIsIdempotent(t *testing.T) {
 	}
 }
 
+type revivedRemoteWorkerSync struct{}
+
+func (revivedRemoteWorkerSync) Sync(context.Context) ([]remoteworker.HostSync, error) {
+	return []remoteworker.HostSync{{HostID: "host-build", Label: "build-box", Linked: 1, Revived: 2, Skipped: 3}}, nil
+}
+
+func TestRemoteWorkerSyncReturnsRevivedCount(t *testing.T) {
+	srv := newRouterServer(t, httpd.APIDeps{RemoteWorkerSync: revivedRemoteWorkerSync{}})
+	body, status, _ := doRequest(t, srv, http.MethodPost, "/api/v1/remote-worker-links/sync", "")
+	if status != http.StatusOK || !reportContainsAll(string(body), `"linked":1`, `"revived":2`, `"skipped":3`) {
+		t.Fatalf("sync status=%d body=%s, want separate linked, revived, and skipped counts", status, body)
+	}
+}
+
 func linkFor(session string) domain.RemoteWorkerLink {
 	return domain.RemoteWorkerLink{
 		HostID: "host-build", HostLabel: "build-box", RemoteSessionID: domain.SessionID(session),

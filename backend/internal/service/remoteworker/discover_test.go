@@ -24,9 +24,9 @@ func TestLinkDiscoveredStoresARootOwnedLinkWithTheSavedLabel(t *testing.T) {
 		Lookup:   savedHosts(remotehost.Entry{Label: "build-box", URL: "https://build.example", HostID: "host-build", Password: "pw"}),
 		OnLinked: func() { woken++ },
 	})
-	created, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets"))
-	if err != nil || !created {
-		t.Fatalf("created = %v err = %v", created, err)
+	created, revived, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets"))
+	if err != nil || !created || revived {
+		t.Fatalf("created = %v revived = %v err = %v", created, revived, err)
 	}
 	if woken != 1 {
 		t.Fatalf("observer woken %d times, want 1", woken)
@@ -47,9 +47,9 @@ func TestLinkDiscoveredNeverOverwritesAnExistingOwner(t *testing.T) {
 	}}
 	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
 	for pass := 0; pass < 3; pass++ {
-		created, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets"))
-		if err != nil || created {
-			t.Fatalf("pass %d: created = %v err = %v", pass, created, err)
+		created, revived, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets"))
+		if err != nil || created || revived {
+			t.Fatalf("pass %d: created = %v revived = %v err = %v", pass, created, revived, err)
 		}
 	}
 	if len(store.stored) != 1 || store.stored[0].OwnerSessionID == nil || *store.stored[0].OwnerSessionID != coordinator || store.stored[0].Source != domain.LinkSourceSpawn {
@@ -57,20 +57,46 @@ func TestLinkDiscoveredNeverOverwritesAnExistingOwner(t *testing.T) {
 	}
 }
 
+func TestLinkDiscoveredRevivesATerminatedLinkWithoutChangingOwner(t *testing.T) {
+	owner := domain.SessionID("coord-1")
+	endedAt := time.Now().Add(-time.Hour)
+	store := &fakeStore{project: domain.ProjectRecord{ID: "widgets"}, stored: []domain.RemoteWorkerLink{{
+		HostID: "host-build", RemoteSessionID: "widgets-3", RemoteProjectID: "widgets", ProjectID: "widgets",
+		OwnerSessionID: &owner, Source: domain.LinkSourceSpawn, LastState: domain.RemoteLinkTerminated, TerminatedAt: &endedAt,
+	}}}
+	woken := 0
+	svc := New(Deps{Store: store, Now: time.Now, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"}), OnLinked: func() { woken++ }})
+	created, revived, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets"))
+	if err != nil || created || !revived {
+		t.Fatalf("created = %v revived = %v err = %v", created, revived, err)
+	}
+	got := store.stored[0]
+	if got.LastState != domain.RemoteLinkLive || got.TerminatedAt != nil || got.OwnerSessionID == nil || *got.OwnerSessionID != owner || got.Source != domain.LinkSourceSpawn {
+		t.Fatalf("link = %+v, want live with the same owner and source", got)
+	}
+	if woken != 1 {
+		t.Fatalf("observer woken %d times, want 1", woken)
+	}
+	created, revived, err = svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets"))
+	if err != nil || created || revived {
+		t.Fatalf("repeat: created = %v revived = %v err = %v", created, revived, err)
+	}
+}
+
 func TestLinkDiscoveredRefusesUnregisteredProjectsAndUnsavedHosts(t *testing.T) {
 	store := &fakeStore{}
 	svc := New(Deps{Store: store, SelfHostID: "host-local", Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
-	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); !errors.Is(err, ErrProjectNotRegistered) {
+	if _, _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); !errors.Is(err, ErrProjectNotRegistered) {
 		t.Fatalf("unregistered project: err = %v", err)
 	}
 	store.project = domain.ProjectRecord{ID: "widgets"}
-	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-other", "widgets-3", "widgets")); err == nil {
+	if _, _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-other", "widgets-3", "widgets")); err == nil {
 		t.Fatal("an unsaved host was linked")
 	}
-	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-local", "widgets-3", "widgets")); err == nil {
+	if _, _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-local", "widgets-3", "widgets")); err == nil {
 		t.Fatal("this machine was linked")
 	}
-	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "bad id!", "widgets")); !errors.Is(err, domain.ErrInvalidRemoteWorkerLink) {
+	if _, _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "bad id!", "widgets")); !errors.Is(err, domain.ErrInvalidRemoteWorkerLink) {
 		t.Fatalf("invalid remote session id: err = %v", err)
 	}
 	if len(store.stored) != 0 {
@@ -85,7 +111,7 @@ func TestLinkDiscoveredIgnoresFinishedLinksAtTheLimit(t *testing.T) {
 			LastState: domain.RemoteLinkTerminated})
 	}
 	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
-	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); err != nil {
+	if _, _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); err != nil {
 		t.Fatalf("finished links blocked discovery: %v", err)
 	}
 }
@@ -96,7 +122,7 @@ func TestLinkDiscoveredStopsAtTheLimit(t *testing.T) {
 		store.stored = append(store.stored, domain.RemoteWorkerLink{HostID: "host-build", RemoteSessionID: domain.SessionID(fmt.Sprintf("old-%d", i))})
 	}
 	svc := New(Deps{Store: store, Lookup: savedHosts(remotehost.Entry{Label: "build-box", URL: "https://b", HostID: "host-build"})})
-	if _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); !errors.Is(err, ErrLinkLimit) {
+	if _, _, err := svc.LinkDiscovered(context.Background(), discoveredLink("host-build", "widgets-3", "widgets")); !errors.Is(err, ErrLinkLimit) {
 		t.Fatalf("err = %v, want ErrLinkLimit", err)
 	}
 	if len(store.stored) != MaxLinks {

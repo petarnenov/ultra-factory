@@ -6349,6 +6349,7 @@ export interface components {
             hostId: string;
             hostLabel: string;
             linked: number;
+            revived: number;
             skipped: number;
         };
         RemoteWorkerLinkResponse: {

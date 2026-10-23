@@ -49,6 +49,28 @@ func TestLivenessKeepsARecentlyEndedWorkerForLatePROutcomes(t *testing.T) {
 	}
 }
 
+func TestLivenessRevivesRestoredWorkerAndPullsItsReports(t *testing.T) {
+	host := newFakeHost(t, "host-build", "pw")
+	owner := domain.SessionID("coord-1")
+	endedAt := time.Now().Add(-time.Hour)
+	ended := link("host-build", "w-1")
+	ended.OwnerSessionID = &owner
+	ended.LastState = domain.RemoteLinkTerminated
+	ended.TerminatedAt = &endedAt
+	host.pending["w-1"] = reportsJSON(needsInput("rpt_after_restore", time.Now()))
+	store := newMemStore(ended)
+	deliverer := &fakeDeliverer{}
+	if err := newTestObserver(store, deliverer, host).Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.linkCount() != 1 || store.links[0].LastState != domain.RemoteLinkLive || store.links[0].TerminatedAt != nil || store.links[0].OwnerSessionID == nil || *store.links[0].OwnerSessionID != owner {
+		t.Fatalf("link = %+v, want a live link with its previous owner", store.links)
+	}
+	if len(deliverer.calls) != 1 || len(deliverer.calls[0].reports) != 1 || deliverer.calls[0].reports[0].ID != "rpt_after_restore" {
+		t.Fatalf("deliveries = %+v, want the restored worker's report", deliverer.calls)
+	}
+}
+
 func TestLivenessInitializesLegacyTerminatedAt(t *testing.T) {
 	host := newFakeHost(t, "host-build", "pw")
 	host.terminated["w-1"] = true
@@ -265,15 +287,22 @@ func TestPollPullsLiveLinksFirstAndEndedLinksOnASlowCadence(t *testing.T) {
 	}
 
 	var order []string
+	endedLivenessReads := 0
 	for _, r := range host.seen() {
+		if r.path == "/api/v1/sessions/ended" {
+			endedLivenessReads++
+		}
 		for _, id := range []string{"live", "ended"} {
 			if strings.HasSuffix(r.path, "/reports/pending") && strings.Contains("&"+r.query+"&", "&sessionId="+id+"&") {
 				order = append(order, id)
 			}
 		}
 	}
+	if endedLivenessReads != 3 {
+		t.Fatalf("ended session liveness reads = %d, want one per poll", endedLivenessReads)
+	}
 	if strings.Join(order, ",") != "live,ended,live,live" {
-		t.Fatalf("pending pulls = %v, want the ended link once and after the live one", order)
+		t.Fatalf("pending pulls = %v, want the ended link pulled once after the live one", order)
 	}
 	if store.linkCount() != 2 {
 		t.Fatalf("links = %+v, want the recently ended link kept", store.links)

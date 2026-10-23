@@ -27,9 +27,9 @@ type Store interface {
 	GetRemoteWorkerLink(context.Context, string, domain.SessionID) (domain.RemoteWorkerLink, bool, error)
 	UpsertRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) error
 	InsertDiscoveredRemoteWorkerLink(context.Context, domain.RemoteWorkerLink) (bool, error)
+	UpdateRemoteWorkerLinkLiveness(context.Context, string, domain.SessionID, time.Time, string) error
 	SetRemoteWorkerOwner(context.Context, string, domain.SessionID, *domain.SessionID, domain.OwnershipEventReason, time.Time) (domain.RemoteWorkerLink, bool, error)
 	RemoveRemoteWorkerLink(context.Context, string, domain.SessionID, time.Time) error
-	UpdateRemoteWorkerLinkLiveness(context.Context, string, domain.SessionID, time.Time, string) error
 }
 
 // MaxLinks bounds how many unfinished remote workers this daemon polls; every
@@ -56,9 +56,11 @@ type Registration struct {
 
 // HostSync is the outcome of one discovery pass over one saved host.
 type HostSync struct {
-	HostID  string
-	Label   string
-	Linked  int
+	HostID string
+	Label  string
+	Linked int
+	// Revived counts existing terminated links confirmed live by discovery.
+	Revived int
 	Skipped int
 	// Blocked says why the host was not contacted unattended, if it was not.
 	Blocked string
@@ -214,43 +216,52 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (Registration,
 	return registration, nil
 }
 
-// LinkDiscovered stores a worker that discovery found as a root-owned link.
-// It reports false, and changes nothing, when the worker is already linked.
-func (s *Service) LinkDiscovered(ctx context.Context, link domain.RemoteWorkerLink) (bool, error) {
+// LinkDiscovered stores a new worker or revives its terminated link.
+// Its booleans report whether the link was created or revived.
+func (s *Service) LinkDiscovered(ctx context.Context, link domain.RemoteWorkerLink) (bool, bool, error) {
 	if s == nil || s.store == nil {
-		return false, errors.New("remoteworker: store is required")
+		return false, false, errors.New("remoteworker: store is required")
 	}
 	link.HostID = strings.TrimSpace(link.HostID)
 	if link.HostID == "" || !remoteIDPattern.MatchString(string(link.RemoteSessionID)) ||
 		!remoteIDPattern.MatchString(string(link.RemoteProjectID)) {
-		return false, domain.ErrInvalidRemoteWorkerLink
+		return false, false, domain.ErrInvalidRemoteWorkerLink
 	}
 	if s.selfHostID != "" && link.HostID == s.selfHostID {
-		return false, errors.New("the host is this machine; local workers need no link")
+		return false, false, errors.New("the host is this machine; local workers need no link")
 	}
 	if _, found, err := s.store.GetProject(ctx, string(link.ProjectID)); err != nil {
-		return false, err
+		return false, false, err
 	} else if !found {
-		return false, ErrProjectNotRegistered
+		return false, false, ErrProjectNotRegistered
 	}
 	entry, found, err := s.lookup(link.HostID)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if !found {
-		return false, errors.New("no saved remote host has this host id")
+		return false, false, errors.New("no saved remote host has this host id")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing, err := s.store.ListRemoteWorkerLinks(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	if hasLink(existing, link) {
-		return false, nil
+	if current, found := findLink(existing, link); found {
+		if current.LastState != domain.RemoteLinkTerminated {
+			return false, false, nil
+		}
+		if err := s.store.UpdateRemoteWorkerLinkLiveness(ctx, link.HostID, link.RemoteSessionID, s.now().UTC(), domain.RemoteLinkLive); err != nil {
+			return false, false, err
+		}
+		if s.onLinked != nil {
+			s.onLinked()
+		}
+		return false, true, nil
 	}
 	if unfinishedLinks(existing) >= MaxLinks {
-		return false, ErrLinkLimit
+		return false, false, ErrLinkLimit
 	}
 	link.HostLabel = strings.TrimSpace(entry.Label)
 	link.OwnerSessionID = nil
@@ -258,12 +269,12 @@ func (s *Service) LinkDiscovered(ctx context.Context, link domain.RemoteWorkerLi
 	link.CreatedAt = s.now().UTC()
 	created, err := s.store.InsertDiscoveredRemoteWorkerLink(ctx, link)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if created && s.onLinked != nil {
 		s.onLinked()
 	}
-	return created, nil
+	return created, false, nil
 }
 
 // linkParent loads the live, project-bound session that spawns a remote worker.

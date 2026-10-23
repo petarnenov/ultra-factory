@@ -256,7 +256,7 @@ func (o *Observer) Poll(ctx context.Context) error {
 	for _, hostID := range hosts {
 		// One connection per host serves the liveness read and the pulls, so
 		// the credential only ever goes over the connection that answered.
-		client, links, err := o.liveHost(ctx, hostID, o.schedule(hostID, byHost[hostID]))
+		client, links, err := o.liveHost(ctx, hostID, byHost[hostID])
 		var items []*pulled
 		if client != nil {
 			clients = append(clients, client)
