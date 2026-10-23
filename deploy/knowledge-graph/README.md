@@ -84,6 +84,79 @@ MATCH (t:Task) WHERE t.outcome IN ['failed', 'closed']
 RETURN t.project, t.title, t.summary, t.updatedAt ORDER BY t.updatedAt DESC LIMIT 25;
 ```
 
+## Lesson review
+
+Review lessons every two weeks in Neo4j Browser or through the Query API.
+Record the review date, findings, decisions, and any follow-up issue in an
+issue comment. Run these read-only queries against the graph:
+
+```cypher
+// Most-served lessons, with outcome and rating totals.
+// helped/hurt are available now; useful/wrong require the #560 rollout.
+MATCH (l:Lesson)
+OPTIONAL MATCH (:Task)-[r:RECEIVED]->(l)
+WITH l, count(r) AS served
+RETURN l.project, l.id, l.kind, l.text, served,
+       coalesce(l.helped, 0) AS helped, coalesce(l.hurt, 0) AS hurt,
+       l.useful AS useful, l.wrong AS wrong
+ORDER BY served DESC LIMIT 50;
+```
+
+The `useful` and `wrong` fields are not available until #560 is rolled out;
+until then, omit those return expressions when running the current query.
+The separate wrong-rated query is also pending that rollout:
+
+```cypher
+// Pending #560 rollout: lessons workers rated wrong.
+MATCH (l:Lesson)
+WHERE coalesce(l.wrong, 0) > 0
+RETURN l.project, l.id, l.kind, l.text, l.wrong
+ORDER BY l.wrong DESC LIMIT 50;
+```
+
+Find likely near-duplicates by cosine similarity within one project. Treat
+`0.94` as a review threshold, matching the default merge score; this query
+needs populated lesson embeddings:
+
+```cypher
+MATCH (a:Lesson), (b:Lesson)
+WHERE a.project = b.project AND a.id < b.id
+  AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL
+WITH a, b, vector.similarity.cosine(a.embedding, b.embedding) AS similarity
+WHERE similarity >= 0.94
+RETURN a.project, similarity, a.id AS firstId, a.text AS firstText,
+       b.id AS secondId, b.text AS secondText
+ORDER BY similarity DESC LIMIT 50;
+```
+
+Find lessons created more than 60 days ago that have never been served:
+
+```cypher
+MATCH (l:Lesson)
+WHERE l.createdAt < datetime() - duration('P60D')
+  AND NOT EXISTS { MATCH (:Task)-[:RECEIVED]->(l) }
+RETURN l.project, l.id, l.kind, l.text, l.createdAt
+ORDER BY l.createdAt ASC LIMIT 50;
+```
+
+Triage findings in this order:
+
+1. If a tooling problem caused the lesson to be wrong or unhelpful, file an
+   issue to fix the tool, then retire the lesson.
+2. If the lesson applies to one area of the code, keep it in the graph. Move
+   it to that directory's `CLAUDE.md` only when it must always be visible in
+   that area.
+3. If it applies to every task in the repository, add a short rule to
+   `AGENTS.md`. This should be rare.
+
+Retiring a lesson writes to the shared graph. Only the operator performs that
+write; workers can identify and report candidates but must not retire lessons.
+Retirement and rating commands, and live validation of queries that use the
+new `useful`, `wrong`, or retirement fields, remain pending until #560 has
+rolled out. Run every query and record its result counts in the issue comment
+once the rollout is available. Do not treat the pending queries or final live
+validation as complete before then.
+
 ## Change the embedding model
 
 The vector dimensions follow the model. Set `KG_EMBED_MODEL` in `.env`, update
