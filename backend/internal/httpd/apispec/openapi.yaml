@@ -18467,12 +18467,15 @@ components:
           type: string
         linked:
           type: integer
+        revived:
+          type: integer
         skipped:
           type: integer
       required:
       - hostId
       - hostLabel
       - linked
+      - revived
       - skipped
       type: object
     RemoteWorkerLinkResponse:

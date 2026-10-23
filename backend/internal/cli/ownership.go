@@ -127,6 +127,7 @@ type remoteWorkerHostSyncDTO struct {
 	HostID    string `json:"hostId"`
 	HostLabel string `json:"hostLabel"`
 	Linked    int    `json:"linked"`
+	Revived   int    `json:"revived"`
 	Skipped   int    `json:"skipped"`
 	Blocked   string `json:"blocked,omitempty"`
 	Error     string `json:"error,omitempty"`
@@ -778,7 +779,7 @@ func writeRemoteWorkerSync(cmd *cobra.Command, res remoteWorkerSyncResponse) err
 		if label == "" {
 			label = host.HostID
 		}
-		status := fmt.Sprintf("linked %d, skipped %d", host.Linked, host.Skipped)
+		status := fmt.Sprintf("linked %d, revived %d, skipped %d", host.Linked, host.Revived, host.Skipped)
 		if host.Blocked != "" {
 			status += ", blocked: " + host.Blocked
 		}

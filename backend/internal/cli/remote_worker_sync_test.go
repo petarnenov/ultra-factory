@@ -10,7 +10,7 @@ import (
 
 func TestRemoteWorkerSyncPrintsPerHostCountsAndKeepsExitZero(t *testing.T) {
 	srv, capture := ownershipServer(t, http.StatusOK,
-		`{"hosts":[{"hostId":"host-build","hostLabel":"build-box","linked":2,"skipped":1},{"hostId":"host-down","hostLabel":"down-box","linked":0,"skipped":0,"error":"dial tcp: connection refused"}]}`)
+		`{"hosts":[{"hostId":"host-build","hostLabel":"build-box","linked":2,"revived":1,"skipped":1},{"hostId":"host-down","hostLabel":"down-box","linked":0,"revived":0,"skipped":0,"error":"dial tcp: connection refused"}]}`)
 
 	out, errOut, err := runOwnershipCLI(t, srv, "remote-worker", "sync")
 	if err != nil {
@@ -19,7 +19,7 @@ func TestRemoteWorkerSyncPrintsPerHostCountsAndKeepsExitZero(t *testing.T) {
 	if capture.method != http.MethodPost || capture.path != "/api/v1/remote-worker-links/sync" {
 		t.Fatalf("request = %s %s", capture.method, capture.path)
 	}
-	for _, want := range []string{"build-box", "linked 2, skipped 1", "down-box", "error: dial tcp: connection refused"} {
+	for _, want := range []string{"build-box", "linked 2, revived 1, skipped 1", "down-box", "error: dial tcp: connection refused"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output %q missing %q", out, want)
 		}
@@ -34,7 +34,7 @@ func TestRemoteWorkerSyncShowsBlockedHosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "linked 0, skipped 0, blocked: plain http needs AO_REMOTE_REPORTS_ALLOW_HTTP") {
+	if !strings.Contains(out, "linked 0, revived 0, skipped 0, blocked: plain http needs AO_REMOTE_REPORTS_ALLOW_HTTP") {
 		t.Fatalf("output = %q", out)
 	}
 }

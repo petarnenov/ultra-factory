@@ -18,9 +18,9 @@ import (
 // workers that have no link yet.
 const DefaultDiscoveryInterval = 60 * time.Second
 
-// Linker stores a worker that discovery found on a saved host.
+// Linker stores a discovered worker or revives its existing terminated link.
 type Linker interface {
-	LinkDiscovered(context.Context, domain.RemoteWorkerLink) (bool, error)
+	LinkDiscovered(context.Context, domain.RemoteWorkerLink) (bool, bool, error)
 }
 
 // Sync runs one discovery pass over every saved host on an operator's
@@ -45,10 +45,12 @@ func (o *Observer) sync(ctx context.Context, relink bool) ([]remoteworker.HostSy
 	o.savedHosts = savedHostsSignature(entries)
 	results := o.discoverAll(ctx, entries, relink)
 	linked := 0
+	revived := 0
 	for _, result := range results {
 		linked += result.Linked
+		revived += result.Revived
 	}
-	if linked > 0 {
+	if linked > 0 || revived > 0 {
 		o.Wake()
 	}
 	return results, ctx.Err()
@@ -153,7 +155,7 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry, rel
 			result.Skipped++
 			continue
 		}
-		created, err := o.linker.LinkDiscovered(ctx, domain.RemoteWorkerLink{
+		created, revived, err := o.linker.LinkDiscovered(ctx, domain.RemoteWorkerLink{
 			HostID: entry.HostID, RemoteSessionID: session.ID,
 			RemoteProjectID: domain.ProjectID(session.ProjectID), ProjectID: domain.ProjectID(session.ProjectID),
 			DisplayName: session.DisplayName,
@@ -169,6 +171,8 @@ func (o *Observer) discoverHost(ctx context.Context, entry remotehost.Entry, rel
 			o.note(fmt.Sprintf("discover link %s/%s", entry.HostID, session.ID), label, err)
 		case created:
 			result.Linked++
+		case revived:
+			result.Revived++
 		default:
 			// Already linked, or a project this daemon does not have.
 			result.Skipped++

@@ -22,26 +22,31 @@ type fakeLinker struct {
 	limit    int
 }
 
-func (f *fakeLinker) LinkDiscovered(_ context.Context, link domain.RemoteWorkerLink) (bool, error) {
+func (f *fakeLinker) LinkDiscovered(_ context.Context, link domain.RemoteWorkerLink) (bool, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.projects[link.ProjectID] {
-		return false, remoteworker.ErrProjectNotRegistered
+		return false, false, remoteworker.ErrProjectNotRegistered
 	}
 	f.store.mu.Lock()
 	defer f.store.mu.Unlock()
-	for _, existing := range f.store.links {
+	for i, existing := range f.store.links {
 		if existing.HostID == link.HostID && existing.RemoteSessionID == link.RemoteSessionID {
-			return false, nil
+			if existing.LastState == domain.RemoteLinkTerminated {
+				f.store.links[i].LastState = domain.RemoteLinkLive
+				f.store.links[i].TerminatedAt = nil
+				return false, true, nil
+			}
+			return false, false, nil
 		}
 	}
 	if len(f.store.links) >= f.limit {
-		return false, remoteworker.ErrLinkLimit
+		return false, false, remoteworker.ErrLinkLimit
 	}
 	link.Source = domain.LinkSourceDiscovered
 	link.CreatedAt = time.Now()
 	f.store.links = append(f.store.links, link)
-	return true, nil
+	return true, false, nil
 }
 
 func sessionsJSON(sessions ...string) string {
@@ -150,6 +155,58 @@ func TestSyncKeepsAnExistingOwner(t *testing.T) {
 	}
 	if len(store.links) != 1 || store.links[0].OwnerSessionID == nil || *store.links[0].OwnerSessionID != owner {
 		t.Fatalf("owner changed: %+v", store.links)
+	}
+}
+
+func TestSyncRevivesATerminatedLinkAndKeepsItsOwner(t *testing.T) {
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.sessionList = sessionsJSON(session("widgets-1", "worker", "widgets", false))
+	owner := domain.SessionID("coordinator-1")
+	endedAt := time.Now().Add(-time.Hour)
+	existing := link("host-build", "widgets-1")
+	existing.OwnerSessionID = &owner
+	existing.LastState = domain.RemoteLinkTerminated
+	existing.TerminatedAt = &endedAt
+	store := newMemStore(existing)
+	observer := discoveryObserver(store, newLinker(), host)
+
+	results, err := observer.Sync(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findResult(t, results, "host-build"); got.Linked != 0 || got.Revived != 1 || got.Skipped != 0 {
+		t.Fatalf("result = %+v, want one revived link", got)
+	}
+	if len(store.links) != 1 || store.links[0].LastState != domain.RemoteLinkLive || store.links[0].TerminatedAt != nil || store.links[0].OwnerSessionID == nil || *store.links[0].OwnerSessionID != owner {
+		t.Fatalf("link = %+v, want live with its previous owner", store.links)
+	}
+
+	results, err = observer.Sync(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findResult(t, results, "host-build"); got.Linked != 0 || got.Revived != 0 || got.Skipped != 1 {
+		t.Fatalf("repeat result = %+v, want an idempotent skip", got)
+	}
+}
+
+func TestSyncLeavesATerminatedLinkTombstoneAlone(t *testing.T) {
+	host := newFakeHost(t, "host-build", "s3cret")
+	host.sessionList = sessionsJSON(session("widgets-1", "worker", "widgets", true))
+	endedAt := time.Now().Add(-time.Hour)
+	existing := link("host-build", "widgets-1")
+	existing.LastState = domain.RemoteLinkTerminated
+	existing.TerminatedAt = &endedAt
+	store := newMemStore(existing)
+	results, err := discoveryObserver(store, newLinker(), host).Sync(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findResult(t, results, "host-build"); got.Linked != 0 || got.Revived != 0 || got.Skipped != 0 {
+		t.Fatalf("result = %+v, want no link changes", got)
+	}
+	if len(store.links) != 1 || store.links[0].LastState != domain.RemoteLinkTerminated || store.links[0].TerminatedAt == nil || !store.links[0].TerminatedAt.Equal(endedAt) {
+		t.Fatalf("link = %+v, want the original terminated tombstone", store.links)
 	}
 }
 
