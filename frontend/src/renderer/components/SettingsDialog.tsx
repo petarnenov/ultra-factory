@@ -27,6 +27,7 @@ import { NAV_ROW_HIGHLIGHT_HOST_CLASS, NavRowHighlight } from "./NavRowHighlight
 import { labelForHost } from "../lib/host-clients";
 import { LOCAL_HOST, refKey } from "../lib/hosts";
 import { globalSettingsItem, visibleGlobalSettings } from "./settings/settingsCatalog";
+import { useSettingsTools } from "../webmcp/tools/settings";
 
 function initialProjectSaveState(): ProjectSettingsSaveState {
 	return { phase: "idle" };
@@ -375,9 +376,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 	return (
 		<SettingsPageContext.Provider value={active ? { active, layers: [globalLayer] } : null}>
 			{children}
+			{active && <SettingsWebMcpTools navItems={active.navItems} />}
 			{projectModal && <ProjectSettingsModal key={projectLayer.bodyKey} layer={projectLayer} covered={globalModal !== null} />}
 		</SettingsPageContext.Provider>
 	);
+}
+
+// Mounted only while global Settings is open, so its tools close with it.
+function SettingsWebMcpTools({ navItems }: { navItems: SettingsNavEntry[] }) {
+	useSettingsTools(navItems);
+	return null;
 }
 
 /**
