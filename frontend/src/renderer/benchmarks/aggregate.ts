@@ -36,10 +36,10 @@ export function getOverheadReference(
 	flowRecords: BenchRecord[] = calibrationRecords,
 ): number | null {
 	const callOverheads = calibrationRecords
-		.filter((record) => record.page === "overhead" && record.pass && record.driver !== "playwright")
+		.filter((record) => !record.warmup && record.page === "overhead" && record.pass && record.driver !== "playwright")
 		.flatMap((record) => record.steps.map((step) => step.roundTripMs));
 	const measuredFlowStepCounts = flowRecords
-		.filter((record) => record.page !== "overhead" && record.pass && record.driver !== "playwright")
+		.filter((record) => !record.warmup && record.page !== "overhead" && record.pass && record.driver !== "playwright")
 		.map((record) => record.steps.length);
 	const overheadPerCall = median(callOverheads);
 	const medianCallsPerFlow = median(measuredFlowStepCounts);

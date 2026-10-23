@@ -45,4 +45,22 @@ describe("benchmark aggregates", () => {
 		expect(getOverheadReference(records, board.records)).toEqual(expect.any(Number));
 		expect(aggregateDriverPassRates(summary).map((row) => row.driver)).toEqual(DRIVERS);
 	});
+
+	it("excludes warm-up outliers from calibration and flow step counts", () => {
+		const calibration = records.find((record) => !record.warmup && record.page === "overhead" && record.driver === "webmcp-scripted");
+		const flow = records.find((record) => !record.warmup && record.page === "board" && record.driver === "webmcp-scripted" && record.steps.length > 0);
+		if (!calibration || !flow) throw new Error("benchmark data must include calibration and flow records");
+		const warmupCalibration = {
+			...calibration,
+			warmup: true,
+			steps: calibration.steps.map((step) => ({ ...step, roundTripMs: Number.MAX_SAFE_INTEGER })),
+		};
+		const warmupFlow = {
+			...flow,
+			warmup: true,
+			steps: Array.from({ length: 100 }, (_, index) => ({ ...flow.steps[0]!, index })),
+		};
+		const expected = getOverheadReference(records);
+		expect(getOverheadReference([...records, warmupCalibration], [...records, warmupFlow])).toBe(expected);
+	});
 });
