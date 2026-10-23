@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Cover both iOS and Android under D04; collect actual-platform evidence for native pairing, push and lifecycle scenarios. Missing devices or credentials are unverified, never a pass.
 - [ ] Capture pairing, identity/version negotiation, authenticated transport, reconnect, push and Chat/TUI compatibility.
 - [ ] Map current typecheck/unit checks and distinguish them from iOS/Android device acceptance.
 - [ ] Define negative pairing, expired authorization, offline recovery and unsupported capability scenarios with evidence owners.

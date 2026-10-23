@@ -21,6 +21,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
+- [ ] Retain all D04 targets: macOS, Windows, Linux, iOS, Android and Railway web; define platform-specific release/readiness evidence without excluding unavailable targets.
 - [ ] Map promoted change IDs to dev/main commits, versions and immutable artifact digests.
 - [ ] Define Windows/macOS/Linux install/update and mobile compatibility evidence with exact environment and revision.
 - [ ] Preserve sole publisher, main release boundary, daemon prerelease isolation and macOS zip/update requirements.

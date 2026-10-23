@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Cover macOS, Windows, Linux and Railway web under D04; map native Electron scenarios to actual-platform evidence, not renderer mocks alone.
 - [ ] Specify IPC and thin-supervisor boundaries, session views, browser permissions, settings and web capability differences.
 - [ ] Map loading/error/retry, keyboard/accessibility and host-scoped state scenarios to Vitest/Playwright coverage.
 - [ ] Identify native Electron checks that renderer mocks cannot establish and define isolated desktop evidence procedures.

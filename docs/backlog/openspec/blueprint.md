@@ -9,6 +9,8 @@ Adopt specification driven development across AO's SDLC using repository-local O
 
 Cover the Go daemon and CLI, Electron desktop and web renderer, mobile, shared packages used by those surfaces, Railway/self-hosted hub/BFF and remote workers, agent workflows, documentation, security, distribution, support and retirement. AO Cloud is excluded by owner decision D00: no public cloud control-plane, private submodule, tenant/billing/PostgreSQL baseline, cloud-only client/contracts or AO Cloud deployment work. Shared code remains in scope only for supported consumers. This planning exclusion does not delete code or remove existing CI. D01 explicitly retains Railway/self-hosted.
 
+Owner decision D04 includes all supported platforms: macOS, Windows, Linux, iOS, Android and Railway web. Native behavior requires actual-platform evidence; no platform is deferred out of scope. Missing access remains a visible verification gap, never a pass.
+
 ## Existing system and adoption gaps
 
 This is a static architecture and SDLC audit: repository inventory, contract sources, workflow definitions, package scripts, operational guidance and representative implementation boundaries were inspected. No runtime behavior, deployed environment, branch protection or full test suite was certified by this audit. Existing documentation can lag code; initial specifications must be checked against implementation and tests, with disagreements recorded rather than silently codified.

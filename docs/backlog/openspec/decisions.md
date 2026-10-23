@@ -30,13 +30,16 @@ The selected consul is the final arbiter, not an extra majority vote. Preserve a
 
 This owner-approved project policy overrides the skill's all-three-ballots requirement and unresolved-council human escalation for this initiative. The arbiter must resolve documented objections within approved scope and existing hard requirements; a decision does not itself grant missing credentials or authority to deploy, spend, merge or expand product scope. If none of the three can provide a ruling, no approval exists: keep the affected task blocked and report the missing prerequisite. Independent already-approved work can continue. No automatic human proposal-approval step is added.
 
+### D04 All supported platforms
+
+Owner answer: All. Include macOS, Windows, Linux, iOS, Android and Railway web. Each supported surface needs capability specifications and evidence from its actual platform where native behavior is involved. Renderer mocks, typechecks or another operating system are not substitutes for native acceptance. An unavailable platform check is not a pass; treatment of missing hardware/access is pending D09. Platform support is not deferred out of the initiative.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D04 | Supported platforms and required native acceptance | All currently supported desktop/mobile platforms; selected named platforms; staged platform adoption with explicit unverified backlog | SDD-04, SDD-05, SDD-11, SDD-13 |
 | D05 | Proportional review and emergency exceptions | Council for behavior only, ordinary review for justified no-behavior work, no emergency bypass; same with owner-approved emergency deferral; council for every change | SDD-02, SDD-09, SDD-16 |
 | D06 | Existing code/spec conflicts and missing tests | Agents record gaps and preserve evidenced behavior within hard constraints; owner resolves every discrepancy; council resolves technical discrepancies with owner deciding intended product changes | SDD-03 to SDD-07 |
 | D07 | Pilot selection and go/no-go authority | Agents choose bounded cases and council ratifies evidence; owner chooses and accepts each pilot; agents propose cases and owner approves selection only | SDD-15, SDD-13 |
