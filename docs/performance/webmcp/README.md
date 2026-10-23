@@ -99,4 +99,4 @@ This is one machine and one benchmark session with five measured repeats per sce
 
 ## Answer: what performance to expect
 
-In this measured batch, scripted WebMCP medians are 4.2–145.5 ms across scenarios with 100% pass rates, while Playwright medians are 18.8–1,192.2 ms with 100% pass rates. For rows where JEV passed, its total-time medians are 282.7–1,768.5 ms, or 1.5–16.0 times the corresponding Playwright medians; four JEV scenarios had no passing measured attempt. These are scenario-specific results from this one machine and should not be generalized beyond the measured setup.
+In this measured batch, scripted WebMCP medians are 4.2–145.5 ms across scenarios with 100% pass rates, while Playwright medians are 18.8–1,192.2 ms with 100% pass rates. Excluding the overhead series, passing JEV catalog scenarios have total-time medians of 282.7–1,768.5 ms, or 1.5–17.5 times the corresponding Playwright medians; four JEV catalog scenarios had no passing measured attempt. These are scenario-specific results from this one machine and should not be generalized beyond the measured setup.
