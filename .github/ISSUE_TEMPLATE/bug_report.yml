@@ -3,6 +3,11 @@ description: Something is broken or behaving unexpectedly.
 title: "[Bug]: "
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Every implementation issue must have exactly one type label and one priority label. This form applies only its static `bug` label; use a blank issue for documentation, accessibility, or maintenance work so the matching type can be applied. The priority answer below is triage intent and does not apply a label; see the [issue policy](https://github.com/petarnenov/ultra-factory/blob/dev/docs/issue-policy.md) for priority criteria. Maintainers must set the matching labels, which remain enforced by the issue-policy workflow. Fixes require a full proposal and explicit geo.architect ruling before implementation; see the [repository SDD policy](https://github.com/petarnenov/ultra-factory/blob/dev/docs/agents/sdd-policy.md).
+
   - type: textarea
     id: summary
     attributes:
@@ -10,6 +15,37 @@ body:
       description: Tell us what you did and what went wrong. Add a screenshot if you can.
     validations:
       required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Intended priority
+      description: Triage intent only; a maintainer must apply the corresponding priority label.
+      options:
+        - priority:low
+        - priority:medium
+        - priority:high
+        - priority:critical
+    validations:
+      required: true
+
+  - type: input
+    id: capability
+    attributes:
+      label: Affected capability or surface
+      description: Include platform, deployment surface, or capability if known.
+      placeholder: daemon, desktop/macOS, mobile/iOS, Railway
+    validations:
+      required: false
+
+  - type: input
+    id: openspec_change
+    attributes:
+      label: OpenSpec change / approved proposal
+      description: Fill this in when an approved change exists. Intake itself does not imply approval to implement.
+      placeholder: change-id and proposal revision/hash
+    validations:
+      required: false
 
   - type: markdown
     attributes:
