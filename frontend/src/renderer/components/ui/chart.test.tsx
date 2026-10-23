@@ -1,7 +1,12 @@
 import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Bar, BarChart } from "recharts";
-import { ChartContainer, type ChartConfig } from "./chart";
+import {
+	ChartContainer,
+	ChartTooltip,
+	ChartTooltipContent,
+	type ChartConfig,
+} from "./chart";
 
 const config = {
 	playwright: { label: "Playwright", color: "var(--chart-1)" },
@@ -48,5 +53,18 @@ describe("ChartContainer", () => {
 		expect(wrapper?.querySelector("svg")).not.toBeNull();
 		expect(wrapper?.querySelectorAll(".recharts-bar-rectangle")).toHaveLength(1);
 		expect(wrapper?.style.getPropertyValue("--color-playwright")).toBe("var(--chart-1)");
+	});
+
+	it("accepts tooltip content without callers supplying Recharts runtime props", () => {
+		const { container } = render(
+			<ChartContainer config={config}>
+				<BarChart data={[{ name: "scenario-a", playwright: 12 }]}>
+					<Bar dataKey="playwright" fill="var(--color-playwright)" />
+					<ChartTooltip content={<ChartTooltipContent />} />
+				</BarChart>
+			</ChartContainer>,
+		);
+
+		expect(container.querySelector('[data-slot="chart"] svg')).not.toBeNull();
 	});
 });

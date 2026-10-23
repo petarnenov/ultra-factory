@@ -47,7 +47,7 @@ function ChartTooltipContent({
 	active,
 	payload,
 	label,
-}: RechartsPrimitive.TooltipContentProps<number, string>) {
+}: Partial<RechartsPrimitive.TooltipContentProps<number, string>>) {
 	const config = useContext(ChartConfigContext);
 	if (!active || !payload?.length) return null;
 
