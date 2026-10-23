@@ -108,8 +108,15 @@ type daemon struct {
 // startDaemon boots a daemon on dataDir. Passing a dataDir that a previous
 // daemon used is how the restart scenarios work: the second boot has to find the
 // first one's sessions on disk.
-func startDaemon(t *testing.T, dataDir string) *daemon {
+func startDaemon(t *testing.T, dataDir string, testAOEnv ...map[string]string) *daemon {
 	t.Helper()
+	if len(testAOEnv) > 1 {
+		t.Fatal("startDaemon accepts at most one test AO environment")
+	}
+	var explicitTestAOEnv map[string]string
+	if len(testAOEnv) == 1 {
+		explicitTestAOEnv = testAOEnv[0]
+	}
 	bin := buildDaemon(t)
 	port := freePort(t)
 
@@ -120,11 +127,7 @@ func startDaemon(t *testing.T, dataDir string) *daemon {
 	}
 
 	cmd := exec.Command(bin, "daemon")
-	cmd.Env = append(os.Environ(),
-		"AO_DATA_DIR="+dataDir,
-		"AO_RUN_FILE="+filepath.Join(dataDir, "running.json"),
-		"AO_PORT="+strconv.Itoa(port),
-	)
+	cmd.Env = daemonChildEnvironment(os.Environ(), dataDir, port, explicitTestAOEnv)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	// Own process group: a hard kill must take the agent child processes with it,
@@ -152,6 +155,31 @@ func startDaemon(t *testing.T, dataDir string) *daemon {
 	// scenarios kill the daemon on purpose and these calls simply fail.
 	t.Cleanup(d.killAllSessions)
 	return d
+}
+
+func daemonChildEnvironment(inherited []string, dataDir string, port int, testAOEnv map[string]string) []string {
+	env := make([]string, 0, len(inherited)+3)
+	for _, entry := range inherited {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(name, "AO_") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env,
+		"AO_DATA_DIR="+dataDir,
+		"AO_RUN_FILE="+filepath.Join(dataDir, "running.json"),
+		"AO_PORT="+strconv.Itoa(port),
+	)
+	for name, value := range testAOEnv {
+		switch name {
+		case "AO_E2E_TEST_BINARY", "AO_E2E_FAKE_APPROVAL_ACP", "AO_E2E_ACP_CALLS":
+			env = append(env, name+"="+value)
+		default:
+			panic("unsupported AO test environment variable: " + name)
+		}
+	}
+	return env
 }
 
 // killAllSessions tears down every session this daemon still considers live.
