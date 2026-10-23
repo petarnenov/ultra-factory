@@ -61,10 +61,6 @@ func seedHistoricalProviderFixture(t *testing.T) historicalProviderFixture {
 	if err != nil || !created {
 		t.Fatalf("seed old transcript: created=%v err=%v", created, err)
 	}
-	if err := st.SettleTurnByID(ctx, "old-turn", domain.TurnStateCompleted, "", now.Add(time.Second)); err != nil {
-		t.Fatalf("settle old transcript turn: %v", err)
-	}
-
 	target, err := st.CreateSession(ctx, domain.SessionRecord{
 		ProjectID: testProject, Kind: domain.KindOrchestrator,
 		Harness: domain.HarnessCodex, Mode: domain.SessionModeChat, IsTerminated: true,
@@ -191,6 +187,9 @@ func historicalNativeHistory() []ports.ChatEvent {
 func TestHistoricalProjectProviderRestoreAppendsOwnershipEpochAtomically(t *testing.T) {
 	fixture := seedHistoricalProviderFixture(t)
 	ctx := context.Background()
+	if err := fixture.store.SettleTurnByID(ctx, "old-turn", domain.TurnStateCompleted, "", fixture.now.Add(time.Second)); err != nil {
+		t.Fatalf("settle old transcript turn: %v", err)
+	}
 	var scopes []string
 	firstConversation := &nativeHistoryConversation{
 		fakeConversation: newFakeConversation(), events: historicalNativeHistory(),
