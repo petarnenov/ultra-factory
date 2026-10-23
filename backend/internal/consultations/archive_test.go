@@ -37,9 +37,9 @@ func put(t *testing.T, dir, name, text string) {
 }
 func TestArchiveEvidence(t *testing.T) {
 	dir, root := archive(t)
-	put(t, dir, "state.json", `{"requester":"Engineer","case":"Design","host":"recorded","phase":"arbitration","decision_status":"resolved","archive_status":"verified","delivery_status":"unconfirmed","closure_status":"not_started","escalation_status":"timed_out","mode":"d03_fallback","session_id":"secret","path":"/secret","caller":"secret"}`)
+	put(t, dir, "state.json", `{"requester":"Engineer","case":"Design","host":"recorded","phase":"complete","decision_status":"resolved","archive_status":"verified","delivery_status":"unconfirmed","closure_status":"not_started","escalation_status":"timed_out","mode":"council","session_id":"secret","path":"/secret","caller":"secret"}`)
 	for _, a := range artifactLayout() {
-		if a.Round == 2 {
+		if a.Round == 2 || a.Phase == "arbitration" {
 			continue
 		}
 		text := "Evidence"
@@ -52,7 +52,7 @@ func TestArchiveEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d.Partial || d.Rounds != 1 || d.PhaseRounds != 3 || d.Mode != "d03_fallback" || d.Requester != "Engineer" {
+	if d.Partial || d.Rounds != 1 || d.PhaseRounds != 3 || d.Mode != "council" || d.Requester != "Engineer" {
 		t.Fatalf("bad summary %+v", d.Summary)
 	}
 	for _, a := range d.Artifacts {
@@ -79,7 +79,7 @@ func TestArchivePartialUnsafeAndTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !d.Partial || d.Requester != "" || d.Rounds != 1 || len(d.Warnings) == 0 {
+	if !d.Partial || d.Requester != "" || d.Rounds != 0 || d.ProposalVersions != 1 || len(d.Warnings) == 0 {
 		t.Fatalf("bad partial %+v", d)
 	}
 	sum := sha256.Sum256([]byte(text))
@@ -124,7 +124,7 @@ func TestIDs(t *testing.T) {
 	if got, err := DecodeID(EncodeID(key)); err != nil || got != key {
 		t.Fatal(got, err)
 	}
-	for _, id := range []string{"!", EncodeID("../bad"), strings.Repeat("x", 701), EncodeID("h/2026-10-23/..")} {
+	for _, id := range []string{"!", EncodeID("../bad"), strings.Repeat("x", 701), EncodeID("h/2026-10-23/.."), EncodeID("h/2026-02-30/case"), EncodeID(key) + "\n"} {
 		if _, err := DecodeID(id); err == nil {
 			t.Fatalf("accepted %s", id)
 		}
@@ -151,5 +151,48 @@ func TestContentBudgetAndInvalidUTF8(t *testing.T) {
 	}
 	if total > TotalContentCap+64 {
 		t.Fatalf("encoded content exceeded budget: %d", total)
+	}
+}
+
+func TestRecordedMetadataAndRequesterBoundary(t *testing.T) {
+	dir, root := archive(t)
+	put(t, dir, "state.json", `{"owner":"AO session","requester":{"channel":"private"},"project":"ultra-factory","branch":"feat/history","sha":"a2f87415e00000000000000000000000000000000","created_at":"2026-10-23T12:00:00Z","verified_at_utc":"2026-10-23T13:00:00Z","archive":{"status":"verified","path":"/secret","archive_host":"iMac"},"delivery":{"status":"unconfirmed"},"closure":{"deepseek":"not_started","astra":"not_started","fable":"not_started","fallback_arbiter_fable":"exited"},"escalation":{"status":"timed_out","sent_at_utc":"2026-10-23T11:00:00Z","channel":"private"},"fallback_arbitration":{"status":"completed","model_requested":"claude-fable-5-1","effort":"medium","host":"iMac","process_session_id":"private"}}`)
+	put(t, dir, "request.md", "Caller: someone in prose")
+	put(t, dir, "fallback-arbitration/fable.md", "Arbiter original")
+	put(t, dir, "proposal-1.md", "Proposal without ballots")
+	d, err := ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Requester != "" || d.Archive != "verified" || d.Delivery != "unconfirmed" || d.Mode != "fallback_arbitration" || d.Rounds != 0 || d.ProposalVersions != 1 || len(d.ConsulClosure) != 4 {
+		t.Fatalf("incorrect metadata %+v", d.Summary)
+	}
+	raw, _ := json.Marshal(d.Summary)
+	if strings.Contains(string(raw), "private") || strings.Contains(string(raw), "secret") {
+		t.Fatal("private manifest fields leaked")
+	}
+	put(t, dir, "state.json", `{"requester":"Recorded engineer"}`)
+	d, _ = ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
+	if d.Requester != "Recorded engineer" {
+		t.Fatal("lost structured requester")
+	}
+}
+
+func TestProposalDoesNotManufactureVotingRound(t *testing.T) {
+	dir, root := archive(t)
+	put(t, dir, "proposal-1.md", "D639-1: Proposed")
+	d, _ := ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
+	if d.Rounds != 0 || d.ProposalVersions != 1 {
+		t.Fatal("proposal became a voting round")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "2026-10-23/case/ballots/round-1"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
+	if d.Rounds != 1 || len(d.RatificationRounds) != 1 {
+		t.Fatal("observed empty round lost")
+	}
+	if len(ParseBallot("Proposal: proposal-1.md\nD639-1: APPROVE", 1)) != 1 {
+		t.Fatal("explicit decision ID rejected")
 	}
 }

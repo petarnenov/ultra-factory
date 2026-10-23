@@ -22,13 +22,15 @@ Create a unique consultation directory directly in the temporary file archive, o
 | Artifact | Contents |
 | --- | --- |
 | `request.md` | Case, project, branch, caller, constraints, acceptance criteria and patch scope |
-| `state.json` | ID, owner, host, canonical project path, SHA, patch digest, phase, caller channel, live handles, exits, escalation, archive, delivery and per-consul closure state |
+| `state.json` | ID, explicit `requester` display string, owner, host, canonical project path, SHA, patch digest, phase, caller channel, live handles, exits, escalation, archive, delivery and per-consul closure state |
 | `independent/<name>.md` | Frozen first-round analysis |
 | `critique/<name>.md` | Frozen mutual critique |
 | `proposal-<n>.md` | Immutable proposal version with stable decision IDs |
 | `ballots/round-<n>/<name>.md` | Explicit votes on that exact proposal version |
 | `final.md`, `logs/` | Delivered decision and separate process diagnostics |
 | `deepseek.md`, `astra.md`, `fable.md` | Per-architect collected reports, critiques and ballots, with round/version labels |
+
+For every new consultation, write an explicit `requester` string in `state.json` at creation, using the requester identity supplied by the caller. Follow the requester allowlist in [references/archive-and-close.md](references/archive-and-close.md); do not rely on request prose or owner/session metadata for this field.
 
 Reuse existing results only for the same project, SHA, patch, case, constraints and acceptance criteria. Verify live handles before resuming; files alone do not prove a running consultation. Never duplicate a live council.
 

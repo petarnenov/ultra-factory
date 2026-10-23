@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"log/slog"
+	"time"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/cdc"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
@@ -99,7 +100,9 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	k := &runningKnowledgeGraph{Service: svc, cancel: cancel}
 	k.unsubscribe = svc.Subscribe(d.Events)
 	k.done = svc.Start(runCtx)
-	k.Consultations = &consultations.Store{Write: writeClient, Read: readClient}
+	consultationReadConfig := cfg.ReadConfig()
+	consultationReadConfig.Timeout = 5 * time.Second
+	k.Consultations = &consultations.Store{Write: writeClient, Read: knowledgegraph.NewClient(consultationReadConfig, nil), ScanEnabled: d.Getenv("AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN") != "0"}
 	if d.Getenv("AO_KNOWLEDGE_GRAPH_CONSULTATION_SCAN") != "0" {
 		done := make(chan struct{})
 		k.scanDone = done
@@ -109,11 +112,4 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	d.Log.Info("knowledge graph: enabled", "url", cfg.URL, "database", cfg.Database,
 		"semantic", cfg.SemanticEnabled(), "embeddingModel", cfg.EmbeddingModel, "mergeScore", cfg.MergeScore)
 	return k, svc
-}
-
-func consultationAPI(k *runningKnowledgeGraph) controllers.ConsultationService {
-	if k == nil {
-		return nil
-	}
-	return k.Consultations
 }

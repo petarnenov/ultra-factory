@@ -162,9 +162,3 @@ func TestStartKnowledgeGraphRejectsBadEmbeddingURL(t *testing.T) {
 		t.Fatalf("logs = %q, want invalid configuration warning", logs.String())
 	}
 }
-
-func TestConsultationAPIWhenGraphDisabled(t *testing.T) {
-	if consultationAPI(nil) != nil {
-		t.Fatal("disabled graph exposed consultation service")
-	}
-}

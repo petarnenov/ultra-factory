@@ -9,7 +9,7 @@ import { ChatMarkdown } from "./chat/ChatMarkdown";
 type Detail = components["schemas"]["ConsultationDetail"];
 type Summary = components["schemas"]["ConsultationSummary"];
 
-const phaseLabels: Record<string, string> = { request: "Request", independent: "Independent analysis", critique: "Mutual critique", proposal: "Proposal", ballot: "Ballot", final: "Final answer", collected: "Collected report" };
+const phaseLabels: Record<string, string> = { request: "Request", independent: "Independent analysis", critique: "Mutual critique", proposal: "Proposal", ballot: "Ballot", arbitration: "Fallback arbitration", final: "Final answer", collected: "Collected report" };
 
 class ReadError extends Error {
  constructor(public status: number) { super(status === 501 ? "Knowledge graph is not configured on this host." : status === 404 ? "Consultation not found." : "Consultation index is unavailable. Try again."); }
@@ -18,12 +18,15 @@ class ReadError extends Error {
 function Metadata({ item }: { item: Summary }) {
  const values = [
   ["Requester", item.requester], ["Archive host", item.host], ["Recorded host", item.recordedHost],
-  ["Created", item.createdAt || item.date], ["Phase", item.phase], ["Decision", item.decision],
+  ["Project", item.project], ["Branch", item.branch], ["Commit", item.sha],
+  ["Created", item.createdAt || item.date], ["Verified", item.verifiedAt], ["Phase", item.phase], ["Decision", item.decision],
   ["Archive", item.archive], ["Delivery", item.delivery], ["Closure", item.closure],
   ["Escalation", item.escalation], ["Decision process", item.mode], ["Last sync", item.syncedAt],
  ];
- return <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-5 gap-y-1 text-sm">
-  {values.map(([label, value]) => <div key={label} className="contents"><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{value || "Unknown"}</dd></div>)}
+ return <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm @lg:grid-cols-2">
+  {values.map(([label, value]) => <div key={label} className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">{label}</dt><dd className="break-words">{value || "Unknown"}</dd></div>)}
+  {item.consulClosure?.map((closure) => <div key={closure.consul} className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">{closure.consul} closure</dt><dd className="break-words">{closure.status}</dd></div>)}
+  {item.arbitration?.status && <div className="grid min-w-0 grid-cols-[max-content_minmax(0,1fr)] gap-x-3"><dt className="text-muted-foreground">Fallback arbitration</dt><dd className="break-words">{item.arbitration.status} · {item.arbitration.model || "Model unknown"} · {item.arbitration.effort || "Effort unknown"}</dd></div>}
  </dl>;
 }
 
@@ -31,12 +34,12 @@ export function ConsultationEvidence({ detail }: { detail: Detail }) {
  return <>
   <h2 className="text-lg font-medium break-words">{detail.case || detail.name}</h2>
   <Metadata item={detail} />
-  <p className="text-sm text-muted-foreground">{detail.partial ? "Partial evidence" : "Indexed evidence"} · {detail.rounds} observed ratification rounds · {detail.phaseRounds} phase rounds</p>
+  <p className="text-sm text-muted-foreground">{detail.partial ? "Partial evidence" : "Indexed evidence"} · {detail.rounds} observed ratification rounds · {detail.proposalVersions || 0} proposal versions · {detail.phaseRounds} phase rounds</p>
   {detail.warnings?.map((warning) => <p key={warning} role="status" className="text-sm text-muted-foreground">{warning}</p>)}
   <section aria-label="Consultation timeline" className="divide-y divide-border">
    {detail.artifacts?.map((artifact) => <details key={artifact.name} className="py-3" open={artifact.phase === "final"}>
     <summary className="cursor-pointer text-sm font-medium focus-visible:outline focus-visible:outline-ring">
-     {phaseLabels[artifact.phase] || artifact.phase}{artifact.round ? ` · Round ${artifact.round}` : ""}{artifact.consul ? ` · ${artifact.consul}` : ""}
+     {phaseLabels[artifact.phase] || artifact.phase}{artifact.round ? ` · ${artifact.phase === "proposal" ? "Version" : "Round"} ${artifact.round}` : ""}{artifact.consul ? ` · ${artifact.consul}` : ""}
      {artifact.missing ? " · Missing evidence" : ""}{artifact.truncated ? " · Truncated" : ""}
     </summary>
     <div className="mt-3 min-w-0 space-y-3">
@@ -71,7 +74,7 @@ export function ConsultationsView({ id }: { id?: string }) {
   },
  });
  const active = id ? detail : list;
- return <main className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto p-5">
+ return <main className="@container mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto p-5">
   <header className="flex items-center justify-between gap-3"><h1 className="text-xl font-semibold">Architecture consultations</h1><Button variant="ghost" size="sm" onClick={() => void active.refetch()}>Refresh</Button></header>
   {id && <Link to="/consultations" className="text-sm text-muted-foreground hover:text-foreground">All consultations</Link>}
   {active.isPending && <p role="status">Loading consultations…</p>}

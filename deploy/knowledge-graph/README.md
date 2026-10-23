@@ -23,7 +23,8 @@ on `11435` (Ollama with `KG_EMBED_MODEL`, default `bge-m3`; see
 
 ## Connect a daemon
 
-On every machine whose daemon runs workers, write `~/.ao/knowledge-graph.json`
+On every machine whose daemon runs workers or that runs `geo.architect`
+(including the orchestrator host), write `~/.ao/knowledge-graph.json`
 with mode 600 and restart the daemon:
 
 ```json

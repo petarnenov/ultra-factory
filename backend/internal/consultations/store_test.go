@@ -125,12 +125,12 @@ func TestScannerCatchUpAndRetry(t *testing.T) {
 		}
 		if strings.HasPrefix(q, "CREATE") {
 			schema++
-		} else {
+		} else if strings.Contains(q, "ArchitectureConsultation {key:") {
 			imports++
 		}
 		return nil, nil
 	})}
-	scanner := &Scanner{Store: s, DataDir: dir, Host: "host"}
+	scanner := &Scanner{Store: s, DataDir: filepath.Join(dir, "data"), Host: "host"}
 	defer scanner.close()
 	scanner.Scan(context.Background())
 	if s.Status().Error == "" {
@@ -138,7 +138,7 @@ func TestScannerCatchUpAndRetry(t *testing.T) {
 	}
 	fail = false
 	scanner.Scan(context.Background())
-	if imports == 0 || imports > 32 || schema != 4 {
+	if imports == 0 || imports > 32 || schema != 5 {
 		t.Fatal(imports, schema)
 	}
 	first := imports
@@ -155,7 +155,7 @@ func TestScannerCatchUpAndRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	scanner.Run(ctx)
-	empty := &Scanner{Store: s, DataDir: t.TempDir(), Host: "host"}
+	empty := &Scanner{Store: s, DataDir: filepath.Join(t.TempDir(), "data"), Host: "host"}
 	empty.Scan(context.Background())
 	empty.close()
 	if s.Status().Error != "" {
@@ -165,10 +165,41 @@ func TestScannerCatchUpAndRetry(t *testing.T) {
 	if err := os.Symlink(archiveDir, filepath.Join(unsafe, "architecture-consults")); err != nil {
 		t.Fatal(err)
 	}
-	empty = &Scanner{Store: s, DataDir: unsafe, Host: "host"}
+	empty = &Scanner{Store: s, DataDir: filepath.Join(unsafe, "data"), Host: "host"}
 	empty.Scan(context.Background())
 	empty.close()
 	if s.Status().Error == "" {
 		t.Fatal("unsafe root")
+	}
+}
+
+func TestImportFingerprintIgnoresScanClock(t *testing.T) {
+	dir, root := archive(t)
+	put(t, dir, "final.md", "Evidence")
+	d, err := ReadArchive(context.Background(), root, "h", "2026-10-23", "case", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fingerprints []string
+	s := &Store{Write: runnerFunc(func(_ context.Context, _ string, p map[string]any) ([]knowledgegraph.Row, error) {
+		fingerprints = append(fingerprints, p["digest"].(string))
+		return nil, nil
+	})}
+	if err := s.Import(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	d.SyncedAt = "2026-10-24T00:00:00Z"
+	if err := s.Import(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints[0] != fingerprints[1] {
+		t.Fatal("scan clock changed content digest")
+	}
+	d.Artifacts[0].Missing = !d.Artifacts[0].Missing
+	if err := s.Import(context.Background(), d); err != nil {
+		t.Fatal(err)
+	}
+	if fingerprints[1] == fingerprints[2] {
+		t.Fatal("missing evidence did not change digest")
 	}
 }

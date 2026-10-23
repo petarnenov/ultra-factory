@@ -4,7 +4,7 @@ Use this file archive until a store-backed replacement is implemented. AO may in
 
 ## Stable archive layout
 
-For AO, use `architecture-consults/archive/` under the resolved `AO_DATA_DIR` (default `~/.ao/data`). Otherwise use that relative path under the applicable agent state root. Existing archives at the older `~/.ao/architecture-consults/archive/` location remain canonical at their recorded location; retain originals when explicitly copying them into the index scanner root. The date is the UTC creation date; the ID distinguishes consultations on the same day.
+For AO, use `~/.ao/architecture-consults/archive/`; otherwise use `architecture-consults/archive/` under the applicable agent state root. The date is the UTC creation date; the ID distinguishes consultations on the same day.
 
 ```text
 archive/
@@ -24,6 +24,8 @@ archive/
       ballots/round-2/{deepseek,astra,fable}.md
       logs/
 ```
+
+Every new consultation MUST write an explicit `requester` string in `state.json` when the archive is created, for example `{"requester":"Recorded engineer"}`. Use the actual caller-supplied requester display identity. If it is unavailable, obtain it from the caller before launching; never invent it or reconstruct it from `request.md`, `owner`, channel or session identifiers. The allowlisted field is a nonempty display string of at most 512 UTF-8 bytes, without path separators or control characters. Keep paths, credentials, message IDs and process/session handles in their existing private fields, never in `requester`. Historical archives without a structured requester remain Unknown; do not rewrite them to infer an identity.
 
 Keep original artifact names and contents. The three top-level architect files collect that architect's complete analysis, critique and ballots in order, with round labels, proposal versions and relative links to the originals. Do not replace these with shortened summaries. Only create round artifacts that actually exist; on an incomplete consultation, state which outputs are missing in the corresponding architect file. Never manufacture missing votes or reports.
 

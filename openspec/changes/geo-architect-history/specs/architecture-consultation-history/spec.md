@@ -28,7 +28,7 @@ The system SHALL ingest allowed original archive artifacts into the configured N
 
 ### Requirement: Show the recorded requester and process
 
-The system SHALL show the requester, question, creation time, archive host, independent analyses, mutual critiques, proposal versions, ballots, escalation evidence, and final answer when recorded. It SHALL distinguish missing or unparseable data from negative answers or approvals.
+The system SHALL show the requester, question, creation time, archive host, independent analyses, mutual critiques, proposal versions, ballots, escalation evidence, and final answer when recorded. The skill archive contract SHALL require an explicit allowlisted requester string in `state.json` for every new consultation; historical archives without it remain unknown. It SHALL distinguish missing or unparseable data from negative answers or approvals.
 
 #### Scenario: Completed consultation
 - **WHEN** a verified consultation has all required artifacts
@@ -69,3 +69,19 @@ The daemon SHALL expose paginated list and detail reads through its established 
 #### Scenario: No indexed consultations
 - **WHEN** Neo4j is configured but contains no consultation records
 - **THEN** the page shows an empty state that explains how an archive appears after a host scan
+
+#### Scenario: Canonical archive root
+- **WHEN** the daemon data directory is `~/.ao/data`
+- **THEN** scanning reads the existing `~/.ao/architecture-consults/archive` without relocation or mutation
+
+#### Scenario: Fallback arbitration with no council ballots
+- **WHEN** an archive has a proposal and `fallback-arbitration/fable.md` but no ballot round directories
+- **THEN** the original arbiter report is shown as fallback arbitration, the proposal count is one and the ratification round count is zero
+
+#### Scenario: Requester is not structured
+- **WHEN** requester appears only in owner or request prose, or the requester field is not a string
+- **THEN** requester remains unknown and original request evidence remains readable
+
+#### Scenario: Future consultation records its requester
+- **WHEN** a new consultation is created under the skill archive contract
+- **THEN** `state.json` includes an explicit allowlisted requester string and the parser and detail page display that recorded value

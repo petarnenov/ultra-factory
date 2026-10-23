@@ -66,6 +66,6 @@ func consultationError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, consultations.ErrMissing):
 		envelope.WriteAPIError(w, r, 404, "not_found", "CONSULTATION_NOT_FOUND", "Consultation not found", nil)
 	default:
-		envelope.WriteAPIError(w, r, 503, "unavailable", "KNOWLEDGE_UNAVAILABLE", "Consultation index unavailable; retry later", nil)
+		envelope.WriteAPIError(w, r, 503, "unavailable", "KNOWLEDGE_GRAPH_UNAVAILABLE", "Consultation index unavailable; retry later", nil)
 	}
 }

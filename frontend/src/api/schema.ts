@@ -4939,6 +4939,12 @@ export interface components {
             inputTokens: null | number;
             outputTokens: null | number;
         };
+        ConsultationArbitrationEvidence: {
+            effort: string;
+            host: string;
+            model: string;
+            status: string;
+        };
         ConsultationArtifact: {
             absentSince: string;
             ballots: components["schemas"]["ConsultationBallot"][];
@@ -4947,6 +4953,7 @@ export interface components {
             hash: string;
             missing: boolean;
             name: string;
+            parsed: boolean;
             phase: string;
             round: number;
             truncated: boolean;
@@ -4955,27 +4962,43 @@ export interface components {
             decision: string;
             stance: string;
         };
+        ConsultationClosureEvidence: {
+            consul: string;
+            status: string;
+        };
         ConsultationDetail: {
+            arbitration: components["schemas"]["ConsultationArbitrationEvidence"];
             archive: string;
             artifacts: components["schemas"]["ConsultationArtifact"][];
+            branch: string;
             case: string;
             closure: string;
+            consulClosure: components["schemas"]["ConsultationClosureEvidence"][];
             createdAt: string;
             date: string;
             decision: string;
             delivery: string;
+            escalatedAt: string;
             escalation: string;
+            escalationDeadline: string;
             host: string;
             id: string;
             mode: string;
             name: string;
             partial: boolean;
+            patchDigest: string;
             phase: string;
             phaseRounds: number;
+            project: string;
+            proposalVersions: number;
+            ratificationRounds: number[];
             recordedHost: string;
             requester: string;
+            respondedAt: string;
             rounds: number;
+            sha: string;
             syncedAt: string;
+            verifiedAt: string;
             warnings: string[];
         };
         ConsultationPage: {
@@ -4991,27 +5014,40 @@ export interface components {
             examined: number;
             imported: number;
             lastScan: string;
+            skipped: number;
         };
         ConsultationSummary: {
+            arbitration: components["schemas"]["ConsultationArbitrationEvidence"];
             archive: string;
+            branch: string;
             case: string;
             closure: string;
+            consulClosure: components["schemas"]["ConsultationClosureEvidence"][];
             createdAt: string;
             date: string;
             decision: string;
             delivery: string;
+            escalatedAt: string;
             escalation: string;
+            escalationDeadline: string;
             host: string;
             id: string;
             mode: string;
             name: string;
             partial: boolean;
+            patchDigest: string;
             phase: string;
             phaseRounds: number;
+            project: string;
+            proposalVersions: number;
+            ratificationRounds: number[];
             recordedHost: string;
             requester: string;
+            respondedAt: string;
             rounds: number;
+            sha: string;
             syncedAt: string;
+            verifiedAt: string;
         };
         ConsumeCodexAccountResetCreditRequest: {
             idempotencyKey: string;

@@ -2,6 +2,8 @@ package consultations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -12,13 +14,20 @@ import (
 
 // Store uses the existing graph writers and read-only query credentials.
 type Store struct {
-	Write  knowledgegraph.Runner
-	Read   knowledgegraph.Runner
-	mu     sync.RWMutex
-	status ScanStatus
+	ScanEnabled bool
+	Write       knowledgegraph.Runner
+	Read        knowledgegraph.Runner
+	mu          sync.RWMutex
+	status      ScanStatus
 }
 
-func (s *Store) Status() ScanStatus          { s.mu.RLock(); defer s.mu.RUnlock(); return s.status }
+func (s *Store) Status() ScanStatus {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	status := s.status
+	status.Enabled = status.Enabled || s.ScanEnabled
+	return status
+}
 func (s *Store) setStatus(status ScanStatus) { s.mu.Lock(); defer s.mu.Unlock(); s.status = status }
 
 // Schema is repeatable and uses the daemon's graph writer credentials.
@@ -26,8 +35,9 @@ func (s *Store) Schema(ctx context.Context) error {
 	for _, q := range []string{
 		"CREATE CONSTRAINT consultation_key IF NOT EXISTS FOR (c:ArchitectureConsultation) REQUIRE c.key IS UNIQUE",
 		"CREATE CONSTRAINT consultation_artifact_key IF NOT EXISTS FOR (a:ConsultationArtifact) REQUIRE a.key IS UNIQUE",
-		"CREATE INDEX consultation_date IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.date)",
-		"CREATE INDEX consultation_host IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.host)",
+		"CREATE INDEX consultation_created IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.createdAt)",
+		"CREATE INDEX consultation_host IF NOT EXISTS FOR (c:ArchitectureConsultation) ON (c.hostId)",
+		"CREATE CONSTRAINT consultation_scan_host IF NOT EXISTS FOR (s:ArchitectureConsultationScan) REQUIRE s.hostId IS UNIQUE",
 	} {
 		if _, err := s.Write.Run(ctx, q, nil); err != nil {
 			return err
@@ -38,7 +48,9 @@ func (s *Store) Schema(ctx context.Context) error {
 
 const upsert = `
 MERGE (c:ArchitectureConsultation {key: $key})
-SET c.summary = $summary, c.date = $date, c.host = $host, c.syncedAt = $at,
+WITH c WHERE c.digest IS NULL OR c.digest <> $digest
+SET c.digest = $digest
+SET c.summary = $summary, c.date = $date, c.hostId = $host, c.createdAt = $createdAt, c.syncedAt = $at,
     c.warnings = $warnings
 WITH c
 UNWIND $artifacts AS item
@@ -58,6 +70,13 @@ func (s *Store) Import(ctx context.Context, d Detail) error {
 	if err != nil {
 		return err
 	}
+	content := d
+	content.SyncedAt = ""
+	fingerprint, err := json.Marshal(content)
+	if err != nil {
+		return err
+	}
+	digest := sha256.Sum256(fingerprint)
 	summary, err := json.Marshal(d.Summary)
 	if err != nil {
 		return err
@@ -80,7 +99,7 @@ func (s *Store) Import(ctx context.Context, d Detail) error {
 		}
 		items = append(items, map[string]any{"name": a.Name, "missing": a.Missing, "content": string(raw)})
 	}
-	_, err = s.Write.Run(ctx, upsert, map[string]any{"key": key, "summary": string(summary), "date": d.Date, "host": d.Host, "at": d.SyncedAt, "warnings": d.Warnings, "artifacts": items})
+	_, err = s.Write.Run(ctx, upsert, map[string]any{"key": key, "digest": hex.EncodeToString(digest[:]), "summary": string(summary), "date": d.Date, "host": d.Host, "createdAt": d.CreatedAt, "at": d.SyncedAt, "warnings": d.Warnings, "artifacts": items})
 	return err
 }
 
@@ -158,20 +177,44 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 		byName[a.Name] = a
 	}
 
-	rounds := map[int]bool{}
+	groups := map[int]bool{}
+	ballots := map[int]bool{}
+	proposals := map[int]bool{}
+	for _, round := range d.RatificationRounds {
+		ballots[round] = true
+		groups[round] = true
+	}
 	for _, a := range byName {
 		if a.Round > 0 && (!a.Missing || a.AbsentSince != "") {
-			rounds[a.Round] = true
+			groups[a.Round] = true
+			if a.Phase == "ballot" {
+				ballots[a.Round] = true
+			}
+			if a.Phase == "proposal" {
+				proposals[a.Round] = true
+			}
 		}
 	}
 	for _, a := range artifactLayout() {
-		if stored, ok := byName[a.Name]; ok && (a.Round == 0 || rounds[a.Round]) {
-			d.Artifacts = append(d.Artifacts, stored)
+		stored, ok := byName[a.Name]
+		if !ok || (a.Round > 0 && !groups[a.Round]) {
+			continue
+		}
+		if a.Phase == "arbitration" && stored.Missing && stored.AbsentSince == "" && d.Arbitration.Status == "" {
+			continue
+		}
+		d.Artifacts = append(d.Artifacts, stored)
+	}
+	d.Rounds = len(ballots)
+	d.ProposalVersions = len(proposals)
+	d.RatificationRounds = []int{}
+	for round := 1; round <= 2; round++ {
+		if ballots[round] {
+			d.RatificationRounds = append(d.RatificationRounds, round)
 		}
 	}
-	d.Rounds = len(rounds)
 	d.PhaseRounds = d.Rounds
-	for _, phase := range []string{"independent", "critique"} {
+	for _, phase := range []string{"independent", "critique", "arbitration"} {
 		for _, a := range d.Artifacts {
 			if a.Phase == phase && (!a.Missing || a.AbsentSince != "") {
 				d.PhaseRounds++
@@ -180,4 +223,12 @@ RETURN c.summary AS summary, c.warnings AS warnings, a.content AS artifact,
 		}
 	}
 	return d, nil
+}
+
+func (s *Store) saveStatus(ctx context.Context, host string, status ScanStatus) {
+	raw, err := json.Marshal(status)
+	if err != nil {
+		return
+	}
+	_, _ = s.Write.Run(ctx, `MERGE (s:ArchitectureConsultationScan {hostId: $host}) SET s.status = $status`, map[string]any{"host": host, "status": string(raw)})
 }

@@ -14683,6 +14683,22 @@ components:
       - outputTokens
       - completeness
       type: object
+    ConsultationArbitrationEvidence:
+      properties:
+        effort:
+          type: string
+        host:
+          type: string
+        model:
+          type: string
+        status:
+          type: string
+      required:
+      - status
+      - model
+      - effort
+      - host
+      type: object
     ConsultationArtifact:
       properties:
         absentSince:
@@ -14701,6 +14717,8 @@ components:
           type: boolean
         name:
           type: string
+        parsed:
+          type: boolean
         phase:
           type: string
         round:
@@ -14718,6 +14736,7 @@ components:
       - missing
       - absentSince
       - ballots
+      - parsed
       type: object
     ConsultationBallot:
       properties:
@@ -14729,18 +14748,36 @@ components:
       - decision
       - stance
       type: object
+    ConsultationClosureEvidence:
+      properties:
+        consul:
+          type: string
+        status:
+          type: string
+      required:
+      - consul
+      - status
+      type: object
     ConsultationDetail:
       properties:
+        arbitration:
+          $ref: '#/components/schemas/ConsultationArbitrationEvidence'
         archive:
           type: string
         artifacts:
           items:
             $ref: '#/components/schemas/ConsultationArtifact'
           type: array
+        branch:
+          type: string
         case:
           type: string
         closure:
           type: string
+        consulClosure:
+          items:
+            $ref: '#/components/schemas/ConsultationClosureEvidence'
+          type: array
         createdAt:
           type: string
         date:
@@ -14749,7 +14786,11 @@ components:
           type: string
         delivery:
           type: string
+        escalatedAt:
+          type: string
         escalation:
+          type: string
+        escalationDeadline:
           type: string
         host:
           type: string
@@ -14761,17 +14802,33 @@ components:
           type: string
         partial:
           type: boolean
+        patchDigest:
+          type: string
         phase:
           type: string
         phaseRounds:
           type: integer
+        project:
+          type: string
+        proposalVersions:
+          type: integer
+        ratificationRounds:
+          items:
+            type: integer
+          type: array
         recordedHost:
           type: string
         requester:
           type: string
+        respondedAt:
+          type: string
         rounds:
           type: integer
+        sha:
+          type: string
         syncedAt:
+          type: string
+        verifiedAt:
           type: string
         warnings:
           items:
@@ -14785,6 +14842,16 @@ components:
       - recordedHost
       - requester
       - case
+      - project
+      - branch
+      - sha
+      - patchDigest
+      - verifiedAt
+      - escalatedAt
+      - escalationDeadline
+      - respondedAt
+      - consulClosure
+      - arbitration
       - phase
       - decision
       - archive
@@ -14795,6 +14862,8 @@ components:
       - createdAt
       - syncedAt
       - rounds
+      - proposalVersions
+      - ratificationRounds
       - phaseRounds
       - partial
       - artifacts
@@ -14830,22 +14899,33 @@ components:
           type: integer
         lastScan:
           type: string
+        skipped:
+          type: integer
       required:
       - enabled
       - lastScan
       - durationMs
       - examined
+      - skipped
       - imported
       - error
       type: object
     ConsultationSummary:
       properties:
+        arbitration:
+          $ref: '#/components/schemas/ConsultationArbitrationEvidence'
         archive:
+          type: string
+        branch:
           type: string
         case:
           type: string
         closure:
           type: string
+        consulClosure:
+          items:
+            $ref: '#/components/schemas/ConsultationClosureEvidence'
+          type: array
         createdAt:
           type: string
         date:
@@ -14854,7 +14934,11 @@ components:
           type: string
         delivery:
           type: string
+        escalatedAt:
+          type: string
         escalation:
+          type: string
+        escalationDeadline:
           type: string
         host:
           type: string
@@ -14866,17 +14950,33 @@ components:
           type: string
         partial:
           type: boolean
+        patchDigest:
+          type: string
         phase:
           type: string
         phaseRounds:
           type: integer
+        project:
+          type: string
+        proposalVersions:
+          type: integer
+        ratificationRounds:
+          items:
+            type: integer
+          type: array
         recordedHost:
           type: string
         requester:
           type: string
+        respondedAt:
+          type: string
         rounds:
           type: integer
+        sha:
+          type: string
         syncedAt:
+          type: string
+        verifiedAt:
           type: string
       required:
       - id
@@ -14886,6 +14986,16 @@ components:
       - recordedHost
       - requester
       - case
+      - project
+      - branch
+      - sha
+      - patchDigest
+      - verifiedAt
+      - escalatedAt
+      - escalationDeadline
+      - respondedAt
+      - consulClosure
+      - arbitration
       - phase
       - decision
       - archive
@@ -14896,6 +15006,8 @@ components:
       - createdAt
       - syncedAt
       - rounds
+      - proposalVersions
+      - ratificationRounds
       - phaseRounds
       - partial
       type: object

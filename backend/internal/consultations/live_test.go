@@ -56,7 +56,7 @@ func TestLiveIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Artifacts) != len(detail.Artifacts) || got.Rounds != 1 {
+	if len(got.Artifacts) != len(detail.Artifacts) || got.Rounds != 0 || got.ProposalVersions != 1 {
 		t.Fatalf("duplicate or missing artifacts: %+v", got)
 	}
 	if err := os.Remove(filepath.Join(dir, "2026-10-23/case/proposal-2.md")); err != nil {

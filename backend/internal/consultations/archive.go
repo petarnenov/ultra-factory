@@ -12,11 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
 var consulNames = []string{"deepseek", "astra", "fable"}
-var voteLine = regexp.MustCompile(`^(D[0-9]{2,}): (APPROVE|REJECT)$`)
+var voteLine = regexp.MustCompile(`^(D[A-Za-z0-9][A-Za-z0-9._-]{0,63}): (APPROVE|REJECT)$`)
 
 // ParseBallot accepts a version line followed only by unique decision votes.
 func ParseBallot(text string, round int) []Ballot {
@@ -50,6 +51,7 @@ func artifactLayout() []Artifact {
 			out = append(out, Artifact{Name: fmt.Sprintf("ballots/round-%d/%s.md", round, name), Phase: "ballot", Round: round, Consul: name})
 		}
 	}
+	out = append(out, Artifact{Name: "fallback-arbitration/fable.md", Phase: "arbitration", Consul: "fable"})
 	out = append(out, Artifact{Name: "final.md", Phase: "final"})
 	for _, name := range consulNames {
 		out = append(out, Artifact{Name: name + ".md", Phase: "collected", Consul: name})
@@ -146,9 +148,29 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 			applyState(&d.Summary, state)
 		}
 	}
+
 	remaining := TotalContentCap
 	observed := map[int]bool{}
+	ballots := map[int]bool{}
+	proposals := map[int]bool{}
 	phases := map[string]bool{}
+	for _, phase := range []string{"independent", "critique", "arbitration"} {
+		path := base + phase
+		if phase == "arbitration" {
+			path = base + "fallback-arbitration"
+		}
+		if safeDir(root, path) {
+			phases[phase] = true
+		}
+	}
+	for round := 1; round <= 2; round++ {
+		if safeDir(root, fmt.Sprintf("%sballots/round-%d", base, round)) {
+			observed[round] = true
+			ballots[round] = true
+		}
+	}
+	d.ConsulClosure = append([]ClosureEvidence{}, d.ConsulClosure...)
+	d.RatificationRounds = []int{}
 	for _, a := range artifactLayout() {
 		a.Ballots = []Ballot{}
 		text, digest, trunc, err := readArtifact(ctx, root, base+a.Name, min(ContentCap, remaining))
@@ -175,18 +197,32 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 			a.Hash = digest
 			a.Truncated = trunc
 			remaining = max(0, remaining-len(encoded))
+
 			if a.Round > 0 {
 				observed[a.Round] = true
+			}
+			if a.Phase == "proposal" {
+				proposals[a.Round] = true
+			}
+			if a.Phase == "ballot" {
+				ballots[a.Round] = true
 			}
 			phases[a.Phase] = true
 			if a.Phase == "ballot" && !trunc {
 				a.Ballots = ParseBallot(text, a.Round)
+				a.Parsed = len(a.Ballots) > 0
 			}
 		}
 		d.Artifacts = append(d.Artifacts, a)
 	}
-	d.Rounds = len(observed)
-	for _, p := range []string{"independent", "critique"} {
+	d.Rounds = len(ballots)
+	d.ProposalVersions = len(proposals)
+	for round := 1; round <= 2; round++ {
+		if ballots[round] {
+			d.RatificationRounds = append(d.RatificationRounds, round)
+		}
+	}
+	for _, p := range []string{"independent", "critique", "arbitration"} {
 		if phases[p] {
 			d.PhaseRounds++
 		}
@@ -195,6 +231,10 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 	filtered := d.Artifacts[:0]
 	for _, a := range d.Artifacts {
 		if a.Round > 0 && !observed[a.Round] {
+			continue
+		}
+
+		if a.Phase == "arbitration" && a.Missing && d.Arbitration.Status == "" {
 			continue
 		}
 		if a.Missing || (a.Phase == "ballot" && len(a.Ballots) == 0) || a.Truncated {
@@ -207,17 +247,92 @@ func ReadArchive(ctx context.Context, root *os.Root, host, date, name string, no
 	return d, nil
 }
 
+func safeDir(root *os.Root, path string) bool {
+	parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
+	for i := range parts {
+		info, err := root.Lstat(strings.Join(parts[:i+1], "/"))
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+var stateToken = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,95}$`)
+var digestToken = regexp.MustCompile(`^[a-fA-F0-9]{40,64}$`)
+
 func applyState(s *Summary, state map[string]json.RawMessage) {
-	for key, target := range map[string]*string{"requester": &s.Requester, "case": &s.Case, "host": &s.RecordedHost, "created_at": &s.CreatedAt} {
+	text := func(raw json.RawMessage) string {
 		var value string
-		if json.Unmarshal(state[key], &value) == nil && len(value) <= 512 && !strings.ContainsAny(value, "/\\\x00\n\r") {
+		if json.Unmarshal(raw, &value) != nil || len(value) > 512 || strings.ContainsAny(value, "/\\\x00\n\r") {
+			return ""
+		}
+		if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			return ""
+		}
+		return strings.TrimSpace(value)
+	}
+	token := func(raw json.RawMessage) string {
+		value := text(raw)
+		if !stateToken.MatchString(value) {
+			return ""
+		}
+		return value
+	}
+	timestamp := func(raw json.RawMessage) string {
+		value := text(raw)
+		if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+			return ""
+		}
+		return value
+	}
+	for key, target := range map[string]*string{"requester": &s.Requester, "case": &s.Case, "host": &s.RecordedHost, "project": &s.Project} {
+		*target = text(state[key])
+	}
+	s.CreatedAt = timestamp(state["created_at"])
+	s.VerifiedAt = timestamp(state["verified_at_utc"])
+	for key, target := range map[string]*string{"phase": &s.Phase, "decision_status": &s.Decision, "archive_status": &s.Archive, "delivery_status": &s.Delivery, "closure_status": &s.Closure, "escalation_status": &s.Escalation, "mode": &s.Mode} {
+		*target = token(state[key])
+	}
+	var branch string
+	if json.Unmarshal(state["branch"], &branch) == nil && len(branch) <= 160 && !strings.HasPrefix(branch, "/") && !strings.Contains(branch, "..") && regexp.MustCompile(`^[A-Za-z0-9._/-]+$`).MatchString(branch) {
+		s.Branch = branch
+	}
+	for key, target := range map[string]*string{"sha": &s.SHA, "patch_digest": &s.PatchDigest} {
+		value := text(state[key])
+		if digestToken.MatchString(value) {
 			*target = value
 		}
 	}
-	for key, target := range map[string]*string{"phase": &s.Phase, "decision_status": &s.Decision, "archive_status": &s.Archive, "delivery_status": &s.Delivery, "closure_status": &s.Closure, "escalation_status": &s.Escalation, "mode": &s.Mode} {
-		var value string
-		if json.Unmarshal(state[key], &value) == nil && regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`).MatchString(value) {
-			*target = value
+	nested := func(key string) map[string]json.RawMessage {
+		var m map[string]json.RawMessage
+		_ = json.Unmarshal(state[key], &m)
+		return m
+	}
+	archive := nested("archive")
+	delivery := nested("delivery")
+	escalation := nested("escalation")
+	if s.Archive == "" {
+		s.Archive = token(archive["status"])
+	}
+	if s.Delivery == "" {
+		s.Delivery = token(delivery["status"])
+	}
+	if s.Escalation == "" {
+		s.Escalation = token(escalation["status"])
+	}
+	s.EscalatedAt = timestamp(escalation["sent_at_utc"])
+	s.EscalationDeadline = timestamp(escalation["deadline_at_utc"])
+	s.RespondedAt = timestamp(escalation["response_at_utc"])
+	closure := nested("closure")
+	for _, name := range []string{"deepseek", "astra", "fable", "fallback_arbiter_fable"} {
+		if value := token(closure[name]); value != "" {
+			s.ConsulClosure = append(s.ConsulClosure, ClosureEvidence{Consul: name, Status: value})
 		}
+	}
+	arbitration := nested("fallback_arbitration")
+	s.Arbitration = ArbitrationEvidence{Status: token(arbitration["status"]), Model: text(arbitration["model_requested"]), Effort: token(arbitration["effort"]), Host: text(arbitration["host"])}
+	if s.Arbitration.Status != "" {
+		s.Mode = "fallback_arbitration"
 	}
 }

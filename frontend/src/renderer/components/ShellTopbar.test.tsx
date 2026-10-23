@@ -274,6 +274,15 @@ describe("ShellTopbar route identity", () => {
 	});
 });
 
+describe("ShellTopbar consultation identity", () => {
+ it.each(["/consultations", "/consultations/opaque"])("identifies %s", (path) => {
+  locationMock.pathname = path;
+  render(<QueryClientProvider client={new QueryClient()}><TooltipProvider><ShellTopbar /></TooltipProvider></QueryClientProvider>);
+  expect(screen.getByText("Architecture consultations")).toBeInTheDocument();
+  expect(screen.queryByTestId("board-topbar-label")).not.toBeInTheDocument();
+ });
+});
+
 describe("ShellTopbar Artifacts identity", () => {
 	it("identifies the Artifacts route instead of presenting it as the board", () => {
 		locationMock.pathname = "/artifacts";

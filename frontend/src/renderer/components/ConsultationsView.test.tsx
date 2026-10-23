@@ -55,3 +55,25 @@ it("loads a detail using its opaque identifier", async () => {
  expect(await screen.findByText("Detail case")).toBeInTheDocument();
  expect(get).toHaveBeenCalledWith("/api/v1/knowledge/consultations/{id}", expect.objectContaining({ params: { path: { id: "opaque" } } }));
 });
+
+it("separates recorded fallback arbitration, closure and proposal versions from votes", () => {
+ const detail = {
+  name: "Arbitration case", partial: true, rounds: 0, proposalVersions: 1, phaseRounds: 0,
+  archive: "verified", delivery: "unconfirmed", mode: "fallback_arbitration",
+  consulClosure: [{ consul: "deepseek", status: "not_started" }],
+  arbitration: { status: "completed", model: "claude-fable-5-1", effort: "medium" },
+  artifacts: [{ name: "fallback-arbitration/fable.md", phase: "arbitration", consul: "fable", content: "Original arbiter ruling", ballots: [] }],
+ } as unknown as components["schemas"]["ConsultationDetail"];
+ render(<ConsultationEvidence detail={detail} />);
+ expect(screen.getByText(/0 observed ratification rounds · 1 proposal versions/)).toBeInTheDocument();
+ expect(screen.getByText("not_started")).toBeInTheDocument();
+ expect(screen.getByText("Original arbiter ruling")).toBeInTheDocument();
+ expect(screen.queryByText("Ballot stance unknown")).not.toBeInTheDocument();
+});
+
+it("displays the explicit requester field from future consultation archives", () => {
+ const detail = { name: "Future consultation", requester: "Recorded engineer", artifacts: [], rounds: 0, proposalVersions: 0, phaseRounds: 0 } as unknown as components["schemas"]["ConsultationDetail"];
+ render(<ConsultationEvidence detail={detail} />);
+ expect(screen.getByText("Requester")).toBeInTheDocument();
+ expect(screen.getByText("Recorded engineer")).toBeInTheDocument();
+});

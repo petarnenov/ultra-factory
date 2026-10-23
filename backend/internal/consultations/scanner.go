@@ -2,6 +2,8 @@ package consultations
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,7 +52,10 @@ func (s *Scanner) Run(ctx context.Context) {
 }
 
 func (s *Scanner) open() error {
-	data, err := os.OpenRoot(s.DataDir)
+	if s.DataDir == "" || !filepath.IsAbs(s.DataDir) {
+		return os.ErrInvalid
+	}
+	data, err := os.OpenRoot(filepath.Dir(filepath.Clean(s.DataDir)))
 	if err != nil {
 		return err
 	}
@@ -75,9 +80,15 @@ func (s *Scanner) open() error {
 func (s *Scanner) Scan(parent context.Context) {
 	started := time.Now()
 	status := ScanStatus{Enabled: true, LastScan: started.UTC().Format(time.RFC3339Nano)}
-	defer func() { status.DurationMS = time.Since(started).Milliseconds(); s.Store.setStatus(status) }()
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
+	defer func() {
+		status.DurationMS = time.Since(started).Milliseconds()
+		s.Store.setStatus(status)
+		if ctx.Err() == nil {
+			s.Store.saveStatus(ctx, s.Host, status)
+		}
+	}()
 	if !s.schemaReady {
 		if err := s.Store.Schema(ctx); err != nil {
 			status.Error = "Graph schema unavailable; scan will retry"
@@ -101,12 +112,18 @@ func (s *Scanner) Scan(parent context.Context) {
 		}
 		if s.names == nil {
 			dates, err := s.dates.ReadDir(1)
+
 			if err != nil {
+				if !errors.Is(err, io.EOF) {
+					status.Error = "Archive enumeration failed"
+				}
 				s.close()
 				return
 			}
 			date := dates[0]
+
 			if !date.IsDir() || !datePattern.MatchString(date.Name()) {
+				status.Skipped++
 				continue
 			}
 			s.date = date.Name()
@@ -118,13 +135,19 @@ func (s *Scanner) Scan(parent context.Context) {
 			}
 		}
 		names, err := s.names.ReadDir(1)
+
 		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				status.Error = "Archive enumeration failed"
+			}
 			_ = s.names.Close()
 			s.names = nil
 			continue
 		}
 		entry := names[0]
+
 		if !entry.IsDir() || !segment.MatchString(entry.Name()) {
+			status.Skipped++
 			continue
 		}
 		status.Examined++

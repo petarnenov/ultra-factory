@@ -17,7 +17,10 @@ CREATE CONSTRAINT consultation_key IF NOT EXISTS
 FOR (c:ArchitectureConsultation) REQUIRE c.key IS UNIQUE;
 CREATE CONSTRAINT consultation_artifact_key IF NOT EXISTS
 FOR (a:ConsultationArtifact) REQUIRE a.key IS UNIQUE;
-CREATE INDEX consultation_date IF NOT EXISTS
-FOR (c:ArchitectureConsultation) ON (c.date);
+CREATE INDEX consultation_created IF NOT EXISTS
+FOR (c:ArchitectureConsultation) ON (c.createdAt);
 CREATE INDEX consultation_host IF NOT EXISTS
-FOR (c:ArchitectureConsultation) ON (c.host);
+FOR (c:ArchitectureConsultation) ON (c.hostId);
+
+CREATE CONSTRAINT consultation_scan_host IF NOT EXISTS
+FOR (s:ArchitectureConsultationScan) REQUIRE s.hostId IS UNIQUE;
