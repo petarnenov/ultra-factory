@@ -651,13 +651,17 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 	if !providerHandleOwnedByActiveBranch {
 		providerBoundaryID = providerScopeID
 	} else if cfg.ProviderConversationID == "" && cfg.ProviderScopeID == "" &&
-		!queuedBeforeFirstController &&
-		(activeBranch.ProviderConversationID != "" || hadProviderHistory ||
-			(!preserveUndispatchedQueue && conversation.LatestSequence > 0)) {
+		(activeBranch.ProviderConversationID != "" ||
+			(!queuedBeforeFirstController && (hadProviderHistory ||
+				(!preserveUndispatchedQueue && conversation.LatestSequence > 0)))) {
 		// This conversation already owns provider history, but the caller proved it
 		// cannot resume that provider thread. Reserve the next provider boundary
 		// before connect so every opaque id emitted by the fresh process is born in
 		// the same namespace that ControllerReady will durably publish.
+		//
+		// A first controller's queued intake does not waive a branch that already
+		// names a provider: an orchestrator inheriting the project conversation
+		// would otherwise publish its fresh handle to the session only (#572).
 		providerBoundaryID = s.newID()
 		providerScopeID = providerBoundaryID
 		providerHandleOwnedByActiveBranch = false
@@ -665,8 +669,8 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 	if cfg.ProviderConversationID != "" && providerHandleOwnedByActiveBranch {
 		if activeBranch.ProviderConversationID != "" &&
 			activeBranch.ProviderConversationID != cfg.ProviderConversationID {
-			return nil, fmt.Errorf("active conversation branch provider handle %q does not match session handle %q",
-				activeBranch.ProviderConversationID, cfg.ProviderConversationID)
+			return nil, fmt.Errorf("%w: active conversation branch provider handle %q does not match session handle %q",
+				ports.ErrChatProviderHandleMismatch, activeBranch.ProviderConversationID, cfg.ProviderConversationID)
 		}
 	}
 	// Conversation settings are durable user choices. Restore the selected
@@ -791,6 +795,18 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 			_ = cleanupUnpublishedConversation(conv, false)
 			return nil, err
 		}
+	}
+	// Only a provider boundary or an unpersisted-provider swap moves the session
+	// and the active branch to a new handle in one transaction. Any other
+	// publication must already agree with the branch, or the session would carry
+	// a handle no later resume can reconcile (#572). Checked before any
+	// controller claim or settlement so a refusal leaves durable state untouched.
+	if providerBoundaryID == "" && !freshReplacement &&
+		activeBranch.ProviderConversationID != "" &&
+		conv.ProviderConversationID() != activeBranch.ProviderConversationID {
+		_ = cleanupUnpublishedConversation(conv, cfg.ProviderConversationID == "")
+		return nil, fmt.Errorf("%w: provider conversation %q would replace active branch handle %q without a provider boundary",
+			ports.ErrChatProviderHandleMismatch, conv.ProviderConversationID(), activeBranch.ProviderConversationID)
 	}
 	if freshReplacement {
 		// No native history exists to import; continue as a fresh start.

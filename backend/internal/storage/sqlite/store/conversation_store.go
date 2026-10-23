@@ -733,6 +733,10 @@ func (s *Store) commitChatSpawn(
 				return err
 			}
 		}
+		// The caller reserved the boundary before its provider connected. Input
+		// queued on the parent meanwhile must stay in the new branch's lineage, so
+		// fork after the sequence this transaction observes, not the reservation's.
+		branch.ForkAfterSequence = conversation.LatestSequence
 		if err := insertConversationBranchTx(ctx, q, branch, branch.CreatedAt); err != nil {
 			return err
 		}

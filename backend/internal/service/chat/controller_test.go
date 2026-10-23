@@ -987,11 +987,60 @@ func TestOrdinaryResumeRejectsProviderHandleOutsideActiveBranch(t *testing.T) {
 		ProviderConversationID: "unowned-provider-thread",
 		HistoryMode:            ports.ChatHistoryDeferred,
 	})
-	if err == nil || !strings.Contains(err.Error(), "does not match session handle") {
+	if !errors.Is(err, ports.ErrChatProviderHandleMismatch) {
 		t.Fatalf("ordinary resume error = %v, want active-branch handle mismatch", err)
 	}
 	if resumeCalls != 0 {
 		t.Fatalf("driver resume calls = %d, want mismatch rejected before provider launch", resumeCalls)
+	}
+}
+
+// A fresh provider started in the active branch's own scope has no boundary to
+// carry its handle, so publishing it would split the session from the branch
+// (#572). Start must refuse before ControllerReady writes anything.
+func TestFreshProviderInActiveBranchScopeRejectsDivergentHandle(t *testing.T) {
+	st := openStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 23, 9, 0, 0, 0, time.UTC)
+	record, found, err := st.GetSession(ctx, testSession)
+	if err != nil || !found {
+		t.Fatalf("GetSession: found=%v err=%v", found, err)
+	}
+	record.Metadata.ProviderConversationID = "active-provider-thread"
+	if err := st.UpdateSession(ctx, record); err != nil {
+		t.Fatalf("seed active provider handle: %v", err)
+	}
+	conversation, err := st.CreateConversation(ctx, "divergent-fresh-conversation",
+		domain.ConversationScopeSession, testProject, testSession, now)
+	if err != nil {
+		t.Fatalf("CreateConversation: %v", err)
+	}
+	active, err := st.ConversationBranch(ctx, conversation.ID, conversation.ActiveBranchID)
+	if err != nil {
+		t.Fatalf("ConversationBranch: %v", err)
+	}
+
+	published := false
+	svc := chatsvc.New(chatsvc.Options{
+		Store: st, Sessions: st,
+		Drivers: fakeRegistry{driver: fakeDriver{conv: newFakeConversation()}},
+		Log:     slog.New(slog.DiscardHandler),
+		NewID:   func() string { return "unused-divergent-fresh" },
+	})
+	_, err = svc.Start(ctx, chatsvc.StartConfig{
+		SessionID: testSession, ProjectID: testProject, Kind: domain.KindWorker,
+		Harness: domain.HarnessCodex, WorkspacePath: t.TempDir(),
+		ProviderScopeID: active.ProviderScopeID,
+		ControllerReady: func(chatsvc.StartResult) (chatsvc.ControllerCommit, error) {
+			published = true
+			return chatsvc.ControllerCommit{}, nil
+		},
+	})
+	if !errors.Is(err, ports.ErrChatProviderHandleMismatch) {
+		t.Fatalf("fresh start error = %v, want provider handle mismatch", err)
+	}
+	if published {
+		t.Fatal("divergent provider handle reached ControllerReady")
 	}
 }
 
