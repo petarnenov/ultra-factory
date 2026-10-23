@@ -733,11 +733,65 @@ func (s *Store) commitChatSpawn(
 				return err
 			}
 		}
-		// Fork after the sequence seen here, not at reservation, so input
-		// queued while the provider connected stays in this lineage.
-		branch.ForkAfterSequence = conversation.LatestSequence
+		// Move the queued tail under fresh-provider boundaries. Native handoffs
+		// keep their boundary because retired-owner intake must not be dispatched.
+		var queueFloor int64
+		if handoff == nil {
+			queueFloor, err = q.SelectUndispatchedConversationQueueFloor(ctx,
+				gen.SelectUndispatchedConversationQueueFloorParams{
+					ConversationID: branch.ConversationID,
+					BranchID:       branch.ParentBranchID,
+				})
+			if errors.Is(err, sql.ErrNoRows) {
+				queueFloor = 0
+			} else if err != nil {
+				return fmt.Errorf("select undispatched Chat queue floor: %w", err)
+			}
+			if queueFloor > 0 {
+				unmoved, countErr := q.CountUnmovedConversationRowsAfterQueueFloor(ctx,
+					gen.CountUnmovedConversationRowsAfterQueueFloorParams{
+						ConversationID: branch.ConversationID,
+						BranchID:       branch.ParentBranchID,
+						QueueFloor:     queueFloor,
+					})
+				if countErr != nil {
+					return fmt.Errorf("check parent Chat rows after queue floor: %w", countErr)
+				}
+				if unmoved != 0 {
+					return errors.New("cannot move undispatched Chat queue before unmoved parent rows")
+				}
+				branch.ForkAfterSequence = queueFloor - 1
+			} else {
+				branch.ForkAfterSequence = conversation.LatestSequence
+			}
+		} else {
+			branch.ForkAfterSequence = conversation.LatestSequence
+		}
 		if err := insertConversationBranchTx(ctx, q, branch, branch.CreatedAt); err != nil {
 			return err
+		}
+		if queueFloor > 0 {
+			if err := q.MoveUndispatchedConversationQueueTurns(ctx,
+				gen.MoveUndispatchedConversationQueueTurnsParams{
+					TargetBranchID: branch.ID, ConversationID: branch.ConversationID,
+					SourceBranchID: branch.ParentBranchID,
+				}); err != nil {
+				return fmt.Errorf("move undispatched Chat turns to provider boundary: %w", err)
+			}
+			moveParams := gen.MoveUndispatchedConversationQueueMessagesParams{
+				TargetBranchID: branch.ID, TargetConversationID: branch.ConversationID,
+				SourceBranchID: branch.ParentBranchID,
+			}
+			if err := q.MoveUndispatchedConversationQueueMessages(ctx, moveParams); err != nil {
+				return fmt.Errorf("move undispatched Chat messages to provider boundary: %w", err)
+			}
+			if err := q.MoveUndispatchedConversationQueueActivities(ctx,
+				gen.MoveUndispatchedConversationQueueActivitiesParams{
+					TargetBranchID: branch.ID, TargetConversationID: branch.ConversationID,
+					SourceBranchID: branch.ParentBranchID,
+				}); err != nil {
+				return fmt.Errorf("move undispatched Chat activities to provider boundary: %w", err)
+			}
 		}
 		rows, err := q.ActivateConversationBranch(ctx, gen.ActivateConversationBranchParams{
 			ActiveBranchID: branch.ID,

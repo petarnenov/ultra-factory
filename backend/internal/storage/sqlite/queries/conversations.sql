@@ -92,6 +92,74 @@ WHERE conversation_queued_edit_deliveries.conversation_id = sqlc.arg(source_id)
       WHERE existing.conversation_id = sqlc.arg(target_id)
   );
 
+-- Move only the undispatched tail to a fresh provider branch. Preserve sequence
+-- values so the boundary sits immediately before the first queued prompt.
+-- name: SelectUndispatchedConversationQueueFloor :one
+SELECT sequence FROM (
+    SELECT message.sequence
+    FROM conversation_messages AS message
+    JOIN conversation_turns AS turn ON turn.id = message.turn_id
+    WHERE message.conversation_id = sqlc.arg(conversation_id)
+      AND message.branch_id = sqlc.arg(branch_id)
+      AND turn.provider_turn_id = '' AND turn.state = 'queued'
+    UNION ALL
+    SELECT activity.sequence
+    FROM conversation_activities AS activity
+    JOIN conversation_turns AS turn ON turn.id = activity.turn_id
+    WHERE activity.conversation_id = sqlc.arg(conversation_id)
+      AND activity.branch_id = sqlc.arg(branch_id)
+      AND turn.provider_turn_id = '' AND turn.state = 'queued'
+)
+ORDER BY sequence
+LIMIT 1;
+
+-- name: CountUnmovedConversationRowsAfterQueueFloor :one
+SELECT COUNT(*) FROM (
+    SELECT message.id
+    FROM conversation_messages AS message
+    LEFT JOIN conversation_turns AS turn ON turn.id = message.turn_id
+    WHERE message.conversation_id = sqlc.arg(conversation_id)
+      AND message.branch_id = sqlc.arg(branch_id)
+      AND message.sequence >= sqlc.arg(queue_floor)
+      AND (turn.id IS NULL OR turn.provider_turn_id <> '' OR turn.state <> 'queued')
+    UNION ALL
+    SELECT activity.id
+    FROM conversation_activities AS activity
+    LEFT JOIN conversation_turns AS turn ON turn.id = activity.turn_id
+    WHERE activity.conversation_id = sqlc.arg(conversation_id)
+      AND activity.branch_id = sqlc.arg(branch_id)
+      AND activity.sequence >= sqlc.arg(queue_floor)
+      AND (turn.id IS NULL OR turn.provider_turn_id <> '' OR turn.state <> 'queued')
+);
+
+-- name: MoveUndispatchedConversationQueueTurns :exec
+UPDATE conversation_turns SET branch_id = sqlc.arg(target_branch_id)
+WHERE conversation_id = sqlc.arg(conversation_id)
+  AND branch_id = sqlc.arg(source_branch_id)
+  AND provider_turn_id = '' AND state = 'queued';
+
+-- name: MoveUndispatchedConversationQueueMessages :exec
+UPDATE conversation_messages SET branch_id = sqlc.arg(target_branch_id)
+WHERE conversation_messages.conversation_id = sqlc.arg(target_conversation_id)
+  AND conversation_messages.branch_id = sqlc.arg(source_branch_id)
+  AND conversation_messages.turn_id IN (
+      SELECT id FROM conversation_turns
+      WHERE conversation_id = sqlc.arg(target_conversation_id)
+        AND branch_id = sqlc.arg(target_branch_id)
+        AND provider_turn_id = '' AND state = 'queued'
+  );
+
+-- name: MoveUndispatchedConversationQueueActivities :exec
+UPDATE conversation_activities SET branch_id = sqlc.arg(target_branch_id)
+WHERE conversation_activities.conversation_id = sqlc.arg(target_conversation_id)
+  AND conversation_activities.branch_id = sqlc.arg(source_branch_id)
+  AND conversation_activities.turn_id IN (
+      SELECT id FROM conversation_turns
+      WHERE conversation_id = sqlc.arg(target_conversation_id)
+        AND branch_id = sqlc.arg(target_branch_id)
+        AND provider_turn_id = '' AND state = 'queued'
+  );
+
 -- name: AdvanceConversationSequence :exec
 UPDATE conversations SET latest_sequence = latest_sequence + ?, updated_at = ?
 WHERE id = ?;
