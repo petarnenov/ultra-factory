@@ -4,10 +4,9 @@
 
 ## Results
 
-The interim performance report and measured results are in
+The completed performance report and measured results are in
 [docs/performance/webmcp](../../performance/webmcp/README.md). The dashboard is
-at `/#/benchmarks`. Screenshots and final task status are pending merge of
-dashboard PR #592.
+at `/#/benchmarks`; the report includes dark and light dashboard screenshots.
 
 ## Goal
 

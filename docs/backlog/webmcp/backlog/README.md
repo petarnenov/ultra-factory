@@ -83,28 +83,28 @@ blueprint file. Branch names use `wm/<task-id>`; PRs go to `dev` with
 <!-- status:begin -->
 | Item | GitHub issue | Status |
 |---|---:|---|
-| [WM-1] Epic: WebMCP shim and page tools | [#469](https://github.com/petarnenov/ultra-factory/issues/469) | ⬜ todo |
-| [WM-1.1] Story: Runtime shim with a test-only call surface | [#470](https://github.com/petarnenov/ultra-factory/issues/470) | ⬜ todo |
-| [WM-1.1.1] Task: `document.modelContext` shim and `__aoWebMcp` test surface | [#471](https://github.com/petarnenov/ultra-factory/issues/471) | ⬜ todo |
-| [WM-1.2] Story: Tools on the three benchmark pages | [#472](https://github.com/petarnenov/ultra-factory/issues/472) | ⬜ todo |
-| [WM-1.2.1] Task: Board tools | [#473](https://github.com/petarnenov/ultra-factory/issues/473) | ⬜ todo |
-| [WM-1.2.2] Task: Settings tools | [#474](https://github.com/petarnenov/ultra-factory/issues/474) | ⬜ todo |
-| [WM-1.2.3] Task: Session chat tools | [#475](https://github.com/petarnenov/ultra-factory/issues/475) | ⬜ todo |
-| [WM-2] Epic: Scenario catalog and drivers | [#476](https://github.com/petarnenov/ultra-factory/issues/476) | ⬜ todo |
-| [WM-2.1] Story: Scenario catalog mapped 1:1 from Playwright | [#477](https://github.com/petarnenov/ultra-factory/issues/477) | ⬜ todo |
-| [WM-2.1.1] Task: Scenario catalog and shared assertion layer | [#478](https://github.com/petarnenov/ultra-factory/issues/478) | ⬜ todo |
-| [WM-2.2] Story: Playwright, scripted, and JEV drivers in one bench spec | [#479](https://github.com/petarnenov/ultra-factory/issues/479) | ⬜ todo |
-| [WM-2.2.1] Task: Scripted WebMCP driver, Playwright driver, and bench spec | [#480](https://github.com/petarnenov/ultra-factory/issues/480) | ⬜ todo |
-| [WM-2.2.2] Task: JEV driver | [#481](https://github.com/petarnenov/ultra-factory/issues/481) | ⬜ todo |
-| [WM-3] Epic: Measurement protocol and measured runs | [#482](https://github.com/petarnenov/ultra-factory/issues/482) | ⬜ todo |
-| [WM-3.1] Story: Record format, protocol, and the measured data set | [#483](https://github.com/petarnenov/ultra-factory/issues/483) | ⬜ todo |
-| [WM-3.1.1] Task: Record schema and measurement protocol | [#484](https://github.com/petarnenov/ultra-factory/issues/484) | ⬜ todo |
-| [WM-3.1.2] Task: Run the benchmark and commit the data set | [#485](https://github.com/petarnenov/ultra-factory/issues/485) | ⬜ todo |
-| [WM-4] Epic: Benchmarks dashboard page and report | [#486](https://github.com/petarnenov/ultra-factory/issues/486) | ⬜ todo |
-| [WM-4.1] Story: Benchmarks page with charts and the report | [#487](https://github.com/petarnenov/ultra-factory/issues/487) | ⬜ todo |
-| [WM-4.1.1] Task: Chart primitive | [#488](https://github.com/petarnenov/ultra-factory/issues/488) | ⬜ todo |
-| [WM-4.1.2] Task: `/#/benchmarks` route, data loader, comparison views | [#489](https://github.com/petarnenov/ultra-factory/issues/489) | ⬜ todo |
-| [WM-4.1.3] Task: Performance report under `docs/performance/webmcp/` | [#490](https://github.com/petarnenov/ultra-factory/issues/490) | ⬜ todo |
+| [WM-1] Epic: WebMCP shim and page tools | [#469](https://github.com/petarnenov/ultra-factory/issues/469) | ✅ done |
+| [WM-1.1] Story: Runtime shim with a test-only call surface | [#470](https://github.com/petarnenov/ultra-factory/issues/470) | ✅ done |
+| [WM-1.1.1] Task: `document.modelContext` shim and `__aoWebMcp` test surface | [#471](https://github.com/petarnenov/ultra-factory/issues/471) | ✅ done |
+| [WM-1.2] Story: Tools on the three benchmark pages | [#472](https://github.com/petarnenov/ultra-factory/issues/472) | ✅ done |
+| [WM-1.2.1] Task: Board tools | [#473](https://github.com/petarnenov/ultra-factory/issues/473) | ✅ done |
+| [WM-1.2.2] Task: Settings tools | [#474](https://github.com/petarnenov/ultra-factory/issues/474) | ✅ done |
+| [WM-1.2.3] Task: Session chat tools | [#475](https://github.com/petarnenov/ultra-factory/issues/475) | ✅ done |
+| [WM-2] Epic: Scenario catalog and drivers | [#476](https://github.com/petarnenov/ultra-factory/issues/476) | ✅ done |
+| [WM-2.1] Story: Scenario catalog mapped 1:1 from Playwright | [#477](https://github.com/petarnenov/ultra-factory/issues/477) | ✅ done |
+| [WM-2.1.1] Task: Scenario catalog and shared assertion layer | [#478](https://github.com/petarnenov/ultra-factory/issues/478) | ✅ done |
+| [WM-2.2] Story: Playwright, scripted, and JEV drivers in one bench spec | [#479](https://github.com/petarnenov/ultra-factory/issues/479) | ✅ done |
+| [WM-2.2.1] Task: Scripted WebMCP driver, Playwright driver, and bench spec | [#480](https://github.com/petarnenov/ultra-factory/issues/480) | ✅ done |
+| [WM-2.2.2] Task: JEV driver | [#481](https://github.com/petarnenov/ultra-factory/issues/481) | ✅ done |
+| [WM-3] Epic: Measurement protocol and measured runs | [#482](https://github.com/petarnenov/ultra-factory/issues/482) | ✅ done |
+| [WM-3.1] Story: Record format, protocol, and the measured data set | [#483](https://github.com/petarnenov/ultra-factory/issues/483) | ✅ done |
+| [WM-3.1.1] Task: Record schema and measurement protocol | [#484](https://github.com/petarnenov/ultra-factory/issues/484) | ✅ done |
+| [WM-3.1.2] Task: Run the benchmark and commit the data set | [#485](https://github.com/petarnenov/ultra-factory/issues/485) | ✅ done |
+| [WM-4] Epic: Benchmarks dashboard page and report | [#486](https://github.com/petarnenov/ultra-factory/issues/486) | ✅ done |
+| [WM-4.1] Story: Benchmarks page with charts and the report | [#487](https://github.com/petarnenov/ultra-factory/issues/487) | ✅ done |
+| [WM-4.1.1] Task: Chart primitive | [#488](https://github.com/petarnenov/ultra-factory/issues/488) | ✅ done |
+| [WM-4.1.2] Task: `/#/benchmarks` route, data loader, comparison views | [#489](https://github.com/petarnenov/ultra-factory/issues/489) | ✅ done |
+| [WM-4.1.3] Task: Performance report under `docs/performance/webmcp/` | [#490](https://github.com/petarnenov/ultra-factory/issues/490) | ✅ done |
 <!-- status:end -->
 
 ## Repo rules every task follows

@@ -1,5 +1,7 @@
 # WebMCP UI testing benchmark
 
+**Status:** Report and screenshot deliverables complete; independent reproduction has not been performed.
+
 Scope: three pages, ten catalog scenarios plus an overhead series, three drivers, and one machine. Pre-measurement analysis and sources: [benchmark report](../../backlog/webmcp/webmcp-report.md). Dashboard: `/#/benchmarks`.
 
 ## What was compared
@@ -88,6 +90,14 @@ The runs use the protocol's default six repeats (one warm-up and five measured).
 | Results table source | Generated directly from the committed records with `frontend/scripts/benchmarks-summarize.mjs`; values pasted verbatim |
 | Secret handling | The report and reproduction commands contain no key value; the JEV key is read from the environment |
 | Independent reproduction | Not yet performed; a second developer should report the observed results and environment, recording deviations without requiring a new run to fit these ranges |
+
+## Screenshots
+
+The dashboard screenshots show the committed benchmark summary in the dark and light themes at 1280 × 900.
+
+| Dark theme | Light theme |
+| --- | --- |
+| ![WebMCP benchmarks dashboard in dark theme](assets/benchmarks-dark.png) | ![WebMCP benchmarks dashboard in light theme](assets/benchmarks-light.png) |
 
 ## Deliberate limits
 
