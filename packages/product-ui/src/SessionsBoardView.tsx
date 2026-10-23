@@ -174,6 +174,16 @@ export function SessionsBoardGridView<TSession extends BoardSessionPresentation>
 	);
 }
 
+export function orderBoardColumnSessions<TSession extends BoardSessionPresentation>(
+	sessions: TSession[],
+): TSession[] {
+	return [...sessions].sort((left, right) => {
+		const attentionPriority =
+			Number(boardSessionNeedsAttention(right)) - Number(boardSessionNeedsAttention(left));
+		return attentionPriority || right.updatedAt.localeCompare(left.updatedAt);
+	});
+}
+
 function BoardColumnView<TSession extends BoardSessionPresentation>({
 	column,
 	labels,
@@ -187,11 +197,7 @@ function BoardColumnView<TSession extends BoardSessionPresentation>({
 	renderSessionCard: (session: TSession) => ReactNode;
 	sessions: TSession[];
 }) {
-	const ordered = [...sessions].sort((left, right) => {
-		const attentionPriority =
-			Number(boardSessionNeedsAttention(right)) - Number(boardSessionNeedsAttention(left));
-		return attentionPriority || right.updatedAt.localeCompare(left.updatedAt);
-	});
+	const ordered = orderBoardColumnSessions(sessions);
 	return (
 		<section
 			aria-label={labels.columnAria(column.label)}
@@ -442,7 +448,7 @@ export function SessionCardView({
 	);
 }
 
-function boardSessionNeedsAttention(session: BoardSessionPresentation): boolean {
+export function boardSessionNeedsAttention(session: BoardSessionPresentation): boolean {
 	if (session.statusReadiness && session.statusReadiness !== "ready") return false;
 	if (session.statusPresentation) return false;
 	switch (session.displayStatus) {
