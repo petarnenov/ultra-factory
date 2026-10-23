@@ -40,17 +40,25 @@ describe("BrowserHistoryStore", () => {
 		const store = new BrowserHistoryStore({ stateDir });
 		const entries: BrowserHistoryEntry[] = Array.from({ length: 5_100 }, (_, index) => ({
 			url: `https://example.com/${index}/${"x".repeat(900)}`,
-			title: `Entry ${index}`,
+			title: `Entry ${index} — 😀 "quoted"\n${"t".repeat(480)}`,
 			lastVisited: new Date(1_800_000_000_000 - index).toISOString(),
 			visitCount: 1,
 		}));
 		const outcome = await store.mergeImportedEntries(profileId, entries);
 		const file = path.join(stateDir, "browser-history", `${profileId}.json`);
 		const metadata = await stat(file);
-		const parsed = JSON.parse(await readFile(file, "utf8")) as { entries: BrowserHistoryEntry[] };
+		const serialized = await readFile(file, "utf8");
+		const parsed = JSON.parse(serialized) as { entries: BrowserHistoryEntry[] };
 		expect(metadata.size).toBeLessThanOrEqual(4 * 1024 * 1024);
+		expect(metadata.size).toBe(Buffer.byteLength(serialized));
 		expect(parsed.entries.length).toBe(outcome.imported);
 		expect(parsed.entries.length).toBeLessThanOrEqual(5_000);
+		expect(parsed.entries).toEqual(entries.slice(0, outcome.imported));
+		expect(
+			Buffer.byteLength(
+				`${JSON.stringify({ version: 1, entries: entries.slice(0, outcome.imported + 1) }, null, 2)}\n`,
+			),
+		).toBeGreaterThan(4 * 1024 * 1024);
 		expect(outcome.truncated).toBe(entries.length - outcome.imported);
 		expect(await store.suggest(profileId, "entry 5099")).toEqual([]);
 	});
