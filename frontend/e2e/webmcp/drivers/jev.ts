@@ -255,6 +255,7 @@ export async function runJev(
 			if (!completedPhases.has(phase.id)) throw new Error(`JEV action cap reached in phase ${phase.id}`);
 		}
 		const terminalStart = performance.now();
+		let terminalDecisionRecorded = false;
 		try {
 			const terminal = await withOneRetry(client, JSON.stringify({ goal: s.jevGoal, scenario: s.id, phase: "complete", catalogActions: [], done: DONE }), choicesFor([]), deps);
 			attempts.push(...terminal.attempts);
@@ -263,11 +264,12 @@ export async function runJev(
 			outputTokens += terminal.response.usage.output_tokens ?? 0;
 			const answer = terminal.response.answers[DECISION_ID];
 			steps.push({ index: steps.length, tool: answer?.choice ?? "<invalid>", execMs: 0, roundTripMs: 0, decisionMs: terminal.decisionMs, choice: answer?.choice, confidence: answer?.confidence, probabilities: answer?.probabilities, matchedScripted: answer?.choice === DONE });
+			terminalDecisionRecorded = true;
 			if (answer?.choice !== DONE) throw new Error(`JEV chose invalid terminal action ${String(answer?.choice)}`);
 		} catch (error) {
 			attempts.push(...((error as Error & { attempts?: Attempt[] }).attempts ?? []));
 			const decisionMs = (error as Error & { decisionMs?: number }).decisionMs ?? performance.now() - terminalStart;
-			if (steps.length === 0 || steps[steps.length - 1].decisionMs === undefined) steps.push({ index: steps.length, tool: "<decision-error>", execMs: 0, roundTripMs: 0, decisionMs });
+			if (!terminalDecisionRecorded) steps.push({ index: steps.length, tool: "<decision-error>", execMs: 0, roundTripMs: 0, decisionMs });
 			throw error;
 		}
 		return result();

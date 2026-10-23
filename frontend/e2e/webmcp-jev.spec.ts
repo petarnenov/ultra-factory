@@ -67,6 +67,32 @@ test("JEV records early done as an incomplete phase failure", async () => {
 	expect(result.jev?.attempts).toHaveLength(1);
 });
 
+test("JEV retains a timed terminal decision error after successful actions", async () => {
+	const scenario = stubScenario();
+	const scripted = scriptedClient(scenario.jevActions.map((action) => action.id));
+	let calls = 0;
+	const client: JevClient = {
+		systemOne: (request) => {
+			calls++;
+			if (calls > scenario.jevActions.length) throw new Error("terminal request failed");
+			return scripted.systemOne(request);
+		},
+	};
+	const result = await runJev({} as Page, createHostState(), scenario, client, deps());
+
+	expect(result.pass).toBe(false);
+	expect(result.error).toBe("terminal request failed");
+	expect(result.steps.map((step) => step.choice)).toEqual([...scenario.jevActions.map((action) => action.id), undefined]);
+	expect(result.steps.at(-1)).toMatchObject({
+		index: scenario.jevActions.length,
+		tool: "<decision-error>",
+		execMs: 0,
+		roundTripMs: 0,
+	});
+	expect(result.steps.at(-1)?.decisionMs).toBeGreaterThanOrEqual(0);
+	expect(result.jev?.attempts).toHaveLength(scenario.jevActions.length + 1);
+});
+
 test("JEV action cap retains partial action evidence", async () => {
 	const original = stubScenario();
 	const sourcePhase = original.phases[0];
