@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { KanbanColumn } from "@aoagents/product-ui";
 import type { UpdateState } from "../../src/main/update-settings";
 import type { GlobalSettingsSection } from "../../src/renderer/stores/ui-store";
@@ -110,28 +111,48 @@ function defineScenario(definition: Omit<Scenario, "tools" | "jevActions">): Sce
 	};
 }
 
+// The clock of the Playwright body running in the current async context.
+const runningClock = new AsyncLocalStorage<{ clock?: PlaywrightClock }>();
+
 // Times a Playwright body from construction, minus its bridge pushes.
-class PlaywrightClock {
+export class PlaywrightClock {
 	private readonly startedAt = performance.now();
 	private bridgeMs = 0;
 	private assertMs = 0;
 
+	constructor() {
+		const slot = runningClock.getStore();
+		if (slot) slot.clock = this;
+	}
+
 	async bridge(page: Page, step: BridgeStep): Promise<void> {
 		const start = performance.now();
-		await step.run(page);
-		this.bridgeMs += performance.now() - start;
+		await step.run(page).finally(() => (this.bridgeMs += performance.now() - start));
 	}
 
 	async assert(check: () => Promise<unknown>): Promise<void> {
 		const start = performance.now();
-		await check();
-		this.assertMs += performance.now() - start;
+		await check().finally(() => (this.assertMs += performance.now() - start));
 	}
 
 	timing(): PlaywrightTiming {
 		const totalMs = performance.now() - this.startedAt - this.bridgeMs;
 		return { totalMs, bridgeMs: this.bridgeMs, assertMs: this.assertMs };
 	}
+}
+
+export type PlaywrightRun = { timing?: PlaywrightTiming; error?: unknown };
+
+// Runs a Playwright body; on a throw, keeps the timing of the clock it built.
+export async function runPlaywrightBody(body: () => Promise<PlaywrightTiming>): Promise<PlaywrightRun> {
+	const slot: { clock?: PlaywrightClock } = {};
+	return runningClock.run(slot, async () => {
+		try {
+			return { timing: await body() };
+		} catch (error) {
+			return { timing: slot.clock?.timing(), error };
+		}
+	});
 }
 
 // ── Board ────────────────────────────────────────────────────────────────────
@@ -267,7 +288,8 @@ const newCardScenario = defineScenario({
 		await installFakeAgent(page);
 	},
 	phases: [
-		{ id: "empty", actions: [], checks: [readExpect("board.read", "columns.*.cards", boardColumns.map(() => []))] },
+		// dev:web fills an empty board with demo cards; check fake-spawn only.
+		{ id: "empty", actions: [], checks: [readExpect("board.read", "columns.*.cards.[id=fake-spawn]", boardColumns.map(() => undefined))] },
 		{
 			id: "spawned",
 			bridge: spawnWorker,
@@ -362,15 +384,15 @@ const updateDownloadedScenario = defineScenario({
 		const clock = new PlaywrightClock();
 		await page.getByRole("button", { name: "Updates" }).click();
 		await clock.assert(async () => {
-			await expect(page.getByTestId("update-status-line")).toContainText("Ready to install.");
+			await expect(page.getByTestId("update-status-line")).toContainText("Downloaded. Restart to finish updating.");
 			const version = page.getByTestId("app-version");
 			await expect(version).toHaveText("v0.12.7");
-			await expect(version).toHaveAttribute("aria-label", `Current version: v${nightlyAppVersion}`);
+			await expect(version).toHaveAttribute("aria-label", `Current version - v${nightlyAppVersion}`);
 			await expect(page.getByText(nightlyAppVersion, { exact: true })).toBeVisible();
 			await expect(page.getByRole("button", { name: "Install Update" })).toBeVisible();
 			await expect(page.getByRole("button", { name: "Check for updates" })).toBeVisible();
 			await expect(page.getByRole("switch", { name: "Automatic updates" })).toBeChecked();
-			await expect(page.getByRole("button", { name: "Channel", exact: true })).toContainText("Nightly");
+			await expect(page.getByRole("button", { name: "Updates channel", exact: true })).toContainText("Nightly");
 			await expect(page.locator(".nightly-warning")).toBeVisible();
 		});
 		return clock.timing();
