@@ -1056,7 +1056,7 @@ func (m *Manager) sendCommentNudge(ctx context.Context, id domain.SessionID, prU
 // freshReviewComments re-reads the comment's thread and returns it when still
 // unresolved. A thread outside the fetched window keeps the stored state.
 func (m *Manager) freshReviewComments(ctx context.Context, prURL string, c ports.PRCommentObservation) ([]ports.PRCommentObservation, time.Time, error) {
-	resolved, checkedAt, err := m.reviewThreadResolved(ctx, m.reviewThreads, domain.ReviewNudgeToken{PRURL: prURL, ThreadID: c.ThreadID})
+	resolved, checkedAt, err := m.reviewThreadResolved(ctx, m.reviewThreadFetcher(), domain.ReviewNudgeToken{PRURL: prURL, ThreadID: c.ThreadID})
 	if err != nil || resolved {
 		return nil, checkedAt, err
 	}
@@ -1065,10 +1065,7 @@ func (m *Manager) freshReviewComments(ctx context.Context, prURL string, c ports
 
 // ReviewNudgeResolved reports whether a queued nudge's thread has resolved.
 func (m *Manager) ReviewNudgeResolved(ctx context.Context, token domain.ReviewNudgeToken) (bool, error) {
-	m.react.mu.Lock()
-	fetcher := m.reviewThreads
-	m.react.mu.Unlock()
-	resolved, _, err := m.reviewThreadResolved(ctx, fetcher, token)
+	resolved, _, err := m.reviewThreadResolved(ctx, m.reviewThreadFetcher(), token)
 	return resolved, err
 }
 

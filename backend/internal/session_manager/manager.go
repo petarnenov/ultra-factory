@@ -4687,12 +4687,13 @@ func (m *Manager) InterruptTUI(ctx context.Context, id domain.SessionID) error {
 }
 
 // openReviewNudge moves a nudge's thread token from its text to its id.
-func (m *Manager) openReviewNudge(message, clientMessageID string) (string, string) {
+// fresh means the lifecycle just confirmed the thread, so no re-check is due.
+func (m *Manager) openReviewNudge(message, clientMessageID string) (string, string, bool) {
 	token, body, ok := domain.ParseReviewNudge(message)
 	if !ok || clientMessageID != "" {
-		return message, clientMessageID
+		return message, clientMessageID, false
 	}
-	return body, domain.ReviewNudgeClientMessageID(token, m.newLaunchID())
+	return body, domain.ReviewNudgeClientMessageID(token, m.newLaunchID()), true
 }
 
 // reviewNudgeResolved reports a held nudge whose thread has since resolved.
@@ -4715,7 +4716,7 @@ func (m *Manager) reviewNudgeResolved(ctx context.Context, id domain.SessionID, 
 // retries. Ordinary callers leave it empty; the outbox preserves the key across
 // restart, rollback, and even a second overlapping handoff.
 func (m *Manager) send(ctx context.Context, id domain.SessionID, message, clientMessageID string, options ports.MessageDeliveryOptions) (ports.MessageDelivery, error) {
-	message, clientMessageID = m.openReviewNudge(message, clientMessageID)
+	message, clientMessageID, freshNudge := m.openReviewNudge(message, clientMessageID)
 	// A controller transition deliberately has a short interval with no writer.
 	// Queue internal/lifecycle sends durably instead of racing either controller
 	// or dropping coordination work; the transition worker drains this outbox
@@ -4734,7 +4735,7 @@ func (m *Manager) send(ctx context.Context, id domain.SessionID, message, client
 		return delivery, err
 	}
 
-	if m.reviewNudgeResolved(ctx, id, clientMessageID) {
+	if !freshNudge && m.reviewNudgeResolved(ctx, id, clientMessageID) {
 		return ports.MessageDelivery{}, nil
 	}
 

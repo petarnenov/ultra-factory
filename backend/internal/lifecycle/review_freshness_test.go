@@ -9,6 +9,7 @@ import (
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/ports"
+	"github.com/aoagents/agent-orchestrator/backend/internal/sessionguard"
 )
 
 // scriptedReviewThreads is a provider stand-in whose thread state a test sets
@@ -222,5 +223,42 @@ func TestReviewNudgeResolved_ReadsTheProviderAtDeliveryTime(t *testing.T) {
 	fetcher.threads = []ports.SCMReviewThreadObservation{{ID: "T1", Resolved: true}}
 	if resolved, err := m.ReviewNudgeResolved(ctx, token); err != nil || !resolved {
 		t.Fatalf("resolved thread: resolved=%v err=%v", resolved, err)
+	}
+}
+
+// gateCallingMessenger re-enters the manager's gate from inside Send, as the
+// session manager does while the nudge is still under the reaction lock.
+type gateCallingMessenger struct {
+	m       *Manager
+	reached chan struct{}
+}
+
+func (g *gateCallingMessenger) Send(ctx context.Context, _ domain.SessionID, msg string) error {
+	token, _, _ := domain.ParseReviewNudge(msg)
+	_, err := g.m.ReviewNudgeResolved(ctx, token)
+	close(g.reached)
+	return err
+}
+
+func TestReviewCommentNudge_GateReentryFromMessengerDoesNotDeadlock(t *testing.T) {
+	m, _, _, _ := reviewFreshnessFixture(t, idle("mer-1"))
+	messenger := &gateCallingMessenger{m: m, reached: make(chan struct{})}
+	m.guard = sessionguard.New(m.store, messenger, nil)
+	done := make(chan error, 1)
+
+	go func() { done <- m.ApplyPRObservation(ctx, "mer-1", reviewFreshnessObservation) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nudge delivery deadlocked re-entering ReviewNudgeResolved")
+	}
+	select {
+	case <-messenger.reached:
+	default:
+		t.Fatal("messenger was never called")
 	}
 }
