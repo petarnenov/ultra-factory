@@ -498,7 +498,7 @@ function UpdateActions({
 						<Button
 							type="button"
 							variant="primary"
-							size="sm"
+							size="default"
 							aria-label={status.version ? t("settings.updates.updateTo", { version: `v${status.version}` }) : t("settings.updates.updateToLatest")}
 							onClick={() => void requestUpdateDownload()}
 						>
@@ -510,7 +510,7 @@ function UpdateActions({
 						// Opens the restart confirmation rather than installing outright:
 						// installing quits the app, which costs a turn on any chat session
 						// running a daemon-owned driver.
-						<Button type="button" variant="primary" size="sm" onClick={requestUpdateInstall}>
+						<Button type="button" variant="primary" size="default" onClick={requestUpdateInstall}>
 							<RefreshCw className="size-icon-sm" aria-hidden="true" />
 							{t("settings.updates.restartInstall")}
 						</Button>
@@ -524,7 +524,7 @@ function UpdateActions({
 						aria-label={checking ? t("settings.updates.checking") : t("settings.updates.check")}
 						aria-describedby={showStatusState ? "update-status-line" : undefined}
 						variant="outline"
-						size="sm"
+						size="default"
 						onClick={() => void checkNow()}
 						disabled={busy}
 					>
