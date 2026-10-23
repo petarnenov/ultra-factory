@@ -1,14 +1,12 @@
+import { runPlaywrightBody } from "../scenarios";
 import { errorMessage, type Driver } from "./types";
 
 export const playwright: Driver = async (page, host, s) => {
 	await s.playwrightReady(page, host);
 	const startedAt = performance.now();
-	try {
-		const { bridgeMs, assertMs } = await s.playwright(page, host);
-		return { pass: true, totalMs: performance.now() - startedAt - bridgeMs, assertMs, steps: [] };
-	} catch (error) {
-		// The scenario clock is lost on a throw, so a failed run's totalMs still
-		// includes bridge time and its assertMs is unknown (0).
-		return { pass: false, totalMs: performance.now() - startedAt, assertMs: 0, steps: [], error: errorMessage(error) };
-	}
+	const { timing, error } = await runPlaywrightBody(() => s.playwright(page, host));
+	// Without a clock there is no bridge or assertion split; keep wall time.
+	const { totalMs, assertMs } = timing ?? { totalMs: performance.now() - startedAt, assertMs: 0 };
+	const failure = error === undefined ? {} : { error: errorMessage(error) };
+	return { pass: error === undefined, totalMs, assertMs, steps: [], ...failure };
 };

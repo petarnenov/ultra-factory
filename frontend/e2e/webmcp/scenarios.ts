@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { KanbanColumn } from "@aoagents/product-ui";
 import type { UpdateState } from "../../src/main/update-settings";
 import type { GlobalSettingsSection } from "../../src/renderer/stores/ui-store";
@@ -110,28 +111,48 @@ function defineScenario(definition: Omit<Scenario, "tools" | "jevActions">): Sce
 	};
 }
 
+// The clock of the Playwright body running in the current async context.
+const runningClock = new AsyncLocalStorage<{ clock?: PlaywrightClock }>();
+
 // Times a Playwright body from construction, minus its bridge pushes.
-class PlaywrightClock {
+export class PlaywrightClock {
 	private readonly startedAt = performance.now();
 	private bridgeMs = 0;
 	private assertMs = 0;
 
+	constructor() {
+		const slot = runningClock.getStore();
+		if (slot) slot.clock = this;
+	}
+
 	async bridge(page: Page, step: BridgeStep): Promise<void> {
 		const start = performance.now();
-		await step.run(page);
-		this.bridgeMs += performance.now() - start;
+		await step.run(page).finally(() => (this.bridgeMs += performance.now() - start));
 	}
 
 	async assert(check: () => Promise<unknown>): Promise<void> {
 		const start = performance.now();
-		await check();
-		this.assertMs += performance.now() - start;
+		await check().finally(() => (this.assertMs += performance.now() - start));
 	}
 
 	timing(): PlaywrightTiming {
 		const totalMs = performance.now() - this.startedAt - this.bridgeMs;
 		return { totalMs, bridgeMs: this.bridgeMs, assertMs: this.assertMs };
 	}
+}
+
+export type PlaywrightRun = { timing?: PlaywrightTiming; error?: unknown };
+
+// Runs a Playwright body; on a throw, keeps the timing of the clock it built.
+export async function runPlaywrightBody(body: () => Promise<PlaywrightTiming>): Promise<PlaywrightRun> {
+	const slot: { clock?: PlaywrightClock } = {};
+	return runningClock.run(slot, async () => {
+		try {
+			return { timing: await body() };
+		} catch (error) {
+			return { timing: slot.clock?.timing(), error };
+		}
+	});
 }
 
 // ── Board ────────────────────────────────────────────────────────────────────
