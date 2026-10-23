@@ -4,7 +4,7 @@
 	"scripts": {
 		"lint": "bash scripts/lint.sh",
 		"ci:check": "node scripts/ci-check.mjs",
-		"ci:test": "node --test scripts/ci-check.test.mjs",
+		"ci:test": "node --test scripts/ci-check.test.mjs scripts/coverage-target.test.mjs",
 		"comment:check": "node scripts/comment-policy/check.mjs",
 		"comment:test": "node --test scripts/comment-policy/check.test.mjs && cd backend && go test ./cmd/commentpolicy",
 		"issue:check": "node scripts/issue-policy/check.mjs",

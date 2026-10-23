@@ -250,6 +250,7 @@ make dev-web         # renderer only, in a browser
 make daemon          # run the loopback daemon from source
 make ao ARGS=status  # run the ao CLI from source
 make test            # backend Go tests plus frontend Vitest unit tests
+make coverage        # serial backend and frontend unit coverage with reports
 make check           # lint, vet, typecheck, and frontend tests before a PR
 make api             # regenerate the OpenAPI spec and frontend TypeScript types
 make sqlc            # regenerate sqlc storage code
