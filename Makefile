@@ -22,7 +22,7 @@ DAEMON_REPO ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's|^.*gith
 	dev dev-cloud dev-web daemon ao \
 	build build-backend build-daemon daemon-dist daemon-channel package dist \
 	daemon-update-install daemon-update \
-	test test-backend test-race test-frontend test-e2e test-e2e-renderer test-daemon-update \
+	test test-backend test-race test-frontend coverage coverage-backend coverage-frontend test-e2e test-e2e-renderer test-daemon-update \
 	lint vet typecheck check check-all ci-check \
 	sqlc api api-spec api-ts \
 	cloud-check product-ui-check hub-bff-check shared-check \
@@ -116,6 +116,27 @@ test-race: ## Run backend Go tests with the race detector
 
 test-frontend: ## Run frontend Vitest unit tests
 	AO_VITEST_MAX_FORKS=$(AO_VITEST_MAX_FORKS) npm --prefix frontend run test
+
+coverage: ## Run backend then frontend unit coverage serially
+	@$(MAKE) --no-print-directory coverage-backend
+	@$(MAKE) --no-print-directory coverage-frontend
+
+coverage-backend: ## Run backend Go tests with coverage (report: backend/coverage.out)
+	@echo "==> Backend unit coverage (parallelism $(GO_TEST_PARALLELISM))"
+	@set +e; cd backend && go test -p $(GO_TEST_PARALLELISM) -coverprofile=coverage.out -cover ./...; test_status=$$?; \
+		if [ -f coverage.out ]; then \
+			echo "==> Backend total coverage"; \
+			set -o pipefail; go tool cover -func=coverage.out | tail -n 1; summary_status=$$?; \
+			echo "Backend coverage report: backend/coverage.out"; \
+		else \
+			echo "Backend coverage report not created: backend/coverage.out"; summary_status=0; \
+		fi; \
+		if [ $$test_status -ne 0 ]; then exit $$test_status; fi; exit $$summary_status
+
+coverage-frontend: ## Run frontend Vitest coverage (report: frontend/coverage/index.html)
+	@echo "==> Frontend unit coverage (max forks $(AO_VITEST_MAX_FORKS))"
+	@set +e; AO_VITEST_MAX_FORKS=$(AO_VITEST_MAX_FORKS) npm --prefix frontend run test -- --coverage --coverage.reportOnFailure --coverage.reporter=text --coverage.reporter=html --coverage.reportsDirectory=coverage; test_status=$$?; \
+		echo "Frontend coverage report: frontend/coverage/index.html"; exit $$test_status
 
 test-e2e: ## Run frontend Playwright e2e tests
 	npm --prefix frontend run test:e2e
