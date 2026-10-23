@@ -658,10 +658,6 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 		// cannot resume that provider thread. Reserve the next provider boundary
 		// before connect so every opaque id emitted by the fresh process is born in
 		// the same namespace that ControllerReady will durably publish.
-		//
-		// A first controller's queued intake does not waive a branch that already
-		// names a provider: an orchestrator inheriting the project conversation
-		// would otherwise publish its fresh handle to the session only (#572).
 		providerBoundaryID = s.newID()
 		providerScopeID = providerBoundaryID
 		providerHandleOwnedByActiveBranch = false
@@ -796,11 +792,8 @@ func (s *Service) Start(ctx context.Context, cfg StartConfig) (*Controller, erro
 			return nil, err
 		}
 	}
-	// Only a provider boundary or an unpersisted-provider swap moves the session
-	// and the active branch to a new handle in one transaction. Any other
-	// publication must already agree with the branch, or the session would carry
-	// a handle no later resume can reconcile (#572). Checked before any
-	// controller claim or settlement so a refusal leaves durable state untouched.
+	// Only a boundary or an unpersisted swap moves both handles atomically;
+	// refuse any other divergence before a durable write (#572).
 	if providerBoundaryID == "" && !freshReplacement &&
 		activeBranch.ProviderConversationID != "" &&
 		conv.ProviderConversationID() != activeBranch.ProviderConversationID {

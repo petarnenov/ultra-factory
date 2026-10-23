@@ -40,9 +40,8 @@ var (
 	// resumed. Callers must surface a recovery choice, never silently start a
 	// new provider conversation.
 	ErrChatResumeFailed = errors.New("chat conversation resume failed")
-	// ErrChatProviderHandleMismatch means the session and its conversation's
-	// active branch name different provider conversations. Resuming either one
-	// would attach the other's history, so AO refuses until the records agree.
+	// ErrChatProviderHandleMismatch: the session and its active branch name
+	// different provider conversations, so AO refuses to resume either.
 	ErrChatProviderHandleMismatch = errors.New("chat provider handle does not match the active conversation branch")
 	// ErrChatRecoveryInconclusive means a detached provider host may still own
 	// live work, but this daemon could not safely attach to it. Startup recovery

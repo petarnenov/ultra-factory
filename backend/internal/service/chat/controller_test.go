@@ -995,9 +995,8 @@ func TestOrdinaryResumeRejectsProviderHandleOutsideActiveBranch(t *testing.T) {
 	}
 }
 
-// A fresh provider started in the active branch's own scope has no boundary to
-// carry its handle, so publishing it would split the session from the branch
-// (#572). Start must refuse before ControllerReady writes anything.
+// A fresh provider in the active branch's scope has no boundary for its
+// handle; Start must refuse before ControllerReady writes anything (#572).
 func TestFreshProviderInActiveBranchScopeRejectsDivergentHandle(t *testing.T) {
 	st := openStore(t)
 	ctx := context.Background()

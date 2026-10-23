@@ -19,11 +19,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/storage/sqlite/sqlitetest"
 )
 
-// A replacement orchestrator inherits the project conversation, whose active
-// branch still names the previous orchestrator's provider thread. Its first
-// controller starts a fresh provider, and that handle must reach the session and
-// the active branch together; otherwise every later resume fails on the
-// mismatch (#572).
+// A replacement orchestrator's fresh provider handle must reach the session
+// and the inherited project branch together (#572).
 func TestReplacementOrchestratorPublishesFreshProviderHandleToActiveBranch(t *testing.T) {
 	ctx := context.Background()
 	st, dataDir := openHandleTestStore(t)
@@ -48,8 +45,7 @@ func TestReplacementOrchestratorPublishesFreshProviderHandleToActiveBranch(t *te
 		t.Fatalf("seed project history: %v", err)
 	}
 
-	// A message queued while the fresh provider connects arrives after the
-	// boundary was reserved; it must still belong to the published branch.
+	// Input queued while the provider connects must stay on the new branch.
 	provider := newIntegrationChatConversation("thread-new")
 	var chat *chatsvc.Service
 	driver := queueingStartDriver{
@@ -124,9 +120,8 @@ func TestReplacementOrchestratorPublishesFreshProviderHandleToActiveBranch(t *te
 	}
 }
 
-// A session already persisted with a handle its active branch does not carry
-// must fail Resume with the typed mismatch, which the API maps to 409 instead of
-// an unclassified 500 (#572).
+// A persisted handle mismatch fails Resume with the typed error that the
+// API maps to 409 instead of an unclassified 500 (#572).
 func TestResumeAgentReportsPersistedProviderHandleMismatch(t *testing.T) {
 	ctx := context.Background()
 	st, dataDir := openHandleTestStore(t)
@@ -169,8 +164,8 @@ func openHandleTestStore(t *testing.T) (*sqlite.Store, string) {
 	return st, dataDir
 }
 
-// queueingStartDriver runs onStart while the provider is connecting, after
-// Chat reserved its provider boundary and before ControllerReady publishes it.
+// queueingStartDriver runs onStart after Chat reserved the boundary and
+// before ControllerReady publishes it.
 type queueingStartDriver struct {
 	integrationChatDriver
 	onStart func(ports.ChatStartConfig)
