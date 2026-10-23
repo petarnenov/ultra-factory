@@ -65,7 +65,7 @@ Across JEV scenario rows with at least one passing attempt, decision-time median
 From a clean checkout, install the repository's pinned dependencies and use a free local port. The first command runs the Playwright baseline and scripted WebMCP driver; the second is the separate, opt-in JEV run and requires a key configured in the environment. Do not put a key literal in shell history, logs, or files.
 
 ```bash
-AO_WEBMCP_BENCH=1 AO_PERF_DIR=/tmp/wm AO_PERF_LABEL=dev AO_E2E_PORT=5292 CI=true npm --prefix frontend run test:e2e -- e2e/webmcp-bench.spec.ts --workers=1 --retries=0
+AO_WEBMCP_BENCH=1 AO_PERF_DIR=/tmp/wm AO_PERF_LABEL=dev AO_E2E_PORT=5292 CI=true npm --prefix frontend run test:e2e -- e2e/webmcp-bench.spec.ts --workers=1 --retries=0 --grep-invert webmcp-jev
 ```
 
 ```bash
