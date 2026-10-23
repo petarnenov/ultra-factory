@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Apply D10: root-only autonomous merge into dev requires proposal approval, independent review and successful applicable CI on the final head with no unresolved blocking review; invalidate readiness on head changes. No worker/coordinator merge or implicit main/deployment authority.
 - [ ] Use repository-local instructions and assignment templates to carry issue/change IDs, relevant capabilities, bounded task scope and scenario evidence for ultra-factory.
 - [ ] Keep the AO product and other projects unchanged. If runtime integration later proves necessary, open a separately reviewed proposal with explicit per-project opt-in, default-off behavior and tests for projects without OpenSpec; this task does not implement it.
 - [ ] Keep GitHub status authoritative; do not assume tracker intake can write issues or add a parallel persisted status model.

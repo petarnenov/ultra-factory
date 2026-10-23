@@ -21,6 +21,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 ## Acceptance criteria
 
+- [ ] Apply D10: root-only autonomous merge into dev requires proposal approval, independent review and successful applicable CI on the final head with no unresolved blocking review; invalidate readiness on head changes. No worker/coordinator merge or implicit main/deployment authority.
 - [ ] Implement a deterministic AO check of added or modified archive entries, including direct filesystem moves that bypass the CLI. Incomplete task checklists, missing required mappings and absent verification references must fail.
 - [ ] Require each archived change to identify its own implementation issue and PR; other prerequisite implementation PRs must already be merged into dev. The containing PR may prepare its own archive, but its exact final head must pass CI and semantic review before merge. Never require a PR to be merged before it can validate itself.
 - [ ] Keep execution results external to the commit being checked: local checks validate the manifest, CI and review validate evidence for the final head, and the integrator records the actual dev merge afterward. Stale evidence must not authorize the current head; unavailable external evidence blocks readiness rather than counting as passed.

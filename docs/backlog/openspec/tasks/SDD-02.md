@@ -21,6 +21,7 @@ Responsible role: Capability owner; named assignee to be set when scheduled. Sta
 
 ## Acceptance criteria
 
+- [ ] Apply D10: root-only autonomous merge into dev requires proposal approval, independent review and successful applicable CI on the final head with no unresolved blocking review; invalidate readiness on head changes. No worker/coordinator merge or implicit main/deployment authority.
 - [ ] Reconcile the completed owner decision record into enforceable instructions before implementing policy; pending options are not authorization.
 - [ ] Require geo.architect review for every full change proposal under D02 and the D03 final-arbiter order: Fable 5.1 → Codex Astra → OpenCode DeepSeek Flash 4.1. Link explicit rulings to the evaluated proposal/revision and archive; test all fallback cases and the all-unavailable blocked outcome. Never infer approval from missing votes.
 - [ ] Define readiness/completion, roles, stable requirement/scenario IDs and one OpenSpec change per independently mergeable implementation issue/PR. Keep umbrella planning in GitHub; do not retain an umbrella delta that is reapplied across child PRs.
