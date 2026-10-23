@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -367,6 +368,66 @@ func TestGetLaunchCommandBuildsCrossPlatformArgv(t *testing.T) {
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
 	}
+}
+
+func TestGetLaunchCommandAddsLinkedWorktreeGitMetadataRoots(t *testing.T) {
+	workspace, commonDir, otherGitDir := makeLinkedGitWorktree(t)
+	plugin := &Plugin{resolvedBinary: "codex"}
+
+	argv, err := plugin.GetLaunchCommand(context.Background(), ports.LaunchConfig{
+		WorkspacePath: workspace,
+		Permissions:   ports.PermissionModeAuto,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantRoots := []string{
+		filepath.Join(commonDir, "worktrees", filepath.Base(workspace)),
+		filepath.Join(commonDir, "refs"),
+		filepath.Join(commonDir, "objects"),
+		filepath.Join(commonDir, "logs"),
+		filepath.Join(commonDir, "FETCH_HEAD"),
+	}
+	joined := strings.Join(argv, " ")
+	for _, root := range wantRoots {
+		if !strings.Contains(joined, root) {
+			t.Errorf("launch argv does not grant %q: %#v", root, argv)
+		}
+	}
+	if strings.Contains(joined, otherGitDir) {
+		t.Fatalf("launch argv grants sibling worktree metadata %q: %#v", otherGitDir, argv)
+	}
+}
+
+func makeLinkedGitWorktree(t *testing.T) (string, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	workspace := filepath.Join(root, "worker-worktree")
+	for _, args := range [][]string{{"init", repo}, {"-C", repo, "config", "user.name", "Test"}, {"-C", repo, "config", "user.email", "test@example.invalid"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README"), []byte("test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	otherWorkspace := filepath.Join(root, "other-worktree")
+	for _, args := range [][]string{{"-C", repo, "add", "README"}, {"-C", repo, "commit", "-m", "initial"}, {"-C", repo, "worktree", "add", "-b", "worker", workspace}, {"-C", repo, "worktree", "add", "-b", "other", otherWorkspace}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	commonOutput, err := exec.Command("git", "-C", workspace, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherOutput, err := exec.Command("git", "-C", otherWorkspace, "rev-parse", "--absolute-git-dir").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return workspace, strings.TrimSpace(string(commonOutput)), strings.TrimSpace(string(otherOutput))
 }
 
 func TestGetLaunchCommandUsesSystemPromptFile(t *testing.T) {
