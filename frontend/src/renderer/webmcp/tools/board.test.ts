@@ -220,7 +220,7 @@ describe("useBoardTools", () => {
 		const { rerender, unmount } = renderHook((next: typeof props) => useBoardTools(next), {
 			initialProps: props,
 		});
-		// A timeout far beyond the test budget: only an immediate teardown can settle it.
+		// The timeout exceeds the test budget: only teardown can settle it.
 		const waiting = callTool("board.wait_for_card", { sessionId: "mover", column: "ready", timeoutMs: 60_000 });
 
 		rerender({ ...props, enabled: false });

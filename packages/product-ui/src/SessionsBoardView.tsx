@@ -174,10 +174,6 @@ export function SessionsBoardGridView<TSession extends BoardSessionPresentation>
 	);
 }
 
-/**
- * Card order inside one lane: attention first, then most recently updated.
- * Exported so other readers of the board list cards in the same order.
- */
 export function orderBoardColumnSessions<TSession extends BoardSessionPresentation>(
 	sessions: TSession[],
 ): TSession[] {
