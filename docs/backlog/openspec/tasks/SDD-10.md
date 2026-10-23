@@ -25,7 +25,7 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 - [ ] Preserve API/sqlc drift, issue/comment policy, complete applicable backend/frontend/mobile/cloud suites and secret checks.
 - [ ] Test draft-to-ready, changed heads, empty/deleted specs, forks, promotion and automated PR declarations, and unavailable credentials. Never count skipped/cancelled jobs or unavailable evidence as verified.
 - [ ] Keep semantic review approval for the current head separate from structural CI. Require readiness/merge evidence on that head; avoid a check waiting for its own success or its own PR to be merged.
-- [ ] Begin reporting-only; document exact local commands and diagnostic outputs. Missing archive evidence must be reported as invalid even during reporting mode; required branch-setting activation belongs to SDD-14.
+- [ ] Begin reporting-only; document exact local commands and diagnostic outputs. Missing archive evidence must be reported as invalid even during reporting mode; required branch-setting activation belongs to root in SDD-14 under D12. Downgrading enforcement requires owner permission.
 
 ## Verification and delivery
 

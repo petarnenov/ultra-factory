@@ -68,13 +68,18 @@ Owner answer: Yes. The project root orchestrator may merge implementation PRs in
 
 Owner answer: Stop at dev. Promotion to main, publication, release execution and deployment are entirely owner-operated. Agents do not merge into main, start promotion/release/deployment workflows, or automatically create a promotion PR under this initiative. They may implement the requested release/operations documentation and prepare traceable evidence within their approved dev tasks. Preserve the sole-publisher and existing release contracts. This rule does not remove all-platform readiness verification from scope and never permits production publication as a test.
 
+### D12 Root activates required checks after evidence
+
+Owner answer: Root (option 3). The project root activates required SDD checks after the approved broad pilot and agreed readiness criteria pass, without another owner confirmation. Before activation, verify the intended check names and final-head behavior, positive/negative fixtures, available workflow on the target branch, required permissions and the absence of bypasses; preserve all existing required checks. Record before/after settings and verification evidence. No new production release or main promotion is authorized by this setting change.
+
+Returning SDD checks to reporting-only or otherwise weakening enforcement still requires explicit owner permission under the selected option. Root may diagnose, fix the gate through the full proposal process and continue unaffected work, but may not silently disable it. If the workflow has not reached main through the owner-operated promotion process, do not require a nonexistent check there; track that activation prerequisite under D09/D11.
+
 ## Pending owner decisions
 
 The options below are candidates, not defaults or approvals. Ask one decision at a time; record the selected option and its consequences. New follow-up questions are needed only if a selected option leaves an implementation-blocking ambiguity.
 
 | ID | Decision | Options to present | Affected work |
 | --- | --- | --- | --- |
-| D12 | Enabling mandatory checks and process rollback | Owner approves activation and rollback; agent activates after agreed evidence and reports, rollback needs approval; council ratifies activation/rollback within explicit criteria | SDD-10, SDD-14 |
 | D13 | Routine technical and scheduling decisions | Delegate version pin, schema details, test mapping and assignments to agents within this policy; council decides material tooling changes; owner approves each choice | SDD-01, SDD-02, all task ownership |
 
 ## Approval evidence convention

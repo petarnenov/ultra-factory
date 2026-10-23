@@ -23,10 +23,10 @@ Responsible role: Delivery owner; named assignee to be set when scheduled. Statu
 
 - [ ] Apply D09 when hardware/access/evidence is unavailable: record the exact affected acceptance and owned follow-up, continue independent approved work, and distinguish verified delivery from outstanding checks. Do not claim full verification from missing evidence.
 - [ ] Apply D08: accumulate performance/reliability observations during the first rollout window; do not block completion on newly invented numerical targets. Preserve existing required checks and report sample counts, failures and measurement limitations.
-- [ ] Verify maintainer-enabled required checks and current-head semantic review on dev/main; demonstrate rejection of missing declarations and invalid archive entries plus acceptance of a compliant change.
+- [ ] Under D12, root activates required checks after approved pilot/readiness evidence without another owner confirmation. Verify target-branch workflows, permissions and existing protections before activation; capture before/after settings. Main activation must wait for any required owner-operated promotion. Verify required checks and current-head semantic review on dev/main; demonstrate rejection of missing declarations and invalid archive entries plus acceptance of a compliant change.
 - [ ] Complete capability ownership and documentation migration index; retain historical designs as linked history.
 - [ ] Measure PR declaration completeness, declared-requirement mapping completeness, semantic-review gaps, escaped regressions and cycle time over the first ten subsequent changes. Record denominators and review evidence; do not claim automated discovery of undeclared behavior.
-- [ ] Require all PRs covered by full proposals and council decisions as well as classified, 100% of declared changed requirements mapped, semantic review accepted and all high-priority blockers resolved before declaring adoption complete. Document rollback to reporting mode.
+- [ ] Require all PRs covered by full proposals and council decisions as well as classified, 100% of declared changed requirements mapped, semantic review accepted and all high-priority blockers resolved before declaring adoption complete. Document rollback to reporting mode as requiring explicit owner permission; no silent downgrade of enforcement is authorized.
 
 ## Verification and delivery
 
