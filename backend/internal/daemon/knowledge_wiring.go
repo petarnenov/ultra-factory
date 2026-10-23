@@ -84,7 +84,8 @@ func startKnowledgeGraph(ctx context.Context, d knowledgeGraphDeps) (*runningKno
 	svc := knowledgegraph.New(knowledgegraph.Deps{
 		Graph:    knowledgegraph.NewGraph(knowledgegraph.NewClient(cfg, nil)),
 		Embedder: embedder, MinScore: cfg.MinScore, MergeScore: cfg.MergeScore,
-		Sessions: d.Sessions, Tasks: d.Tasks, Failures: knowledgeGraphPRFailures{store: d.PRStore}, HostID: d.HostID, Logger: d.Log,
+		Sessions: d.Sessions, Tasks: d.Tasks, Failures: knowledgeGraphPRFailures{store: d.PRStore},
+		Paths: knowledgeChangedPaths{}, HostID: d.HostID, Logger: d.Log,
 	})
 	runCtx, cancel := context.WithCancel(ctx)
 	k := &runningKnowledgeGraph{Service: svc, cancel: cancel}
