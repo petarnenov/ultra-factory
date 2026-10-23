@@ -593,6 +593,39 @@ func (q *Queries) ConversationActivityExistsForProviderItem(ctx context.Context,
 	return exists, err
 }
 
+const countUnmovedConversationRowsAfterQueueFloor = `-- name: CountUnmovedConversationRowsAfterQueueFloor :one
+SELECT COUNT(*) FROM (
+    SELECT message.id
+    FROM conversation_messages AS message
+    LEFT JOIN conversation_turns AS turn ON turn.id = message.turn_id
+    WHERE message.conversation_id = ?1
+      AND message.branch_id = ?2
+      AND message.sequence >= ?3
+      AND (turn.id IS NULL OR turn.provider_turn_id <> '' OR turn.state <> 'queued')
+    UNION ALL
+    SELECT activity.id
+    FROM conversation_activities AS activity
+    LEFT JOIN conversation_turns AS turn ON turn.id = activity.turn_id
+    WHERE activity.conversation_id = ?1
+      AND activity.branch_id = ?2
+      AND activity.sequence >= ?3
+      AND (turn.id IS NULL OR turn.provider_turn_id <> '' OR turn.state <> 'queued')
+)
+`
+
+type CountUnmovedConversationRowsAfterQueueFloorParams struct {
+	ConversationID string
+	BranchID       string
+	QueueFloor     int64
+}
+
+func (q *Queries) CountUnmovedConversationRowsAfterQueueFloor(ctx context.Context, arg CountUnmovedConversationRowsAfterQueueFloorParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnmovedConversationRowsAfterQueueFloor, arg.ConversationID, arg.BranchID, arg.QueueFloor)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const detachSessionConversation = `-- name: DetachSessionConversation :exec
 UPDATE conversations SET current_session_id = NULL, updated_at = ?
 WHERE id = ? AND scope = 'session' AND current_session_id = ?
@@ -1562,6 +1595,70 @@ type MoveConversationTurnsParams struct {
 // stays behind: it would break the target's unique client id.
 func (q *Queries) MoveConversationTurns(ctx context.Context, arg MoveConversationTurnsParams) error {
 	_, err := q.db.ExecContext(ctx, moveConversationTurns, arg.TargetID, arg.BranchID, arg.SourceID)
+	return err
+}
+
+const moveUndispatchedConversationQueueActivities = `-- name: MoveUndispatchedConversationQueueActivities :exec
+UPDATE conversation_activities SET branch_id = ?1
+WHERE conversation_activities.conversation_id = ?2
+  AND conversation_activities.branch_id = ?3
+  AND conversation_activities.turn_id IN (
+      SELECT id FROM conversation_turns
+      WHERE conversation_id = ?2
+        AND branch_id = ?1
+        AND provider_turn_id = '' AND state = 'queued'
+  )
+`
+
+type MoveUndispatchedConversationQueueActivitiesParams struct {
+	TargetBranchID       string
+	TargetConversationID string
+	SourceBranchID       string
+}
+
+func (q *Queries) MoveUndispatchedConversationQueueActivities(ctx context.Context, arg MoveUndispatchedConversationQueueActivitiesParams) error {
+	_, err := q.db.ExecContext(ctx, moveUndispatchedConversationQueueActivities, arg.TargetBranchID, arg.TargetConversationID, arg.SourceBranchID)
+	return err
+}
+
+const moveUndispatchedConversationQueueMessages = `-- name: MoveUndispatchedConversationQueueMessages :exec
+UPDATE conversation_messages SET branch_id = ?1
+WHERE conversation_messages.conversation_id = ?2
+  AND conversation_messages.branch_id = ?3
+  AND conversation_messages.turn_id IN (
+      SELECT id FROM conversation_turns
+      WHERE conversation_id = ?2
+        AND branch_id = ?1
+        AND provider_turn_id = '' AND state = 'queued'
+  )
+`
+
+type MoveUndispatchedConversationQueueMessagesParams struct {
+	TargetBranchID       string
+	TargetConversationID string
+	SourceBranchID       string
+}
+
+func (q *Queries) MoveUndispatchedConversationQueueMessages(ctx context.Context, arg MoveUndispatchedConversationQueueMessagesParams) error {
+	_, err := q.db.ExecContext(ctx, moveUndispatchedConversationQueueMessages, arg.TargetBranchID, arg.TargetConversationID, arg.SourceBranchID)
+	return err
+}
+
+const moveUndispatchedConversationQueueTurns = `-- name: MoveUndispatchedConversationQueueTurns :exec
+UPDATE conversation_turns SET branch_id = ?1
+WHERE conversation_id = ?2
+  AND branch_id = ?3
+  AND provider_turn_id = '' AND state = 'queued'
+`
+
+type MoveUndispatchedConversationQueueTurnsParams struct {
+	TargetBranchID string
+	ConversationID string
+	SourceBranchID string
+}
+
+func (q *Queries) MoveUndispatchedConversationQueueTurns(ctx context.Context, arg MoveUndispatchedConversationQueueTurnsParams) error {
+	_, err := q.db.ExecContext(ctx, moveUndispatchedConversationQueueTurns, arg.TargetBranchID, arg.ConversationID, arg.SourceBranchID)
 	return err
 }
 
@@ -3922,6 +4019,40 @@ func (q *Queries) SelectRetryableConversationPrompt(ctx context.Context, arg Sel
 		&i.ActiveLineage,
 	)
 	return i, err
+}
+
+const selectUndispatchedConversationQueueFloor = `-- name: SelectUndispatchedConversationQueueFloor :one
+SELECT sequence FROM (
+    SELECT message.sequence
+    FROM conversation_messages AS message
+    JOIN conversation_turns AS turn ON turn.id = message.turn_id
+    WHERE message.conversation_id = ?1
+      AND message.branch_id = ?2
+      AND turn.provider_turn_id = '' AND turn.state = 'queued'
+    UNION ALL
+    SELECT activity.sequence
+    FROM conversation_activities AS activity
+    JOIN conversation_turns AS turn ON turn.id = activity.turn_id
+    WHERE activity.conversation_id = ?1
+      AND activity.branch_id = ?2
+      AND turn.provider_turn_id = '' AND turn.state = 'queued'
+)
+ORDER BY sequence
+LIMIT 1
+`
+
+type SelectUndispatchedConversationQueueFloorParams struct {
+	ConversationID string
+	BranchID       string
+}
+
+// Move only the undispatched tail to a fresh provider branch. Preserve sequence
+// values so the boundary sits immediately before the first queued prompt.
+func (q *Queries) SelectUndispatchedConversationQueueFloor(ctx context.Context, arg SelectUndispatchedConversationQueueFloorParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, selectUndispatchedConversationQueueFloor, arg.ConversationID, arg.BranchID)
+	var sequence int64
+	err := row.Scan(&sequence)
+	return sequence, err
 }
 
 const selectVerifiedAuthenticationTurn = `-- name: SelectVerifiedAuthenticationTurn :one
