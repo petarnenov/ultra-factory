@@ -4,13 +4,13 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { CoordinatorRoster, ProjectConfig } from "../../lib/coordinators";
 import { COORDINATOR_BRIEF_TEMPLATE, firstUnfilledPlaceholder } from "./brief-template";
 
-const { post } = vi.hoisted(() => ({ post: vi.fn() }));
+const { post, get } = vi.hoisted(() => ({ post: vi.fn(), get: vi.fn() }));
 
 vi.mock("../../lib/api-client", () => ({
 	apiClient: { POST: post },
 	apiErrorMessage: (error: unknown) => String(error),
 }));
-vi.mock("../../lib/host-clients", () => ({ clientForSessionHost: () => ({ POST: post }) }));
+vi.mock("../../lib/host-clients", () => ({ clientForSessionHost: () => ({ GET: get, POST: post }) }));
 vi.mock("../../hooks/useRemoteHosts", () => ({
 	useRemoteHosts: () => ({
 		hosts: [{ hostId: "Linux", label: "Linux", url: "", status: "connected" }],
@@ -62,6 +62,7 @@ const startButton = () => screen.getByRole("button", { name: "Start coordinator"
 describe("StartCoordinatorDialog", () => {
 	beforeEach(() => {
 		post.mockReset();
+		get.mockReset();
 	});
 
 	test("blocks start and names the first unfilled placeholder", async () => {
@@ -145,6 +146,53 @@ describe("StartCoordinatorDialog", () => {
 		expect(await screen.findByText("Coordinator ao-c9 started.")).toBeInTheDocument();
 		expect(screen.getByText(/Operator audit: origin UI, root ao-root, scope auth module/)).toBeInTheDocument();
 		expect(onStarted).toHaveBeenCalled();
+	});
+
+	test("load from issue fills the task with the issue title and acceptance criteria", async () => {
+		get.mockResolvedValue({
+			data: { number: 503, title: "Start brief", body: "Context.\n\n## Acceptance criteria\n- start is blocked\n- placeholders are named\n\n## Notes\nmore", url: "" },
+			error: undefined,
+		});
+		post.mockResolvedValue({ data: { session: { id: "ao-c9", projectId: "ao" } }, error: undefined });
+		renderDialog();
+		await userEvent.type(screen.getByLabelText("Coordinator name"), "Ada");
+		await userEvent.type(screen.getByLabelText("Scope"), "auth module");
+		await userEvent.type(screen.getByLabelText("Out of scope"), "billing");
+		await userEvent.type(screen.getByLabelText("Issue numbers"), "503");
+		await userEvent.click(screen.getByRole("button", { name: "Load from issue" }));
+
+		await waitFor(() => expect(screen.getByLabelText("Title")).toHaveValue("Start brief"));
+		expect(get).toHaveBeenCalledWith("/api/v1/projects/{id}/issues/{number}", { params: { path: { id: "ao", number: 503 } } });
+		expect(screen.getByLabelText("Acceptance criteria")).toHaveValue("start is blocked; placeholders are named");
+		expect(screen.queryByText(/No "Acceptance criteria" section/)).not.toBeInTheDocument();
+		expect(startButton()).toBeEnabled();
+		await userEvent.click(startButton());
+		await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+		expect(post.mock.calls[0][1].body.prompt).toContain("1. #503 - Start brief\n   Acceptance criteria: start is blocked; placeholders are named");
+	});
+
+	test("load from issue keeps the marker and blocks start when the section is missing", async () => {
+		get.mockResolvedValue({ data: { number: 7, title: "No criteria", body: "Just prose.", url: "" }, error: undefined });
+		renderDialog();
+		await userEvent.type(screen.getByLabelText("Coordinator name"), "Ada");
+		await userEvent.type(screen.getByLabelText("Scope"), "auth module");
+		await userEvent.type(screen.getByLabelText("Out of scope"), "billing");
+		await userEvent.type(screen.getByLabelText("Issue numbers"), "7");
+		await userEvent.click(screen.getByRole("button", { name: "Load from issue" }));
+
+		expect(await screen.findByText(/No "Acceptance criteria" section in #7/)).toBeInTheDocument();
+		expect(screen.getByLabelText("Title")).toHaveValue("No criteria");
+		expect(startButton()).toBeDisabled();
+		expect(screen.getByText("Fill in <acceptance criteria: fill in> before starting. The brief still has a template placeholder.")).toBeInTheDocument();
+	});
+
+	test("load from issue refuses input that is not a list of issue numbers", async () => {
+		renderDialog();
+		await userEvent.type(screen.getByLabelText("Issue numbers"), "42, abc");
+		await userEvent.click(screen.getByRole("button", { name: "Load from issue" }));
+
+		expect(screen.getByText("Enter issue numbers separated by commas, for example 42, 43")).toBeInTheDocument();
+		expect(get).not.toHaveBeenCalled();
 	});
 
 	test("shows a daemon refusal as a readable message", async () => {
