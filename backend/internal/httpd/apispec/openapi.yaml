@@ -17471,6 +17471,8 @@ components:
           items:
             $ref: '#/components/schemas/RemoteWorkerLinkResponse'
           type: array
+        pullerId:
+          type: string
       required:
       - links
       type: object

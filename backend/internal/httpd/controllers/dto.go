@@ -250,7 +250,10 @@ type ListRemoteWorkerLinksQuery struct {
 
 // ListRemoteWorkerLinksResponse is the body of GET /api/v1/remote-worker-links.
 type ListRemoteWorkerLinksResponse struct {
-	Links []RemoteWorkerLinkResponse `json:"links"`
+	// PullerID is the identity this daemon pulls and acknowledges worker
+	// reports under. It is empty until the daemon knows its host ID.
+	PullerID string                     `json:"pullerId,omitempty"`
+	Links    []RemoteWorkerLinkResponse `json:"links"`
 }
 
 // RemoveRemoteWorkerLinkQuery names the live root removing a link.

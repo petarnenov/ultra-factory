@@ -5964,6 +5964,7 @@ export interface components {
         };
         ListRemoteWorkerLinksResponse: {
             links: components["schemas"]["RemoteWorkerLinkResponse"][];
+            pullerId?: string;
         };
         ListReportsResponse: {
             nextCursor?: string;

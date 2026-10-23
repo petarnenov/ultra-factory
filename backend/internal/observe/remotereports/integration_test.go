@@ -398,3 +398,75 @@ func dueForLocalPuller(ctx context.Context, t *testing.T, store *sqlite.Store, s
 	}
 	return false
 }
+
+// TestTwoInstancesEachReceiveEveryReportOnceWhateverTheirPullOrder runs two
+// daemons that pull the same host, alternating polls between worker reports.
+// The host keeps acknowledgements per puller, so neither starves the other.
+func TestTwoInstancesEachReceiveEveryReportOnceWhateverTheirPullOrder(t *testing.T) {
+	ctx := context.Background()
+
+	remoteStore := openStore(t, "widgets")
+	remoteReports := reportsvc.New(reportsvc.Deps{Store: remoteStore})
+	worker := createSession(t, remoteStore, "widgets", domain.KindWorker)
+	remote := startRemoteDaemon(t, remoteStore, remoteReports, "host-build", "s3cret")
+	lookup := func(id string) (remotehost.Entry, bool, error) {
+		if id == "host-build" {
+			return remotehost.Entry{Label: "build-box", URL: remote.URL, Password: "s3cret", HostID: "host-build"}, true, nil
+		}
+		return remotehost.Entry{}, false, nil
+	}
+
+	type instance struct {
+		observer *remotereports.Observer
+		delivery *recordedDelivery
+	}
+	startInstance := func(selfHostID string) instance {
+		store := openStore(t, "ultra-factory")
+		orchestrator := createSession(t, store, "ultra-factory", domain.KindOrchestrator)
+		delivery := &recordedDelivery{}
+		observer := remotereports.New(remotereports.Deps{
+			Store: store, Deliverer: reportsvc.NewCoordinator(reportsvc.CoordinatorDeps{Store: store, Delivery: delivery}),
+			SelfHostID: selfHostID, Lookup: lookup, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+		links := remoteworker.New(remoteworker.Deps{Store: store, SelfHostID: selfHostID, Lookup: lookup})
+		if _, err := links.Register(ctx, remoteworker.RegisterInput{
+			ParentSessionID: orchestrator.ID, HostID: "host-build", RemoteSessionID: worker.ID, RemoteProjectID: "widgets", DisplayName: "auth refactor",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return instance{observer: observer, delivery: delivery}
+	}
+	production, dev := startInstance("host-production"), startInstance("host-dev")
+
+	poll := func(in instance) {
+		t.Helper()
+		if err := in.observer.Poll(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report := func(note string) {
+		t.Helper()
+		if _, err := remoteReports.Create(ctx, reportsvc.CreateInput{SessionID: worker.ID, State: domain.ReportNeedsInput, Note: note}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report("first")
+	poll(production)
+	report("second")
+	poll(dev)
+	poll(production)
+	report("third")
+	poll(dev)
+	poll(production)
+	poll(dev)
+
+	for name, in := range map[string]instance{"production": production, "dev": dev} {
+		delivered := strings.Join(in.delivery.submissions, "\n")
+		for _, note := range []string{"first", "second", "third"} {
+			if got := strings.Count(delivered, note); got != 1 {
+				t.Errorf("%s instance received %q %d times, want once; deliveries: %q", name, note, got, in.delivery.submissions)
+			}
+		}
+	}
+}
