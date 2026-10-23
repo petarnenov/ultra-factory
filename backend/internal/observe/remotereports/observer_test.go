@@ -384,6 +384,22 @@ func newTestObserver(store Store, deliverer Deliverer, hosts ...*fakeHost) *Obse
 	})
 }
 
+func TestAcceptReportPreservesExplicitTerminalOutcome(t *testing.T) {
+	report, ok := acceptReport(wireReport{
+		ID: "final", State: string(domain.ReportDone), TerminalOutcome: string(domain.ReportOutcomeFailure),
+		Note: "task failed terminally", CreatedAt: time.Now().UTC(), RepeatCount: 1,
+	})
+	if !ok || report.TerminalOutcome != domain.ReportOutcomeFailure {
+		t.Fatalf("report=%+v accepted=%v", report, ok)
+	}
+	if _, ok := acceptReport(wireReport{
+		ID: "invalid", State: string(domain.ReportStuck), TerminalOutcome: string(domain.ReportOutcomeFailure),
+		Note: "recoverable blocker", CreatedAt: time.Now().UTC(), RepeatCount: 1,
+	}); ok {
+		t.Fatal("stuck report was accepted as a terminal failure")
+	}
+}
+
 func TestPollDeliversRecordsAndAcknowledges(t *testing.T) {
 	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 	host := newFakeHost(t, "host-build", "s3cret")

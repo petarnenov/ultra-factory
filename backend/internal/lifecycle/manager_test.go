@@ -23,13 +23,14 @@ import (
 var ctx = context.Background()
 
 type fakeStore struct {
-	sessions   map[domain.SessionID]domain.SessionRecord
-	projects   map[string]domain.ProjectRecord
-	prs        map[domain.SessionID][]domain.PullRequest
-	reviews    map[string][]domain.PullRequestReview
-	comments   map[string][]domain.PullRequestComment
-	prPolicies map[string]bool
-	signatures map[string]string
+	sessions               map[domain.SessionID]domain.SessionRecord
+	projects               map[string]domain.ProjectRecord
+	prs                    map[domain.SessionID][]domain.PullRequest
+	reviews                map[string][]domain.PullRequestReview
+	comments               map[string][]domain.PullRequestComment
+	prPolicies             map[string]bool
+	signatures             map[string]string
+	terminalReportOutcomes map[domain.SessionID]domain.ReportTerminalOutcome
 
 	listPRsErr        error
 	listReviewsErr    error
@@ -41,14 +42,20 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		sessions:   map[domain.SessionID]domain.SessionRecord{},
-		projects:   map[string]domain.ProjectRecord{},
-		prs:        map[domain.SessionID][]domain.PullRequest{},
-		reviews:    map[string][]domain.PullRequestReview{},
-		comments:   map[string][]domain.PullRequestComment{},
-		prPolicies: map[string]bool{},
-		signatures: map[string]string{},
+		sessions:               map[domain.SessionID]domain.SessionRecord{},
+		projects:               map[string]domain.ProjectRecord{},
+		prs:                    map[domain.SessionID][]domain.PullRequest{},
+		reviews:                map[string][]domain.PullRequestReview{},
+		comments:               map[string][]domain.PullRequestComment{},
+		prPolicies:             map[string]bool{},
+		signatures:             map[string]string{},
+		terminalReportOutcomes: map[domain.SessionID]domain.ReportTerminalOutcome{},
 	}
+}
+
+func (f *fakeStore) GetTerminalReportOutcome(_ context.Context, id domain.SessionID) (domain.ReportTerminalOutcome, bool, error) {
+	outcome, ok := f.terminalReportOutcomes[id]
+	return outcome, ok, nil
 }
 
 func (f *fakeStore) GetSession(_ context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
@@ -3649,6 +3656,116 @@ func TestPRObservation_MergedUsesConfiguredTerminator(t *testing.T) {
 	}
 	if terminator.calls != 1 {
 		t.Fatalf("terminator calls = %d, want 1", terminator.calls)
+	}
+}
+
+type terminalReportTerminator struct {
+	store *fakeStore
+	calls int
+	err   error
+}
+
+func (f *terminalReportTerminator) Kill(_ context.Context, id domain.SessionID) (bool, error) {
+	f.calls++
+	if f.err != nil {
+		err := f.err
+		f.err = nil
+		return false, err
+	}
+	rec := f.store.sessions[id]
+	rec.IsTerminated = true
+	rec.Activity.State = domain.ActivityExited
+	f.store.sessions[id] = rec
+	return true, nil
+}
+
+func TestApplyTerminalReportTerminatesOnlyExplicitFinalWorkerOutcome(t *testing.T) {
+	for _, outcome := range []domain.ReportTerminalOutcome{domain.ReportOutcomeSuccess, domain.ReportOutcomeFailure} {
+		t.Run(string(outcome), func(t *testing.T) {
+			m, st, _ := newManager()
+			rec := working("worker")
+			rec.Kind = domain.KindWorker
+			st.sessions["worker"] = rec
+			st.terminalReportOutcomes["worker"] = outcome
+			terminator := &terminalReportTerminator{store: st}
+			m.SetCompletionTerminator(terminator)
+			if err := m.ApplyTerminalReport(ctx, "worker"); err != nil {
+				t.Fatal(err)
+			}
+			if !st.sessions["worker"].IsTerminated || terminator.calls != 1 {
+				t.Fatalf("worker=%+v terminate calls=%d", st.sessions["worker"], terminator.calls)
+			}
+			if err := m.ApplyTerminalReport(ctx, "worker"); err != nil || terminator.calls != 1 {
+				t.Fatalf("duplicate final report retriggered termination: calls=%d err=%v", terminator.calls, err)
+			}
+		})
+	}
+}
+
+func TestApplyTerminalReportRetriesAfterFailureAndIgnoresNonterminalSignals(t *testing.T) {
+	m, st, _ := newManager()
+	rec := working("worker")
+	rec.Kind = domain.KindWorker
+	st.sessions["worker"] = rec
+	terminator := &terminalReportTerminator{store: st, err: errors.New("temporary kill failure")}
+	m.SetCompletionTerminator(terminator)
+	for _, state := range []domain.ReportState{domain.ReportCheckpoint, domain.ReportNeedsInput, domain.ReportStuck} {
+		if err := m.ApplyTerminalReport(ctx, "worker"); err != nil || terminator.calls != 0 {
+			t.Fatalf("state %q caused termination: calls=%d err=%v", state, terminator.calls, err)
+		}
+	}
+	if err := m.ApplyRuntimeObservation(ctx, "worker", ports.RuntimeFacts{Runtime: ports.ProbeFailed, Workload: ports.ProbeFailed}); err != nil || terminator.calls != 0 {
+		t.Fatalf("uncertain runtime probe caused termination: calls=%d err=%v", terminator.calls, err)
+	}
+	rec = st.sessions["worker"]
+	rec.Activity.State = domain.ActivityExited
+	st.sessions["worker"] = rec
+	if err := m.ApplyTerminalReport(ctx, "worker"); err != nil || terminator.calls != 0 {
+		t.Fatalf("agent ending a turn caused termination: calls=%d err=%v", terminator.calls, err)
+	}
+	st.terminalReportOutcomes["worker"] = domain.ReportOutcomeFailure
+	if err := m.ApplyTerminalReport(ctx, "worker"); err == nil || terminator.calls != 1 {
+		t.Fatalf("first terminal attempt calls=%d err=%v, want retryable failure", terminator.calls, err)
+	}
+	if err := m.ApplyRuntimeObservation(ctx, "worker", ports.RuntimeFacts{Runtime: ports.ProbeFailed, Workload: ports.ProbeFailed}); err != nil {
+		t.Fatal(err)
+	}
+	if !st.sessions["worker"].IsTerminated || terminator.calls != 2 {
+		t.Fatalf("retry did not complete from durable report: worker=%+v calls=%d", st.sessions["worker"], terminator.calls)
+	}
+}
+
+func TestApplyTerminalReportNeverTerminatesAnOrchestrator(t *testing.T) {
+	m, st, _ := newManager()
+	st.sessions["root"] = domain.SessionRecord{ID: "root", Kind: domain.KindOrchestrator}
+	st.terminalReportOutcomes["root"] = domain.ReportOutcomeSuccess
+	terminator := &terminalReportTerminator{store: st}
+	m.SetCompletionTerminator(terminator)
+	if err := m.ApplyTerminalReport(ctx, "root"); err != nil || terminator.calls != 0 {
+		t.Fatalf("root termination calls=%d err=%v", terminator.calls, err)
+	}
+}
+
+func TestCodeWorkerWithoutFinalReportKeepsPRMergeCompletionLifecycle(t *testing.T) {
+	m, st, _ := newManager()
+	worker := working("worker")
+	worker.Activity.State = domain.ActivityIdle
+	worker.TerminateOnPRMerge = true
+	st.sessions[worker.ID] = worker
+	st.prs[worker.ID] = []domain.PullRequest{{URL: "https://github.com/o/r/pull/1"}}
+	terminator := &terminalReportTerminator{store: st}
+	m.SetCompletionTerminator(terminator)
+	if err := m.ApplyTerminalReport(ctx, worker.ID); err != nil || terminator.calls != 0 {
+		t.Fatalf("ordinary PR workflow terminated without an explicit final report: calls=%d err=%v", terminator.calls, err)
+	}
+	st.prs[worker.ID] = []domain.PullRequest{{URL: "https://github.com/o/r/pull/1", Merged: true}}
+	if err := m.ApplyPRObservation(ctx, worker.ID, ports.PRObservation{
+		Fetched: true, URL: "https://github.com/o/r/pull/1", Merged: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !st.sessions[worker.ID].IsTerminated || terminator.calls != 1 {
+		t.Fatalf("existing PR merge lifecycle did not terminate its completed worker: %+v calls=%d", st.sessions[worker.ID], terminator.calls)
 	}
 }
 

@@ -20,6 +20,7 @@ type reportOptions struct {
 	noteSet                             bool
 	artifacts, prsCreated, prsReviewed  []string
 	checkpoint, needsInput, stuck, done bool
+	finalSuccess, finalFailure          bool
 }
 
 type reportAPIOutput struct {
@@ -28,11 +29,12 @@ type reportAPIOutput struct {
 }
 
 type reportAPIRequest struct {
-	SessionID string            `json:"sessionId"`
-	State     string            `json:"state,omitempty"`
-	Note      string            `json:"note,omitempty"`
-	Message   string            `json:"message,omitempty"`
-	Outputs   []reportAPIOutput `json:"outputs,omitempty"`
+	SessionID       string            `json:"sessionId"`
+	State           string            `json:"state,omitempty"`
+	TerminalOutcome string            `json:"terminalOutcome,omitempty"`
+	Note            string            `json:"note,omitempty"`
+	Message         string            `json:"message,omitempty"`
+	Outputs         []reportAPIOutput `json:"outputs,omitempty"`
 }
 
 type reportAPIResponse struct {
@@ -54,6 +56,8 @@ func newReportCommand(ctx *commandContext) *cobra.Command {
 	f.BoolVar(&o.needsInput, "needs-input", false, "Report that input is needed")
 	f.BoolVar(&o.stuck, "stuck", false, "Report that work is stuck")
 	f.BoolVar(&o.done, "done", false, "Report that work is done")
+	f.BoolVar(&o.finalSuccess, "final-success", false, "Report a final successful outcome and terminate this worker")
+	f.BoolVar(&o.finalFailure, "final-failure", false, "Report a terminal unsuccessful outcome and terminate this worker")
 	return cmd
 }
 
@@ -70,7 +74,11 @@ func (c *commandContext) report(ctx context.Context, args []string, o reportOpti
 			count++
 		}
 	}
-	if count > 1 {
+	if o.finalSuccess || o.finalFailure {
+		count++
+		selected = domain.ReportDone
+	}
+	if count > 1 || (o.finalSuccess && o.finalFailure) {
 		return usageError{errors.New("usage: state flags are mutually exclusive")}
 	}
 
@@ -123,7 +131,14 @@ func (c *commandContext) report(ctx context.Context, args []string, o reportOpti
 	for i, output := range outputs {
 		apiOutputs[i] = reportAPIOutput{Kind: string(output.Kind), Reference: output.Reference}
 	}
-	req := reportAPIRequest{SessionID: sessionID, State: string(selected), Note: o.note, Message: message, Outputs: apiOutputs}
+	outcome := ""
+	if o.finalSuccess {
+		outcome = string(domain.ReportOutcomeSuccess)
+	}
+	if o.finalFailure {
+		outcome = string(domain.ReportOutcomeFailure)
+	}
+	req := reportAPIRequest{SessionID: sessionID, State: string(selected), TerminalOutcome: outcome, Note: o.note, Message: message, Outputs: apiOutputs}
 	var response reportAPIResponse
 	err := c.postJSON(ctx, "reports", req, &response)
 	if err == nil || c.targetsRemote() || !undelivered(err) {

@@ -111,7 +111,7 @@ func listReportsResponse(records []domain.ReportRecord) ListReportsResponse {
 		}
 		response.Reports[i] = ReportResponse{
 			ID: record.ID, SessionID: string(record.SessionID), ProjectID: string(record.ProjectID),
-			State: string(record.State), Note: record.Note, Message: record.Message,
+			State: string(record.State), TerminalOutcome: string(record.TerminalOutcome), Note: record.Note, Message: record.Message,
 			Outputs: outputs, CreatedAt: record.CreatedAt, RepeatCount: record.RepeatCount,
 			HostID: record.HostID, HostLabel: record.HostLabel, Agent: record.Agent, SessionName: record.SessionDisplayName,
 			SourceProjectID: func() string {
@@ -206,7 +206,7 @@ func (c *ReportsController) create(w http.ResponseWriter, r *http.Request) {
 		outputs[i] = domain.ReportOutput{Kind: domain.ReportOutputKind(output.Kind), Reference: output.Reference, Label: output.Label}
 	}
 	rec, err := c.Svc.Create(r.Context(), reportsvc.CreateInput{
-		SessionID: domain.SessionID(req.SessionID), State: domain.ReportState(req.State),
+		SessionID: domain.SessionID(req.SessionID), State: domain.ReportState(req.State), TerminalOutcome: domain.ReportTerminalOutcome(req.TerminalOutcome),
 		Note: req.Note, Message: req.Message, Outputs: outputs,
 	})
 	if err != nil {

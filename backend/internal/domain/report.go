@@ -100,6 +100,20 @@ type ReportOutput struct {
 	Label     string
 }
 
+// ReportTerminalOutcome is an explicit final task judgment.
+type ReportTerminalOutcome string
+
+// Supported terminal task outcomes.
+const (
+	ReportOutcomeSuccess ReportTerminalOutcome = "success"
+	ReportOutcomeFailure ReportTerminalOutcome = "failure"
+)
+
+// Valid reports whether o is an explicit terminal outcome.
+func (o ReportTerminalOutcome) Valid() bool {
+	return o == ReportOutcomeSuccess || o == ReportOutcomeFailure
+}
+
 // ReportDeliveryState is the durable outbox lifecycle of a report.
 type ReportDeliveryState string
 
@@ -110,8 +124,8 @@ const (
 	ReportAcknowledged ReportDeliveryState = "acknowledged"
 )
 
-// ReportRecord is the durable report and outbox persistence shape. State and
-// outputs are independent, and neither changes authoritative session state.
+// ReportRecord is the durable report and outbox persistence shape. Only an
+// explicit terminal outcome can trigger lifecycle after this record is saved.
 type ReportRecord struct {
 	ID        string
 	SessionID SessionID
@@ -127,6 +141,7 @@ type ReportRecord struct {
 	Agent              string
 	SourceProjectID    string
 	State              ReportState
+	TerminalOutcome    ReportTerminalOutcome
 	Note               string
 	Message            string
 	Outputs            []ReportOutput
@@ -149,6 +164,10 @@ type ReportRecord struct {
 // ErrInvalidReport reports an invalid report or delivery transition input.
 var ErrInvalidReport = errors.New("invalid report")
 
+// ErrTerminalReportConflict reports a second final judgment that disagrees
+// with the durable terminal outcome already recorded for the session.
+var ErrTerminalReportConflict = errors.New("conflicting terminal report")
+
 // Validate checks content, ownership, output, and delivery-state invariants.
 func (r ReportRecord) Validate() error {
 	if r.ID == "" || r.SessionID == "" || r.ProjectID == "" || r.CreatedAt.IsZero() || r.AvailableAt.IsZero() || r.RepeatCount < 1 {
@@ -156,6 +175,9 @@ func (r ReportRecord) Validate() error {
 	}
 	if err := ValidateReportContent(r.State, r.Note, r.Message, r.Outputs); err != nil {
 		return err
+	}
+	if r.TerminalOutcome != "" && (r.State != ReportDone || !r.TerminalOutcome.Valid()) {
+		return ErrInvalidReport
 	}
 	if r.State == ReportDone {
 		if r.SettlementDeadline.IsZero() {

@@ -85,8 +85,9 @@ func TestRemoteReportHistoryIsHostScopedAndKeepsOutputs(t *testing.T) {
 		}
 		report := domain.ReportRecord{ID: "same-report", SessionID: link.RemoteSessionID, ProjectID: "ao", HostID: host,
 			HostLabel: host, Agent: "codex", SessionDisplayName: host + " task", State: domain.ReportDone, Note: "completed",
-			Outputs:   []domain.ReportOutput{{Kind: domain.ReportOutputArtifact, Reference: host + "/result.md", Label: "Result"}},
-			CreatedAt: now, RepeatCount: 1}
+			TerminalOutcome: domain.ReportOutcomeFailure,
+			Outputs:         []domain.ReportOutput{{Kind: domain.ReportOutputArtifact, Reference: host + "/result.md", Label: "Result"}},
+			CreatedAt:       now, RepeatCount: 1}
 		if err := s.RecordRemoteReportHistory(ctx, host, link.RemoteSessionID, []domain.ReportRecord{report}); err != nil {
 			t.Fatal(err)
 		}
@@ -99,7 +100,7 @@ func TestRemoteReportHistoryIsHostScopedAndKeepsOutputs(t *testing.T) {
 		t.Fatalf("remote history = %+v", reports)
 	}
 	for _, report := range reports {
-		if report.ID != "same-report" || report.SessionID != "same-session" || report.Agent != "codex" || len(report.Outputs) != 1 || report.Outputs[0].Label != "Result" {
+		if report.ID != "same-report" || report.SessionID != "same-session" || report.Agent != "codex" || report.TerminalOutcome != domain.ReportOutcomeFailure || len(report.Outputs) != 1 || report.Outputs[0].Label != "Result" {
 			t.Fatalf("remote report projection = %+v", report)
 		}
 	}

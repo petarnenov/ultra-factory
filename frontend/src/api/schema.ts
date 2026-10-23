@@ -5511,6 +5511,8 @@ export interface components {
             sessionId: string;
             /** @enum {string} */
             state?: "checkpoint" | "needs_input" | "stuck" | "done";
+            /** @enum {string} */
+            terminalOutcome?: "success" | "failure";
         };
         CreateReportResponse: {
             id: string;
@@ -6459,6 +6461,7 @@ export interface components {
             sessionName?: string;
             sourceProjectId?: string;
             state?: string;
+            terminalOutcome?: string;
         };
         ResolveCommentsResponse: {
             ok: boolean;

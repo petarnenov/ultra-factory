@@ -766,6 +766,9 @@ func (b PreparedBatch) Render() string {
 		if state == "" {
 			state = "information"
 		}
+		if report.TerminalOutcome != "" {
+			state += "/" + string(report.TerminalOutcome)
+		}
 		fmt.Fprintf(&out, "\n\n[%s] %s", state, reportSessionLink(report))
 		if report.RepeatCount > 1 {
 			fmt.Fprintf(&out, " (repeated %d times)", report.RepeatCount)

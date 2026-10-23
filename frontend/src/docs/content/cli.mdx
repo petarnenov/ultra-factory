@@ -212,10 +212,12 @@ Inside a worker, `ao report "Progress summary"` sends a report to its existing o
 
 Needs-input reports are sent immediately. Stuck reports may interrupt or combine with other reports. Done reports wait five minutes before delivery; ordinary checkpoints can wait up to one hour.
 
-For a structured report, choose one state flag: `--checkpoint`, `--needs-input`, `--stuck`, or `--done`. Include `--note` with it. Attach reviewable deliverables with `--artifact`, `--pr-created`, or `--pr-reviewed`; pull-request flags require full URLs. Do not combine free-form text with structured state or output flags.
+For a structured report, choose one state flag: `--checkpoint`, `--needs-input`, `--stuck`, or `--done`. These reports are recoverable and do not terminate the worker. To finish a task explicitly, use `--final-success` or `--final-failure` with `--note`; AO saves the report and its artifact references before terminating the worker. A stuck report remains recoverable and is not terminal failure. Older clients that send `state=done` without a terminal outcome remain recoverable; AO never infers completion from a missing field. Attach reviewable deliverables with `--artifact`, `--pr-created`, or `--pr-reviewed`; pull-request flags require full URLs. Do not combine free-form text with structured state or output flags.
 
 ```bash
 ao report --done --note "Focused tests passed"
+ao report --final-success --note "Research task complete" --artifact ./result.md
+ao report --final-failure --note "Required source unavailable"
 ```
 
 `ao report` must run in a worker environment that provides `AO_SESSION_ID`.

@@ -686,6 +686,7 @@ type RemoteWorkerReport struct {
 	HostLabel       string
 	CreatedAt       time.Time
 	RepeatCount     int64
+	TerminalOutcome string
 }
 
 type RemoteWorkerReportDelivery struct {
@@ -724,6 +725,7 @@ type Report struct {
 	LastError          string
 	DeliveryBatchID    string
 	DeliveryOwnerID    string
+	TerminalOutcome    string
 }
 
 type ReportOutput struct {
@@ -745,6 +747,13 @@ type ReportPuller struct {
 	PullerID     string
 	ExpiredTotal int64
 	LastPulledAt time.Time
+}
+
+type ReportTerminalCompletion struct {
+	SessionID string
+	ReportID  string
+	Outcome   string
+	CreatedAt time.Time
 }
 
 type ReportWorkerInterrupt struct {

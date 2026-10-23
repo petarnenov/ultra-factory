@@ -68,6 +68,34 @@ func TestReportRecordValidatesSettlementDeadline(t *testing.T) {
 	}
 }
 
+func TestReportRecordValidatesTerminalOutcomeSemantics(t *testing.T) {
+	now := time.Date(2026, 9, 7, 1, 2, 3, 0, time.UTC)
+	base := ReportRecord{ID: "rpt_final", SessionID: "worker", ProjectID: "ao", State: ReportDone, Note: "final", CreatedAt: now, DeliveryState: ReportPending, AvailableAt: now.Add(ReportSettlementWindow), SettlementDeadline: now.Add(ReportSettlementWindow), RepeatCount: 1}
+	for _, outcome := range []ReportTerminalOutcome{ReportOutcomeSuccess, ReportOutcomeFailure} {
+		rec := base
+		rec.TerminalOutcome = outcome
+		if err := rec.Validate(); err != nil {
+			t.Errorf("outcome %q: %v", outcome, err)
+		}
+	}
+	for _, outcome := range []ReportTerminalOutcome{"", "unknown"} {
+		rec := base
+		rec.TerminalOutcome = outcome
+		if outcome == "" {
+			continue
+		}
+		if err := rec.Validate(); err == nil {
+			t.Errorf("invalid terminal outcome %q was accepted", outcome)
+		}
+	}
+	rec := base
+	rec.State = ReportStuck
+	rec.TerminalOutcome = ReportOutcomeFailure
+	if err := rec.Validate(); err == nil {
+		t.Fatal("recoverable stuck report accepted as a terminal failure")
+	}
+}
+
 func TestUnwrapPastedContent(t *testing.T) {
 	valid := WrapReportDelivery("report-batch:abc", "finished")
 	for _, tc := range []struct {

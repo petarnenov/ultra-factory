@@ -23,13 +23,18 @@ type Store interface {
 	CreateReport(context.Context, domain.ReportRecord) (domain.ReportRecord, error)
 }
 
+type terminalReportLookup interface {
+	GetTerminalReport(context.Context, domain.SessionID) (domain.ReportRecord, bool, error)
+}
+
 // CreateInput is the validated caller payload before AO-derived ownership and deadlines.
 type CreateInput struct {
-	SessionID domain.SessionID
-	State     domain.ReportState
-	Note      string
-	Message   string
-	Outputs   []domain.ReportOutput
+	SessionID       domain.SessionID
+	State           domain.ReportState
+	TerminalOutcome domain.ReportTerminalOutcome
+	Note            string
+	Message         string
+	Outputs         []domain.ReportOutput
 }
 
 // ArtifactRecorder shows a reported artifact in the worker's chat thread. It
@@ -493,8 +498,8 @@ func (s *Service) pullableWorker(ctx context.Context, sessionID domain.SessionID
 	return nil
 }
 
-// Create validates ownership and persists one pending report. Reports are
-// coordination claims and never mutate authoritative worker lifecycle state.
+// Create validates ownership and persists one pending report. An explicit
+// terminal outcome triggers lifecycle only after the report is durable.
 func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportRecord, error) {
 	if s == nil || s.store == nil {
 		return domain.ReportRecord{}, errors.New("report: store is required")
@@ -505,6 +510,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	if err := domain.ValidateReportContent(input.State, input.Note, input.Message, input.Outputs); err != nil {
 		return domain.ReportRecord{}, apierr.Invalid("INVALID_REPORT", "Report state, note, message, or outputs are invalid", nil)
 	}
+	if input.TerminalOutcome != "" && (input.State != domain.ReportDone || !input.TerminalOutcome.Valid()) {
+		return domain.ReportRecord{}, apierr.Invalid("INVALID_TERMINAL_OUTCOME", "A terminal outcome requires a done report and must be success or failure", nil)
+	}
 	session, ok, err := s.store.GetSession(ctx, input.SessionID)
 	if err != nil {
 		return domain.ReportRecord{}, err
@@ -514,6 +522,20 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	}
 	if session.Kind != domain.KindWorker {
 		return domain.ReportRecord{}, apierr.Invalid("REPORT_WORKER_REQUIRED", "Reports can only be created by worker sessions", nil)
+	}
+	if input.TerminalOutcome != "" {
+		if lookup, ok := s.store.(terminalReportLookup); ok {
+			existing, found, err := lookup.GetTerminalReport(ctx, session.ID)
+			if err != nil {
+				return domain.ReportRecord{}, err
+			}
+			if found {
+				if existing.TerminalOutcome != input.TerminalOutcome {
+					return domain.ReportRecord{}, apierr.Conflict("TERMINAL_REPORT_CONFLICT", "A different terminal outcome is already recorded for this task", nil)
+				}
+				return existing, nil
+			}
+		}
 	}
 	// A terminated worker will never be read again, so accepting its report
 	// would only queue one more delivery into a closed session stream.
@@ -540,26 +562,31 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.ReportR
 	}
 	rec := domain.ReportRecord{
 		ID: s.newID(), SessionID: session.ID, ProjectID: session.ProjectID,
-		State: input.State, Note: input.Note, Message: input.Message, Outputs: input.Outputs,
+		State: input.State, TerminalOutcome: input.TerminalOutcome, Note: input.Note, Message: input.Message, Outputs: input.Outputs,
 		CreatedAt: now, DeliveryState: domain.ReportPending, AvailableAt: availableAt,
 		SettlementDeadline: settlementDeadline, RepeatCount: 1,
 	}
 	created, err := s.store.CreateReport(ctx, rec)
 	if err != nil {
+		if errors.Is(err, domain.ErrTerminalReportConflict) {
+			return domain.ReportRecord{}, apierr.Conflict("TERMINAL_REPORT_CONFLICT", "A different terminal outcome is already recorded for this task", nil)
+		}
 		return created, err
 	}
-	if s.onCreated != nil {
-		s.onCreated(created)
+	if created.ID != rec.ID {
+		return created, nil
 	}
-	// Synchronous on purpose: ao report --done is often the agent's last tool
-	// call, so a goroutine would race the turn's completion and could drop the
-	// artifact or put it on the next turn.
+	// Synchronous on purpose: a final report may terminate its worker, so the
+	// report and its artifact references must be durable first.
 	if s.artifacts != nil {
 		for _, output := range created.Outputs {
 			if output.Kind == domain.ReportOutputArtifact {
 				s.artifacts.RecordReportedArtifact(ctx, created.SessionID, output.Reference)
 			}
 		}
+	}
+	if s.onCreated != nil {
+		s.onCreated(created)
 	}
 	return created, nil
 }

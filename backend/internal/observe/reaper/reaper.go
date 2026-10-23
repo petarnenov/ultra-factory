@@ -56,6 +56,10 @@ type runtimeObservationSink interface {
 	ApplyRuntimeObservation(ctx context.Context, id domain.SessionID, f ports.RuntimeFacts) error
 }
 
+type terminalReportReconciler interface {
+	ApplyTerminalReport(ctx context.Context, id domain.SessionID) error
+}
+
 type runtimeProber interface {
 	IsAlive(context.Context, ports.RuntimeHandle) (bool, error)
 }
@@ -167,6 +171,14 @@ func (r *Reaper) Tick(ctx context.Context) error {
 	for _, sess := range sessions {
 		if sess.IsTerminated {
 			continue
+		}
+		if sess.Kind == domain.KindWorker {
+			if reconciler, ok := r.sink.(terminalReportReconciler); ok {
+				if err := reconciler.ApplyTerminalReport(ctx, sess.ID); err != nil {
+					r.logger.Error("reaper: terminal report reconciliation failed",
+						"session", sess.ID, "err", err)
+				}
+			}
 		}
 		facts, ok := r.probeOne(ctx, sess, now)
 		if !ok {

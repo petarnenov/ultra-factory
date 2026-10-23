@@ -225,9 +225,9 @@ func (s *Store) RecordRemoteReportHistory(ctx context.Context, hostID string, re
 	defer func() { _ = tx.Rollback() }()
 	for _, report := range reports {
 		result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO remote_worker_reports
-			(host_id, remote_session_id, report_id, project_id, source_project_id, state, note, message, agent, session_name, host_label, created_at, repeat_count)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			hostID, string(remoteSessionID), report.ID, string(report.ProjectID), report.SourceProjectID, string(report.State), report.Note, report.Message,
+			(host_id, remote_session_id, report_id, project_id, source_project_id, state, terminal_outcome, note, message, agent, session_name, host_label, created_at, repeat_count)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			hostID, string(remoteSessionID), report.ID, string(report.ProjectID), report.SourceProjectID, string(report.State), string(report.TerminalOutcome), report.Note, report.Message,
 			report.Agent, report.SessionDisplayName, report.HostLabel, report.CreatedAt, report.RepeatCount)
 		if err != nil {
 			return fmt.Errorf("record remote report history %s/%s/%s: %w", hostID, remoteSessionID, report.ID, err)
