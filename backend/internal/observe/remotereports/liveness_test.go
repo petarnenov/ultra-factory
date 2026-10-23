@@ -287,15 +287,22 @@ func TestPollPullsLiveLinksFirstAndEndedLinksOnASlowCadence(t *testing.T) {
 	}
 
 	var order []string
+	endedLivenessReads := 0
 	for _, r := range host.seen() {
+		if r.path == "/api/v1/sessions/ended" {
+			endedLivenessReads++
+		}
 		for _, id := range []string{"live", "ended"} {
 			if strings.HasSuffix(r.path, "/reports/pending") && strings.Contains("&"+r.query+"&", "&sessionId="+id+"&") {
 				order = append(order, id)
 			}
 		}
 	}
+	if endedLivenessReads != 3 {
+		t.Fatalf("ended session liveness reads = %d, want one per poll", endedLivenessReads)
+	}
 	if strings.Join(order, ",") != "live,ended,live,live" {
-		t.Fatalf("pending pulls = %v, want the ended link once and after the live one", order)
+		t.Fatalf("pending pulls = %v, want the ended link pulled once after the live one", order)
 	}
 	if store.linkCount() != 2 {
 		t.Fatalf("links = %+v, want the recently ended link kept", store.links)

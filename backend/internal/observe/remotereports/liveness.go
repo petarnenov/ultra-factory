@@ -50,7 +50,7 @@ func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, li
 			link.LastState = domain.RemoteLinkTerminated
 			o.recordLiveness(ctx, link, domain.RemoteLinkTerminated)
 			if !retained(link) || o.retainedPullDue(link) {
-				if !o.endedWithNothingPending(ctx, client, link) {
+				if !o.retentionOver(link) || !o.endedWithNothingPending(ctx, client, link) {
 					keep(link)
 				}
 			}
