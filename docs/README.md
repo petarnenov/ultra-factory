@@ -44,6 +44,7 @@ in [gemini-cli.md](gemini-cli.md).
 | [stack.md](stack.md)                                   | Accepted library/runtime choices, pending stack decisions, and dependencies explicitly avoided for V1.                |
 | [telemetry.md](telemetry.md)                           | User-facing overview of product telemetry, privacy safeguards, and opt-out controls.                                    |
 | [posthog-cost-controls.md](posthog-cost-controls.md)   | PostHog event-name migration, ingestion drop rules, and dashboard queries for reducing telemetry spend.              |
+| [WebMCP benchmark report](performance/webmcp/README.md)      | Measured Playwright, scripted WebMCP, and JEV UI test timings, reproduction protocol, and comparison limits. |
 
 See [startup-cues.md](startup-cues.md) for command cues that gate a new worktree’s opening turn.
 

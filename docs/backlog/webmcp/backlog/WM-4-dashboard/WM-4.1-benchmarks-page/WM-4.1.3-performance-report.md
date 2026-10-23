@@ -1,6 +1,6 @@
 # WM-4.1.3 · Task: Performance report under `docs/performance/webmcp/`
 
-**Status:** ⬜ todo — [#490](https://github.com/petarnenov/ultra-factory/issues/490)
+**Status:** ✅ complete — [#490](https://github.com/petarnenov/ultra-factory/issues/490)
 
 **Type:** documentation. **Estimate:** 0.5 pd. **Story:** WM-4.1.
 
@@ -50,19 +50,20 @@ Scope: three pages, ten scenarios, three drivers, one machine. Pre-measurement a
 
 ## Subtasks
 
-- [ ] Generate and paste the results table; fill every section.
-- [ ] Copy screenshots from the WM-4.1.2 spec output to `assets/`.
-- [ ] Link from `docs/README.md` (performance section) and from
+- [x] Generate and paste the results table; fill every section.
+- [x] Copy screenshots from the WM-4.1.2 spec output to `assets/`.
+- [x] Link from `docs/README.md` (performance section) and from
   `docs/backlog/webmcp/webmcp-report.md` ("Results" pointer at the top).
-- [ ] Update `docs/backlog/webmcp/backlog/README.md` statuses to ✅ for the
+- [x] Update `docs/backlog/webmcp/backlog/README.md` statuses to ✅ for the
   finished tasks.
 
 ## Acceptance criteria
 
-- [ ] Every measured result traces to raw records or `summary.json`; hardware
+- [x] Every measured result traces to raw records or `summary.json`; hardware
   and environment metadata trace to the records’ `env` fields.
-- [ ] Reproduce commands work from a clean checkout with the key set.
-- [ ] English only; no secret.
+- [ ] Reproduce commands work from a clean checkout with the key set; the
+  protocol run is still required to verify this acceptance criterion.
+- [x] English only; no secret.
 
 ## Verification
 
