@@ -41,9 +41,19 @@ func TestLiveGraph(t *testing.T) {
 	must(g.RecordTask(ctx, TaskFact{Key: "h/a1", SessionID: "a1", Host: "h", Project: project, Title: "Fix sqlite migration ordering", Issue: "42", Outcome: "failed", Report: "stuck: duplicate goose migration number", At: now}))
 	must(g.AddLesson(ctx, Lesson{ID: "kglive-L1", TaskKey: "h/a1", Session: "a1", Host: "h", Project: project, Kind: "pitfall", Text: "Sqlite migration numbers must be unique", Topics: []string{"sqlite"}, At: now}))
 	must(g.MarkServed(ctx, "h/a2", []string{"kglive-L1"}, now))
-	must(g.RecordTask(ctx, TaskFact{Key: "h/a2", SessionID: "a2", Host: "h", Project: project, Title: "Add sqlite migration for reports", Issue: "43", Outcome: "merged", At: now}))
+	must(g.RecordTask(ctx, TaskFact{Key: "h/a2", SessionID: "a2", Host: "h", Project: project, Title: "Add sqlite migration for reports", Issue: "43", Outcome: "merged", PRs: []string{"https://example.test/pr/42"}, Files: []string{"backend/internal/storage/sqlite/migrations/001.go", "backend/internal/storage/sqlite/schema.sql"}, At: now}))
+	stored, err := c.Run(ctx, "MATCH (t:Task {id: 'h/a2'}) RETURN t.files AS files", nil)
+	must(err)
+	if len(stored) != 1 || !reflect.DeepEqual(stored[0].Strings("files"), []string{"backend/internal/storage/sqlite/migrations/001.go", "backend/internal/storage/sqlite/schema.sql"}) {
+		t.Fatalf("stored task files = %v, want captured paths", stored)
+	}
 	// A second write of the same outcome must not score the lesson twice.
 	must(g.RecordTask(ctx, TaskFact{Key: "h/a2", SessionID: "a2", Host: "h", Project: project, Outcome: "merged", At: now}))
+	stored, err = c.Run(ctx, "MATCH (t:Task {id: 'h/a2'}) RETURN t.files AS files", nil)
+	must(err)
+	if len(stored) != 1 || !reflect.DeepEqual(stored[0].Strings("files"), []string{"backend/internal/storage/sqlite/migrations/001.go", "backend/internal/storage/sqlite/schema.sql"}) {
+		t.Fatalf("stored task files after empty update = %v, want prior paths preserved", stored)
+	}
 	rows, err := c.Run(ctx, "MATCH (l:Lesson {id:'kglive-L1'}) RETURN l.helped AS helped, l.hurt AS hurt", nil)
 	must(err)
 	if len(rows) != 1 || rows[0].Float("helped") != 1 || rows[0].Float("hurt") != 0 {
@@ -59,7 +69,8 @@ func TestLiveGraph(t *testing.T) {
 		t.Fatalf("sections = %v, items %+v", sections, items)
 	}
 	out := FormatSection(items)
-	for _, want := range []string{"Earlier attempts", "Sqlite migration numbers", "Add sqlite migration for reports"} {
+	t.Logf("paraphrased prompt context:\n%s", out)
+	for _, want := range []string{"Earlier attempts", "Sqlite migration numbers", "Add sqlite migration for reports", "PR: https://example.test/pr/42 · files: backend/internal/storage/sqlite/migrations/001.go, backend/internal/storage/sqlite/schema.sql"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("section misses %q:\n%s", want, out)
 		}

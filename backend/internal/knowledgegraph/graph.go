@@ -34,6 +34,7 @@ type TaskFact struct {
 	Model          string
 	Effort         string
 	PRs            []string
+	Files          []string
 	Failures       []string
 	Branch         string
 	ElapsedSeconds int64
@@ -53,6 +54,8 @@ ON CREATE SET t.createdAt = datetime($at)
 SET t.sessionId = $sessionId, t.host = $host, t.project = $project,
     t.updatedAt = datetime($at)
 SET t += $props
+FOREACH (_ IN CASE WHEN size($files) = 0 THEN [] ELSE [1] END |
+  SET t.files = $files)
 FOREACH (r IN CASE WHEN $report = '' THEN [] ELSE [$report] END |
   SET t.summary = r, t.reports = coalesce(t.reports, []) + [r],
       t.embedding = null)
@@ -73,6 +76,7 @@ RETURN count(t) AS n`
 
 // RecordTask upserts a task and scores the lessons it was served.
 func (g *Graph) RecordTask(ctx context.Context, f TaskFact) error {
+	files := append([]string{}, f.Files...)
 	props := map[string]any{}
 	setIf := func(k, v string) {
 		if v != "" {
@@ -90,6 +94,9 @@ func (g *Graph) RecordTask(ctx context.Context, f TaskFact) error {
 	if len(f.PRs) > 0 {
 		props["prs"] = f.PRs
 	}
+	if len(f.Files) > 0 {
+		props["files"] = f.Files
+	}
 	props["failures"] = append([]string{}, f.Failures...)
 	if f.ElapsedSeconds > 0 {
 		props["elapsedSeconds"] = f.ElapsedSeconds
@@ -103,7 +110,7 @@ func (g *Graph) RecordTask(ctx context.Context, f TaskFact) error {
 	_, err := g.run.Run(ctx, recordTaskCypher, map[string]any{
 		"key": f.Key, "sessionId": f.SessionID, "host": f.Host, "project": f.Project,
 		"issue": f.Issue, "issueKey": issueKey(f.Project, f.Issue), "props": props,
-		"report": f.Report, "at": f.At.UTC().Format(time.RFC3339Nano),
+		"report": f.Report, "files": files, "at": f.At.UTC().Format(time.RFC3339Nano),
 	})
 	return err
 }
@@ -251,8 +258,9 @@ type Item struct {
 	Outcome string
 	Text    string
 	Lessons []string
-	// PRs and Branch are set on attempts only.
+	// PRs, files and Branch are set on task matches.
 	PRs      []string
+	Files    []string
 	Failures []string
 	Branch   string
 	Score    float64
@@ -269,7 +277,7 @@ WITH t, collect(DISTINCT l.text)[..5] AS lessons
 RETURN 'attempt' AS section, t.id AS id, '' AS kind, t.title AS title,
        coalesce(t.outcome, 'in_progress') AS outcome,
        coalesce(t.summary, '') AS text, lessons,
-       coalesce(t.prs, []) AS prs, coalesce(t.branch, '') AS branch,
+       coalesce(t.prs, []) AS prs, coalesce(t.files, []) AS files, coalesce(t.branch, '') AS branch,
        coalesce(t.failures, []) AS failures, 1.0 AS score, 1.0 AS similarity
 ORDER BY t.updatedAt DESC LIMIT $limit`
 	lessonsCypher = `
@@ -281,7 +289,7 @@ ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
        coalesce(t.title, '') AS title, coalesce(t.outcome, '') AS outcome,
-       l.text AS text, [] AS lessons, [] AS prs, '' AS branch, [] AS failures, rank AS score, similarity`
+       l.text AS text, [] AS lessons, [] AS prs, [] AS files, '' AS branch, [] AS failures, rank AS score, similarity`
 	lessonsVectorCypher = `
 CALL db.index.vector.queryNodes('lesson_embedding', $k, $vector) YIELD node AS l, score
 WHERE l.project = $project AND score >= $minScore
@@ -291,13 +299,13 @@ ORDER BY rank DESC LIMIT $limit
 OPTIONAL MATCH (t:Task)-[:LEARNED]->(l)
 RETURN 'lesson' AS section, l.id AS id, l.kind AS kind,
        coalesce(t.title, '') AS title, coalesce(t.outcome, '') AS outcome,
-       l.text AS text, [] AS lessons, [] AS prs, '' AS branch, [] AS failures, rank AS score, similarity`
+       l.text AS text, [] AS lessons, [] AS prs, [] AS files, '' AS branch, [] AS failures, rank AS score, similarity`
 	tasksVectorCypher = `
 CALL db.index.vector.queryNodes('task_embedding', $k, $vector) YIELD node AS t, score
 WHERE t.project = $project AND t.outcome IS NOT NULL AND t.id <> $exclude
   AND ($issue = '' OR coalesce(t.issue, '') <> $issue) AND score >= $minScore
 RETURN 'task' AS section, t.id AS id, '' AS kind, t.title AS title,
-       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons, [] AS prs, '' AS branch, [] AS failures,
+       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons, coalesce(t.prs, []) AS prs, coalesce(t.files, []) AS files, '' AS branch, [] AS failures,
        score, score AS similarity
 ORDER BY score DESC LIMIT $limit`
 	tasksCypher = `
@@ -305,7 +313,7 @@ CALL db.index.fulltext.queryNodes('task_text', $q) YIELD node AS t, score
 WHERE t.project = $project AND t.outcome IS NOT NULL AND t.id <> $exclude
   AND ($issue = '' OR coalesce(t.issue, '') <> $issue)
 RETURN 'task' AS section, t.id AS id, '' AS kind, t.title AS title,
-       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons, [] AS prs, '' AS branch, [] AS failures,
+       t.outcome AS outcome, coalesce(t.summary, '') AS text, [] AS lessons, coalesce(t.prs, []) AS prs, coalesce(t.files, []) AS files, '' AS branch, [] AS failures,
        score, score AS similarity
 ORDER BY score DESC LIMIT $limit`
 )
@@ -335,7 +343,7 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 		if i > 0 {
 			b.WriteString("\nUNION ALL\n")
 		}
-		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, prs, branch, failures, score, similarity")
+		b.WriteString("CALL () {" + p + "\n}\nRETURN section, id, kind, title, outcome, text, lessons, prs, files, branch, failures, score, similarity")
 	}
 	rows, err := g.run.Run(ctx, b.String(), map[string]any{
 		"issueKey": issueKey(q.Project, q.Issue), "issue": q.Issue, "project": q.Project,
@@ -352,7 +360,7 @@ func (g *Graph) Prior(ctx context.Context, q Query) ([]Item, error) {
 		items = append(items, Item{
 			Section: r.String("section"), ID: r.String("id"), Kind: r.String("kind"),
 			Title: r.String("title"), Outcome: r.String("outcome"), Text: r.String("text"),
-			Lessons: r.Strings("lessons"), PRs: r.Strings("prs"), Failures: r.Strings("failures"), Branch: r.String("branch"), Score: r.Float("score"),
+			Lessons: r.Strings("lessons"), PRs: r.Strings("prs"), Files: r.Strings("files"), Failures: r.Strings("failures"), Branch: r.String("branch"), Score: r.Float("score"),
 			similarity: r.Float("similarity"),
 		})
 	}
@@ -411,7 +419,7 @@ CALL () {
   MATCH (t:Task)
   WHERE (t.embedding IS NULL OR size(t.embedding) <> $dims) AND t.title IS NOT NULL
   RETURN 'Task' AS label, t.id AS id,
-         t.title + '\n' + coalesce(t.summary, '') AS text LIMIT $limit
+         t.title + '\n' + coalesce(t.summary, '') + '\n' + reduce(s = '', f IN coalesce(t.files, []) | s + '\n' + f) AS text LIMIT $limit
 }
 RETURN label, id, text`, map[string]any{"limit": limit, "dims": dims})
 	if err != nil {

@@ -71,7 +71,11 @@ func formatItem(it Item) string {
 		if t := strings.TrimSpace(it.Text); t != "" {
 			line += " — " + clip(t, maxItemText)
 		}
-		if ref := attemptRef(it); ref != "" {
+		ref := attemptRef(it)
+		if it.Section == "task" {
+			ref = taskRef(it)
+		}
+		if ref != "" {
 			line += "\n  " + ref
 		}
 		for _, failure := range it.Failures {
@@ -82,6 +86,63 @@ func formatItem(it Item) string {
 		}
 		return line
 	}
+}
+
+func taskRef(it Item) string {
+	var parts []string
+	if len(it.PRs) > 0 {
+		parts = append(parts, "PR: "+clip(strings.Join(it.PRs, ", "), maxItemText))
+	}
+	if files := SelectSignificantPaths(it.Files, 5); len(files) > 0 {
+		parts = append(parts, "files: "+clip(strings.Join(files, ", "), maxItemText))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// SelectSignificantPaths ranks paths by shared directory prefixes, then
+// preserves input order for ties and returns at most limit entries.
+func SelectSignificantPaths(paths []string, limit int) []string {
+	if limit <= 0 || len(paths) == 0 {
+		return nil
+	}
+	unique := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		path = strings.Trim(strings.TrimSpace(path), "/")
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		unique = append(unique, path)
+	}
+	counts := make(map[string]int)
+	for _, path := range unique {
+		parts := strings.Split(path, "/")
+		for i := 1; i < len(parts); i++ {
+			counts[strings.Join(parts[:i], "/")]++
+		}
+	}
+	shared := func(path string) int {
+		best := 0
+		parts := strings.Split(path, "/")
+		for i := 1; i < len(parts); i++ {
+			if n := counts[strings.Join(parts[:i], "/")]; n > best {
+				best = n
+			}
+		}
+		return best
+	}
+	for i := 0; i < len(unique); i++ {
+		for j := i + 1; j < len(unique); j++ {
+			if shared(unique[j]) > shared(unique[i]) {
+				unique[i], unique[j] = unique[j], unique[i]
+			}
+		}
+	}
+	if len(unique) > limit {
+		unique = unique[:limit]
+	}
+	return unique
 }
 
 func clipBytes(s string, maxBytes int) string {

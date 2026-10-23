@@ -30,6 +30,11 @@ type PRFailures interface {
 	ForPR(ctx context.Context, prURL string) (PRFailureEvidence, error)
 }
 
+// ChangedPaths reads committed paths from the worker's local workspace.
+type ChangedPaths interface {
+	ChangedPaths(ctx context.Context, sess domain.Session, target string) ([]string, error)
+}
+
 // PRFailureEvidence contains stored PR facts used in task context.
 type PRFailureEvidence struct {
 	Checks   []FailedCheck
@@ -61,6 +66,7 @@ type Deps struct {
 	Sessions   Sessions
 	Tasks      TaskReports
 	Failures   PRFailures
+	Paths      ChangedPaths
 	HostID     string
 	Logger     *slog.Logger
 	Now        func() time.Time
@@ -74,6 +80,7 @@ type Service struct {
 	sessions Sessions
 	tasks    TaskReports
 	failures PRFailures
+	paths    ChangedPaths
 	hostID   string
 	log      *slog.Logger
 	now      func() time.Time
@@ -113,7 +120,7 @@ func New(d Deps) *Service {
 		d.NewID = uuid.NewString
 	}
 	return &Service{
-		graph: d.Graph, sessions: d.Sessions, tasks: d.Tasks, failures: d.Failures, hostID: d.HostID,
+		graph: d.Graph, sessions: d.Sessions, tasks: d.Tasks, failures: d.Failures, paths: d.Paths, hostID: d.HostID,
 		log: d.Logger, now: d.Now, newID: d.NewID,
 		embedder: d.Embedder, minScore: d.MinScore, mergeScore: d.MergeScore, embedKick: make(chan struct{}, 1),
 		queue: make(chan job, queueSize), recorded: map[domain.SessionID]string{},
