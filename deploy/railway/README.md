@@ -482,16 +482,16 @@ or replace fresh provider and native review facts.
 
 ### Rollback to the Mac orchestrator
 
-**Status (2026-10-20): done.** The user paused the hub tick and stopped the
-hub orchestrator on 2026-10-20. The Mac orchestrator is the single live
-orchestrator again, and the hub stays stopped until a new cutover. Workers
-that the hub spawned are not linked to the Mac daemon, so their `ao report`
-does not reach it; inspect them with `ao session ls --host` and
-`ao session get --host`, and message them with `ao send --host`.
+**Status (2026-10-20): done.** The hub orchestrator was stopped and the Mac
+orchestrator resumed as the single active orchestrator. Workers spawned by the
+hub are not linked to the Mac daemon; inspect them with `ao session ls --host`
+and `ao session get --host`, and message them with `ao send --host`.
 
-Steps: stop the hub orchestrator. Restart the Mac orchestrator with its
-orchestrator prompt; its daemon delivers worker lifecycle reports the same
-way. Verify that exactly one orchestrator is active before allowing new work.
+The hub tick has since been removed. Worker lifecycle reports are delivered by
+the daemon that owns the worker or remote-worker link; they do not transfer
+links between daemons. Verify exactly one orchestrator is active before
+allowing new work. Restart the hub orchestrator only after completing the
+[cutover steps](#cutover-to-the-hub-orchestrator).
 
 ### Updating the hub's Tailscale version
 

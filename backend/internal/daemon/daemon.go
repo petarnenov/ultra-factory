@@ -742,6 +742,7 @@ func Run() error {
 		reportCoordinator.Wake()
 	}})
 	chatSvc.SetReportCoordinator(reportCoordinator)
+	defer wakeOnTermination(ctx, cdcPipe.Broadcaster, store, log, reportCoordinator.Wake)()
 	readyAnnouncer := reportsvc.NewReadyAnnouncer(store, reportSvc)
 	lcStack.LCM.SetReadyToMergeAnnouncer(readyAnnouncer)
 	if review, ok := reviewSvc.(*reviewsvc.Service); ok {
@@ -749,7 +750,6 @@ func Run() error {
 	} else {
 		log.Warn("ready to merge: review service cannot announce approvals")
 	}
-	defer wakeOnTermination(ctx, cdcPipe.Broadcaster, store, log, reportCoordinator.Wake)()
 	reportDeliveryDone := reportCoordinator.Start(ctx)
 	defer func() {
 		stop()

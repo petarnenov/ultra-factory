@@ -55,11 +55,22 @@ func TestLivenessInitializesLegacyTerminatedAt(t *testing.T) {
 	legacy := link("host-build", "w-1")
 	legacy.LastState = domain.RemoteLinkTerminated
 	store := newMemStore(legacy)
-	if err := newTestObserver(store, &fakeDeliverer{}, host).Poll(context.Background()); err != nil {
+	observer := newTestObserver(store, &fakeDeliverer{}, host)
+	now := time.Now()
+	observer.now = func() time.Time { return now }
+	if err := observer.Poll(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if store.linkCount() != 1 || store.links[0].TerminatedAt == nil {
+	if store.linkCount() != 1 || store.links[0].TerminatedAt == nil || !store.links[0].TerminatedAt.Equal(now) {
 		t.Fatalf("links = %+v, want legacy termination time initialized", store.links)
+	}
+
+	now = now.Add(domain.TerminatedPRRefreshWindow + time.Second)
+	if err := observer.Poll(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if store.linkCount() != 0 {
+		t.Fatalf("links = %+v, want legacy link dropped after the refresh window", store.links)
 	}
 }
 

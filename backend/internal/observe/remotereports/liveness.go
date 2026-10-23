@@ -34,6 +34,11 @@ func (o *Observer) checkHostLiveness(ctx context.Context, client *hostClient, li
 			o.recordLiveness(ctx, link, domain.RemoteLinkLive)
 			kept = append(kept, link)
 		default:
+			if link.TerminatedAt == nil {
+				endedAt := o.now()
+				link.TerminatedAt = &endedAt
+			}
+			link.LastState = domain.RemoteLinkTerminated
 			o.recordLiveness(ctx, link, domain.RemoteLinkTerminated)
 			if !o.endedWithNothingPending(ctx, client, link) {
 				kept = append(kept, link)
