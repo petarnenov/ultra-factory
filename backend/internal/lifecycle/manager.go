@@ -508,9 +508,8 @@ func needsInputResolutions(prev, next domain.SessionRecord, now time.Time) []por
 // existing recent-activity guard; supervised workload death is independently
 // fenced by the launch generation and never terminates the runtime.
 func (m *Manager) ApplyRuntimeObservation(ctx context.Context, id domain.SessionID, f ports.RuntimeFacts) error {
-	// Terminal reports are durable task judgments, independent of runtime
-	// probe certainty. Recheck here so startup and later observer passes retry
-	// termination after a transient lifecycle failure.
+	// Recheck durable terminal reports regardless of probe certainty so retries
+	// can finish after transient lifecycle failures.
 	if err := m.ApplyTerminalReport(ctx, id); err != nil {
 		return err
 	}

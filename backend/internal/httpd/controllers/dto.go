@@ -22,10 +22,8 @@ import (
 	"github.com/aoagents/agent-orchestrator/backend/internal/mobilebridge"
 )
 
-// CreateReportRequest is the local caller-to-daemon report submission contract.
-// SessionID attributes the report; like the rest of AO's unauthenticated
-// loopback API, it is not cryptographic proof of worker authorship. Only an
-// explicit terminal outcome can trigger worker termination.
+// CreateReportRequest is the caller-to-daemon report contract.
+// Only an explicit terminal outcome can trigger worker termination.
 type CreateReportRequest struct {
 	SessionID       string                `json:"sessionId"`
 	State           string                `json:"state,omitempty" enum:"checkpoint,needs_input,stuck,done"`
