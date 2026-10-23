@@ -96,6 +96,6 @@ Issue #633 runs the bounded early pilot after #619 and refines these conventions
 
 ## Risk and rollback
 
-The principal risk is confusing accepted development intent, current implementation, and released behavior. Keep the source hierarchy and environment evidence explicit. Another risk is treating structural validation as semantic review; require a human reviewer to compare declaration and diff on the recorded head. If this policy is materially wrong, revert the focused PR on `dev` and preserve the ruling/archive and issue evidence. A corrective policy is a new fully proposed and reviewed change.
+The principal risk is confusing accepted development intent, current implementation, and released behavior. Keep the source hierarchy and environment evidence explicit. Another risk is treating structural validation as semantic review; require an independent reviewer to compare declaration and diff on the recorded head. If this policy is materially wrong, revert the focused PR on `dev` and preserve the ruling/archive and issue evidence. A corrective policy is a new fully proposed and reviewed change.
 
 The same-PR archive rule applies prospectively to the approved change being delivered. It does not require this PR to archive `sdd-01-openspec-bootstrap` or treat that separate #618 change as defective.
