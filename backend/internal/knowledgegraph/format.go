@@ -50,7 +50,12 @@ func FormatSection(items []Item) string {
 	}
 	b.WriteString("\n\n### Recording lessons\n\n")
 	b.WriteString(RecordInstruction)
-	return b.String()
+	section := b.String()
+	if len(section) <= maxSectionText {
+		return section
+	}
+	suffix := "\n\n### Recording lessons\n\n" + RecordInstruction
+	return clipBytes(strings.TrimSuffix(section, suffix), maxSectionText-len(suffix)) + suffix
 }
 
 func formatItem(it Item) string {
@@ -69,11 +74,28 @@ func formatItem(it Item) string {
 		if ref := attemptRef(it); ref != "" {
 			line += "\n  " + ref
 		}
+		for _, failure := range it.Failures {
+			line += "\n  - blocked by: " + clip(failure, 200)
+		}
 		for _, l := range it.Lessons {
 			line += "\n  - lesson: " + clip(l, maxItemText)
 		}
 		return line
 	}
+}
+
+func clipBytes(s string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(s) <= maxBytes {
+		return s
+	}
+	for len(s) > maxBytes {
+		_, size := utf8.DecodeLastRuneInString(s)
+		s = s[:len(s)-size]
+	}
+	return s
 }
 
 // attemptRef renders "PR: <urls> · branch: <name>", leaving out what is empty.

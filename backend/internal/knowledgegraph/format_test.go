@@ -34,6 +34,11 @@ func TestFormatSection(t *testing.T) {
 			notWant: []string{"No earlier task"},
 		},
 		{
+			name:  "attempt failures follow refs and are clipped",
+			items: []Item{{Section: "attempt", Title: "Blocked", Failures: []string{strings.Repeat("failure ", 40)}}},
+			want:  []string{"- blocked by: " + clip(strings.Repeat("failure ", 40), 200)},
+		},
+		{
 			name:  "attempt with PRs and branch",
 			items: []Item{{Section: "attempt", Title: "Try", PRs: []string{"https://x/pr/1", "https://x/pr/2"}, Branch: "ao/s1-fix", Lessons: []string{"l"}}},
 			want:  []string{"- [unknown] Try\n  PR: https://x/pr/1, https://x/pr/2 · branch: ao/s1-fix\n  - lesson: l"},
@@ -83,6 +88,25 @@ func TestFormatSection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFormatSectionKeepsTrustBoundaryAndStaysWithinLimit(t *testing.T) {
+	items := make([]Item, 40)
+	for i := range items {
+		items[i] = Item{Section: "attempt", Title: strings.Repeat("attempt ", 80), Failures: []string{strings.Repeat("blocked ", 40)}}
+	}
+	got := FormatSection(items)
+	if len(got) > maxSectionText {
+		t.Fatalf("section is %d bytes, limit is %d", len(got), maxSectionText)
+	}
+	trustAt := strings.Index(got, SectionTrustBoundary)
+	blockedAt := strings.Index(got, "blocked by:")
+	if trustAt < 0 || blockedAt < 0 || trustAt >= blockedAt {
+		t.Fatalf("trust boundary must precede attempt evidence: trust=%d evidence=%d", trustAt, blockedAt)
+	}
+	if !strings.HasSuffix(got, RecordInstruction) {
+		t.Fatalf("section lost the recording instruction at the size limit")
 	}
 }
 

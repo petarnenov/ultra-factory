@@ -718,7 +718,8 @@ func Run() error {
 	completedTasks := taskreport.New(taskreport.Deps{Sessions: sessionSvc, Store: store})
 	knowledge, knowledgeAPI := startKnowledgeGraph(ctx, knowledgeGraphDeps{
 		Getenv: os.Getenv, DataDir: cfg.DataDir, Sessions: sessionSvc, Tasks: completedTasks,
-		HostID: hostIdentity.HostID, Events: cdcPipe.Broadcaster, Log: log,
+		PRStore: store,
+		HostID:  hostIdentity.HostID, Events: cdcPipe.Broadcaster, Log: log,
 	})
 	if knowledge != nil {
 		sessionSvc.SetKnowledgeGraph(knowledge)
