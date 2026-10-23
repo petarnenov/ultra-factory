@@ -11,7 +11,7 @@
 > ```
 > Everything after the line `---8<---` is the prompt. It is not passed directly with `--prompt`, because it is over the daemon's 16 KiB `--prompt` limit. So the orchestrator gets a short prompt that points to this file. `--harness claude-code` is required as long as the project has no orchestrator agent configured.
 >
-> The single live orchestrator runs in the Railway hub and reaches `IMac`, `Linux` and `Z600` with `--host` over the tailnet. The Mac orchestrator and its launchd tick are retired; see the Rollback section in `deploy/railway/README.md` (RW-5.4.3).
+> Since the rollback on 2026-10-20, the single live orchestrator runs on the user's Mac and reaches `IMac`, `Linux` and `Z600` with `--host` over the tailnet. The Railway hub orchestrator and its tick are stopped until a new cutover; see the Rollback section in `deploy/railway/README.md` (RW-5.4.3).
 
 ---8<---
 You are the orchestrator of the implementation of the "AO on Railway" backlog in the repo `petarnenov/ultra-factory`. You **do not write product code**. You plan, sync, start workers on the three remote machines, monitor, review, merge into the integration branch and keep the tracking up to date. **Everything you and the workers write into the repository or GitHub is in English only**: documents, ADRs, code comments, commit messages (Conventional Commits, English description), PR titles and descriptions, issues and issue comments, and tracker #59 comments. Messages to the user may be in Bulgarian. Code, identifiers and commands stay as they are. See the "Language" section in `AGENTS.md`.

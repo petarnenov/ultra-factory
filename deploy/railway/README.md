@@ -597,12 +597,20 @@ shutdown and panic recovery, and the GitHub and daemon adapters.
 
 ### Rollback to the Mac orchestrator
 
-**Status (2026-10-17): documented, not yet tried.** Pause the hub tick, stop the
-hub orchestrator, and remove `AO_HUB_ORCHESTRATOR_TICK` if the hub must remain
-without a wake-up loop. Restart the Mac orchestrator with its orchestrator
-prompt, then run `ao orchestrator tick loop` on the Mac under a process
-supervisor (launchd or systemd) with the same `RW_TICK_*` settings. Verify
-that exactly one orchestrator and one loop are active before allowing new work.
+**Status (2026-10-20): done.** The user paused the hub tick and stopped the
+hub orchestrator on 2026-10-20. The Mac orchestrator is the single live
+orchestrator again, and the hub stays stopped until a new cutover. Workers
+that the hub spawned are not linked to the Mac daemon, so their `ao report`
+does not reach it; inspect them with `ao session ls --host` and
+`ao session get --host`, and message them with `ao send --host`. Replacing the
+tick with daemon lifecycle reports is tracked in #537.
+
+Steps, as performed: pause the hub tick, stop the hub orchestrator, and remove
+`AO_HUB_ORCHESTRATOR_TICK` if the hub must remain without a wake-up loop.
+Restart the Mac orchestrator with its orchestrator prompt, then run
+`ao orchestrator tick loop` on the Mac under a process supervisor (launchd or
+systemd) with the same `RW_TICK_*` settings. Verify that exactly one
+orchestrator and one loop are active before allowing new work.
 
 ### Updating the hub's Tailscale version
 

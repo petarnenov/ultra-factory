@@ -61,7 +61,7 @@ Review the draft and attachments before submitting. A clear observation is usefu
 ### Pull requests
 
 New PRs are prefilled from [`.github/pull_request_template.md`](.github/pull_request_template.md).
-Also follow **PR hygiene** in [AGENTS.md](AGENTS.md): branch from `main`, one issue per PR, conventional commits, explain intentional omissions, and keep CI green for the area you touched.
+Also follow **Issues and pull requests** in [AGENTS.md](AGENTS.md): branch from `dev` and target the PR at `dev` (only the `dev` promotion merges into `main`; see [docs/agents/git-flow.md](docs/agents/git-flow.md)), one issue per PR, conventional commits, explain intentional omissions, and keep CI green for the area you touched.
 
 Every pull request must reference its issue with `Closes #NNN`, and that issue must carry one type label and one priority label. [docs/issue-policy.md](docs/issue-policy.md) lists the labels, the two narrow exemptions, and the pull request check that enforces them.
 
