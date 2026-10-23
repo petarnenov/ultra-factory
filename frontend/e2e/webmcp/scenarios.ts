@@ -34,7 +34,8 @@ export type Phase = { id: string; bridge?: BridgeStep; actions: PhaseAction[]; c
 
 export type JevAction = { id: string; phase: string; tool: string; args: Record<string, unknown> };
 
-export type PlaywrightTiming = { bridgeMs: number; assertMs: number };
+// totalMs covers actions and assertions; only bridge pushes are excluded.
+export type PlaywrightTiming = { totalMs: number; bridgeMs: number; assertMs: number };
 
 export type Scenario = {
 	id: string;
@@ -109,8 +110,9 @@ function defineScenario(definition: Omit<Scenario, "tools" | "jevActions">): Sce
 	};
 }
 
-// Splits a Playwright body's time into bridge pushes and assertions.
+// Times a Playwright body from construction, minus its bridge pushes.
 class PlaywrightClock {
+	private readonly startedAt = performance.now();
 	private bridgeMs = 0;
 	private assertMs = 0;
 
@@ -127,7 +129,8 @@ class PlaywrightClock {
 	}
 
 	timing(): PlaywrightTiming {
-		return { bridgeMs: this.bridgeMs, assertMs: this.assertMs };
+		const totalMs = performance.now() - this.startedAt - this.bridgeMs;
+		return { totalMs, bridgeMs: this.bridgeMs, assertMs: this.assertMs };
 	}
 }
 
