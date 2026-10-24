@@ -234,7 +234,9 @@ For help describing a problem, join the [bug-triaging channel on Discord](https:
 
 ## Develop and contribute
 
-Contributions are welcome across code, docs, triage, examples, and tests. Local development needs Go 1.27.1+, Node.js 24, and npm 10.
+Contributions are welcome across code, docs, triage, examples, and tests. Local
+development needs Go 1.27.1+ and Node.js 24 with its bundled npm. CI selects
+Node.js 24 but does not pin npm separately.
 
 ```bash
 git clone https://github.com/OrchestratorInc/agent-orchestrator.git
