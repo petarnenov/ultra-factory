@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations/testgraph"
 	"github.com/aoagents/agent-orchestrator/backend/internal/httpd/controllers"
 	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"
 )
@@ -25,10 +26,13 @@ func TestRealArchiveGraphAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
-	if err != nil || !cfg.Enabled() {
-		t.Skip("no graph configured")
+	client, err := testgraph.Open(os.Getenv, func(cfg knowledgegraph.Config) knowledgegraph.Runner {
+		return knowledgegraph.NewClient(cfg, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	t.Logf("Declared disposable graph %s: %s/db/%s; schema and fixture writes enabled", client.ID, client.URL, client.Database)
 	root, err := os.OpenRoot(filepath.Join(home, ".ao/architecture-consults/archive"))
 	if os.IsNotExist(err) {
 		t.Skip("real archive unavailable")
@@ -44,7 +48,6 @@ func TestRealArchiveGraphAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := knowledgegraph.NewClient(cfg, nil)
 	store := &consultations.Store{Write: client, Read: client}
 	if err := store.Schema(ctx); err != nil {
 		t.Fatal(err)

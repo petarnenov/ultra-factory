@@ -115,16 +115,58 @@ go test -cover ./internal/consultations
 go test ./internal/httpd/...
 ```
 
-Opt-in `kglive` tests use the configured graph and delete only uniquely named
-test consultation records. `consultarchive_live` reads the approved local #639
-archive without changing it. Run both tags to verify that original archive
-through the real graph and the HTTP detail endpoint:
+`consultarchive_live` alone reads the approved local #639 archive with a fake
+writer and never connects to Neo4j. The original archive is not changed:
 
 ```bash
-go test -tags=kglive -run TestLiveIndex -v ./internal/consultations
 go test -tags=consultarchive_live -run TestRealArchiveScanner -v ./internal/consultations
-go test -tags=kglive,consultarchive_live -run TestRealArchiveGraphAPI -v ./internal/consultations
 ```
+
+Tagged `kglive` tests write schema and fixture records. They require a dedicated
+**disposable test graph**, never the shared graph or the daemon's normal config.
+First provision and verify ownership of a separate disposable endpoint/database;
+for a local container, verify its task label, port mapping and disposable data
+volume. Do not copy shared credentials. The identity below is an explicit
+operator declaration, not proof that a server is disposable.
+
+Create a private, absolute-path test config such as
+`~/.ao/dev/639/disposable-test-graph.json` with the credentials of that disposable
+graph only. This wrapper is intentionally incompatible with normal graph config:
+
+```json
+{
+  "purpose": "architecture-consultation-disposable-test",
+  "id": "geo639-disposable-20261024",
+  "graph": {
+    "url": "http://127.0.0.1:17439",
+    "user": "neo4j",
+    "password": "<DISPOSABLE_PASSWORD>",
+    "database": "neo4j"
+  }
+}
+```
+
+```bash
+chmod 600 "$HOME/.ao/dev/639/disposable-test-graph.json"
+export AO_CONSULTATIONS_TEST_GRAPH_CONFIG="$HOME/.ao/dev/639/disposable-test-graph.json"
+export AO_CONSULTATIONS_TEST_GRAPH_ID="geo639-disposable-20261024"
+go test -tags=kglive -run '^TestLive' -v ./internal/consultations
+go test -tags=kglive,consultarchive_live -run '^TestRealArchiveGraphAPI$' -v ./internal/consultations
+```
+
+Missing or invalid test opt-in fails before creating a client; it is not a silent
+skip. Selection ignores inherited `AO_KNOWLEDGE_GRAPH_*` values and never falls
+back to `~/.ao/knowledge-graph.json`. The configured purpose and target ID must
+match, and the selected endpoint/database identity is logged without credentials.
+Endpoints are not restricted to a fixed host or Docker port; the operator must
+verify the actual disposable target. The fake-connector tests under
+`internal/consultations/testgraph` exercise selection, refusal and no connection
+or writes on invalid opt-in without accessing any real graph.
+
+The live tests can create additive constraints/indexes and uniquely named
+consultation/artifact fixtures. Cleanup deletes only each test's exact fixture
+key and its artifacts; it does not remove schema. Discard the disposable graph
+when finished. Do not run cleanup or corrective queries against the shared graph.
 
 The renderer review fixture at
 `frontend/test/fixtures/consultations/index.html` uses the actual page and typed

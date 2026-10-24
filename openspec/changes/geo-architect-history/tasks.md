@@ -15,7 +15,7 @@
 ## 3. Supervisor page
 
 - [x] 3.1 Add navigation and consultation list/detail UI showing requester, consul artifacts, critiques, escalations, rounds and final answer.
-- [ ] 3.2 Test complete, partial, empty and unavailable views and safe Markdown rendering with no file opener.
+- [x] 3.2 Test complete, partial, empty and unavailable views and safe Markdown rendering with no file opener.
 
 ## 4. Verification and delivery
 

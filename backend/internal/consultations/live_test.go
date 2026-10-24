@@ -9,21 +9,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations/testgraph"
 	"github.com/aoagents/agent-orchestrator/backend/internal/knowledgegraph"
 )
 
-// TestLiveIndex is opt-in and removes only its own unique consultation nodes.
-func TestLiveIndex(t *testing.T) {
-	home, err := os.UserHomeDir()
+func liveClient(t *testing.T) *testgraph.Target {
+	t.Helper()
+	client, err := testgraph.Open(os.Getenv, func(cfg knowledgegraph.Config) knowledgegraph.Runner {
+		return knowledgegraph.NewClient(cfg, nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
-	if err != nil || !cfg.Enabled() {
-		t.Skip("no graph configured")
-	}
-	cfg.Timeout = 10 * time.Second
-	client := knowledgegraph.NewClient(cfg, nil)
+	t.Logf("Declared disposable graph %s: %s/db/%s; schema and fixture writes enabled", client.ID, client.URL, client.Database)
+	return client
+}
+
+// TestLiveIndex is opt-in and removes only its own unique consultation nodes.
+func TestLiveIndex(t *testing.T) {
+	client := liveClient(t)
 	store := &Store{Write: client, Read: client}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -85,15 +89,7 @@ func TestLiveIndex(t *testing.T) {
 }
 
 func TestLiveUnavailableEvidenceRetainsLastCopy(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
-	if err != nil || !cfg.Enabled() {
-		t.Skip("no graph configured")
-	}
-	client := knowledgegraph.NewClient(cfg, nil)
+	client := liveClient(t)
 	store := &Store{Write: client, Read: client}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -164,15 +160,7 @@ func TestLiveUnavailableEvidenceRetainsLastCopy(t *testing.T) {
 }
 
 func TestLiveCompleteOneRoundImportDetailNotPartial(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
-	if err != nil || !cfg.Enabled() {
-		t.Skip("no graph configured")
-	}
-	client := knowledgegraph.NewClient(cfg, nil)
+	client := liveClient(t)
 	store := &Store{Write: client, Read: client}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -208,15 +196,7 @@ func TestLiveCompleteOneRoundImportDetailNotPartial(t *testing.T) {
 }
 
 func TestLiveUnavailableRoundEvidenceImportDetail(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := knowledgegraph.Load(os.Getenv, filepath.Join(home, ".ao/data"))
-	if err != nil || !cfg.Enabled() {
-		t.Skip("no graph configured")
-	}
-	client := knowledgegraph.NewClient(cfg, nil)
+	client := liveClient(t)
 	store := &Store{Write: client, Read: client}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
