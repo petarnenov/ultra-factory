@@ -4,14 +4,14 @@ How to set up, build, run, and test Agent Orchestrator locally.
 
 ## Prerequisites
 
-| Tool           | Minimum version | Notes                                                                  |
-| -------------- | --------------- | ---------------------------------------------------------------------- |
-| Go             | 1.27.1          | `go version` to check; install via [go.dev](https://go.dev/dl/)        |
-| Node.js        | 24              | `node --version`; install via [nodejs.org](https://nodejs.org/)        |
-| npm            | 10              | Ships with Node.js                                                     |
-| Python 3       | -               | `scripts/comment-policy/scan_comments.py`; needed by `make ci-check`   |
-| GitHub CLI     | -               | `gh auth login`; needed by the issue-policy check                      |
-| Nix (opt.)     | -               | `nix develop` drops you into a shell with all deps; see `../flake.nix` |
+| Tool           | Supported version       | Notes                                                                  |
+| -------------- | ----------------------- | ---------------------------------------------------------------------- |
+| Go             | 1.27.1                  | `go version` to check; install via [go.dev](https://go.dev/dl/)        |
+| Node.js        | 24                      | `node --version`; install via [nodejs.org](https://nodejs.org/)        |
+| npm            | Bundled with Node.js 24 | `npm --version`; CI selects Node 24 but does not pin npm separately    |
+| Python 3       | -                       | `scripts/comment-policy/scan_comments.py`; needed by `make ci-check`   |
+| GitHub CLI     | -                       | `gh auth login`; needed by the issue-policy check                      |
+| Nix (opt.)     | -                       | `nix develop` drops you into a shell with all deps; see `../flake.nix` |
 
 Additional runtime dependencies for the daemon:
 
@@ -67,6 +67,24 @@ make check           # lint, vet, typecheck, frontend tests
 make ci-check        # comment policy, issue policy, CI lint job
 make api / make sqlc # regenerate OpenAPI types / sqlc code
 ```
+
+`make setup` runs `npm ci` for the repository's configured lockfiles, downloads
+Go dependencies, and runs the doctor checks. Use it once after cloning a clean
+checkout.
+
+The optional Nix shell uses the Node.js 24 package from the committed flake
+input. Check its selected versions with:
+
+```bash
+nix develop -c node --version
+nix develop -c npm --version
+```
+
+CI selects Node.js 24 but does not pin npm separately. The npm version bundled
+with Node 24 can vary between Node releases; this guide does not promise a
+numeric npm minimum. The Nix commands have not been run on the assigned Mac
+because Nix is unavailable there. Follow-up verification is tracked in
+[issue #664](https://github.com/petarnenov/ultra-factory/issues/664).
 
 On a shared machine, run one heavy check at a time: do not start a second
 compiler, linter, or test suite from another shell while one is already running.
@@ -362,7 +380,7 @@ If CI fails on the `api-drift` check, the OpenAPI-generated files are out of syn
 npm run api
 ```
 
-If regeneration introduces unexpected diffs beyond your changes, check that your local tool versions match CI (Go 1.27.1+, Node 24, npm 10+).
+If regeneration introduces unexpected diffs beyond your changes, check that your local tool versions match CI (Go 1.27.1+ and Node 24 with its bundled npm).
 
 ## OpenAPI spec and generated types
 

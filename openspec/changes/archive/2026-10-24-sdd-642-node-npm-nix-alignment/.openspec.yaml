@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-24
+goal: "Align the Nix development shell and contributor Node/npm guidance with the Node 24 toolchain used by CI."
+skip_specs: true
