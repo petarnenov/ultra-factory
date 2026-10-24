@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-24
+goal: "Record the #633 early SDD pilot evidence and refine repository-local OpenSpec authoring and review conventions."
+skip_specs: true
