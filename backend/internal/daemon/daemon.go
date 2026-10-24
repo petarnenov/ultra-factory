@@ -721,7 +721,9 @@ func Run() error {
 		PRStore: store,
 		HostID:  hostIdentity.HostID, Events: cdcPipe.Broadcaster, Log: log,
 	})
+	var consultationAPI controllers.ConsultationService
 	if knowledge != nil {
+		consultationAPI = knowledge.Consultations
 		sessionSvc.SetKnowledgeGraph(knowledge)
 		defer knowledge.Stop()
 	}
@@ -1134,6 +1136,7 @@ func Run() error {
 		Tailnet:            tailnetDiscovery,
 		CompletedTasks:     completedTasks,
 		Knowledge:          knowledgeAPI,
+		Consultations:      consultationAPI,
 		NotificationStream: notificationHub,
 		Push:               pushRegistry,
 		Presence:           presenceTracker,

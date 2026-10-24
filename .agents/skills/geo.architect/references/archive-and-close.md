@@ -1,6 +1,6 @@
 # Archive and close a consultation
 
-Use this file archive until a store-backed replacement is implemented. Do not add a database or migrate historical consultations as part of ordinary use.
+Use this file archive until a store-backed replacement is implemented. AO may index allowlisted evidence in Neo4j for read-only browsing; that index is not a replacement archive and never authorizes deleting originals. Do not add a database or migrate historical consultations as part of ordinary skill use.
 
 ## Stable archive layout
 
@@ -24,6 +24,8 @@ archive/
       ballots/round-2/{deepseek,astra,fable}.md
       logs/
 ```
+
+Every new consultation MUST write an explicit `requester` string in `state.json` when the archive is created, for example `{"requester":"Recorded engineer"}`. Use the actual caller-supplied requester display identity. If it is unavailable, obtain it from the caller before launching; never invent it or reconstruct it from `request.md`, `owner`, channel or session identifiers. The allowlisted field is a nonempty display string of at most 512 UTF-8 bytes, without path separators or control characters. Keep paths, credentials, message IDs and process/session handles in their existing private fields, never in `requester`. Historical archives without a structured requester remain Unknown; do not rewrite them to infer an identity.
 
 Keep original artifact names and contents. The three top-level architect files collect that architect's complete analysis, critique and ballots in order, with round labels, proposal versions and relative links to the originals. Do not replace these with shortened summaries. Only create round artifacts that actually exist; on an incomplete consultation, state which outputs are missing in the corresponding architect file. Never manufacture missing votes or reports.
 

@@ -119,6 +119,7 @@ export function ShellTopbar({
 	const isSessionRoute = startingOrchestrator || Boolean(params.sessionId);
 	const isAutomationsRoute = location.pathname === "/automations";
 	const isArtifactsRoute = location.pathname === "/artifacts";
+	const isConsultationsRoute = location.pathname.startsWith("/consultations");
 	const isCompletedTasksRoute = !params.sessionId && location.pathname.endsWith("/completed");
 	const isStandaloneBoardRoute = location.pathname === "/sessions" || location.pathname === "/sessions/";
 	const isOrchestrator = startingOrchestrator || (session ? isOrchestratorSession(session) : false);
@@ -198,7 +199,14 @@ export function ShellTopbar({
 							{t("automations.title")}
 						</span>
 					</div>
-				) : isArtifactsRoute ? (
+				) : isConsultationsRoute ? (
+                    <div className="inline-flex min-w-0 items-center gap-1.5">
+                        <span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>
+                            <FileText aria-hidden="true" className="size-icon-md" />
+                            {t("consultations.title")}
+                        </span>
+                    </div>
+                ) : isArtifactsRoute ? (
 					<div className="inline-flex min-w-0 items-center gap-1.5" data-testid="artifacts-topbar-label">
 						<span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>
 							<FileText aria-hidden="true" className="size-icon-md" />

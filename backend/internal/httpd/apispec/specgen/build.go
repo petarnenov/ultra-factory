@@ -514,6 +514,16 @@ var schemaNames = map[string]string{ //nolint:gosec // Public OpenAPI type names
 	"ControllersRetireLessonRequest":               "RetireLessonRequest",
 	"ControllersRetireLessonResponse":              "RetireLessonResponse",
 	"ControllersCreateLessonResponse":              "CreateLessonResponse",
+	"ConsultationsClosureEvidence":                 "ConsultationClosureEvidence",
+	"ConsultationsArbitrationEvidence":             "ConsultationArbitrationEvidence",
+	"ConsultationsPage":                            "ConsultationPage",
+	"ConsultationsDetail":                          "ConsultationDetail",
+	"ConsultationsSummary":                         "ConsultationSummary",
+	"ConsultationsArtifact":                        "ConsultationArtifact",
+	"ConsultationsBallot":                          "ConsultationBallot",
+	"ConsultationsScanStatus":                      "ConsultationScanStatus",
+	"ControllersConsultationQuery":                 "ConsultationQuery",
+	"ControllersConsultationIDParam":               "ConsultationIDParam",
 	"ControllersKnowledgeSearchQuery":              "KnowledgeSearchQuery",
 	"ControllersKnowledgeLessonIDParam":            "KnowledgeLessonIDParam",
 	"ControllersKnowledgeItem":                     "KnowledgeItem",
@@ -1079,6 +1089,14 @@ func completedTaskOperations() []operation {
 // knowledgeOperations declares the knowledge-graph routes (ADR 0012).
 func knowledgeOperations() []operation {
 	return []operation{{
+		method: http.MethodGet, path: "/api/v1/knowledge/consultations", id: "listConsultations", tag: "knowledge",
+		summary: "List indexed architecture consultations", pathParams: []any{controllers.ConsultationQuery{}},
+		resps: []respUnit{{http.StatusOK, controllers.ConsultationPage{}}, {http.StatusBadRequest, envelope.APIError{}}, {http.StatusNotImplemented, envelope.APIError{}}, {http.StatusServiceUnavailable, envelope.APIError{}}},
+	}, {
+		method: http.MethodGet, path: "/api/v1/knowledge/consultations/{id}", id: "getConsultation", tag: "knowledge",
+		summary: "Read recorded consultation evidence", pathParams: []any{controllers.ConsultationIDParam{}},
+		resps: []respUnit{{http.StatusOK, controllers.ConsultationDetail{}}, {http.StatusBadRequest, envelope.APIError{}}, {http.StatusNotFound, envelope.APIError{}}, {http.StatusNotImplemented, envelope.APIError{}}, {http.StatusServiceUnavailable, envelope.APIError{}}},
+	}, {
 		method: http.MethodPost, path: "/api/v1/knowledge/lessons", id: "createLesson", tag: "knowledge",
 		summary: "Record a worker's lesson in the knowledge graph",
 		reqBody: controllers.CreateLessonRequest{},

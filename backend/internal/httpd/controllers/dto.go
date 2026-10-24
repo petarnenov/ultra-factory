@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aoagents/agent-orchestrator/backend/internal/consultations"
 	"github.com/aoagents/agent-orchestrator/backend/internal/devimport"
 	"github.com/aoagents/agent-orchestrator/backend/internal/domain"
 	"github.com/aoagents/agent-orchestrator/backend/internal/legacyimport"
@@ -4198,4 +4199,21 @@ type KnowledgeItem struct {
 // KnowledgeSearchResponse lists matching knowledge, best first per section.
 type KnowledgeSearchResponse struct {
 	Items []KnowledgeItem `json:"items"`
+}
+
+// ConsultationPage is the allowlisted paginated index response.
+type ConsultationPage = consultations.Page
+
+// ConsultationDetail is the ordered evidence response.
+type ConsultationDetail = consultations.Detail
+
+// ConsultationQuery bounds list reads and selects the next page.
+type ConsultationQuery struct {
+	Limit  int    `query:"limit" minimum:"1" maximum:"50"`
+	Cursor string `query:"cursor"`
+}
+
+// ConsultationIDParam carries a URL-safe composite index key.
+type ConsultationIDParam struct {
+	ID string `path:"id"`
 }

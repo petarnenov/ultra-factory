@@ -23,7 +23,8 @@ on `11435` (Ollama with `KG_EMBED_MODEL`, default `bge-m3`; see
 
 ## Connect a daemon
 
-On every machine whose daemon runs workers, write `~/.ao/knowledge-graph.json`
+On every machine whose daemon runs workers or that runs `geo.architect`
+(including the orchestrator host), write `~/.ao/knowledge-graph.json`
 with mode 600 and restart the daemon:
 
 ```json
@@ -240,3 +241,6 @@ Restore with `neo4j-admin database load neo4j --from-path=/backups
 Change it with `ALTER CURRENT USER SET PASSWORD FROM '<old>' TO '<new>'` in
 the Browser, update `KG_PASSWORD` in `.env`, and update every daemon's
 `~/.ao/knowledge-graph.json`, then restart those daemons.
+
+Architecture consultation indexing and host catch-up are described in
+[the consultation runbook](consultations.md).
