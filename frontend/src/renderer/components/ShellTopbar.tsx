@@ -203,7 +203,7 @@ export function ShellTopbar({
                     <div className="inline-flex min-w-0 items-center gap-1.5">
                         <span className={cn(topbarProjectLabelClass, "inline-flex items-center gap-1.5")}>
                             <FileText aria-hidden="true" className="size-icon-md" />
-                            Architecture consultations
+                            {t("consultations.title")}
                         </span>
                     </div>
                 ) : isArtifactsRoute ? (

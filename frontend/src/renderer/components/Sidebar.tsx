@@ -1067,9 +1067,9 @@ export function Sidebar({
 					</SidebarMenuItem>
 					<SidebarMenuItem>
                         <SidebarTopNavRow active={selection.isConsultations}
-                            icon={<FileText aria-hidden="true" />} label="Consultations"
+                            icon={<FileText aria-hidden="true" />} label={t("consultations.nav")}
                             onClick={selection.goConsultations}
-                            tooltip={isCollapsed ? "Consultations" : undefined} />
+                            tooltip={isCollapsed ? t("consultations.nav") : undefined} />
                     </SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarTopNavRow

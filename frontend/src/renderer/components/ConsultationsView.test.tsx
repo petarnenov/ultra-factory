@@ -1,3 +1,5 @@
+import { I18nextProvider } from "react-i18next";
+import { createFullAppI18n } from "../i18n/all-messages";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -77,4 +79,14 @@ it("displays the explicit requester field from future consultation archives", ()
  render(<ConsultationEvidence detail={detail} />);
  expect(screen.getByText("Requester")).toBeInTheDocument();
  expect(screen.getByText("Recorded engineer")).toBeInTheDocument();
+});
+
+it.each([["es", "Arbitraje alternativo", "Solicitante", "Desconocido"], ["de", "Ersatzschlichtung", "Anfragende Person", "Unbekannt"]] as const)("localizes %s chrome while preserving recorded evidence and unknown requester", (locale, arbitration, requester, unknown) => {
+ const detail = { name: "Recorded archive", requester: "", artifacts: [{ name: "fallback-arbitration/fable.md", phase: "arbitration", consul: "fable", content: "Original arbiter evidence", ballots: [] }], rounds: 0, proposalVersions: 1, phaseRounds: 1 } as unknown as components["schemas"]["ConsultationDetail"];
+ render(<I18nextProvider i18n={createFullAppI18n(locale)}><ConsultationEvidence detail={detail} /></I18nextProvider>);
+ expect(screen.getByText(requester)).toBeInTheDocument();
+ expect(screen.getAllByText(unknown).length).toBeGreaterThan(0);
+ expect(screen.getByText(`${arbitration} · fable`)).toBeInTheDocument();
+ expect(screen.getByText("Original arbiter evidence")).toBeInTheDocument();
+ expect(screen.queryByText("Fallback arbitration · fable")).not.toBeInTheDocument();
 });

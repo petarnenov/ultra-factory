@@ -1,4 +1,6 @@
 import React from "react";
+import { appI18n } from "../../../src/renderer/i18n";
+import { I18nextProvider } from "react-i18next";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRootRoute, createRoute, createRouter, createHashHistory, Outlet, RouterProvider, Navigate } from "@tanstack/react-router";
@@ -56,4 +58,4 @@ const list = createRoute({ getParentRoute: () => root, path: "/consultations", c
 const detail = createRoute({ getParentRoute: () => root, path: "/consultations/$id", component: () => <ConsultationsView id={detail.useParams().id} /> });
 const index = createRoute({ getParentRoute: () => root, path: "/", component: () => <Navigate to="/consultations" /> });
 const router = createRouter({ history: createHashHistory(), routeTree: root.addChildren([list, detail, index]) });
-createRoot(document.getElementById("root")).render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
+createRoot(document.getElementById("root")).render(<I18nextProvider i18n={appI18n}><QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider></I18nextProvider>);
