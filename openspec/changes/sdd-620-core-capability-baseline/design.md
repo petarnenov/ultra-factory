@@ -17,13 +17,16 @@ See `proposal.md` for the six approved capability paths and non-goals. This chan
 3. **Keep uncertain observations uncertain.** A failed or conflicting runtime probe alone does not imply death. Display status remains derived from durable facts.
 4. **Apply the D06 workspace ruling narrowly.** Ordinary cleanup refuses and preserves dirty registered worktrees. Direct uncaptured `ForceDestroy` is a defect tracked by #659; the specs make no force-path safety claim, and no preserve-before-force exception is approved.
 5. **Use test names as evidence links, not as pass claims.** `verification.md` identifies exact functions and tag requirements. Validation records which selected tests actually ran; no unselected Go CI job is reported as passed.
+6. **Separate migration-file history from runtime ledger repair.** Shipped migration files remain immutable. A narrowly identified legacy Goose-row repair is permitted only for proven schema/history, data preservation, atomicity, idempotency, and refusal of ambiguous or partial history. The current precondition reads occur before the write transaction; no cross-process race safety is claimed. #661 owns concurrency and conflict-history evidence.
+7. **Bound API redaction evidence.** The envelope source is authoritative for generic internal-error rendering, but current tests do not directly assert both absence of raw internal detail and request-ID preservation for that case. #662 owns direct assertions; this baseline must not overstate those tests.
 
 ## Risks / Trade-offs
 
 - [Existing docs or tests may not represent all production behavior] → Keep scenario language bounded to named evidence and record missing behavior as a gap.
 - [Compatibility schema repair could be mistaken for a migration rewrite] → Cite `db.go` repair DDL explicitly while preserving append-only shipped migrations.
 - [ForceDestroy callers may rely on an unsafe path] → Keep the prohibition normative and track direct refusal, capture failure, races, recovery, and uncaptured file limits in #659.
-- [A listed test may be skipped in a default command] → Mark `TestE2E_ExitCodes` as `e2e`-tagged and report its actual execution separately.
+- [A listed test may be skipped in a default command] → Mark `TestE2E_ExitCodes` as `e2e`-tagged and `TestChatUIRegressionDraftDeliveryRecoveryIsAtMostOnce` as `chatui_regression`; report each execution separately.
+- [A bounded package test failed but its individual output was truncated] → Preserve the exact command and exit, do not infer the failing test, and keep #663 open until the focused diagnostic is recorded.
 
 ## Migration Plan
 
