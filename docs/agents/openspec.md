@@ -19,9 +19,14 @@ These are the tested local CLI forms. The `--` passes arguments to the pinned lo
 | Show status | `npm run openspec -- status --change <change-id> --json` |
 | Get artifact instructions | `npm run openspec -- instructions proposal --change <change-id> --json` |
 | Validate a change | `npm run openspec -- validate <change-id> --strict --no-interactive` |
-| Archive a completed tooling or documentation change | `npm run openspec -- archive <change-id> --yes --skip-specs` |
+| Archive a change with a behavior spec delta | `npm run openspec -- archive <change-id> --yes` |
+| Archive a change with no behavior spec delta | `npm run openspec -- archive <change-id> --yes --skip-specs` |
 
-Archive only after the project’s review and completion requirements pass. `--skip-specs` is appropriate only when the change explicitly has no behavior spec delta; it does not skip proposal or review requirements. Slash commands are integrations for specific agents, not portable shell commands. Validate exact options against `npm run openspec -- <command> --help` when the pinned version changes.
+Choose the archive command by whether the change contains a behavior spec delta, not by its category. Use `--skip-specs` only when there is no behavior spec delta, and record that reason in the change proposal and PR. It does not skip proposal, review, or completion requirements. Archive only after the project’s review and completion requirements pass.
+
+Until #634 / SDD-16 provides automated enforcement, reviewers must manually inspect the proposal, design, tasks, and spec delta (if present) for completeness and consistency with the semantic diff. Record the disposition on the exact reviewed head: either name omissions, reject the incomplete artifacts, and record the repaired-head result, or state that no incomplete artifact was found. This is a manual review duty; no validator or CI gate enforces it.
+
+Before archiving, complete the change’s artifact tasks. If delivery work must happen after archive, do not leave its tasks looking complete: record the justified exception and its completion evidence in the PR. Slash commands are integrations for specific agents, not portable shell commands. Validate exact options against `npm run openspec -- <command> --help` when the pinned version changes.
 
 ## Agent integrations
 
